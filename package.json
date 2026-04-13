@@ -7,11 +7,16 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "gen:views": "node scripts/generate-views.mjs"
+    "gen:views": "node scripts/generate-views.mjs",
+    "dev:server": "node server/index.js"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
     "element-plus": "^2.8.8",
+    "express": "^5.2.1",
+    "mssql": "^12.2.1",
     "vue": "^3.5.13",
     "vue-router": "^4.5.0"
   },
