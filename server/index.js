@@ -9,6 +9,7 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import { getPool, sql } from './db.js'
 import crypto from 'node:crypto'
+import bcrypt from 'bcrypt'
 
 dotenv.config()
 
@@ -34,6 +35,60 @@ app.use(express.json())
 const tokenStore = new Map()
 // 关键：token 默认有效期 8 小时
 const TOKEN_TTL_MS = 8 * 60 * 60 * 1000
+
+/**
+ * 密码加密（bcrypt）配置
+ *
+ * 小白版解释：什么是 Salt（盐值）？它到底有什么用？（保姆级说明）
+ * - 你可以把“盐值”理解成：给每个密码额外撒上一把“随机调料”。
+ * - 如果只对密码做普通哈希（比如 hash("123456")），那么所有人用同样的密码，哈希结果也会一模一样。
+ *   这会带来一个大问题：
+ *   - 黑客只要提前准备一份“常见密码 -> 哈希结果”的对照表（彩虹表），就能快速反查出你的密码。
+ * - bcrypt 的做法是：每次加密时都会生成一个随机的 salt，并把 salt 和成本参数一起“编码进最终字符串”里。
+ *   所以：
+ *   - 同样的明文密码，给不同用户加密，得到的结果也不一样（因为盐不同）。
+ *   - 黑客很难用一份固定对照表批量破解所有人的密码。
+ *
+ * 另外一个关键点：SALT_ROUNDS（成本因子）是什么意思？
+ * - rounds 越大，每次 hash 的计算越慢（更耗 CPU）。
+ * - 慢的好处是：黑客暴力猜密码的速度会大幅下降（安全性更高）。
+ * - 但也不能太大，否则你自己登录/改密码会变慢。
+ */
+const BCRYPT_SALT_ROUNDS = Number(process.env.BCRYPT_SALT_ROUNDS ?? 10)
+
+/**
+ * 判断数据库里的密码是不是 bcrypt 格式
+ * 你要求的兼容规则：只要不是以 "$2b$" 开头，就当作旧的明文测试数据处理。
+ */
+function isBcryptHash(passwordText) {
+  return String(passwordText ?? '').startsWith('$2b$')
+}
+
+/**
+ * 把“明文密码”加密成 bcrypt 字符串
+ * 说明：bcrypt.hash 会内部生成 salt，并把 salt 编码进结果里。
+ */
+async function hashPassword(plainPassword) {
+  return await bcrypt.hash(String(plainPassword ?? ''), BCRYPT_SALT_ROUNDS)
+}
+
+/**
+ * 校验“用户输入的明文密码”是否匹配“数据库里的密码”
+ * - 如果数据库里是 bcrypt：用 bcrypt.compare（安全校验）
+ * - 如果数据库里是旧明文：允许直接字符串对比（兼容 50+ 条测试数据）
+ */
+async function verifyPassword(plainPassword, dbPasswordText) {
+  const input = String(plainPassword ?? '')
+  const dbPassword = String(dbPasswordText ?? '')
+
+  // 关键：新数据（bcrypt）走 compare
+  if (isBcryptHash(dbPassword)) {
+    return await bcrypt.compare(input, dbPassword)
+  }
+
+  // 关键：旧数据（明文）走直接对比（仅用于兼容历史测试数据）
+  return input === dbPassword
+}
 
 /**
  * 从请求中取出 token，并找到“当前登录用户”
@@ -143,12 +198,14 @@ app.post('/api/login', async (req, res) => {
     }
 
     // 3) 校验密码是否正确
-    // 小白版解释：
-    // - 当前 v1.0.4 的 Sys_Users.Password 是“直存密码”
-    // - 所以这里直接做字符串对比
-    // - 后续你如果升级成“加盐哈希”，这里也要对应升级
     const dbPassword = String(userRow.Password ?? '')
-    if (String(password) !== dbPassword) {
+
+    // 关键：v1.0.6 密码安全升级
+    // - 新用户/改过密码的用户：数据库里会存 bcrypt 字符串（以 $2b$ 开头）
+    // - 旧的 50+ 条测试数据：数据库里可能还是明文
+    // - 所以这里必须做兼容校验：bcrypt 用 compare；明文用直接对比
+    const passOk = await verifyPassword(password, dbPassword)
+    if (!passOk) {
       res.status(400).json({ code: 400, msg: '密码错误', data: null })
       return
     }
@@ -556,9 +613,13 @@ app.put('/api/users/change-password', async (req, res) => {
       return
     }
 
-    // 关键：对比旧密码是否正确（当前版本密码直存，所以直接字符串比较）
     const dbPassword = String(row.Password ?? '')
-    if (String(oldPassword) !== dbPassword) {
+
+    // 关键：v1.0.6 兼容校验旧密码
+    // - 如果数据库存的是 bcrypt，就用 bcrypt.compare
+    // - 如果数据库存的是旧明文，就允许直接对比（兼容历史测试数据）
+    const oldPassOk = await verifyPassword(oldPassword, dbPassword)
+    if (!oldPassOk) {
       res.status(400).json({ code: 400, msg: '旧密码验证失败', data: null })
       return
     }
@@ -566,9 +627,12 @@ app.put('/api/users/change-password', async (req, res) => {
     // =========================
     // 第 2 步：更新密码
     // =========================
+    // 关键：只要用户“修改密码”，就强制进入加密模式（数据库不再存明文）
+    const newPasswordHash = await hashPassword(newPassword)
+
     const updateReq = pool.request()
     updateReq.input('UserCode', sql.NVarChar(50), String(current.userCode))
-    updateReq.input('NewPassword', sql.NVarChar(200), String(newPassword))
+    updateReq.input('NewPassword', sql.NVarChar(200), String(newPasswordHash))
 
     const updateResult = await updateReq.query(`
       UPDATE Sys_Users
@@ -699,7 +763,10 @@ app.post('/api/users', async (req, res) => {
     const request = pool.request()
     request.input('UserCode', sql.NVarChar(50), String(UserCode).trim())
     request.input('UserName', sql.NVarChar(50), String(UserName).trim())
-    request.input('Password', sql.NVarChar(200), String(Password))
+
+    // 关键：v1.0.6 安全升级：新增用户时，密码必须先加密再入库（禁止直存明文）
+    const passwordHash = await hashPassword(Password)
+    request.input('Password', sql.NVarChar(200), String(passwordHash))
 
     // 关键：执行 SQL 插入（单独 try-catch，专门把“工号重复”这种常见错误识别出来）
     let result
@@ -873,7 +940,9 @@ app.put('/api/users', async (req, res) => {
     // - 如果你在编辑时真的想改密码，就输入新密码；如果留空，就表示“不修改密码”
     const shouldUpdatePassword = !!String(password ?? '').trim()
     if (shouldUpdatePassword) {
-      request.input('Password', sql.NVarChar(200), String(password))
+      // 关键：v1.0.6 安全升级：只要修改密码，就强制把明文转成 bcrypt 加密字符串
+      const passwordHash = await hashPassword(password)
+      request.input('Password', sql.NVarChar(200), String(passwordHash))
     }
 
     // 关键：根据是否要改密码，拼两种 UPDATE（注意：仍然是参数化，不存在注入风险）
