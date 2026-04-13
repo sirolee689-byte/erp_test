@@ -8,6 +8,7 @@ import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import { getPool, sql } from './db.js'
+import crypto from 'node:crypto'
 
 dotenv.config()
 
@@ -20,10 +21,168 @@ app.use(cors())
 app.use(express.json())
 
 /**
+ * 简易登录态（后端内存版）
+ * 小白版解释：
+ * - 你登录成功后，后端会生成一个随机 token
+ * - 这个 token 会先放在后端内存里（Map）
+ * - 前端也会把 token 存到浏览器 localStorage（用于路由守卫判断是否登录）
+ *
+ * 注意：
+ * - 这是“最简版”登录，重启后端会清空内存 token
+ * - 目前只用于“页面拦截”，并没有对其他接口做强制鉴权（后续可升级）
+ */
+const tokenStore = new Map()
+// 关键：token 默认有效期 8 小时
+const TOKEN_TTL_MS = 8 * 60 * 60 * 1000
+
+/**
+ * 从请求中取出 token，并找到“当前登录用户”
+ * 小白版解释：
+ * - 前端每次请求需要“当前身份”的接口时，会带上请求头：
+ *   Authorization: Bearer xxxxx
+ * - 我们在后端把 xxxxx 取出来，再去 tokenStore（内存 Map）里查
+ * - 查到就说明这个 token 还有效，我们就知道“当前是谁”
+ */
+function getCurrentUserFromReq(req) {
+  // 关键：读取 Authorization 请求头
+  const auth = String(req.headers?.authorization ?? '').trim()
+  // 关键：标准写法是 "Bearer token"
+  const prefix = 'Bearer '
+  if (!auth.startsWith(prefix)) return null
+
+  // 关键：取出真正的 token 字符串
+  const token = auth.slice(prefix.length).trim()
+  if (!token) return null
+
+  // 关键：从内存仓库取出 token 对应的信息
+  const info = tokenStore.get(token)
+  if (!info) return null
+
+  // 关键：过期就删掉（避免内存越积越多）
+  if (Date.now() > Number(info.expiresAt ?? 0)) {
+    tokenStore.delete(token)
+    return null
+  }
+
+  return {
+    token,
+    userId: info.userId,
+    userCode: info.userCode,
+  }
+}
+
+/**
  * 健康检查
  */
 app.get('/api/health', (req, res) => {
   res.json({ ok: true })
+})
+
+/**
+ * 登录接口
+ *
+ * 路由：POST /api/login
+ *
+ * 校验顺序（按你的需求）：
+ * 1) 校验工号是否存在
+ * 2) 校验账号是否被禁用（Status=0）
+ * 3) 校验密码是否正确
+ *
+ * 返回格式（统一风格）：
+ * - 成功：{ code: 200, msg: 'success', data: { token, user } }
+ * - 失败：{ code: 400/403/500, msg: '中文原因', data: null }
+ */
+app.post('/api/login', async (req, res) => {
+  try {
+    // 关键：从请求体读取用户输入
+    const userCode = String(req.body?.UserCode ?? '').trim()
+    const password = String(req.body?.Password ?? '')
+
+    // 关键：基础必填校验（避免空请求打到数据库）
+    if (!userCode) {
+      res.status(400).json({ code: 400, msg: '工号不能为空', data: null })
+      return
+    }
+    if (!String(password).trim()) {
+      res.status(400).json({ code: 400, msg: '密码不能为空', data: null })
+      return
+    }
+
+    // 关键：获取数据库连接池
+    const pool = await getPool()
+
+    // 关键：参数化查询（防 SQL 注入 + nvarchar 兼容中文）
+    const request = pool.request()
+    request.input('UserCode', sql.NVarChar(50), userCode)
+
+    // 关键：查一条用户记录（按工号精确匹配）
+    const result = await request.query(`
+      SELECT TOP (1)
+        UserID,
+        UserCode,
+        UserName,
+        Password,
+        Status
+      FROM Sys_Users
+      WHERE UserCode = @UserCode
+    `)
+
+    // 关键：拿到用户行
+    const userRow = result.recordset?.[0]
+
+    // 1) 校验工号是否存在
+    if (!userRow) {
+      res.status(400).json({ code: 400, msg: '工号不存在', data: null })
+      return
+    }
+
+    // 2) 校验账号是否被禁用（Status=0）
+    if (Number(userRow.Status) === 0) {
+      res.status(403).json({ code: 403, msg: '账号已被禁用，请联系管理员', data: null })
+      return
+    }
+
+    // 3) 校验密码是否正确
+    // 小白版解释：
+    // - 当前 v1.0.4 的 Sys_Users.Password 是“直存密码”
+    // - 所以这里直接做字符串对比
+    // - 后续你如果升级成“加盐哈希”，这里也要对应升级
+    const dbPassword = String(userRow.Password ?? '')
+    if (String(password) !== dbPassword) {
+      res.status(400).json({ code: 400, msg: '密码错误', data: null })
+      return
+    }
+
+    // 关键：生成随机 token（作为登录凭证）
+    const token = crypto.randomBytes(24).toString('hex')
+
+    // 关键：保存到后端内存（可用于后续接口鉴权升级）
+    tokenStore.set(token, {
+      userId: Number(userRow.UserID),
+      userCode: String(userRow.UserCode ?? ''),
+      // 关键：到期时间
+      expiresAt: Date.now() + TOKEN_TTL_MS,
+    })
+
+    // 关键：返回给前端（前端会存到 localStorage）
+    res.json({
+      code: 200,
+      msg: 'success',
+      data: {
+        token,
+        user: {
+          UserID: userRow.UserID,
+          UserCode: userRow.UserCode,
+          UserName: userRow.UserName,
+          Status: userRow.Status,
+        },
+      },
+    })
+  } catch (err) {
+    // 关键：服务端打印详细错误，前端只看中文提示
+    console.error('登录 /api/login 失败：', err)
+    res.status(500).json({ code: 500, msg: '登录失败：数据库读取异常，请联系管理员', data: null })
+  }
 })
 
 /**
@@ -322,6 +481,112 @@ app.put('/api/users/resume', async (req, res) => {
   } catch (err) {
     console.error('恢复 /api/users/resume 失败：', err)
     res.status(500).json({ code: 500, msg: '数据库写入失败，请联系管理员', data: null })
+  }
+})
+
+/**
+ * 修改当前登录用户的密码
+ *
+ * 路由：PUT /api/users/change-password
+ *
+ * 安全点（你要求的）：
+ * - 只允许修改“当前登录用户自己的密码”
+ * - 后端通过 token 找到当前用户的 UserCode
+ * - 然后 SQL 用 WHERE UserCode = @UserCode 来锁定“只更新这一位用户”
+ *
+ * 请求体（前端传）：
+ * - oldPassword：旧密码
+ * - newPassword：新密码
+ *
+ * 返回：
+ * - 成功：{ code: 200, msg: 'success', data: null }
+ * - 失败：{ code: 400/401/500, msg: '中文原因', data: null }
+ */
+app.put('/api/users/change-password', async (req, res) => {
+  try {
+    // 关键：先拿到当前登录用户（通过 Authorization: Bearer token）
+    const current = getCurrentUserFromReq(req)
+    if (!current?.userCode) {
+      res.status(401).json({ code: 401, msg: '未登录或登录已过期，请重新登录', data: null })
+      return
+    }
+
+    // 关键：读取旧密码、新密码
+    const oldPassword = String(req.body?.oldPassword ?? '')
+    const newPassword = String(req.body?.newPassword ?? '')
+
+    // 关键：基础必填校验
+    if (!String(oldPassword).trim()) {
+      res.status(400).json({ code: 400, msg: '旧密码不能为空', data: null })
+      return
+    }
+    if (!String(newPassword).trim()) {
+      res.status(400).json({ code: 400, msg: '新密码不能为空', data: null })
+      return
+    }
+
+    // 关键：获取数据库连接池
+    const pool = await getPool()
+
+    // =========================
+    // 第 1 步：查出当前用户数据库里的旧密码
+    // =========================
+    // 小白版解释（最关键的安全点）：
+    // - 我们不用 UserID，也不用前端传 UserCode
+    // - 只用后端根据 token 得到的 current.userCode
+    // - 然后在 SQL 里写：
+    //   WHERE UserCode = @UserCode
+    // - 这句的意思是：“只查（或只更新）工号等于这个工号的那一行”
+    // - 因为 @UserCode 是参数，而且值来自当前登录人，所以能确保“只动当前用户自己的记录”
+    const checkReq = pool.request()
+    checkReq.input('UserCode', sql.NVarChar(50), String(current.userCode))
+
+    const checkResult = await checkReq.query(`
+      SELECT TOP (1)
+        UserCode,
+        Password
+      FROM Sys_Users
+      WHERE UserCode = @UserCode
+    `)
+
+    const row = checkResult.recordset?.[0]
+    if (!row) {
+      // 关键：极少数情况：token 里有 userCode，但数据库没有该用户（比如被删了）
+      res.status(400).json({ code: 400, msg: '用户不存在，请联系管理员', data: null })
+      return
+    }
+
+    // 关键：对比旧密码是否正确（当前版本密码直存，所以直接字符串比较）
+    const dbPassword = String(row.Password ?? '')
+    if (String(oldPassword) !== dbPassword) {
+      res.status(400).json({ code: 400, msg: '旧密码验证失败', data: null })
+      return
+    }
+
+    // =========================
+    // 第 2 步：更新密码
+    // =========================
+    const updateReq = pool.request()
+    updateReq.input('UserCode', sql.NVarChar(50), String(current.userCode))
+    updateReq.input('NewPassword', sql.NVarChar(200), String(newPassword))
+
+    const updateResult = await updateReq.query(`
+      UPDATE Sys_Users
+      SET Password = @NewPassword
+      WHERE UserCode = @UserCode
+    `)
+
+    const affected = Number(updateResult.rowsAffected?.[0] ?? 0)
+    if (affected === 0) {
+      // 关键：没更新到行，说明 UserCode 没匹配到（理论上不应该）
+      res.status(400).json({ code: 400, msg: '修改失败：未匹配到用户记录', data: null })
+      return
+    }
+
+    res.json({ code: 200, msg: 'success', data: null })
+  } catch (err) {
+    console.error('修改密码 /api/users/change-password 失败：', err)
+    res.status(500).json({ code: 500, msg: '修改失败：数据库写入异常，请联系管理员', data: null })
   }
 })
 
