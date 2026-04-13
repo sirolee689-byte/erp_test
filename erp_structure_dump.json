@@ -1,0 +1,158 @@
+[
+  {
+    "name": "system",
+    "title": "系统管理",
+    "children": [
+      { "name": "operator", "title": "操作员资料" },
+      { "name": "role", "title": "角色管理" },
+      { 
+        "name": "related", 
+        "title": "系统相关", 
+        "children": [
+          { "name": "logs", "title": "系统日志" },
+          { "name": "features", "title": "系统功能" },
+          { "name": "forms", "title": "系统表单" }
+        ]
+      },
+      { 
+        "name": "kernel", 
+        "title": "系统内核", 
+        "children": [
+          { "name": "erp-core", "title": "ERP内核" }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "canteen",
+    "title": "智能饭堂",
+    "children": [
+      { "name": "management", "title": "智能饭堂管理" },
+      { "name": "dishes", "title": "菜式管理" },
+      { "name": "records", "title": "报餐管理" },
+      { "name": "employee", "title": "员工资料" },
+      { "name": "reports", "title": "统计报表" }
+    ]
+  },
+  {
+    "name": "supply-chain",
+    "title": "销售/采购/外协管理",
+    "children": [
+      {
+        "name": "basic",
+        "title": "基本资料",
+        "children": [
+          { "name": "suppliers", "title": "供应商资料" },
+          { "name": "payment-methods", "title": "结算方式" },
+          { "name": "customers", "title": "销售客户" }
+        ]
+      },
+      {
+        "name": "daily",
+        "title": "日常工作",
+        "children": [
+          { "name": "purchase-quote", "title": "采购报价" },
+          { "name": "requisition", "title": "申购单" },
+          { "name": "purchase-order", "title": "采购订单" },
+          { "name": "outsourcing-quote", "title": "外协报价" },
+          { "name": "outsourcing-order", "title": "外协订单" },
+          { "name": "bom-quote", "title": "BOM报价" },
+          { "name": "sales-order", "title": "销售订单" }
+        ]
+      },
+      {
+        "name": "analysis",
+        "title": "统计分析",
+        "children": [
+          { "name": "order-status", "title": "采购订单情况表" },
+          { "name": "price-query", "title": "历史价格查询" },
+          { "name": "price-analysis", "title": "价格分析统计" },
+          { "name": "supplier-analysis", "title": "供应商分析统计" },
+          { "name": "outsourcing-status", "title": "外协情况表" },
+          { "name": "sales-status", "title": "销售订单情况表" }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "inventory",
+    "title": "库存管理",
+    "children": [
+      {
+        "name": "basic",
+        "title": "基本资料",
+        "children": [
+          { "name": "color-code", "title": "颜色编码" },
+          { "name": "units", "title": "使用单位" },
+          { "name": "unit-conversion", "title": "单位转换率" },
+          { "name": "bom-data", "title": "BOM资料" },
+          { "name": "material-category", "title": "材料分类" },
+          { "name": "warehouse", "title": "仓库编码" }
+        ]
+      },
+      {
+        "name": "daily",
+        "title": "日常工作",
+        "children": [
+          { "name": "inventory-check", "title": "盘点表" },
+          { "name": "stock-in", "title": "入库单" },
+          { "name": "stock-out", "title": "出库单" },
+          { "name": "transfer", "title": "调拨单" }
+        ]
+      },
+      {
+        "name": "analysis",
+        "title": "统计分析",
+        "children": [
+          { "name": "stock-stats", "title": "库存统计表" },
+          { "name": "flow-ledger", "title": "材料流水账" },
+          { "name": "purchase-plan", "title": "采购计划表" }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "production",
+    "title": "生产管理",
+    "children": [
+      { "name": "reserve-order", "title": "预留单" },
+      { "name": "process-code", "title": "工序编码" },
+      { "name": "plan", "title": "生产计划" },
+      { "name": "dispatch", "title": "派工单" },
+      { "name": "report-stats", "title": "生产领用统计表" }
+    ]
+  },
+  {
+    "name": "hr",
+    "title": "人力资源管理",
+    "children": [
+      {
+        "name": "files",
+        "title": "档案管理",
+        "children": [
+          { "name": "department", "title": "部门资料" },
+          { "name": "employee-files", "title": "员工档案资料" }
+        ]
+      },
+      {
+        "name": "dormitory",
+        "title": "宿舍管理",
+        "children": [
+          { "name": "room-management", "title": "房间管理" },
+          { "name": "lodging-records", "title": "住宿管理" }
+        ]
+      },
+      {
+        "name": "attendance",
+        "title": "考勤管理",
+        "children": [
+          { "name": "settings", "title": "考勤设置" },
+          { "name": "records", "title": "考勤管理" },
+          { "name": "leave", "title": "请假单管理" }
+        ]
+      }
+    ]
+  },
+  { "name": "assets", "title": "资产管理" },
+  { "name": "traceability", "title": "追溯系统" }
+]
