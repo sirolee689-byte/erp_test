@@ -27,6 +27,57 @@ app.get('/api/health', (req, res) => {
 })
 
 /**
+ * 获取用户列表（规范返回格式）
+ *
+ * 返回示例：
+ * {
+ *   "code": 200,
+ *   "msg": "success",
+ *   "data": [ ...用户列表 ]
+ * }
+ */
+app.get('/api/users', async (req, res) => {
+  try {
+    // 关键：从连接池获取可复用的数据库连接（避免每次请求都重新握手）
+    const pool = await getPool()
+
+    // 关键：明确列名并做别名映射，确保前端表格字段稳定
+    // - UserID：用户 ID
+    // - UserCode：工号
+    // - UserName：姓名
+    // - Status：状态（1 启用 / 0 禁用）
+    // - CreatedAt：创建时间
+    const result = await pool.request().query(`
+      SELECT
+        UserID,
+        UserCode,
+        UserName,
+        Status,
+        CreatedAt
+      FROM Sys_Users
+      ORDER BY CreatedAt DESC
+    `)
+
+    // 关键：按约定格式返回，让前端统一处理成功响应
+    res.json({
+      code: 200,
+      msg: 'success',
+      data: result.recordset ?? [],
+    })
+  } catch (err) {
+    // 关键：服务端记录详细错误，便于排查（前端只拿到通用错误提示）
+    console.error('查询 /api/users 失败：', err)
+
+    // 关键：返回统一结构，前端可直接根据 code 判断是否成功
+    res.status(500).json({
+      code: 500,
+      msg: 'error',
+      data: [],
+    })
+  }
+})
+
+/**
  * 获取 Sys_Users 列表
  *
  * 重要说明（避免 SQL 注入）：
