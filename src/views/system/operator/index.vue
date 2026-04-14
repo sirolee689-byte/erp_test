@@ -389,7 +389,10 @@ function defaultRoleIdForCreate() {
  */
 async function loadRoles() {
   try {
-    const res = await axios.get('/api/roles')
+    // v1.0.7：角色接口已分页；下拉框只取启用中的角色，放宽 pageSize 即可
+    const res = await axios.get('/api/roles', {
+      params: { page: 1, pageSize: 500, status: 1 },
+    })
     const json = res.data
     if (json?.code === 200 && Array.isArray(json.list)) {
       roles.value = json.list

@@ -24,6 +24,7 @@ import {
   Box,
   Connection,
   Document,
+  Key,
   Management,
   Monitor,
   OfficeBuilding,
@@ -57,6 +58,8 @@ function segmentPath(parent, node) {
 function iconFor(node) {
   const map = {
     system: Setting,
+    operator: User,
+    role: Key,
     canteen: Tickets,
     'supply-chain': Connection,
     inventory: Box,

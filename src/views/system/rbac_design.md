@@ -36,9 +36,23 @@
 ## 3. 与应用的对应关系
 
 - **列表**：`GET /api/users` 通过 `LEFT JOIN Sys_Roles` 返回 `RoleName`（及 `RoleID`）。
-- **下拉选项**：`GET /api/roles` 返回可选角色列表。
+- **操作员弹窗角色下拉**：`GET /api/roles?page=1&pageSize=500&status=1`，取分页结果中的 `list`（仅启用角色）。
 - **登录**：`POST /api/login` 在 `data.user` 中返回 `RoleID`、`RoleName`；前端写入 `localStorage` 的 `erp_user`，供路由守卫以外的**前端权限判断**使用（第二阶段可在此字段上扩展菜单显隐等）。
 
-## 4. 数据库迁移脚本路径
+## 4. 角色管理模块（页面：`src/views/system/role/index.vue`）
+
+面向 `Sys_Roles` 的完整维护能力，与操作员页的交互范式一致（启用/回收站双视图、先禁用再删除）。
+
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `/api/roles` | GET | 分页查询；`status`=1 在职 / 0 回收站；`keyword` 模糊匹配 `RoleName`、`Description`；返回 `list`、`total`。 |
+| `/api/roles` | POST | 新增：`RoleName`、可选 `Description`。 |
+| `/api/roles` | PUT | 禁用：`{ RoleID, Status: 0 }`；编辑：`{ RoleID, RoleName, Description }`。 |
+| `/api/roles/resume` | PUT | 恢复启用：`{ RoleID }`。 |
+| `/api/roles/:id` | DELETE | 物理删除（要求已禁用且无 `Sys_Users` 引用）。 |
+
+详细交互与路由说明见 `role/README.md`。
+
+## 5. 数据库迁移脚本路径
 
 执行：`scripts/migrations/sqlserver_v1.0.7_rbac_phase1.txt`（内容为 T-SQL，在 SSMS 中针对目标 ERP 库运行；仓库因 `.gitignore` 忽略 `*.sql` 故使用 `.txt` 保存）。

@@ -156,22 +156,339 @@ app.get('/api/health', (req, res) => {
 })
 
 /**
- * 角色列表（供操作员资料弹窗下拉框使用）
- * v1.0.7：RBAC 第一阶段，仅返回启用中的角色
+ * 角色分页列表（Sys_Roles）
+ * v1.0.7：角色管理页 + 操作员下拉框共用本接口
+ * - 查询参数：page、pageSize、status（1=启用视图 / 0=回收站）、keyword（模糊匹配 RoleName、Description）
+ * - 返回：{ code, msg, list, total }
+ * - 操作员弹窗拉启用角色：传 page=1&pageSize=500&status=1 即可（与模块分页标准一致）
  */
 app.get('/api/roles', async (req, res) => {
   try {
+    const pageRaw = req.query?.page
+    const pageSizeRaw = req.query?.pageSize
+    const page = Number(pageRaw ?? 1)
+    const pageSize = Number(pageSizeRaw ?? 10)
+    const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1
+    const safePageSize =
+      Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.floor(pageSize), 200) : 10
+    const offset = (safePage - 1) * safePageSize
+
+    const statusRaw = req.query?.status
+    const parsedStatus = Number(statusRaw)
+    const safeStatus = parsedStatus === 0 ? 0 : 1
+
+    const keywordRaw = String(req.query?.keyword ?? '').trim()
+    const hasKeyword = keywordRaw.length > 0
+    const likeKey = `%${keywordRaw}%`
+
+    const whereSql = hasKeyword
+      ? 'WHERE r.Status = @status AND (r.RoleName LIKE @key OR r.Description LIKE @key)'
+      : 'WHERE r.Status = @status'
+
     const pool = await getPool()
-    const result = await pool.request().query(`
-      SELECT RoleID, RoleName, Description, Status
-      FROM Sys_Roles
-      WHERE Status = 1
-      ORDER BY RoleID ASC
+
+    const totalRequest = pool.request()
+    totalRequest.input('status', sql.Int, safeStatus)
+    if (hasKeyword) {
+      totalRequest.input('key', sql.NVarChar(200), likeKey)
+    }
+
+    const totalResult = await totalRequest.query(`
+      SELECT COUNT(1) AS total
+      FROM Sys_Roles AS r
+      ${whereSql}
     `)
-    res.json({ code: 200, msg: 'success', list: result.recordset ?? [] })
+    const total = Number(totalResult.recordset?.[0]?.total ?? 0)
+
+    const listRequest = pool.request()
+    listRequest.input('offset', sql.Int, offset)
+    listRequest.input('pageSize', sql.Int, safePageSize)
+    listRequest.input('status', sql.Int, safeStatus)
+    if (hasKeyword) {
+      listRequest.input('key', sql.NVarChar(200), likeKey)
+    }
+
+    let result
+    try {
+      result = await listRequest.query(`
+        SELECT
+          r.RoleID,
+          r.RoleName,
+          r.Description,
+          r.Status
+        FROM Sys_Roles AS r
+        ${whereSql}
+        ORDER BY r.RoleID ASC
+        OFFSET @offset ROWS
+        FETCH NEXT @pageSize ROWS ONLY
+      `)
+    } catch (pageErr) {
+      const msg = String(pageErr?.message ?? pageErr?.originalError?.message ?? '')
+      const shouldFallback =
+        msg.includes("Incorrect syntax near 'OFFSET'") ||
+        msg.includes('Invalid usage of the option NEXT') ||
+        msg.toLowerCase().includes('offset') ||
+        msg.toLowerCase().includes('fetch')
+      if (!shouldFallback) throw pageErr
+
+      const startRow = offset + 1
+      const endRow = offset + safePageSize
+      const fallbackRequest = pool.request()
+      fallbackRequest.input('startRow', sql.Int, startRow)
+      fallbackRequest.input('endRow', sql.Int, endRow)
+      fallbackRequest.input('status', sql.Int, safeStatus)
+      if (hasKeyword) {
+        fallbackRequest.input('key', sql.NVarChar(200), likeKey)
+      }
+
+      result = await fallbackRequest.query(`
+        SELECT
+          RoleID,
+          RoleName,
+          Description,
+          Status
+        FROM (
+          SELECT
+            r.RoleID,
+            r.RoleName,
+            r.Description,
+            r.Status,
+            ROW_NUMBER() OVER (ORDER BY r.RoleID ASC) AS rn
+          FROM Sys_Roles AS r
+          ${whereSql}
+        ) t
+        WHERE t.rn BETWEEN @startRow AND @endRow
+        ORDER BY t.rn
+      `)
+    }
+
+    res.json({ code: 200, msg: 'success', list: result.recordset ?? [], total })
   } catch (err) {
     console.error('查询 /api/roles 失败：', err)
-    res.status(500).json({ code: 500, msg: '读取角色列表失败', list: [] })
+    res.status(500).json({ code: 500, msg: '读取角色列表失败', list: [], total: 0 })
+  }
+})
+
+/**
+ * 新增角色（写入 Sys_Roles，默认启用）
+ */
+app.post('/api/roles', async (req, res) => {
+  try {
+    const roleName = String(req.body?.RoleName ?? '').trim()
+    const descRaw = req.body?.Description
+    const description =
+      descRaw === undefined || descRaw === null ? null : String(descRaw).trim() || null
+
+    if (!roleName) {
+      res.status(400).json({ code: 400, msg: '角色名称不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const request = pool.request()
+    request.input('RoleName', sql.NVarChar(50), roleName)
+    request.input('Description', sql.NVarChar(200), description)
+
+    let result
+    try {
+      result = await request.query(`
+        INSERT INTO Sys_Roles (RoleName, Description, Status)
+        OUTPUT INSERTED.RoleID, INSERTED.RoleName, INSERTED.Description, INSERTED.Status
+        VALUES (@RoleName, @Description, 1)
+      `)
+    } catch (dbErr) {
+      const errNumber =
+        dbErr?.number ??
+        dbErr?.originalError?.number ??
+        dbErr?.originalError?.info?.number ??
+        dbErr?.code
+      const errMessage = String(dbErr?.message ?? dbErr?.originalError?.message ?? '')
+      if (Number(errNumber) === 2627 || errMessage.includes('Violation of UNIQUE KEY')) {
+        res.status(400).json({ code: 400, msg: '角色名称已存在，请勿重复添加', data: null })
+        return
+      }
+      console.error('写入 Sys_Roles 失败（POST /api/roles）：', dbErr)
+      res.status(500).json({ code: 500, msg: '数据库写入失败，请联系管理员', data: null })
+      return
+    }
+
+    res.json({ code: 200, msg: 'success', data: result.recordset?.[0] ?? null })
+  } catch (err) {
+    console.error('新增 /api/roles 失败：', err)
+    res.status(500).json({ code: 500, msg: '数据库写入失败，请联系管理员', data: null })
+  }
+})
+
+/**
+ * 修改角色：分支 A 禁用（Status=0）；分支 B 编辑 RoleName / Description
+ */
+app.put('/api/roles', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const roleId = Number(body.RoleID)
+    if (!Number.isFinite(roleId) || roleId <= 0) {
+      res.status(400).json({ code: 400, msg: 'RoleID 不合法（必须是正整数）', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const request = pool.request()
+    request.input('RoleID', sql.Int, roleId)
+
+    if (body.Status !== undefined && body.Status !== null) {
+      const status = Number(body.Status)
+      if (status !== 0) {
+        res.status(400).json({ code: 400, msg: '目前仅支持把 Status 更新为 0（禁用）', data: null })
+        return
+      }
+      request.input('Status', sql.Int, 0)
+      const result = await request.query(`
+        UPDATE Sys_Roles
+        SET Status = @Status
+        OUTPUT INSERTED.RoleID, INSERTED.RoleName, INSERTED.Description, INSERTED.Status
+        WHERE RoleID = @RoleID
+      `)
+      const updated = result.recordset?.[0]
+      if (!updated) {
+        res.status(404).json({ code: 404, msg: '未找到该角色（RoleID 不存在）', data: null })
+        return
+      }
+      res.json({ code: 200, msg: 'success', data: updated })
+      return
+    }
+
+    const roleName = String(body.RoleName ?? '').trim()
+    const descRaw = body.Description
+    const description =
+      descRaw === undefined || descRaw === null ? null : String(descRaw).trim() || null
+
+    if (!roleName) {
+      res.status(400).json({ code: 400, msg: '角色名称不能为空', data: null })
+      return
+    }
+
+    request.input('RoleName', sql.NVarChar(50), roleName)
+    request.input('Description', sql.NVarChar(200), description)
+
+    let result
+    try {
+      result = await request.query(`
+        UPDATE Sys_Roles
+        SET RoleName = @RoleName, Description = @Description
+        OUTPUT INSERTED.RoleID, INSERTED.RoleName, INSERTED.Description, INSERTED.Status
+        WHERE RoleID = @RoleID
+      `)
+    } catch (dbErr) {
+      const errNumber =
+        dbErr?.number ??
+        dbErr?.originalError?.number ??
+        dbErr?.originalError?.info?.number ??
+        dbErr?.code
+      const errMessage = String(dbErr?.message ?? dbErr?.originalError?.message ?? '')
+      if (Number(errNumber) === 2627 || errMessage.includes('Violation of UNIQUE KEY')) {
+        res.status(400).json({ code: 400, msg: '角色名称已存在，请更换名称', data: null })
+        return
+      }
+      console.error('更新 Sys_Roles 失败（PUT /api/roles）：', dbErr)
+      res.status(500).json({ code: 500, msg: '数据库写入失败，请联系管理员', data: null })
+      return
+    }
+
+    const updated = result.recordset?.[0]
+    if (!updated) {
+      res.status(404).json({ code: 404, msg: '未找到该角色（RoleID 不存在）', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: updated })
+  } catch (err) {
+    console.error('修改 /api/roles 失败：', err)
+    res.status(500).json({ code: 500, msg: '数据库写入失败', data: null })
+  }
+})
+
+/**
+ * 恢复角色（Status 从 0 改回 1）
+ */
+app.put('/api/roles/resume', async (req, res) => {
+  try {
+    const roleId = Number(req.body?.RoleID)
+    if (!Number.isFinite(roleId) || roleId <= 0) {
+      res.status(400).json({ code: 400, msg: 'RoleID 不合法（必须是正整数）', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const request = pool.request()
+    request.input('RoleID', sql.Int, roleId)
+    request.input('Status', sql.Int, 1)
+
+    const result = await request.query(`
+      UPDATE Sys_Roles
+      SET Status = @Status
+      OUTPUT INSERTED.RoleID, INSERTED.RoleName, INSERTED.Description, INSERTED.Status
+      WHERE RoleID = @RoleID
+    `)
+
+    const updated = result.recordset?.[0]
+    if (!updated) {
+      res.status(404).json({ code: 404, msg: '未找到该角色（RoleID 不存在）', data: null })
+      return
+    }
+
+    res.json({ code: 200, msg: 'success', data: updated })
+  } catch (err) {
+    console.error('恢复 /api/roles/resume 失败：', err)
+    res.status(500).json({ code: 500, msg: '数据库写入失败', data: null })
+  }
+})
+
+/**
+ * 物理删除角色（仅允许删除已禁用且无操作员绑定的角色）
+ */
+app.delete('/api/roles/:id', async (req, res) => {
+  try {
+    const roleId = Number(req.params.id)
+    if (!Number.isFinite(roleId) || roleId <= 0) {
+      res.status(400).json({ code: 400, msg: 'RoleID 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const q1 = await pool.request().input('RoleID', sql.Int, roleId).query(`
+      SELECT TOP (1) Status FROM Sys_Roles WHERE RoleID = @RoleID
+    `)
+    const row = q1.recordset?.[0]
+    if (!row) {
+      res.status(404).json({ code: 404, msg: '未找到该角色', data: null })
+      return
+    }
+    if (Number(row.Status) !== 0) {
+      res.status(400).json({ code: 400, msg: '请先禁用角色并放入回收站后，再执行删除', data: null })
+      return
+    }
+
+    const q2 = await pool.request().input('RoleID', sql.Int, roleId).query(`
+      SELECT COUNT(1) AS cnt FROM Sys_Users WHERE RoleID = @RoleID
+    `)
+    const cnt = Number(q2.recordset?.[0]?.cnt ?? 0)
+    if (cnt > 0) {
+      res.status(400).json({ code: 400, msg: '仍有操作员绑定此角色，无法删除', data: null })
+      return
+    }
+
+    const del = await pool.request().input('RoleID', sql.Int, roleId).query(`
+      DELETE FROM Sys_Roles WHERE RoleID = @RoleID
+    `)
+    const affected = Number(del.rowsAffected?.[0] ?? 0)
+    if (affected === 0) {
+      res.status(404).json({ code: 404, msg: '删除失败：未找到该角色', data: null })
+      return
+    }
+
+    res.json({ code: 200, msg: 'success', data: { RoleID: roleId } })
+  } catch (err) {
+    console.error('删除 DELETE /api/roles/:id 失败：', err)
+    res.status(500).json({ code: 500, msg: '数据库写入失败', data: null })
   }
 })
 
