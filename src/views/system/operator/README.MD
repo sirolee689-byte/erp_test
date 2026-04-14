@@ -16,6 +16,8 @@
   - `Password`：密码（当前按需求先直存，后续建议加密）
   - `Status`：状态（1=启用，0=禁用）
   - `CreatedAt`：创建时间
+  - `RoleID`：角色外键（v1.0.7 起必填，对应 `Sys_Roles`）
+- **角色下拉数据**：页面加载时请求 `GET /api/roles`，参数为 `page=1&pageSize=500&status=1`（分页接口，只取启用角色列表给 `el-select` 用）。
 
 ### 3. 已完成的功能（CRUD 进度表）
 - [x] **查（列表展示+分页+搜索）**：页面表格展示 `Sys_Users`（GET `/api/users`）
