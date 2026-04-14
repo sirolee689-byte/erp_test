@@ -1,0 +1,76 @@
+/*
+  ERP_TEST v1.0.7 — RBAC 第一阶段（SQL Server）
+  说明：
+  - 创建角色表 Sys_Roles，并预设 Admin / Onduty / Viewer
+  - 为 Sys_Users 增加 RoleID，建立外键；历史用户默认绑定 Viewer
+  - 建议在 SSMS 中针对目标库执行；可重复执行（尽量幂等）
+  - 扩展名为 .txt 是因为仓库 .gitignore 忽略了 *.sql，复制到 SSMS 后可按需改后缀执行
+*/
+
+SET NOCOUNT ON;
+
+/* 1) 角色表 */
+IF OBJECT_ID(N'dbo.Sys_Roles', N'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.Sys_Roles (
+    RoleID INT IDENTITY(1, 1) NOT NULL,
+    RoleName NVARCHAR(50) NOT NULL,
+    Description NVARCHAR(200) NULL,
+    Status INT NOT NULL CONSTRAINT DF_Sys_Roles_Status DEFAULT (1),
+    CONSTRAINT PK_Sys_Roles PRIMARY KEY (RoleID),
+    CONSTRAINT UQ_Sys_Roles_RoleName UNIQUE (RoleName)
+  );
+END;
+
+/* 2) 预设角色 */
+IF NOT EXISTS (SELECT 1 FROM dbo.Sys_Roles WHERE RoleName = N'Admin')
+  INSERT INTO dbo.Sys_Roles (RoleName, Description, Status) VALUES (N'Admin', N'系统管理员', 1);
+
+IF NOT EXISTS (SELECT 1 FROM dbo.Sys_Roles WHERE RoleName = N'Onduty')
+  INSERT INTO dbo.Sys_Roles (RoleName, Description, Status) VALUES (N'Onduty', N'值班人员', 1);
+
+IF NOT EXISTS (SELECT 1 FROM dbo.Sys_Roles WHERE RoleName = N'Viewer')
+  INSERT INTO dbo.Sys_Roles (RoleName, Description, Status) VALUES (N'Viewer', N'仅查看', 1);
+
+/* 3) 用户表增加 RoleID */
+IF COL_LENGTH('dbo.Sys_Users', 'RoleID') IS NULL
+BEGIN
+  ALTER TABLE dbo.Sys_Users ADD RoleID INT NULL;
+END;
+
+/* 4) 历史数据默认 Viewer */
+UPDATE u
+SET u.RoleID = r.RoleID
+FROM dbo.Sys_Users AS u
+CROSS APPLY (
+  SELECT TOP (1) RoleID FROM dbo.Sys_Roles WHERE RoleName = N'Viewer'
+) AS r
+WHERE u.RoleID IS NULL;
+
+/* 5) 外键 */
+IF NOT EXISTS (
+  SELECT 1
+  FROM sys.foreign_keys
+  WHERE name = N'FK_Sys_Users_Sys_Roles_RoleID'
+    AND parent_object_id = OBJECT_ID(N'dbo.Sys_Users')
+)
+BEGIN
+  ALTER TABLE dbo.Sys_Users
+  ADD CONSTRAINT FK_Sys_Users_Sys_Roles_RoleID
+  FOREIGN KEY (RoleID) REFERENCES dbo.Sys_Roles (RoleID);
+END;
+
+/* 6) 非空约束（在数据已填充后） */
+IF EXISTS (
+  SELECT 1
+  FROM sys.columns AS c
+  INNER JOIN sys.tables AS t ON c.object_id = t.object_id
+  WHERE t.name = N'Sys_Users'
+    AND c.name = N'RoleID'
+    AND c.is_nullable = 1
+)
+BEGIN
+  ALTER TABLE dbo.Sys_Users ALTER COLUMN RoleID INT NOT NULL;
+END;
+
+PRINT N'v1.0.7 RBAC 第一阶段：Sys_Roles / Sys_Users.RoleID 已就绪。';

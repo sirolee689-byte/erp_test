@@ -109,6 +109,13 @@
             <el-table-column prop="UserCode" label="工号" min-width="140" show-overflow-tooltip />
             <el-table-column prop="UserName" label="姓名" min-width="140" show-overflow-tooltip />
 
+            <!-- v1.0.7：角色（后端 JOIN Sys_Roles 得到 RoleName） -->
+            <el-table-column prop="RoleName" label="角色" min-width="120" show-overflow-tooltip>
+              <template #default="{ row }">
+                {{ row?.RoleName || '—' }}
+              </template>
+            </el-table-column>
+
             <!-- 关键：状态列使用标签展示，1=启用，0=禁用 -->
             <el-table-column prop="Status" label="状态" min-width="120">
               <template #default="{ row }">
@@ -186,7 +193,7 @@
     <el-dialog
       v-model="createDialogVisible"
       :title="dialogTitle"
-      width="520px"
+      width="560px"
       :close-on-click-modal="false"
     >
       <el-form
@@ -204,6 +211,18 @@
         <!-- 关键：姓名（UserName） -->
         <el-form-item label="姓名" prop="UserName">
           <el-input v-model="createForm.UserName" placeholder="请输入姓名" clearable />
+        </el-form-item>
+
+        <!-- v1.0.7：角色（RoleID 写入 Sys_Users，对应 Sys_Roles） -->
+        <el-form-item label="角色" prop="RoleID">
+          <el-select v-model="createForm.RoleID" placeholder="请选择角色" style="width: 100%" clearable>
+            <el-option
+              v-for="r in roles"
+              :key="r.RoleID"
+              :label="r.Description ? `${r.RoleName}（${r.Description}）` : String(r.RoleName)"
+              :value="r.RoleID"
+            />
+          </el-select>
         </el-form-item>
 
         <!-- 关键：密码（Password） -->
@@ -241,6 +260,8 @@ const pageTitle = '操作员资料'
  * - errorMessage：错误提示（用于页面内展示）
  */
 const users = ref([])
+/** v1.0.7：角色下拉数据（GET /api/roles） */
+const roles = ref([])
 const loading = ref(false)
 const errorMessage = ref('')
 
@@ -292,6 +313,8 @@ const createForm = ref({
   UserCode: '',
   UserName: '',
   Password: '',
+  // v1.0.7：外键 RoleID → Sys_Roles
+  RoleID: undefined,
 })
 
 /**
@@ -321,6 +344,7 @@ const createRules = {
   UserCode: [{ required: true, message: '请输入工号', trigger: 'blur' }],
   UserName: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
   Password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+  RoleID: [{ required: true, message: '请选择角色', trigger: 'change' }],
 }
 
 /**
@@ -332,6 +356,7 @@ const editRules = {
   UserCode: [{ required: true, message: '请输入工号', trigger: 'blur' }],
   UserName: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
   Password: [{ required: false, message: '', trigger: 'blur' }],
+  RoleID: [{ required: true, message: '请选择角色', trigger: 'change' }],
 }
 
 /**
@@ -351,6 +376,29 @@ function formatDateTime(row, column, cellValue) {
   // 关键：无效日期直接返回原值，避免页面报错
   if (Number.isNaN(d.getTime())) return String(cellValue)
   return d.toLocaleString()
+}
+
+/** v1.0.7：新增操作员时默认选中 Viewer（若尚未加载角色则返回 undefined） */
+function defaultRoleIdForCreate() {
+  const viewer = roles.value.find((x) => String(x.RoleName) === 'Viewer')
+  return viewer?.RoleID ?? roles.value[0]?.RoleID
+}
+
+/**
+ * 加载角色列表（与 Sys_Roles 同步）
+ */
+async function loadRoles() {
+  try {
+    const res = await axios.get('/api/roles')
+    const json = res.data
+    if (json?.code === 200 && Array.isArray(json.list)) {
+      roles.value = json.list
+    } else {
+      roles.value = []
+    }
+  } catch {
+    roles.value = []
+  }
 }
 
 /**
@@ -433,7 +481,13 @@ async function loadUsers() {
  */
 function openCreateDialog() {
   // 关键：重置表单字段
-  createForm.value = { UserID: undefined, UserCode: '', UserName: '', Password: '' }
+  createForm.value = {
+    UserID: undefined,
+    UserCode: '',
+    UserName: '',
+    Password: '',
+    RoleID: defaultRoleIdForCreate(),
+  }
   // 关键：标记当前是“新增模式”（后续提交用 POST）
   dialogMode.value = 'create'
   // 关键：显示弹窗
@@ -459,6 +513,7 @@ function openEditDialog(row) {
     UserCode: row?.UserCode ?? '',
     UserName: row?.UserName ?? '',
     Password: '',
+    RoleID: row?.RoleID,
   }
 
   // 关键：打开弹窗
@@ -499,6 +554,7 @@ async function submitCreateForm() {
         // 关键：编辑时 Password 留空=不改；我们仍然把它发给后端也没问题
         // 后端会判断“是否为空”，为空就不更新密码
         Password: createForm.value.Password,
+        RoleID: createForm.value.RoleID,
       }
 
       // 关键：按模式发请求
@@ -745,8 +801,9 @@ async function switchToStatus(nextStatus) {
   await loadUsers()
 }
 
-onMounted(() => {
-  // 关键：页面首次进入时自动加载用户列表
+onMounted(async () => {
+  // v1.0.7：先拉角色字典，再加载用户列表（新增弹窗默认角色依赖 roles）
+  await loadRoles()
   loadUsers()
 })
 </script>

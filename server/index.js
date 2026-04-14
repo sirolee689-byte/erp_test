@@ -91,6 +91,26 @@ async function verifyPassword(plainPassword, dbPasswordText) {
 }
 
 /**
+ * v1.0.7：校验写入用户时的 RoleID 是否指向启用中的角色
+ * 成功返回 { ok: true, roleId }，失败返回 { ok: false, msg }
+ */
+async function assertWritableRoleId(pool, roleIdRaw) {
+  const roleId = Number(roleIdRaw)
+  if (!Number.isFinite(roleId) || roleId <= 0) {
+    return { ok: false, msg: 'RoleID 不合法（必须是正整数）' }
+  }
+  const chk = await pool.request().input('RoleID', sql.Int, roleId).query(`
+    SELECT TOP (1) RoleID
+    FROM Sys_Roles
+    WHERE RoleID = @RoleID AND Status = 1
+  `)
+  if (!chk.recordset?.[0]) {
+    return { ok: false, msg: '角色不存在或已禁用' }
+  }
+  return { ok: true, roleId }
+}
+
+/**
  * 从请求中取出 token，并找到“当前登录用户”
  * 小白版解释：
  * - 前端每次请求需要“当前身份”的接口时，会带上请求头：
@@ -123,6 +143,8 @@ function getCurrentUserFromReq(req) {
     token,
     userId: info.userId,
     userCode: info.userCode,
+    roleId: info.roleId,
+    roleName: info.roleName,
   }
 }
 
@@ -131,6 +153,26 @@ function getCurrentUserFromReq(req) {
  */
 app.get('/api/health', (req, res) => {
   res.json({ ok: true })
+})
+
+/**
+ * 角色列表（供操作员资料弹窗下拉框使用）
+ * v1.0.7：RBAC 第一阶段，仅返回启用中的角色
+ */
+app.get('/api/roles', async (req, res) => {
+  try {
+    const pool = await getPool()
+    const result = await pool.request().query(`
+      SELECT RoleID, RoleName, Description, Status
+      FROM Sys_Roles
+      WHERE Status = 1
+      ORDER BY RoleID ASC
+    `)
+    res.json({ code: 200, msg: 'success', list: result.recordset ?? [] })
+  } catch (err) {
+    console.error('查询 /api/roles 失败：', err)
+    res.status(500).json({ code: 500, msg: '读取角色列表失败', list: [] })
+  }
 })
 
 /**
@@ -173,13 +215,16 @@ app.post('/api/login', async (req, res) => {
     // 关键：查一条用户记录（按工号精确匹配）
     const result = await request.query(`
       SELECT TOP (1)
-        UserID,
-        UserCode,
-        UserName,
-        Password,
-        Status
-      FROM Sys_Users
-      WHERE UserCode = @UserCode
+        u.UserID,
+        u.UserCode,
+        u.UserName,
+        u.Password,
+        u.Status,
+        u.RoleID,
+        r.RoleName AS RoleName
+      FROM Sys_Users AS u
+      LEFT JOIN Sys_Roles AS r ON u.RoleID = r.RoleID
+      WHERE u.UserCode = @UserCode
     `)
 
     // 关键：拿到用户行
@@ -217,6 +262,9 @@ app.post('/api/login', async (req, res) => {
     tokenStore.set(token, {
       userId: Number(userRow.UserID),
       userCode: String(userRow.UserCode ?? ''),
+      // v1.0.7：附带角色，便于后续把接口鉴权与角色打通（当前仍以 token 为主）
+      roleId: userRow.RoleID != null ? Number(userRow.RoleID) : null,
+      roleName: String(userRow.RoleName ?? ''),
       // 关键：到期时间
       expiresAt: Date.now() + TOKEN_TTL_MS,
     })
@@ -232,6 +280,8 @@ app.post('/api/login', async (req, res) => {
           UserCode: userRow.UserCode,
           UserName: userRow.UserName,
           Status: userRow.Status,
+          RoleID: userRow.RoleID != null ? Number(userRow.RoleID) : null,
+          RoleName: userRow.RoleName != null ? String(userRow.RoleName) : null,
         },
       },
     })
@@ -331,8 +381,8 @@ app.get('/api/users', async (req, res) => {
     // - 永远带 Status 过滤（由前端 status 控制）
     // - 如果 keyword 不为空，再加 LIKE 条件
     const whereSql = hasKeyword
-      ? 'WHERE Status = @status AND (UserCode LIKE @key OR UserName LIKE @key)'
-      : 'WHERE Status = @status'
+      ? 'WHERE u.Status = @status AND (u.UserCode LIKE @key OR u.UserName LIKE @key)'
+      : 'WHERE u.Status = @status'
 
     // =========================
     // 关键：从连接池获取可复用的数据库连接（避免每次请求都重新握手）
@@ -359,7 +409,8 @@ app.get('/api/users', async (req, res) => {
 
     const totalResult = await totalRequest.query(`
       SELECT COUNT(1) AS total
-      FROM Sys_Users
+      FROM Sys_Users AS u
+      LEFT JOIN Sys_Roles AS r ON u.RoleID = r.RoleID
       ${whereSql}
     `)
 
@@ -403,14 +454,17 @@ app.get('/api/users', async (req, res) => {
       // 关键：优先使用 OFFSET...FETCH NEXT（你指定的分页语法）
       result = await listRequest.query(`
         SELECT
-          UserID,
-          UserCode,
-          UserName,
-          Status,
-          CreatedAt
-        FROM Sys_Users
+          u.UserID,
+          u.UserCode,
+          u.UserName,
+          u.Status,
+          u.CreatedAt,
+          u.RoleID,
+          r.RoleName AS RoleName
+        FROM Sys_Users AS u
+        LEFT JOIN Sys_Roles AS r ON u.RoleID = r.RoleID
         ${whereSql}
-        ORDER BY CreatedAt DESC
+        ORDER BY u.CreatedAt DESC
         OFFSET @offset ROWS
         FETCH NEXT @pageSize ROWS ONLY
       `)
@@ -452,16 +506,21 @@ app.get('/api/users', async (req, res) => {
           UserCode,
           UserName,
           Status,
-          CreatedAt
+          CreatedAt,
+          RoleID,
+          RoleName
         FROM (
           SELECT
-            UserID,
-            UserCode,
-            UserName,
-            Status,
-            CreatedAt,
-            ROW_NUMBER() OVER (ORDER BY CreatedAt DESC) AS rn
-          FROM Sys_Users
+            u.UserID,
+            u.UserCode,
+            u.UserName,
+            u.Status,
+            u.CreatedAt,
+            u.RoleID,
+            r.RoleName AS RoleName,
+            ROW_NUMBER() OVER (ORDER BY u.CreatedAt DESC) AS rn
+          FROM Sys_Users AS u
+          LEFT JOIN Sys_Roles AS r ON u.RoleID = r.RoleID
           ${whereSql}
         ) t
         WHERE t.rn BETWEEN @startRow AND @endRow
@@ -524,7 +583,7 @@ app.put('/api/users/resume', async (req, res) => {
     const result = await request.query(`
       UPDATE Sys_Users
       SET Status = @Status
-      OUTPUT INSERTED.UserID, INSERTED.UserCode, INSERTED.UserName, INSERTED.Status, INSERTED.CreatedAt
+      OUTPUT INSERTED.UserID, INSERTED.UserCode, INSERTED.UserName, INSERTED.Status, INSERTED.CreatedAt, INSERTED.RoleID
       WHERE UserID = @UserID
     `)
 
@@ -534,7 +593,17 @@ app.put('/api/users/resume', async (req, res) => {
       return
     }
 
-    res.json({ code: 200, msg: 'success', data: updated })
+    // v1.0.7：补充角色名（OUTPUT 无法直接带出 JOIN 列）
+    let roleName = null
+    if (updated.RoleID != null) {
+      const rn = await pool
+        .request()
+        .input('RoleID', sql.Int, Number(updated.RoleID))
+        .query(`SELECT TOP (1) RoleName FROM Sys_Roles WHERE RoleID = @RoleID`)
+      roleName = rn.recordset?.[0]?.RoleName ?? null
+    }
+
+    res.json({ code: 200, msg: 'success', data: { ...updated, RoleName: roleName } })
   } catch (err) {
     console.error('恢复 /api/users/resume 失败：', err)
     res.status(500).json({ code: 500, msg: '数据库写入失败，请联系管理员', data: null })
@@ -722,7 +791,7 @@ app.delete('/api/users/:id', async (req, res) => {
  * 新增用户（操作员资料）
  *
  * 需求：
- * - 接收：UserCode（工号）、UserName（姓名）、Password（密码）
+ * - 接收：UserCode（工号）、UserName（姓名）、Password（密码）、RoleID（角色，v1.0.7）
  * - 写入：Sys_Users
  * - 默认：Status = 1（启用），CreatedAt = 当前时间
  *
@@ -740,7 +809,7 @@ app.delete('/api/users/:id', async (req, res) => {
 app.post('/api/users', async (req, res) => {
   try {
     // 关键：从请求体中读取前端提交的数据（需要 app.use(express.json()) 才能解析）
-    const { UserCode, UserName, Password } = req.body ?? {}
+    const { UserCode, UserName, Password, RoleID } = req.body ?? {}
 
     // 关键：做最基础的后端校验，避免插入空数据
     if (!String(UserCode || '').trim()) {
@@ -759,10 +828,17 @@ app.post('/api/users', async (req, res) => {
     // 关键：获取数据库连接池
     const pool = await getPool()
 
+    const roleCheck = await assertWritableRoleId(pool, RoleID)
+    if (!roleCheck.ok) {
+      res.status(400).json({ code: 400, msg: roleCheck.msg, data: null })
+      return
+    }
+
     // 关键：使用参数化查询，避免把用户输入拼到 SQL 字符串中（防注入）
     const request = pool.request()
     request.input('UserCode', sql.NVarChar(50), String(UserCode).trim())
     request.input('UserName', sql.NVarChar(50), String(UserName).trim())
+    request.input('RoleID', sql.Int, roleCheck.roleId)
 
     // 关键：v1.0.6 安全升级：新增用户时，密码必须先加密再入库（禁止直存明文）
     const passwordHash = await hashPassword(Password)
@@ -773,9 +849,9 @@ app.post('/api/users', async (req, res) => {
     try {
       // 关键：插入数据，并通过 OUTPUT 返回插入后的关键字段
       result = await request.query(`
-        INSERT INTO Sys_Users (UserCode, UserName, Password, Status, CreatedAt)
-        OUTPUT INSERTED.UserID, INSERTED.UserCode, INSERTED.UserName, INSERTED.Status, INSERTED.CreatedAt
-        VALUES (@UserCode, @UserName, @Password, 1, GETDATE())
+        INSERT INTO Sys_Users (UserCode, UserName, Password, Status, CreatedAt, RoleID)
+        OUTPUT INSERTED.UserID, INSERTED.UserCode, INSERTED.UserName, INSERTED.Status, INSERTED.CreatedAt, INSERTED.RoleID
+        VALUES (@UserCode, @UserName, @Password, 1, GETDATE(), @RoleID)
       `)
     } catch (dbErr) {
       // 关键：识别“唯一键冲突（工号重复）”
@@ -813,11 +889,20 @@ app.post('/api/users', async (req, res) => {
     // 关键：取出插入后的记录（recordset[0]）
     const created = result.recordset?.[0] ?? null
 
+    let roleName = null
+    if (created?.RoleID != null) {
+      const rn = await pool
+        .request()
+        .input('RoleID', sql.Int, Number(created.RoleID))
+        .query(`SELECT TOP (1) RoleName FROM Sys_Roles WHERE RoleID = @RoleID`)
+      roleName = rn.recordset?.[0]?.RoleName ?? null
+    }
+
     // 关键：按统一格式返回
     res.json({
       code: 200,
       msg: 'success',
-      data: created,
+      data: created ? { ...created, RoleName: roleName } : created,
     })
   } catch (err) {
     // 关键：服务端打印详细错误，便于你定位“字段不能为空/长度超限/唯一键冲突”等问题
@@ -839,11 +924,12 @@ app.post('/api/users', async (req, res) => {
  *
  * 前端会传两种不同的 payload：
  *
- * A) 编辑资料（修改工号/姓名/密码）
+ * A) 编辑资料（修改工号/姓名/密码/角色）
  * {
  *   "UserID": 1,
  *   "UserCode": "001",
  *   "UserName": "张三",
+ *   "RoleID": 3,
  *   "Password": "可选：不填表示不修改密码"
  * }
  *
@@ -897,7 +983,7 @@ app.put('/api/users', async (req, res) => {
       const result = await request.query(`
         UPDATE Sys_Users
         SET Status = @Status
-        OUTPUT INSERTED.UserID, INSERTED.UserCode, INSERTED.UserName, INSERTED.Status, INSERTED.CreatedAt
+        OUTPUT INSERTED.UserID, INSERTED.UserCode, INSERTED.UserName, INSERTED.Status, INSERTED.CreatedAt, INSERTED.RoleID
         WHERE UserID = @UserID
       `)
 
@@ -908,7 +994,16 @@ app.put('/api/users', async (req, res) => {
         return
       }
 
-      res.json({ code: 200, msg: 'success', data: updated })
+      let roleName = null
+      if (updated.RoleID != null) {
+        const rn = await pool
+          .request()
+          .input('RoleID', sql.Int, Number(updated.RoleID))
+          .query(`SELECT TOP (1) RoleName FROM Sys_Roles WHERE RoleID = @RoleID`)
+        roleName = rn.recordset?.[0]?.RoleName ?? null
+      }
+
+      res.json({ code: 200, msg: 'success', data: { ...updated, RoleName: roleName } })
       return
     }
 
@@ -919,6 +1014,12 @@ app.put('/api/users', async (req, res) => {
     const userCode = String(body.UserCode ?? '').trim()
     const userName = String(body.UserName ?? '').trim()
     const password = body.Password === undefined || body.Password === null ? undefined : String(body.Password)
+
+    const roleCheck = await assertWritableRoleId(pool, body.RoleID)
+    if (!roleCheck.ok) {
+      res.status(400).json({ code: 400, msg: roleCheck.msg, data: null })
+      return
+    }
 
     // 关键：后端必填校验（编辑资料必须至少有工号/姓名）
     if (!userCode) {
@@ -933,6 +1034,7 @@ app.put('/api/users', async (req, res) => {
     // 关键：把要更新的字段加入参数（nvarchar 防中文乱码）
     request.input('UserCode', sql.NVarChar(50), userCode)
     request.input('UserName', sql.NVarChar(50), userName)
+    request.input('RoleID', sql.Int, roleCheck.roleId)
 
     // 关键：密码的处理策略（小白版解释）
     // - 我们不会从数据库把旧密码读回前端（安全原因）
@@ -952,16 +1054,18 @@ app.put('/api/users', async (req, res) => {
         SET
           UserCode = @UserCode,
           UserName = @UserName,
-          Password = @Password
-        OUTPUT INSERTED.UserID, INSERTED.UserCode, INSERTED.UserName, INSERTED.Status, INSERTED.CreatedAt
+          Password = @Password,
+          RoleID = @RoleID
+        OUTPUT INSERTED.UserID, INSERTED.UserCode, INSERTED.UserName, INSERTED.Status, INSERTED.CreatedAt, INSERTED.RoleID
         WHERE UserID = @UserID
       `
       : `
         UPDATE Sys_Users
         SET
           UserCode = @UserCode,
-          UserName = @UserName
-        OUTPUT INSERTED.UserID, INSERTED.UserCode, INSERTED.UserName, INSERTED.Status, INSERTED.CreatedAt
+          UserName = @UserName,
+          RoleID = @RoleID
+        OUTPUT INSERTED.UserID, INSERTED.UserCode, INSERTED.UserName, INSERTED.Status, INSERTED.CreatedAt, INSERTED.RoleID
         WHERE UserID = @UserID
       `
 
@@ -975,8 +1079,17 @@ app.put('/api/users', async (req, res) => {
       return
     }
 
+    let roleName = null
+    if (updated.RoleID != null) {
+      const rn = await pool
+        .request()
+        .input('RoleID', sql.Int, Number(updated.RoleID))
+        .query(`SELECT TOP (1) RoleName FROM Sys_Roles WHERE RoleID = @RoleID`)
+      roleName = rn.recordset?.[0]?.RoleName ?? null
+    }
+
     // 关键：返回更新后的记录（前端刷新列表时也能看到最新数据）
-    res.json({ code: 200, msg: 'success', data: updated })
+    res.json({ code: 200, msg: 'success', data: { ...updated, RoleName: roleName } })
   } catch (err) {
     // 关键：数据库报错（比如唯一键冲突/长度超限）会进入这里
     console.error('修改 /api/users 失败：', err)

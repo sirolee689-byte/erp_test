@@ -159,7 +159,20 @@ async function onLogin() {
     const token = json?.data?.token
     localStorage.setItem('erp_token', String(token ?? ''))
 
-    // 关键：可选保存一些用户信息（方便后续显示“当前登录人”）
+    /**
+     * v1.0.7 RBAC：把「当前用户 + 角色」写入 localStorage，供后续权限判断使用
+     *
+     * 流程说明（从登录到前端读取）：
+     * 1) 后端 POST /api/login 在校验通过后，会在 data.user 里返回 UserID/UserCode/UserName/Status，
+     *    以及本阶段新增的 RoleID、RoleName（来自 Sys_Users 关联 Sys_Roles）。
+     * 2) localStorage 只能存字符串，所以这里用 JSON.stringify(user) 序列化整个 user 对象。
+     * 3) 写入的 key 固定为 erp_user（与布局页 ErpLayout 读取的 key 一致）。
+     * 4) 后续要做「菜单显隐 / 按钮禁用 / 路由级权限」时，可在任意组件中：
+     *    const user = JSON.parse(localStorage.getItem('erp_user') || '{}')
+     *    再读取 user.RoleName 或 user.RoleID 与业务规则比对即可。
+     * 5) 路由守卫目前仍以 erp_token 是否存在判断「是否已登录」；角色信息不参与拦截，
+     *    这样登录态与 RBAC 数据分层：token = 会话，erp_user = 可扩展的用户画像（含角色）。
+     */
     const user = json?.data?.user
     localStorage.setItem('erp_user', JSON.stringify(user ?? {}))
 
