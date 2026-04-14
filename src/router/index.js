@@ -3,7 +3,7 @@ import menuStructure from '../../erp_structure_dump.json'
 import ErpLayout from '@/layout/ErpLayout.vue'
 import {
   getFirstPermittedRoutePath,
-  getPermissionSetFromStorage,
+  getPermissionModelFromStorage,
   isRouteAllowed,
 } from '@/utils/menuPermission'
 
@@ -92,8 +92,8 @@ router.beforeEach((to) => {
   }
 
   // v1.0.7：已登录访问具体页时，用 Sys_Roles.Permissions 与目标 path 比对
-  const permSet = getPermissionSetFromStorage()
-  if (!isRouteAllowed(to.path, permSet)) {
+  const model = getPermissionModelFromStorage()
+  if (!isRouteAllowed(to.path, model)) {
     return { path: '/403', replace: true }
   }
 

@@ -36,7 +36,7 @@
         </el-button>
 
         <!-- 操作员添加（新增） -->
-        <el-button class="toolbar-btn btn-action" @click="openCreateDialog">
+        <el-button v-permission="'add'" class="toolbar-btn btn-action" @click="openCreateDialog">
           <el-icon class="btn-icon"><Plus /></el-icon>
           操作员添加
         </el-button>
@@ -147,12 +147,12 @@
                   - 这样做的好处：按钮逻辑和“你当前看的列表类型”严格一致，不会乱
                 -->
                 <template v-if="Number(selectedStatus) === 1">
-                  <el-button size="small" @click="openEditDialog(row)">编辑</el-button>
-                  <el-button size="small" type="danger" @click="confirmDisable(row)">禁用</el-button>
+                  <el-button v-permission="'edit'" size="small" @click="openEditDialog(row)">编辑</el-button>
+                  <el-button v-permission="'delete'" size="small" type="danger" @click="confirmDisable(row)">禁用</el-button>
                 </template>
                 <template v-else>
-                  <el-button size="small" type="warning" @click="resumeUser(row)">恢复</el-button>
-                  <el-button size="small" type="danger" @click="deleteUser(row)">删除</el-button>
+                  <el-button v-permission="'edit'" size="small" type="warning" @click="resumeUser(row)">恢复</el-button>
+                  <el-button v-permission="'delete'" size="small" type="danger" @click="deleteUser(row)">删除</el-button>
                 </template>
               </template>
             </el-table-column>

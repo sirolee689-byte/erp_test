@@ -108,7 +108,7 @@
 import { computed, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import rawMenuStructure from '../../erp_structure_dump.json'
-import { filterMenuTreeByPermission, getPermissionSetFromStorage } from '@/utils/menuPermission'
+import { filterMenuTreeByPermission, getPermissionModelFromStorage } from '@/utils/menuPermission'
 import ErpMenuTree from './ErpMenuTree.vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -124,8 +124,8 @@ const headerTitle = computed(() => (route.meta.title ? String(route.meta.title) 
  * 说明：localStorage 非响应式，登录后首次进入布局会读最新；若管理员改权限，用户需重新登录后生效。
  */
 const filteredMenuStructure = computed(() => {
-  const permSet = getPermissionSetFromStorage()
-  return filterMenuTreeByPermission(rawMenuStructure, permSet, '')
+  const model = getPermissionModelFromStorage()
+  return filterMenuTreeByPermission(rawMenuStructure, model, '')
 })
 
 const isCollapsed = ref(false)

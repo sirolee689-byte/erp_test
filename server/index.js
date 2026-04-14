@@ -10,6 +10,8 @@ import dotenv from 'dotenv'
 import { getPool, sql } from './db.js'
 import crypto from 'node:crypto'
 import bcrypt from 'bcrypt'
+import { createApiPermissionGate } from './apiPermissionGate.js'
+import { serializePermissionsForStore } from './permissions.js'
 
 dotenv.config()
 
@@ -20,6 +22,12 @@ const app = express()
 // - 但如果你单独访问后端，保留 cors 也更稳妥
 app.use(cors())
 app.use(express.json())
+
+/**
+ * v1.0.7+：除登录/健康检查外，/api/* 需带 Bearer token；已配置规则的接口再校验按钮级权限
+ * getCurrentUserFromReq 在下方函数声明（函数声明会提升，闭包在请求到达时已可用）
+ */
+app.use((req, res, next) => createApiPermissionGate({ getCurrentUserFromReq })(req, res, next))
 
 /**
  * 简易登录态（后端内存版）
@@ -108,39 +116,6 @@ async function assertWritableRoleId(pool, roleIdRaw) {
     return { ok: false, msg: '角色不存在或已禁用' }
   }
   return { ok: true, roleId }
-}
-
-/**
- * 校验并规范化「菜单权限」写入内容（JSON 数组字符串）
- * @returns {{ ok: true, jsonStr: string } | { ok: false, msg: string }}
- */
-function parsePermissionsPayload(rawPermissions) {
-  if (rawPermissions === undefined || rawPermissions === null) {
-    return { ok: false, msg: 'Permissions 不能为空' }
-  }
-  let arr
-  if (typeof rawPermissions === 'string') {
-    try {
-      arr = JSON.parse(rawPermissions)
-    } catch {
-      return { ok: false, msg: 'Permissions 必须是合法 JSON' }
-    }
-  } else if (Array.isArray(rawPermissions)) {
-    arr = rawPermissions
-  } else {
-    return { ok: false, msg: 'Permissions 必须是数组或 JSON 字符串' }
-  }
-  if (!Array.isArray(arr)) {
-    return { ok: false, msg: 'Permissions 必须是 JSON 数组' }
-  }
-  const normalized = []
-  for (const item of arr) {
-    if (typeof item !== 'string' || !String(item).trim()) {
-      return { ok: false, msg: '权限 path 必须是非空字符串（如 system/operator）' }
-    }
-    normalized.push(String(item).trim())
-  }
-  return { ok: true, jsonStr: JSON.stringify(normalized) }
 }
 
 /**
@@ -479,7 +454,7 @@ app.put('/api/roles/resume', async (req, res) => {
 })
 
 /**
- * 仅更新角色的菜单权限（Sys_Roles.Permissions，JSON 数组字符串）
+ * 仅更新角色的菜单权限（Sys_Roles.Permissions：JSON 对象或兼容旧版数组，序列化后入库）
  */
 app.put('/api/roles/permissions', async (req, res) => {
   try {
@@ -489,7 +464,7 @@ app.put('/api/roles/permissions', async (req, res) => {
       return
     }
 
-    const parsed = parsePermissionsPayload(req.body?.Permissions)
+    const parsed = serializePermissionsForStore(req.body?.Permissions)
     if (!parsed.ok) {
       res.status(400).json({ code: 400, msg: parsed.msg, data: null })
       return
@@ -689,6 +664,18 @@ app.post('/api/login', async (req, res) => {
   } catch (err) {
     // 关键：服务端打印详细错误，前端只看中文提示
     console.error('登录 /api/login 失败：', err)
+    const sqlMsg = String(err?.originalError?.info?.message ?? err?.message ?? '')
+    const isMissingPermissionsColumn =
+      err?.number === 207 && sqlMsg.includes('Permissions')
+    if (isMissingPermissionsColumn) {
+      res.status(500).json({
+        code: 500,
+        msg:
+          '登录失败：数据库缺少 Sys_Roles.Permissions 列。请在 SQL Server 执行迁移脚本 scripts/migrations/sqlserver_v1.0.7_rbac_phase1.txt 中第 7 段（ALTER TABLE添加 NVARCHAR(MAX)），然后重试。',
+        data: null,
+      })
+      return
+    }
     res.status(500).json({ code: 500, msg: '登录失败：数据库读取异常，请联系管理员', data: null })
   }
 })

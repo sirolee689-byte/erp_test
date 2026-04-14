@@ -19,7 +19,7 @@
           管理角色
         </el-button>
 
-        <el-button class="toolbar-btn btn-action" @click="openCreateDialog">
+        <el-button v-permission="'add'" class="toolbar-btn btn-action" @click="openCreateDialog">
           <el-icon class="btn-icon"><Plus /></el-icon>
           角色添加
         </el-button>
@@ -91,15 +91,15 @@
             <el-table-column label="操作" min-width="280" fixed="right">
               <template #default="{ row }">
                 <template v-if="Number(selectedStatus) === 1">
-                  <el-button size="small" @click="openEditDialog(row)">编辑</el-button>
-                  <el-button size="small" type="primary" plain @click="openPermDialog(row)">
+                  <el-button v-permission="'edit'" size="small" @click="openEditDialog(row)">编辑</el-button>
+                  <el-button v-permission="'audit'" size="small" type="primary" plain @click="openPermDialog(row)">
                     分配权限
                   </el-button>
-                  <el-button size="small" type="danger" @click="confirmDisable(row)">禁用</el-button>
+                  <el-button v-permission="'delete'" size="small" type="danger" @click="confirmDisable(row)">禁用</el-button>
                 </template>
                 <template v-else>
-                  <el-button size="small" type="warning" @click="resumeRole(row)">恢复</el-button>
-                  <el-button size="small" type="danger" @click="deleteRole(row)">删除</el-button>
+                  <el-button v-permission="'edit'" size="small" type="warning" @click="resumeRole(row)">恢复</el-button>
+                  <el-button v-permission="'delete'" size="small" type="danger" @click="deleteRole(row)">删除</el-button>
                 </template>
               </template>
             </el-table-column>
@@ -151,8 +151,8 @@
     <el-dialog
       v-model="permDialogVisible"
       :title="`分配权限 — ${permRoleName || ''}`"
-      width="560px"
-      top="8vh"
+      width="920px"
+      top="6vh"
       :close-on-click-modal="false"
       @closed="onPermDialogClosed"
     >
@@ -161,21 +161,53 @@
         :closable="false"
         show-icon
         class="perm-alert"
-        title="勾选左侧树即保存对应菜单 path（如 system/operator）。开启「全部菜单」将写入通配符 *。"
+        title="左侧勾选可访问的菜单；点击某一节点后，右侧勾选该菜单下的操作权限（与 Sys_Roles.Permissions 的对象结构一致）。开启「全部菜单」等价于通配 * 且操作为 all。"
       />
       <div class="perm-toolbar">
         <el-switch v-model="permFullAccess" active-text="全部菜单（*）" @change="onPermFullAccessChange" />
       </div>
-      <div class="perm-tree-wrap" :class="{ 'is-tree-locked': permFullAccess }">
-        <el-tree
-          ref="permTreeRef"
-          class="perm-tree"
-          :data="permTreeData"
-          node-key="path"
-          show-checkbox
-          :props="{ label: 'label', children: 'children' }"
-          default-expand-all
-        />
+      <div class="perm-split" :class="{ 'is-tree-locked': permFullAccess }">
+        <div class="perm-left perm-tree-wrap">
+          <el-tree
+            ref="permTreeRef"
+            class="perm-tree"
+            :data="permTreeData"
+            node-key="path"
+            show-checkbox
+            :props="{ label: 'label', children: 'children' }"
+            default-expand-all
+            @check="onPermTreeCheck"
+            @node-click="onPermNodeClick"
+          />
+        </div>
+        <div class="perm-right">
+          <template v-if="permSelectedPath">
+            <div class="perm-right-title">当前菜单</div>
+            <div class="perm-right-path">{{ permSelectedPath }}</div>
+            <div class="perm-right-sub">勾选该节点在角色权限 JSON 中对应 path 下的操作列表</div>
+            <el-checkbox
+              v-model="allActionChecked"
+              class="perm-check-all"
+              @change="onAllActionChange"
+            >
+              全部（all）
+            </el-checkbox>
+            <el-divider class="perm-divider" />
+            <el-checkbox-group
+              v-model="selectedPathActions"
+              class="perm-action-group"
+              :disabled="allActionChecked"
+              @change="onGranularActionsChange"
+            >
+              <el-checkbox label="view">查看</el-checkbox>
+              <el-checkbox label="add">新增</el-checkbox>
+              <el-checkbox label="edit">编辑</el-checkbox>
+              <el-checkbox label="delete">删除</el-checkbox>
+              <el-checkbox label="audit">审核</el-checkbox>
+            </el-checkbox-group>
+          </template>
+          <el-empty v-else description="请点击左侧已勾选的菜单节点，配置操作权限" :image-size="72" />
+        </div>
       </div>
       <template #footer>
         <el-button @click="permDialogVisible = false">取消</el-button>
@@ -186,7 +218,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 import { Plus, Refresh, RefreshLeft, Setting } from '@element-plus/icons-vue'
@@ -243,6 +275,100 @@ const permTreeRef = ref(null)
 /** 勾选后保存通配符 *，等价于不限制菜单 */
 const permFullAccess = ref(false)
 
+/** 各菜单 path → 操作列表（与后端 Permissions 对象结构一致，见 server/permissions.js） */
+const permActionsByPath = reactive({})
+
+/** 当前在左侧树中选中的节点 path（用于右侧勾选框） */
+const permSelectedPath = ref('')
+
+/** 右侧「全部 all」是否勾选（与 granular 互斥） */
+const allActionChecked = ref(false)
+
+/** 右侧细粒度操作多选（view/add/edit/delete/audit） */
+const selectedPathActions = ref([])
+
+/**
+ * 从行数据解析 Permissions，得到 { out, wildcard }
+ * 兼容：数组 ["*"]、["system/a"]；对象 { "system/a": ["view","add"] }
+ */
+function parsePermissionsFromRow(row) {
+  const out = {}
+  let wildcard = false
+  if (!row?.Permissions) {
+    return { out, wildcard }
+  }
+  let data = row.Permissions
+  if (typeof data === 'string') {
+    try {
+      data = JSON.parse(data)
+    } catch {
+      return { out, wildcard }
+    }
+  }
+  if (Array.isArray(data)) {
+    if (data.map(String).includes('*')) {
+      wildcard = true
+    } else {
+      for (const p of data) {
+        const path = String(p).trim()
+        if (path) out[path] = ['all']
+      }
+    }
+  } else if (data && typeof data === 'object') {
+    const star = data['*']
+    if (Array.isArray(star) && star.map(String).map((s) => s.toLowerCase()).includes('all')) {
+      wildcard = true
+    } else {
+      for (const [k, v] of Object.entries(data)) {
+        if (k === '*') continue
+        const path = String(k).trim()
+        if (!path) continue
+        const arr = Array.isArray(v) ? v : []
+        const acts = arr.map((x) => String(x).trim().toLowerCase()).filter(Boolean)
+        if (acts.length) {
+          out[path] = [...new Set(acts)]
+        }
+      }
+    }
+  }
+  return { out, wildcard }
+}
+
+/** 将当前选中节点的权限模型同步到右侧 UI（all与细粒度二选一展示） */
+function hydrateSelectedPathActionsUi() {
+  const p = permSelectedPath.value
+  if (!p) {
+    allActionChecked.value = false
+    selectedPathActions.value = []
+    return
+  }
+  const acts = permActionsByPath[p] || []
+  if (acts.includes('all')) {
+    allActionChecked.value = true
+    selectedPathActions.value = []
+  } else {
+    allActionChecked.value = false
+    selectedPathActions.value = [...acts]
+  }
+}
+
+/** 把右侧勾选结果写回 permActionsByPath（须保证树节点仍为勾选状态） */
+function flushSelectedPathToStore() {
+  const p = permSelectedPath.value
+  if (!p) return
+  const tree = permTreeRef.value
+  const checked = tree ? new Set(collectCheckedPermPaths()) : new Set()
+  if (!checked.has(p)) {
+    return
+  }
+  if (allActionChecked.value) {
+    permActionsByPath[p] = ['all']
+  } else {
+    const next = [...new Set(selectedPathActions.value.map((x) => String(x).toLowerCase()))]
+    permActionsByPath[p] = next.length ? next : ['view']
+  }
+}
+
 /**
  * 把 erp_structure_dump 转成 el-tree 需要的节点（path 与路由 walkRoutes 规则一致）
  */
@@ -262,13 +388,66 @@ const permTreeData = computed(() => buildPermTreeNodes(menuDump))
 function onPermFullAccessChange() {
   if (permFullAccess.value) {
     permTreeRef.value?.setCheckedKeys([], false)
+    Object.keys(permActionsByPath).forEach((k) => delete permActionsByPath[k])
+    permSelectedPath.value = ''
+    allActionChecked.value = false
+    selectedPathActions.value = []
   }
+}
+
+/** 左侧树勾选变化：同步「已授权 path」集合，新勾选的 path 默认 all */
+function onPermTreeCheck() {
+  if (permFullAccess.value) return
+  nextTick(() => {
+    const paths = new Set(collectCheckedPermPaths())
+    for (const key of Object.keys(permActionsByPath)) {
+      if (!paths.has(key)) {
+        delete permActionsByPath[key]
+      }
+    }
+    for (const path of paths) {
+      if (!(path in permActionsByPath)) {
+        permActionsByPath[path] = ['all']
+      }
+    }
+    if (permSelectedPath.value && !paths.has(permSelectedPath.value)) {
+      permSelectedPath.value = ''
+    }
+    hydrateSelectedPathActionsUi()
+  })
+}
+
+function onPermNodeClick(data) {
+  if (permFullAccess.value || !data?.path) return
+  if (permSelectedPath.value && permSelectedPath.value !== data.path) {
+    flushSelectedPathToStore()
+  }
+  permSelectedPath.value = data.path
+  hydrateSelectedPathActionsUi()
+}
+
+function onAllActionChange() {
+  if (allActionChecked.value) {
+    selectedPathActions.value = []
+  }
+  flushSelectedPathToStore()
+}
+
+function onGranularActionsChange() {
+  if (selectedPathActions.value.length) {
+    allActionChecked.value = false
+  }
+  flushSelectedPathToStore()
 }
 
 function onPermDialogClosed() {
   permRoleId.value = null
   permRoleName.value = ''
   permFullAccess.value = false
+  Object.keys(permActionsByPath).forEach((k) => delete permActionsByPath[k])
+  permSelectedPath.value = ''
+  allActionChecked.value = false
+  selectedPathActions.value = []
 }
 
 function openPermDialog(row) {
@@ -276,23 +455,19 @@ function openPermDialog(row) {
   permRoleName.value = row?.RoleName ?? ''
   permDialogVisible.value = true
 
-  let keys = []
-  let wildcard = false
-  try {
-    if (row?.Permissions) {
-      const arr = typeof row.Permissions === 'string' ? JSON.parse(row.Permissions) : row.Permissions
-      if (Array.isArray(arr) && arr.includes('*')) {
-        wildcard = true
-      } else if (Array.isArray(arr)) {
-        keys = arr.map((x) => String(x).trim()).filter(Boolean)
-      }
-    }
-  } catch {
-    keys = []
-  }
+  Object.keys(permActionsByPath).forEach((k) => delete permActionsByPath[k])
+  permSelectedPath.value = ''
+  allActionChecked.value = false
+  selectedPathActions.value = []
+
+  const { out, wildcard } = parsePermissionsFromRow(row)
   permFullAccess.value = wildcard
+  for (const [path, acts] of Object.entries(out)) {
+    permActionsByPath[path] = [...acts]
+  }
   nextTick(() => {
-    permTreeRef.value?.setCheckedKeys(wildcard ? [] : keys, false)
+    permTreeRef.value?.setCheckedKeys(wildcard ? [] : Object.keys(out), false)
+    hydrateSelectedPathActionsUi()
   })
 }
 
@@ -301,7 +476,24 @@ async function submitPermDialog() {
     ElMessage.error('缺少 RoleID')
     return
   }
-  const payload = permFullAccess.value ? ['*'] : collectCheckedPermPaths()
+  let payload
+  if (permFullAccess.value) {
+    payload = ['*']
+  } else {
+    const paths = collectCheckedPermPaths()
+    if (permSelectedPath.value) {
+      flushSelectedPathToStore()
+    }
+    const obj = {}
+    for (const p of paths) {
+      let acts = permActionsByPath[p]
+      if (!acts || acts.length === 0) {
+        acts = ['view']
+      }
+      obj[p] = [...new Set(acts.map((x) => String(x).trim().toLowerCase()))]
+    }
+    payload = obj
+  }
   permSaving.value = true
   try {
     const res = await axios.put('/api/roles/permissions', {
@@ -627,14 +819,58 @@ onMounted(() => {
   gap: 10px;
   margin-bottom: 10px;
 }
-.perm-tree-wrap {
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
-  padding: 8px;
+.perm-split {
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
+  min-height: 440px;
 }
-.perm-tree-wrap.is-tree-locked {
+.perm-split.is-tree-locked {
   pointer-events: none;
   opacity: 0.55;
+}
+.perm-left,
+.perm-right {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  padding: 10px;
+}
+.perm-left {
+  flex: 1;
+  min-width: 0;
+}
+.perm-right {
+  width: 300px;
+  flex-shrink: 0;
+}
+.perm-right-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.perm-right-path {
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+  word-break: break-all;
+  margin-bottom: 6px;
+}
+.perm-right-sub {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+.perm-check-all {
+  display: flex;
+  margin-bottom: 4px;
+}
+.perm-divider {
+  margin: 8px 0;
+}
+.perm-action-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
 }
 .perm-tree {
   max-height: 420px;

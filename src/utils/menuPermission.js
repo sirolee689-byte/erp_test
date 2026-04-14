@@ -1,11 +1,16 @@
 /**
- * 菜单权限工具（v1.0.7）
- * 与 Sys_Roles.Permissions（JSON 字符串，菜单 path 数组）配合使用。
+ * 菜单与按钮级权限（v1.0.7+）
+ * Sys_Roles.Permissions：
+ * - 旧版 JSON 数组：["*"] 或 ["system/operator"]（仅菜单，等价该页全部操作）
+ * - 新版 JSON 对象：{ "system/operator": ["view","add"], "system/role": ["all"] }
+ * - 全局：{"*":["all"]} 或 ["*"]
  */
+
+const ALL_ACTIONS = ['view', 'add', 'edit', 'delete', 'audit']
 
 /**
  * 从 localStorage 的 erp_user 解析 Permissions 字段
- * @returns {string|null|undefined} 原始字符串或 undefined
+ * @returns {string|null|undefined}
  */
 export function readPermissionsRawFromStorage() {
   const raw = localStorage.getItem('erp_user')
@@ -19,65 +24,78 @@ export function readPermissionsRawFromStorage() {
 }
 
 /**
- * 把数据库/登录返回的 Permissions 规范成「权限集合」或「放行全部」哨兵
- *
- * 约定：
- * - null / undefined /空字符串：视为未配置，兼容旧库 →放行全部菜单（与 null 相同）
- * - JSON 解析失败：放行全部（避免锁死系统）
- * - 数组含 "*：放行全部
- * - 数组为空 []：无任何菜单权限（仅保留 403 等白名单路由）
- * - 其余：转为 Set，元素为菜单 path（与 erp_structure_dump 拼接规则一致，如 system/operator）
- *
- * @param {unknown} raw
- * @returns {Set<string>|null} null 表示不限制；Set 表示按集合与前缀规则过滤
+ * 解析为统一模型（与 server/permissions.js 逻辑对齐）
+ * @returns {{
+ *   mode: 'full' | 'none' | 'scoped',
+ *   actionsByPath: Map<string, Set<string>>
+ * }}
  */
-export function normalizePermissionSet(raw) {
+export function parsePermissionsModel(raw) {
   if (raw === undefined || raw === null || raw === '') {
-    return null
+    return { mode: 'full', actionsByPath: new Map() }
   }
-  let arr
+  let data = raw
   if (typeof raw === 'string') {
     try {
-      arr = JSON.parse(raw)
+      data = JSON.parse(raw)
     } catch {
-      return null
+      return { mode: 'full', actionsByPath: new Map() }
     }
-  } else if (Array.isArray(raw)) {
-    arr = raw
-  } else {
-    return null
   }
-  if (!Array.isArray(arr)) {
-    return null
+
+  if (Array.isArray(data)) {
+    if (data.includes('*')) {
+      return { mode: 'full', actionsByPath: new Map() }
+    }
+    if (data.length === 0) {
+      return { mode: 'none', actionsByPath: new Map() }
+    }
+    const map = new Map()
+    for (const p of data) {
+      const path = String(p).trim()
+      if (path) {
+        map.set(path, new Set(['all', ...ALL_ACTIONS]))
+      }
+    }
+    return { mode: 'scoped', actionsByPath: map }
   }
-  if (arr.includes('*')) {
-    return null
+
+  if (data && typeof data === 'object') {
+    if (data['*'] && Array.isArray(data['*']) && data['*'].map(String).includes('all')) {
+      return { mode: 'full', actionsByPath: new Map() }
+    }
+    const map = new Map()
+    for (const [k, v] of Object.entries(data)) {
+      const path = String(k).trim()
+      if (!path || path === '*') continue
+      const arr = Array.isArray(v) ? v : []
+      const set = new Set(arr.map((x) => String(x).trim().toLowerCase()).filter(Boolean))
+      if (set.size > 0) {
+        map.set(path, set)
+      }
+    }
+    if (map.size === 0) {
+      return { mode: 'none', actionsByPath: new Map() }
+    }
+    return { mode: 'scoped', actionsByPath: map }
   }
-  if (arr.length === 0) {
-    return new Set()
-  }
-  return new Set(arr.map((x) => String(x).trim()).filter(Boolean))
+
+  return { mode: 'full', actionsByPath: new Map() }
+}
+
+export function getPermissionModelFromStorage() {
+  return parsePermissionsModel(readPermissionsRawFromStorage())
 }
 
 /**
- * 当前登录用户权限集合（未登录时视为 null）
+ * 侧栏：某 path 是否应出现（有任意操作或子级可见）
  */
-export function getPermissionSetFromStorage() {
-  const raw = readPermissionsRawFromStorage()
-  return normalizePermissionSet(raw)
-}
-
-/**
- * 判断某个菜单 path 是否「自身命中」或「被某个已授权前缀覆盖」
- * 例：已授权 supply-chain，则 supply-chain/basic/suppliers 可见
- */
-export function isPathGranted(path, permSet) {
-  if (permSet == null) return true
-  if (permSet.has('*')) return true
-  if (permSet.size === 0) return false
-  if (permSet.has(path)) return true
-  for (const k of permSet) {
-    if (path.startsWith(`${k}/`)) {
+export function isPathVisibleForMenu(path, model) {
+  if (model.mode === 'full') return true
+  if (model.mode === 'none') return false
+  const keys = [...model.actionsByPath.keys()]
+  for (const k of keys) {
+    if (path === k || path.startsWith(`${k}/`) || k.startsWith(`${path}/`)) {
       return true
     }
   }
@@ -86,26 +104,13 @@ export function isPathGranted(path, permSet) {
 
 /**
  * 【递归过滤菜单树 — filter 算法说明】
- *
- * 目标：在内存里得到一棵「缩小后的菜单树」，只包含当前角色有权看到的节点。
- *
- * 做法（深度优先 + Array.prototype.map + filter）：
- * 1) 对当前层的每个节点，先算出它在 ERP 里的 path（父 path + "/" + name，根节点只有 name）。
- * 2) 若该节点还有 children，则先递归调用本函数处理子数组，得到 filteredChildren。
- * 3) 若「本节点 path 已授权」或「filteredChildren 非空」（说明下面还有可见项），则保留该节点：
- *    - 有可见子节点时，把 children 设为 filteredChildren；
- *    - 没有子节点被保留且本节点也未授权，则丢弃（返回 null）。
- * 4) 最后用 .filter(Boolean) 去掉被丢弃的槽位。
- *
- * 这样一层层「筛」下去，父级会因为有可见子级而自动出现，无需在数据库里重复存父 path。
- *
- * @param {any[]} nodes erp_structure_dump 的节点数组
- * @param {Set<string>|null} permSet normalizePermissionSet 的结果；null 表示不筛选
- * @param {string} base父级 path 前缀
- * @returns {any[]}
+ * 1) 对当前层每个节点计算 path。
+ * 2) 递归得到 filteredChildren。
+ * 3) 若本节点 isPathVisibleForMenu，或 filteredChildren 非空，则保留。
+ * 4) map 后用 filter(Boolean) 去掉 null。
  */
-export function filterMenuTreeByPermission(nodes, permSet, base = '') {
-  if (permSet == null) {
+export function filterMenuTreeByPermission(nodes, model, base = '') {
+  if (model.mode === 'full') {
     return nodes
   }
   return nodes
@@ -113,9 +118,9 @@ export function filterMenuTreeByPermission(nodes, permSet, base = '') {
       const path = base ? `${base}/${n.name}` : n.name
       const rawChildren = n.children?.length ? n.children : null
       const filteredChildren = rawChildren
-        ? filterMenuTreeByPermission(rawChildren, permSet, path)
+        ? filterMenuTreeByPermission(rawChildren, model, path)
         : []
-      const selfOk = isPathGranted(path, permSet)
+      const selfOk = isPathVisibleForMenu(path, model)
       if (!selfOk && filteredChildren.length === 0) {
         return null
       }
@@ -130,9 +135,6 @@ export function filterMenuTreeByPermission(nodes, permSet, base = '') {
     .filter(Boolean)
 }
 
-/**
- * 在已过滤的菜单树上取第一个「叶子」对应的路由路径（带前导 /）
- */
 export function getFirstLeafPath(nodes, base = '') {
   for (const n of nodes) {
     const p = base ? `${base}/${n.name}` : n.name
@@ -145,47 +147,65 @@ export function getFirstLeafPath(nodes, base = '') {
   return null
 }
 
-/**
- * 登录后首页应跳转的第一个有权限菜单 */
 export function getFirstPermittedRoutePath(menuStructure) {
-  const permSet = getPermissionSetFromStorage()
-  const tree = filterMenuTreeByPermission(menuStructure, permSet, '')
+  const model = getPermissionModelFromStorage()
+  const tree = filterMenuTreeByPermission(menuStructure, model, '')
   return getFirstLeafPath(tree, '') || '/403'
 }
 
+function normalizeFullPath(fullPath) {
+  return String(fullPath ?? '').replace(/^\/+/, '').replace(/\/+$/, '')
+}
+
 /**
- * 路由 path（如 /system/operator）是否允许访问（已登录前提下）
- * @param {string} fullPath 必须以 / 开头或为空
+ * 路由是否可进入：需具备 view（或 all 覆盖）
  */
-export function isRouteAllowed(fullPath, permSet) {
-  const p = String(fullPath ?? '').replace(/^\/+/, '').replace(/\/+$/, '')
+export function isRouteAllowed(fullPath, model) {
+  const p = normalizeFullPath(fullPath)
   if (!p || p === '403') {
     return true
   }
-  if (permSet == null) {
+  if (model.mode === 'full') {
     return true
   }
-  if (permSet.size === 0) {
+  if (model.mode === 'none') {
     return false
   }
-  if (permSet.has('*')) {
-    return true
-  }
-  if (permSet.has(p)) {
-    return true
-  }
-  for (const k of permSet) {
-    if (p.startsWith(`${k}/`) || k.startsWith(`${p}/`)) {
-      return true
-    }
+  return hasPageAction(model, p, 'view')
+}
+
+export function isFullPathAllowedForCurrentUser(fullPath) {
+  const model = getPermissionModelFromStorage()
+  return isRouteAllowed(fullPath, model)
+}
+
+/**
+ * 是否具备某页某操作（path 无斜杠前缀；action 小写）
+ */
+export function hasPageAction(model, menuPath, action) {
+  const act = String(action ?? '').trim().toLowerCase()
+  if (!act) return false
+  if (model.mode === 'full') return true
+  if (model.mode === 'none') return false
+  const path = normalizeFullPath(menuPath)
+
+  for (const [key, set] of model.actionsByPath.entries()) {
+    const match = path === key || path.startsWith(`${key}/`) || key.startsWith(`${path}/`)
+    if (!match) continue
+    if (set.has('all')) return true
+    if (set.has(act)) return true
   }
   return false
 }
 
-/**
- * 供登录后 redirect 校验：是否允许进入该地址
- */
-export function isFullPathAllowedForCurrentUser(fullPath) {
-  const permSet = getPermissionSetFromStorage()
-  return isRouteAllowed(fullPath, permSet)
+/** 供 globalProperties / 指令：默认用当前路由 path */
+export function hasPageActionForCurrentRoute(action, menuPathOverride) {
+  const model = getPermissionModelFromStorage()
+  const path =
+    menuPathOverride != null && menuPathOverride !== ''
+      ? normalizeFullPath(menuPathOverride)
+      : normalizeFullPath(
+          typeof window !== 'undefined' ? window.location.pathname.replace(/^\/+/, '') : '',
+        )
+  return hasPageAction(model, path, action)
 }

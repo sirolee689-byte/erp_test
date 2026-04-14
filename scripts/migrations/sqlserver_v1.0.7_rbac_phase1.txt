@@ -1,10 +1,17 @@
 /*
   ERP_TEST v1.0.7 — RBAC 第一阶段（SQL Server）
-  说明：
+
+  【方式 B — 完整迁移，任选其一】
+  1) 命令行（与 dev:server 共用根目录 .env 里的 DB_*）：
+     在项目根目录执行：npm run migrate:rbac-phase1
+  2) SSMS：连接到与 .env 中 DB_DATABASE 相同的数据库，打开本文件整段执行（可重复执行，尽量幂等）。
+
+  脚本内容：
   - 创建角色表 Sys_Roles，并预设 Admin / Onduty / Viewer
   - 为 Sys_Users 增加 RoleID，建立外键；历史用户默认绑定 Viewer
-  - 建议在 SSMS 中针对目标库执行；可重复执行（尽量幂等）
-  - 扩展名为 .txt 是因为仓库 .gitignore 忽略了 *.sql，复制到 SSMS 后可按需改后缀执行
+  - 为 Sys_Roles 增加 Permissions（NVARCHAR(MAX)，按钮级权限 JSON）
+
+  扩展名为 .txt 是因为仓库 .gitignore 忽略了 *.sql，复制到 SSMS 后可按需改后缀执行
 */
 
 SET NOCOUNT ON;
@@ -17,6 +24,7 @@ BEGIN
     RoleName NVARCHAR(50) NOT NULL,
     Description NVARCHAR(200) NULL,
     Status INT NOT NULL CONSTRAINT DF_Sys_Roles_Status DEFAULT (1),
+    Permissions NVARCHAR(MAX) NULL,
     CONSTRAINT PK_Sys_Roles PRIMARY KEY (RoleID),
     CONSTRAINT UQ_Sys_Roles_RoleName UNIQUE (RoleName)
   );
@@ -73,4 +81,11 @@ BEGIN
   ALTER TABLE dbo.Sys_Users ALTER COLUMN RoleID INT NOT NULL;
 END;
 
-PRINT N'v1.0.7 RBAC 第一阶段：Sys_Roles / Sys_Users.RoleID 已就绪。';
+/* 7) Sys_Roles.Permissions：存角色菜单与按钮级权限 JSON（与 server/permissions.js 一致） */
+IF COL_LENGTH('dbo.Sys_Roles', 'Permissions') IS NULL
+BEGIN
+  ALTER TABLE dbo.Sys_Roles ADD Permissions NVARCHAR(MAX) NULL;
+  /* NULL 表示未配置；前后端解析时按「不限制全部菜单/操作」处理 */
+END;
+
+PRINT N'v1.0.7 RBAC 第一阶段：Sys_Roles（含 Permissions）/ Sys_Users.RoleID 已就绪。';

@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "gen:views": "node scripts/generate-views.mjs",
-    "dev:server": "node server/index.js"
+    "dev:server": "node server/index.js",
+    "migrate:rbac-phase1": "node scripts/run-migration-sqlserver_v1.0.7_rbac_phase1.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
