@@ -67,3 +67,7 @@
 ## 5. 数据库迁移脚本路径
 
 执行：`scripts/migrations/sqlserver_v1.0.7_rbac_phase1.txt`（内容为 T-SQL，在 SSMS 中针对目标 ERP 库运行；仓库因 `.gitignore` 忽略 `*.sql` 故使用 `.txt` 保存）。
+
+## 6. 扩展模块：人力资源 — 部门资料（v1.0.8+，旧表接管）
+
+部门维护接口已纳入 API 权限闸门，菜单 path 为 **`hr/files/department`**（操作：`view` / `add` / `edit` / `delete` / **`audit`**）。审核、反审走 `PUT /api/hr/departments/audit` 与 `PUT /api/hr/departments/unaudit`。**删除**为 `DELETE /api/hr/departments/:code`（路径参数为旧表主键 **`code`** 字符串）。数据来自环境变量 **`HR_LEGACY_DEPT_TABLE`**（默认 **`HR_Departments`**）指向的部门表，字段名与库内一致。详见 **`hr_department_design.md`**。

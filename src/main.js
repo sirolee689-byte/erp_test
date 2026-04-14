@@ -4,6 +4,7 @@ import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import axios from 'axios'
+import { ElMessage } from 'element-plus'
 import App from './App.vue'
 import router from './router'
 import { permissionDirective } from './directives/permission'
@@ -15,10 +16,43 @@ import { getPermissionModelFromStorage, hasPageAction } from './utils/menuPermis
 axios.interceptors.request.use((config) => {
   const token = localStorage.getItem('erp_token')
   if (token) {
+    // 关键：与后端 apiPermissionGate 约定一致，必须是「Bearer 」+ token
     config.headers.Authorization = `Bearer ${String(token).trim()}`
   }
   return config
 })
+
+/**
+ * 统一处理 401：token 过期、或后端重启后内存里不再有该 token
+ * 小白版解释：合法 token 存在后端内存 Map 里，重启 node 服务后旧 token 全部作废，浏览器若还拿着旧字符串请求，就会一直报「未登录或 token 无效」；这里清掉本地登录信息并跳回登录页。
+ */
+let handling401 = false
+axios.interceptors.response.use(
+  (res) => res,
+  (error) => {
+    const status = error?.response?.status
+    const url = String(error?.config?.url ?? '')
+    if (status === 401 && !url.includes('/api/login')) {
+      if (!handling401) {
+        handling401 = true
+        localStorage.removeItem('erp_token')
+        localStorage.removeItem('erp_user')
+        ElMessage.warning('登录已失效，请重新登录（若刚重启过后端，也必须重新登录一次）')
+        const current = router.currentRoute.value
+        if (current?.path !== '/login') {
+          router
+            .replace({ path: '/login', query: { redirect: current?.fullPath || '/' } })
+            .finally(() => {
+              handling401 = false
+            })
+        } else {
+          handling401 = false
+        }
+      }
+    }
+    return Promise.reject(error)
+  }
+)
 
 const app = createApp(App)
 

@@ -95,6 +95,28 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'system/role', action: 'delete' }
   }
 
+  /* v1.0.8：人力资源 — 部门资料（菜单 path与 erp_structure_dump 一致：hr/files/department） */
+  if (m === 'GET' && path === '/api/hr/departments') {
+    return { menuPath: 'hr/files/department', action: 'view' }
+  }
+  if (m === 'POST' && path === '/api/hr/departments') {
+    return { menuPath: 'hr/files/department', action: 'add' }
+  }
+  /* 须先于泛化的 PUT /api/hr/departments 匹配（审核 / 反审共用 audit 权限） */
+  if (m === 'PUT' && path === '/api/hr/departments/audit') {
+    return { menuPath: 'hr/files/department', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/hr/departments/unaudit') {
+    return { menuPath: 'hr/files/department', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/hr/departments') {
+    return { menuPath: 'hr/files/department', action: 'edit' }
+  }
+  /* 旧系统部门主键为字符串 code，路径段非纯数字 */
+  if (m === 'DELETE' && /^\/api\/hr\/departments\/.+$/.test(path)) {
+    return { menuPath: 'hr/files/department', action: 'delete' }
+  }
+
   return null
 }
 

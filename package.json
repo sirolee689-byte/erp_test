@@ -1,7 +1,7 @@
 {
   "name": "erp-test",
   "private": true,
-  "version": "1.0.7",
+  "version": "1.0.8",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "gen:views": "node scripts/generate-views.mjs",
     "dev:server": "node server/index.js",
-    "migrate:rbac-phase1": "node scripts/run-migration-sqlserver_v1.0.7_rbac_phase1.mjs"
+    "migrate:rbac-phase1": "node scripts/run-migration-sqlserver_v1.0.7_rbac_phase1.mjs",
+    "migrate:hr-departments": "node scripts/run-migration-sqlserver_v1.0.8_hr_departments.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",

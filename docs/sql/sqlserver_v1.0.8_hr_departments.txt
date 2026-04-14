@@ -1,0 +1,88 @@
+/*
+  ERP_TEST v1.0.8 — 人力资源：部门资料（SQL Server）
+
+  【执行方式】
+  1) 项目根目录：npm run migrate:hr-departments（读取 .env 的 DB_*）
+  2) SSMS：在目标库整段执行（尽量幂等）
+
+  【ParentID 父子关系说明】
+  - ParentID 为 NULL：表示「一级部门」（没有上级）。
+  - ParentID 等于某一行的 DeptID：该行是该部门的子部门（二级）。
+  - 外键指向本表主键，保证「父」必须已存在；删除父级前须先处理子级（应用层先删子或禁止删有子部门的行）。
+
+  【审核字段（v1.0.8+）】
+  - IsAudited：0=未审核（草稿），1=已审核（锁定，禁止改删本条）。
+  - Auditor：审核人姓名（反审后清空）。
+
+  仓库使用 .txt 扩展名以避免部分环境忽略 *.sql
+*/
+
+SET NOCOUNT ON;
+
+/* 1) 表：HR_Departments */
+IF OBJECT_ID(N'dbo.HR_Departments', N'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.HR_Departments (
+    DeptID INT IDENTITY(1, 1) NOT NULL,
+    DeptName NVARCHAR(50) NOT NULL,
+    ParentID INT NULL,
+    IsAudited BIT NOT NULL CONSTRAINT DF_HR_Departments_IsAudited DEFAULT (0),
+    Auditor NVARCHAR(50) NULL,
+    CONSTRAINT PK_HR_Departments PRIMARY KEY (DeptID),
+    CONSTRAINT FK_HR_Departments_Parent
+      FOREIGN KEY (ParentID) REFERENCES dbo.HR_Departments (DeptID)
+  );
+END;
+
+/* 1.1) 已存在旧表时补齐审核列（幂等）
+   说明：部分环境下 COL_LENGTH('dbo.表名',列) 不可靠，改用 sys.columns + OBJECT_ID */
+IF OBJECT_ID(N'dbo.HR_Departments', N'U') IS NOT NULL
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'dbo.HR_Departments') AND name = N'IsAudited'
+  )
+  BEGIN
+    ALTER TABLE dbo.HR_Departments ADD IsAudited BIT NOT NULL CONSTRAINT DF_HR_Departments_IsAudited_Alter DEFAULT (0);
+  END;
+  IF NOT EXISTS (
+    SELECT 1 FROM sys.columns
+    WHERE object_id = OBJECT_ID(N'dbo.HR_Departments') AND name = N'Auditor'
+  )
+  BEGIN
+    ALTER TABLE dbo.HR_Departments ADD Auditor NVARCHAR(50) NULL;
+  END;
+END;
+
+/* 2) 初始测试数据（一级：生产部、行政部；二级：五金组、注塑组、人力资源组） */
+DECLARE @ProdId INT;
+DECLARE @AdminDeptId INT;
+
+SELECT @ProdId = DeptID
+FROM dbo.HR_Departments
+WHERE DeptName = N'生产部' AND ParentID IS NULL;
+
+IF @ProdId IS NULL
+BEGIN
+  INSERT INTO dbo.HR_Departments (DeptName, ParentID) VALUES (N'生产部', NULL);
+  SET @ProdId = SCOPE_IDENTITY();
+END;
+
+SELECT @AdminDeptId = DeptID
+FROM dbo.HR_Departments
+WHERE DeptName = N'行政部' AND ParentID IS NULL;
+
+IF @AdminDeptId IS NULL
+BEGIN
+  INSERT INTO dbo.HR_Departments (DeptName, ParentID) VALUES (N'行政部', NULL);
+  SET @AdminDeptId = SCOPE_IDENTITY();
+END;
+
+IF NOT EXISTS (SELECT 1 FROM dbo.HR_Departments WHERE DeptName = N'五金组' AND ParentID = @ProdId)
+  INSERT INTO dbo.HR_Departments (DeptName, ParentID) VALUES (N'五金组', @ProdId);
+
+IF NOT EXISTS (SELECT 1 FROM dbo.HR_Departments WHERE DeptName = N'注塑组' AND ParentID = @ProdId)
+  INSERT INTO dbo.HR_Departments (DeptName, ParentID) VALUES (N'注塑组', @ProdId);
+
+IF NOT EXISTS (SELECT 1 FROM dbo.HR_Departments WHERE DeptName = N'人力资源组' AND ParentID = @AdminDeptId)
+  INSERT INTO dbo.HR_Departments (DeptName, ParentID) VALUES (N'人力资源组', @AdminDeptId);

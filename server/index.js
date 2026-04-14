@@ -151,6 +151,7 @@ function getCurrentUserFromReq(req) {
     token,
     userId: info.userId,
     userCode: info.userCode,
+    userName: info.userName != null ? String(info.userName) : '',
     roleId: info.roleId,
     roleName: info.roleName,
   }
@@ -633,6 +634,8 @@ app.post('/api/login', async (req, res) => {
     tokenStore.set(token, {
       userId: Number(userRow.UserID),
       userCode: String(userRow.UserCode ?? ''),
+      // v1.0.8：审核写入 Auditor 时用真实姓名（与 Sys_Users.UserName 一致）
+      userName: String(userRow.UserName ?? ''),
       // v1.0.7：附带角色，便于后续把接口鉴权与角色打通（当前仍以 token 为主）
       roleId: userRow.RoleID != null ? Number(userRow.RoleID) : null,
       roleName: String(userRow.RoleName ?? ''),
@@ -1522,6 +1525,477 @@ app.get('/api/sys-users', async (req, res) => {
           }
         : {}),
     })
+  }
+})
+
+/** v1.0.8+：已审核（pass=1）禁止改删时返回的固定文案（与 .cursorrules 一致） */
+const HR_DEPT_AUDIT_LOCK_MSG = '该记录已审核锁定，请反审后再操作'
+
+/**
+ * 旧系统部门表名：仅允许字母数字下划线，避免拼接进 SQL 时被注入；可在 .env 设置 HR_LEGACY_DEPT_TABLE
+ */
+const HR_LEGACY_DEPT_TABLE = (() => {
+  const t = String(process.env.HR_LEGACY_DEPT_TABLE ?? 'HR_Departments').trim()
+  if (!/^[a-zA-Z0-9_]{1,64}$/.test(t)) {
+    console.warn('[部门资料] HR_LEGACY_DEPT_TABLE 不合法，已回退为 HR_Departments')
+    return 'HR_Departments'
+  }
+  return t
+})()
+
+/** 已解析的 FROM子句，如 dbo.[HR_Departments] */
+const HR_LEGACY_DEPT_FROM = `dbo.[${HR_LEGACY_DEPT_TABLE}]`
+
+/** 旧表对外 JSON 字段顺序与大小写（与 Navicat 结构一致，严禁改名） */
+const HR_LEGACY_DEPT_KEYS = [
+  'code',
+  'name',
+  'manager',
+  'addtime',
+  'edittime',
+  'deltime',
+  'intime',
+  'del',
+  'flag',
+  'info',
+  'systemcode',
+  'pass',
+  'passid',
+  'passuname',
+  'passuid',
+  'passutruename',
+  'passtime',
+  'uploadtime',
+  'ip',
+  'delid',
+  'delname',
+  'deltruename',
+]
+
+/**
+ * 从驱动返回的行对象里按字段名取值（兼容不同大小写键名），并输出统一小写字段名
+ * @param {Record<string, any>|null|undefined} raw
+ */
+function mapLegacyDeptRow(raw) {
+  if (!raw) return null
+  const out = {}
+  for (const key of HR_LEGACY_DEPT_KEYS) {
+    let v = raw[key]
+    if (v === undefined) {
+      const rk = Object.keys(raw).find((k) => k.toLowerCase() === key)
+      if (rk) v = raw[rk]
+    }
+    out[key] = v === undefined ? null : v
+  }
+  return out
+}
+
+/**
+ * 旧表审核状态：pass 为 nvarchar，'1' 表示已审核
+ * @param {any} passVal
+ */
+function legacyDeptPassIsAudited(passVal) {
+  return String(passVal ?? '').trim() === '1'
+}
+
+/** del 为空或0 表示仍在用（未逻辑删除） */
+function legacyDeptRowIsActive(row) {
+  if (!row) return false
+  const d = String(row.del ?? '').trim()
+  return d === '' || d === '0'
+}
+
+/**
+ * 当前时间写入 nvarchar 时间字段（与旧系统字符串时间兼容）
+ */
+function legacyDeptNowString() {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
+/** 列表只显示未逻辑删除：del 为空、'' 或 '0' */
+const HR_LEGACY_WHERE_ACTIVE = `(ISNULL(t.del, N'') = N'' OR t.del = N'0')`
+
+/**
+ * 按 code 读一条（map 后的对象）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {string} codeRaw
+ */
+async function fetchLegacyDeptByCode(pool, codeRaw) {
+  const code = String(codeRaw ?? '').trim()
+  if (!code) return null
+  const r = await pool.request().input('code', sql.NVarChar(50), code).query(`
+    SELECT TOP (1)
+      t.code, t.name, t.manager, t.addtime, t.edittime, t.deltime, t.intime,
+      t.del, t.flag, t.info, t.systemcode, t.pass, t.passid, t.passuname, t.passuid, t.passutruename,
+      t.passtime, t.uploadtime, t.ip, t.delid, t.delname, t.deltruename
+    FROM ${HR_LEGACY_DEPT_FROM} AS t
+    WHERE t.code = @code
+  `)
+  return mapLegacyDeptRow(r.recordset?.[0])
+}
+
+/**
+ * 部门分页列表（旧表）：GET /api/hr/departments
+ * -默认每页 20；keyword 模糊匹配 name、code
+ * - 返回 list 中每条字段名均为小写，与旧库列名一致
+ */
+app.get('/api/hr/departments', async (req, res) => {
+  try {
+    const pageRaw = req.query?.page
+    const pageSizeRaw = req.query?.pageSize
+    const page = Number(pageRaw ?? 1)
+    const pageSize = Number(pageSizeRaw ?? 20)
+    const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1
+    const safePageSize =
+      Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.floor(pageSize), 200) : 20
+    const offset = (safePage - 1) * safePageSize
+
+    const keywordRaw = String(req.query?.keyword ?? '').trim()
+    const hasKeyword = keywordRaw.length > 0
+    const likeKey = `%${keywordRaw}%`
+
+    const pool = await getPool()
+
+    const whereBase = `WHERE ${HR_LEGACY_WHERE_ACTIVE}`
+    const whereKw = hasKeyword
+      ? ` AND (t.name LIKE @key OR t.code LIKE @key)`
+      : ''
+
+    const totalReq = pool.request()
+    if (hasKeyword) totalReq.input('key', sql.NVarChar(200), likeKey)
+    const totalResult = await totalReq.query(`
+      SELECT COUNT(1) AS total
+      FROM ${HR_LEGACY_DEPT_FROM} AS t
+      ${whereBase}${whereKw}
+    `)
+    const total = Number(totalResult.recordset?.[0]?.total ?? 0)
+
+    const safeOffset = Math.max(0, Math.floor(Number(offset)) || 0)
+    const safeFetch = Math.max(1, Math.min(200, Math.floor(Number(safePageSize)) || 20))
+
+    const listReq = pool.request()
+    if (hasKeyword) listReq.input('key', sql.NVarChar(200), likeKey)
+
+    const listSelect = `
+      SELECT
+        t.code, t.name, t.manager, t.addtime, t.edittime, t.deltime, t.intime,
+        t.del, t.flag, t.info, t.systemcode, t.pass, t.passid, t.passuname, t.passuid, t.passutruename,
+        t.passtime, t.uploadtime, t.ip, t.delid, t.delname, t.deltruename
+      FROM ${HR_LEGACY_DEPT_FROM} AS t
+      ${whereBase}${whereKw}
+      ORDER BY t.code
+    `
+
+    let listResult
+    try {
+      listResult = await listReq.query(`
+        ${listSelect}
+        OFFSET ${safeOffset} ROWS
+        FETCH NEXT ${safeFetch} ROWS ONLY
+      `)
+    } catch (pageErr) {
+      const msg = String(pageErr?.message ?? pageErr?.originalError?.message ?? '')
+      const shouldFallback =
+        msg.includes("Invalid usage of the option NEXT") ||
+        msg.includes("Incorrect syntax near 'OFFSET'") ||
+        msg.toLowerCase().includes('offset') ||
+        msg.toLowerCase().includes('fetch')
+      if (!shouldFallback) throw pageErr
+
+      const startRow = safeOffset + 1
+      const endRow = safeOffset + safeFetch
+      const fb = pool.request()
+      fb.input('startRow', sql.Int, startRow)
+      fb.input('endRow', sql.Int, endRow)
+      if (hasKeyword) fb.input('key', sql.NVarChar(200), likeKey)
+      listResult = await fb.query(`
+        SELECT
+          code, name, manager, addtime, edittime, deltime, intime,
+          del, flag, info, systemcode, pass, passid, passuname, passuid, passutruename,
+          passtime, uploadtime, ip, delid, delname, deltruename
+        FROM (
+          SELECT
+            t.code, t.name, t.manager, t.addtime, t.edittime, t.deltime, t.intime,
+            t.del, t.flag, t.info, t.systemcode, t.pass, t.passid, t.passuname, t.passuid, t.passutruename,
+            t.passtime, t.uploadtime, t.ip, t.delid, t.delname, t.deltruename,
+            ROW_NUMBER() OVER (ORDER BY t.code) AS rn
+          FROM ${HR_LEGACY_DEPT_FROM} AS t
+          ${whereBase}${whereKw}
+        ) AS x
+        WHERE x.rn BETWEEN @startRow AND @endRow
+      `)
+    }
+
+    const list = (listResult.recordset ?? []).map((row) => mapLegacyDeptRow(row)).filter(Boolean)
+
+    res.json({ code: 200, msg: 'success', data: { list, total } })
+  } catch (err) {
+    console.error('GET /api/hr/departments 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取部门资料失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 新增：POST /api/hr/departments
+ * body: { code, name, manager } — 字段名与旧表一致；pass/del 默认未审、未删
+ */
+app.post('/api/hr/departments', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const code = String(body.code ?? '').trim()
+    const name = String(body.name ?? '').trim()
+    const manager = String(body.manager ?? '').trim()
+    if (!code) {
+      res.status(400).json({ code: 400, msg: 'code（编码）不能为空', data: null })
+      return
+    }
+    if (!name) {
+      res.status(400).json({ code: 400, msg: 'name（名称）不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const now = legacyDeptNowString()
+    const ins = pool.request()
+    ins.input('code', sql.NVarChar(50), code)
+    ins.input('name', sql.NVarChar(50), name)
+    ins.input('manager', sql.NVarChar(50), manager || null)
+    ins.input('now', sql.NVarChar(50), now)
+    await ins.query(`
+      INSERT INTO ${HR_LEGACY_DEPT_FROM} (code, name, manager, pass, del, addtime, edittime)
+      VALUES (@code, @name, @manager, N'0', N'0', @now, @now)
+    `)
+
+    const row = await fetchLegacyDeptByCode(pool, code)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('POST /api/hr/departments 失败：', err)
+    const n = Number(err?.number ?? err?.originalError?.number ?? 0)
+    if (n === 2627 || n === 2601) {
+      res.status(400).json({ code: 400, msg: 'code已存在，不能重复', data: null })
+      return
+    }
+    const detail = String(err?.message ?? '数据库写入失败')
+    res.status(500).json({ code: 500, msg: `新增部门失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 编辑：PUT /api/hr/departments
+ * body: { code, name, manager } — code 定位行，不可改主键
+ */
+app.put('/api/hr/departments', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const code = String(body.code ?? '').trim()
+    const name = String(body.name ?? '').trim()
+    const manager = String(body.manager ?? '').trim()
+    if (!code) {
+      res.status(400).json({ code: 400, msg: 'code 不能为空', data: null })
+      return
+    }
+    if (!name) {
+      res.status(400).json({ code: 400, msg: 'name（名称）不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchLegacyDeptByCode(pool, code)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该部门或已删除', data: null })
+      return
+    }
+    if (legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: HR_DEPT_AUDIT_LOCK_MSG, data: null })
+      return
+    }
+
+    const now = legacyDeptNowString()
+    const upd = pool.request()
+    upd.input('code', sql.NVarChar(50), code)
+    upd.input('name', sql.NVarChar(50), name)
+    upd.input('manager', sql.NVarChar(50), manager || null)
+    upd.input('now', sql.NVarChar(50), now)
+    await upd.query(`
+      UPDATE t
+      SET t.name = @name, t.manager = @manager, t.edittime = @now
+      FROM ${HR_LEGACY_DEPT_FROM} AS t
+      WHERE t.code = @code AND (${HR_LEGACY_WHERE_ACTIVE})
+    `)
+
+    const row = await fetchLegacyDeptByCode(pool, code)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/hr/departments 失败：', err)
+    const detail = String(err?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `修改部门失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 逻辑删除：DELETE /api/hr/departments/:code
+ * - 已审核禁止；写入 del、deltime、edittime 及删除人信息（若有列）
+ */
+app.delete('/api/hr/departments/:code', async (req, res) => {
+  try {
+    const code = String(req.params.code ?? '').trim()
+    if (!code) {
+      res.status(400).json({ code: 400, msg: 'code 不合法', data: null })
+      return
+    }
+
+    const me = getCurrentUserFromReq(req)
+    const pool = await getPool()
+    const existing = await fetchLegacyDeptByCode(pool, code)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该部门或已删除', data: null })
+      return
+    }
+    if (legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: HR_DEPT_AUDIT_LOCK_MSG, data: null })
+      return
+    }
+
+    const now = legacyDeptNowString()
+    const delId = me?.userId != null ? String(me.userId) : ''
+    const delName = String(me?.userCode ?? '').trim()
+    const delTrueName = String(me?.userName ?? '').trim()
+
+    const upd = pool.request()
+    upd.input('code', sql.NVarChar(50), code)
+    upd.input('now', sql.NVarChar(50), now)
+    upd.input('delid', sql.NVarChar(50), delId || null)
+    upd.input('delname', sql.NVarChar(50), delName || null)
+    upd.input('deltruename', sql.NVarChar(50), delTrueName || null)
+    await upd.query(`
+      UPDATE t
+      SET
+        t.del = N'1',
+        t.deltime = @now,
+        t.edittime = @now,
+        t.delid = @delid,
+        t.delname = @delname,
+        t.deltruename = @deltruename
+      FROM ${HR_LEGACY_DEPT_FROM} AS t
+      WHERE t.code = @code AND (${HR_LEGACY_WHERE_ACTIVE})
+    `)
+
+    res.json({ code: 200, msg: 'success', data: { code } })
+  } catch (err) {
+    console.error('DELETE /api/hr/departments 失败：', err)
+    const detail = String(err?.message ?? '数据库删除失败')
+    res.status(500).json({ code: 500, msg: `删除部门失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 审核：PUT /api/hr/departments/audit
+ * body: { code } — pass=N'1'，审核人写入 passutruename 等
+ */
+app.put('/api/hr/departments/audit', async (req, res) => {
+  try {
+    const me = getCurrentUserFromReq(req)
+    const auditorName = String(me?.userName ?? me?.userCode ?? '').trim() || '未知'
+    const userCode = String(me?.userCode ?? '').trim()
+    const uidStr = me?.userId != null ? String(me.userId) : ''
+
+    const body = req.body ?? {}
+    const code = String(body.code ?? '').trim()
+    if (!code) {
+      res.status(400).json({ code: 400, msg: 'code 不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchLegacyDeptByCode(pool, code)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该部门或已删除', data: null })
+      return
+    }
+    if (legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: '当前已是已审核状态', data: null })
+      return
+    }
+
+    const now = legacyDeptNowString()
+    const q = pool.request()
+    q.input('code', sql.NVarChar(50), code)
+    q.input('now', sql.NVarChar(50), now)
+    q.input('passutruename', sql.NVarChar(50), auditorName)
+    q.input('passuname', sql.NVarChar(50), userCode || null)
+    q.input('passuid', sql.NVarChar(50), uidStr || null)
+    q.input('passid', sql.NVarChar(50), uidStr || null)
+    await q.query(`
+      UPDATE t
+      SET
+        t.pass = N'1',
+        t.passutruename = @passutruename,
+        t.passuname = @passuname,
+        t.passuid = @passuid,
+        t.passid = @passid,
+        t.passtime = @now,
+        t.edittime = @now
+      FROM ${HR_LEGACY_DEPT_FROM} AS t
+      WHERE t.code = @code AND (${HR_LEGACY_WHERE_ACTIVE})
+    `)
+
+    const row = await fetchLegacyDeptByCode(pool, code)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/hr/departments/audit 失败：', err)
+    const detail = String(err?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `审核失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 反审：PUT /api/hr/departments/unaudit
+ * body: { code }
+ */
+app.put('/api/hr/departments/unaudit', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const code = String(body.code ?? '').trim()
+    if (!code) {
+      res.status(400).json({ code: 400, msg: 'code 不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchLegacyDeptByCode(pool, code)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该部门或已删除', data: null })
+      return
+    }
+    if (!legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: '当前为未审核状态，无需反审', data: null })
+      return
+    }
+
+    const now = legacyDeptNowString()
+    await pool.request().input('code', sql.NVarChar(50), code).input('now', sql.NVarChar(50), now).query(`
+      UPDATE t
+      SET
+        t.pass = N'0',
+        t.passutruename = NULL,
+        t.passuname = NULL,
+        t.passuid = NULL,
+        t.passid = NULL,
+        t.passtime = NULL,
+        t.edittime = @now
+      FROM ${HR_LEGACY_DEPT_FROM} AS t
+      WHERE t.code = @code AND (${HR_LEGACY_WHERE_ACTIVE})
+    `)
+
+    const row = await fetchLegacyDeptByCode(pool, code)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/hr/departments/unaudit 失败：', err)
+    const detail = String(err?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `反审失败：${detail}`, data: null })
   }
 })
 
