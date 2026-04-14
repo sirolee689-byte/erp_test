@@ -117,6 +117,26 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'hr/files/department', action: 'delete' }
   }
 
+  /* v1.0.9：人事档案精简管理（菜单 path 与 erp_structure_dump 一致：hr/files/employee-files） */
+  if (m === 'GET' && path === '/api/hr/staff') {
+    return { menuPath: 'hr/files/employee-files', action: 'view' }
+  }
+  if (m === 'POST' && path === '/api/hr/staff') {
+    return { menuPath: 'hr/files/employee-files', action: 'add' }
+  }
+  if (m === 'PUT' && path === '/api/hr/staff/audit') {
+    return { menuPath: 'hr/files/employee-files', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/hr/staff/unaudit') {
+    return { menuPath: 'hr/files/employee-files', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/hr/staff') {
+    return { menuPath: 'hr/files/employee-files', action: 'edit' }
+  }
+  if (m === 'DELETE' && /^\/api\/hr\/staff\/.+$/.test(path)) {
+    return { menuPath: 'hr/files/employee-files', action: 'delete' }
+  }
+
   return null
 }
 

@@ -13,7 +13,12 @@
 
 ### 员工档案资料
 
-- 占位：`employee-files/index.vue`。
+- **数据源**：旧系统员工表 `dbo.Hr_staff`（可用 `.env` 覆盖：`HR_STAFF_TABLE`）。
+- **只查有效字段**：`code`、`name`、`sex`、`in_bm`、`card_number`、`meal_type`、`intime`、`pass`（严禁加载其它空字段）。
+- **分页**：`GET /api/hr/staff`，默认 **`pageSize=20`**；支持 `OFFSET/FETCH`，不支持时自动降级 `ROW_NUMBER()`。
+- **搜索优先级**：先 `name` 模糊，再 `code` 精确，再 `card_number` 精确。
+- **审核**：`pass === '1'` 为已审核；已审核行 **禁用编辑、删除**；审核/反审互斥且带确认弹窗。
+- **卡号提醒**：列表显示时，`card_number` 非空且不足 10 位，前端红字提示「不足10位」。 
 
 ## 配置提示
 
@@ -23,3 +28,4 @@
 ## 相关文档
 
 - `src/views/system/hr_department_design.md`
+- `src/views/system/hr_staff_design.md`

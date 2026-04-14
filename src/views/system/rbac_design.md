@@ -71,3 +71,13 @@
 ## 6. 扩展模块：人力资源 — 部门资料（v1.0.8+，旧表接管）
 
 部门维护接口已纳入 API 权限闸门，菜单 path 为 **`hr/files/department`**（操作：`view` / `add` / `edit` / `delete` / **`audit`**）。审核、反审走 `PUT /api/hr/departments/audit` 与 `PUT /api/hr/departments/unaudit`。**删除**为 `DELETE /api/hr/departments/:code`（路径参数为旧表主键 **`code`** 字符串）。数据来自环境变量 **`HR_LEGACY_DEPT_TABLE`**（默认 **`HR_Departments`**）指向的部门表，字段名与库内一致。详见 **`hr_department_design.md`**。
+
+## 7. 扩展模块：人力资源 — 人事档案精简管理（v1.0.9）
+
+员工档案接口纳入 API 权限闸门，菜单 path 为 **`hr/files/employee-files`**（操作：`view` / `add` / `edit` / `delete` / **`audit`**）。
+
+- 列表：`GET /api/hr/staff`（分页 + 搜索；后端只查询 `code/name/sex/in_bm/card_number/meal_type/intime/pass`）
+- 审核/反审：`PUT /api/hr/staff/audit`、`PUT /api/hr/staff/unaudit`（均需 `audit`）
+- 删除：`DELETE /api/hr/staff/:code`（路径参数为工号 `code` 字符串）
+
+详细字段映射与搜索优先级见 `hr_staff_design.md`。

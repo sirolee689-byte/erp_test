@@ -1999,6 +1999,415 @@ app.put('/api/hr/departments/unaudit', async (req, res) => {
   }
 })
 
+/** v1.0.9：人事档案（Hr_staff）已审核禁止改删固定文案 */
+const HR_STAFF_AUDIT_LOCK_MSG = '该记录已审核锁定，请反审后再操作'
+
+/** v1.0.9：员工表名固定为 Hr_staff（可用 .env 覆盖） */
+const HR_STAFF_TABLE = (() => {
+  const t = String(process.env.HR_STAFF_TABLE ?? 'Hr_staff').trim()
+  if (!/^[a-zA-Z0-9_]{1,64}$/.test(t)) {
+    console.warn('[员工档案] HR_STAFF_TABLE 不合法，已回退为 Hr_staff')
+    return 'Hr_staff'
+  }
+  return t
+})()
+
+/** 已解析的 FROM 子句，如 dbo.[Hr_staff] */
+const HR_STAFF_FROM = `dbo.[${HR_STAFF_TABLE}]`
+
+/**
+ * 判断 pass 是否已审核：旧表 pass 为 nvarchar，'1' 表示已审核
+ * @param {any} v
+ */
+function staffPassIsAudited(v) {
+  return String(v ?? '').trim() === '1'
+}
+
+/**
+ * v1.0.9：按 code 读取一条（只查你指定的有效字段）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {string} codeRaw
+ */
+async function fetchStaffByCode(pool, codeRaw) {
+  const code = String(codeRaw ?? '').trim()
+  if (!code) return null
+  const r = await pool.request().input('code', sql.NVarChar(50), code).query(`
+    SELECT TOP (1)
+      s.code AS code,
+      s.name AS name,
+      s.sex AS sex,
+      s.in_bm AS in_bm,
+      s.card_number AS card_number,
+      s.meal_type AS meal_type,
+      s.intime AS intime,
+      s.pass AS pass
+    FROM ${HR_STAFF_FROM} AS s
+    WHERE s.code = @code
+  `)
+  return r.recordset?.[0] ?? null
+}
+
+/**
+ * v1.0.9：员工分页列表（只选有效字段，避免扫空字段）
+ *
+ * 查询优先级（按你要求）：
+ * - 先 name 模糊（只要 name 有值就走 LIKE）
+ * - 再 code 精确
+ * - 再 card_number 精确
+ *
+ * 参数：
+ * - page（默认 1）
+ * - pageSize（默认 20）
+ * - name（可选，模糊）
+ * - code（可选，精确）
+ * - card_number（可选，精确）
+ *
+ * 返回：{ list, total }（字段名保持原样小写）
+ */
+app.get('/api/hr/staff', async (req, res) => {
+  try {
+    const pageRaw = req.query?.page
+    const pageSizeRaw = req.query?.pageSize
+    const page = Number(pageRaw ?? 1)
+    const pageSize = Number(pageSizeRaw ?? 20)
+    const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1
+    const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.floor(pageSize), 200) : 20
+    const offset = (safePage - 1) * safePageSize
+
+    const nameRaw = String(req.query?.name ?? '').trim()
+    const codeRaw = String(req.query?.code ?? '').trim()
+    const cardRaw = String(req.query?.card_number ?? '').trim()
+
+    const hasName = nameRaw.length > 0
+    const hasCode = !hasName && codeRaw.length > 0
+    const hasCard = !hasName && !hasCode && cardRaw.length > 0
+
+    const pool = await getPool()
+
+    let whereSql = ''
+    const totalReq = pool.request()
+    const listReq = pool.request()
+
+    if (hasName) {
+      whereSql = 'WHERE s.name LIKE @nameLike'
+      totalReq.input('nameLike', sql.NVarChar(200), `%${nameRaw}%`)
+      listReq.input('nameLike', sql.NVarChar(200), `%${nameRaw}%`)
+    } else if (hasCode) {
+      whereSql = 'WHERE s.code = @code'
+      totalReq.input('code', sql.NVarChar(50), codeRaw)
+      listReq.input('code', sql.NVarChar(50), codeRaw)
+    } else if (hasCard) {
+      whereSql = 'WHERE s.card_number = @cardNumber'
+      totalReq.input('cardNumber', sql.NVarChar(50), cardRaw)
+      listReq.input('cardNumber', sql.NVarChar(50), cardRaw)
+    }
+
+    const totalResult = await totalReq.query(`
+      SELECT COUNT(1) AS total
+      FROM ${HR_STAFF_FROM} AS s
+      ${whereSql}
+    `)
+    const total = Number(totalResult.recordset?.[0]?.total ?? 0)
+
+    const safeOffset = Math.max(0, Math.floor(Number(offset)) || 0)
+    const safeFetch = Math.max(1, Math.min(200, Math.floor(Number(safePageSize)) || 20))
+
+    const listSelect = `
+      SELECT
+        s.code AS code,
+        s.name AS name,
+        s.sex AS sex,
+        s.in_bm AS in_bm,
+        s.card_number AS card_number,
+        s.meal_type AS meal_type,
+        s.intime AS intime,
+        s.pass AS pass
+      FROM ${HR_STAFF_FROM} AS s
+      ${whereSql}
+      ORDER BY s.code
+    `
+
+    let listResult
+    try {
+      listResult = await listReq.query(`
+        ${listSelect}
+        OFFSET ${safeOffset} ROWS
+        FETCH NEXT ${safeFetch} ROWS ONLY
+      `)
+    } catch (pageErr) {
+      const msg = String(pageErr?.message ?? pageErr?.originalError?.message ?? '')
+      const shouldFallback =
+        msg.includes('Invalid usage of the option NEXT') ||
+        msg.includes("Incorrect syntax near 'OFFSET'") ||
+        msg.toLowerCase().includes('offset') ||
+        msg.toLowerCase().includes('fetch')
+      if (!shouldFallback) throw pageErr
+
+      const startRow = safeOffset + 1
+      const endRow = safeOffset + safeFetch
+      const fb = pool.request()
+      fb.input('startRow', sql.Int, startRow)
+      fb.input('endRow', sql.Int, endRow)
+      if (hasName) fb.input('nameLike', sql.NVarChar(200), `%${nameRaw}%`)
+      if (hasCode) fb.input('code', sql.NVarChar(50), codeRaw)
+      if (hasCard) fb.input('cardNumber', sql.NVarChar(50), cardRaw)
+
+      listResult = await fb.query(`
+        SELECT code, name, sex, in_bm, card_number, meal_type, intime, pass
+        FROM (
+          SELECT
+            s.code AS code,
+            s.name AS name,
+            s.sex AS sex,
+            s.in_bm AS in_bm,
+            s.card_number AS card_number,
+            s.meal_type AS meal_type,
+            s.intime AS intime,
+            s.pass AS pass,
+            ROW_NUMBER() OVER (ORDER BY s.code) AS rn
+          FROM ${HR_STAFF_FROM} AS s
+          ${whereSql}
+        ) AS x
+        WHERE x.rn BETWEEN @startRow AND @endRow
+      `)
+    }
+
+    res.json({ code: 200, msg: 'success', data: { list: listResult.recordset ?? [], total } })
+  } catch (err) {
+    console.error('GET /api/hr/staff 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取员工档案失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * v1.0.9：新增员工（只写你指定字段）
+ * body: { code, name, sex, in_bm, card_number, meal_type, intime }
+ * - pass 默认 '0'（未审核）
+ */
+app.post('/api/hr/staff', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const code = String(body.code ?? '').trim()
+    const name = String(body.name ?? '').trim()
+    const sex = String(body.sex ?? '').trim()
+    const inBm = String(body.in_bm ?? '').trim()
+    const card = String(body.card_number ?? '').trim()
+    const mealType = String(body.meal_type ?? '').trim()
+    const intime = String(body.intime ?? '').trim()
+
+    if (!code) {
+      res.status(400).json({ code: 400, msg: 'code（工号）不能为空', data: null })
+      return
+    }
+    if (!name) {
+      res.status(400).json({ code: 400, msg: 'name（姓名）不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const ins = pool.request()
+    ins.input('code', sql.NVarChar(50), code)
+    ins.input('name', sql.NVarChar(50), name)
+    ins.input('sex', sql.NVarChar(50), sex || null)
+    ins.input('in_bm', sql.NVarChar(100), inBm || null)
+    ins.input('card_number', sql.NVarChar(50), card || null)
+    ins.input('meal_type', sql.NVarChar(50), mealType || null)
+    ins.input('intime', sql.NVarChar(50), intime || null)
+
+    await ins.query(`
+      INSERT INTO ${HR_STAFF_FROM} (code, name, sex, in_bm, card_number, meal_type, intime, pass)
+      VALUES (@code, @name, @sex, @in_bm, @card_number, @meal_type, @intime, N'0')
+    `)
+
+    const row = await fetchStaffByCode(pool, code)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('POST /api/hr/staff 失败：', err)
+    const n = Number(err?.number ?? err?.originalError?.number ?? 0)
+    if (n === 2627 || n === 2601) {
+      res.status(400).json({ code: 400, msg: 'code 已存在，不能重复', data: null })
+      return
+    }
+    const detail = String(err?.message ?? '数据库写入失败')
+    res.status(500).json({ code: 500, msg: `新增员工失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * v1.0.9：编辑员工（已审核 pass='1' 禁止）
+ * body: { code, name, sex, in_bm, card_number, meal_type, intime }
+ */
+app.put('/api/hr/staff', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const code = String(body.code ?? '').trim()
+    const name = String(body.name ?? '').trim()
+    const sex = String(body.sex ?? '').trim()
+    const inBm = String(body.in_bm ?? '').trim()
+    const card = String(body.card_number ?? '').trim()
+    const mealType = String(body.meal_type ?? '').trim()
+    const intime = String(body.intime ?? '').trim()
+
+    if (!code) {
+      res.status(400).json({ code: 400, msg: 'code（工号）不能为空', data: null })
+      return
+    }
+    if (!name) {
+      res.status(400).json({ code: 400, msg: 'name（姓名）不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchStaffByCode(pool, code)
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该员工', data: null })
+      return
+    }
+    if (staffPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: HR_STAFF_AUDIT_LOCK_MSG, data: null })
+      return
+    }
+
+    const upd = pool.request()
+    upd.input('code', sql.NVarChar(50), code)
+    upd.input('name', sql.NVarChar(50), name)
+    upd.input('sex', sql.NVarChar(50), sex || null)
+    upd.input('in_bm', sql.NVarChar(100), inBm || null)
+    upd.input('card_number', sql.NVarChar(50), card || null)
+    upd.input('meal_type', sql.NVarChar(50), mealType || null)
+    upd.input('intime', sql.NVarChar(50), intime || null)
+
+    await upd.query(`
+      UPDATE s
+      SET
+        s.name = @name,
+        s.sex = @sex,
+        s.in_bm = @in_bm,
+        s.card_number = @card_number,
+        s.meal_type = @meal_type,
+        s.intime = @intime
+      FROM ${HR_STAFF_FROM} AS s
+      WHERE s.code = @code
+    `)
+
+    const row = await fetchStaffByCode(pool, code)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/hr/staff 失败：', err)
+    const detail = String(err?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `修改员工失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * v1.0.9：删除员工（已审核 pass='1' 禁止）
+ */
+app.delete('/api/hr/staff/:code', async (req, res) => {
+  try {
+    const code = String(req.params.code ?? '').trim()
+    if (!code) {
+      res.status(400).json({ code: 400, msg: 'code 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchStaffByCode(pool, code)
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该员工', data: null })
+      return
+    }
+    if (staffPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: HR_STAFF_AUDIT_LOCK_MSG, data: null })
+      return
+    }
+
+    await pool.request().input('code', sql.NVarChar(50), code).query(`
+      DELETE FROM ${HR_STAFF_FROM}
+      WHERE code = @code
+    `)
+    res.json({ code: 200, msg: 'success', data: { code } })
+  } catch (err) {
+    console.error('DELETE /api/hr/staff 失败：', err)
+    const detail = String(err?.message ?? '数据库删除失败')
+    res.status(500).json({ code: 500, msg: `删除员工失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * v1.0.9：审核（pass='1'）
+ */
+app.put('/api/hr/staff/audit', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const code = String(body.code ?? '').trim()
+    if (!code) {
+      res.status(400).json({ code: 400, msg: 'code 不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchStaffByCode(pool, code)
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该员工', data: null })
+      return
+    }
+    if (staffPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: '当前已是已审核状态', data: null })
+      return
+    }
+
+    await pool.request().input('code', sql.NVarChar(50), code).query(`
+      UPDATE s SET s.pass = N'1'
+      FROM ${HR_STAFF_FROM} AS s
+      WHERE s.code = @code
+    `)
+    const row = await fetchStaffByCode(pool, code)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/hr/staff/audit 失败：', err)
+    const detail = String(err?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `审核失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * v1.0.9：反审（pass='0'）
+ */
+app.put('/api/hr/staff/unaudit', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const code = String(body.code ?? '').trim()
+    if (!code) {
+      res.status(400).json({ code: 400, msg: 'code 不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchStaffByCode(pool, code)
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该员工', data: null })
+      return
+    }
+    if (!staffPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: '当前为未审核状态，无需反审', data: null })
+      return
+    }
+
+    await pool.request().input('code', sql.NVarChar(50), code).query(`
+      UPDATE s SET s.pass = N'0'
+      FROM ${HR_STAFF_FROM} AS s
+      WHERE s.code = @code
+    `)
+    const row = await fetchStaffByCode(pool, code)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/hr/staff/unaudit 失败：', err)
+    const detail = String(err?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `反审失败：${detail}`, data: null })
+  }
+})
+
 // 可选：优雅关闭（例如 Ctrl+C）
 process.on('SIGINT', async () => {
   try {
