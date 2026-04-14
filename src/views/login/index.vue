@@ -92,6 +92,8 @@ import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import menuStructure from '../../../erp_structure_dump.json'
+import { getFirstPermittedRoutePath, isFullPathAllowedForCurrentUser } from '@/utils/menuPermission'
 
 // =========================
 // 1) 路由对象（用于跳转）
@@ -167,11 +169,9 @@ async function onLogin() {
      *    以及本阶段新增的 RoleID、RoleName（来自 Sys_Users 关联 Sys_Roles）。
      * 2) localStorage 只能存字符串，所以这里用 JSON.stringify(user) 序列化整个 user 对象。
      * 3) 写入的 key 固定为 erp_user（与布局页 ErpLayout 读取的 key 一致）。
-     * 4) 后续要做「菜单显隐 / 按钮禁用 / 路由级权限」时，可在任意组件中：
-     *    const user = JSON.parse(localStorage.getItem('erp_user') || '{}')
-     *    再读取 user.RoleName 或 user.RoleID 与业务规则比对即可。
-     * 5) 路由守卫目前仍以 erp_token 是否存在判断「是否已登录」；角色信息不参与拦截，
-     *    这样登录态与 RBAC 数据分层：token = 会话，erp_user = 可扩展的用户画像（含角色）。
+     * 4) user.Permissions 为角色在 Sys_Roles.Permissions 中配置的菜单 path JSON 字符串；
+     *    侧栏与路由守卫会读取它做菜单过滤与无权限拦截（详见 @/utils/menuPermission.js）。
+     * 5) 路由守卫仍以 erp_token 判断登录；Permissions 用于登录后的菜单与 URL 授权。
      */
     const user = json?.data?.user
     localStorage.setItem('erp_user', JSON.stringify(user ?? {}))
@@ -182,9 +182,12 @@ async function onLogin() {
     // 关键：登录成功后跳转
     // 小白版解释：
     // - 你原来想去哪个页面，路由守卫会把地址塞到 ?redirect=xxx
-    // - 我们优先跳回 redirect，如果没有就去首页 /
-    const redirect = String(route.query?.redirect ?? '').trim()
-    await router.replace(redirect || '/')
+    // - 若 redirect 指向无权限页面，则改跳到「第一个有权限的菜单」或 /403
+    let redirect = String(route.query?.redirect ?? '').trim() || '/'
+    if (!isFullPathAllowedForCurrentUser(redirect)) {
+      redirect = getFirstPermittedRoutePath(menuStructure)
+    }
+    await router.replace(redirect)
   } catch (e) {
     // 关键：axios 如果收到 400/500，会把后端返回的中文 msg 放在 e.response.data.msg
     const backendMsg = e?.response?.data?.msg

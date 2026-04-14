@@ -88,10 +88,13 @@
               </template>
             </el-table-column>
 
-            <el-table-column label="操作" min-width="200" fixed="right">
+            <el-table-column label="操作" min-width="280" fixed="right">
               <template #default="{ row }">
                 <template v-if="Number(selectedStatus) === 1">
                   <el-button size="small" @click="openEditDialog(row)">编辑</el-button>
+                  <el-button size="small" type="primary" plain @click="openPermDialog(row)">
+                    分配权限
+                  </el-button>
                   <el-button size="small" type="danger" @click="confirmDisable(row)">禁用</el-button>
                 </template>
                 <template v-else>
@@ -143,14 +146,51 @@
         <el-button type="primary" :loading="saving" @click="submitForm">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 分配菜单权限：el-tree 与 erp_structure_dump.json 同源 -->
+    <el-dialog
+      v-model="permDialogVisible"
+      :title="`分配权限 — ${permRoleName || ''}`"
+      width="560px"
+      top="8vh"
+      :close-on-click-modal="false"
+      @closed="onPermDialogClosed"
+    >
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        class="perm-alert"
+        title="勾选左侧树即保存对应菜单 path（如 system/operator）。开启「全部菜单」将写入通配符 *。"
+      />
+      <div class="perm-toolbar">
+        <el-switch v-model="permFullAccess" active-text="全部菜单（*）" @change="onPermFullAccessChange" />
+      </div>
+      <div class="perm-tree-wrap" :class="{ 'is-tree-locked': permFullAccess }">
+        <el-tree
+          ref="permTreeRef"
+          class="perm-tree"
+          :data="permTreeData"
+          node-key="path"
+          show-checkbox
+          :props="{ label: 'label', children: 'children' }"
+          default-expand-all
+        />
+      </div>
+      <template #footer>
+        <el-button @click="permDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="permSaving" @click="submitPermDialog">保存权限</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 import { Plus, Refresh, RefreshLeft, Setting } from '@element-plus/icons-vue'
+import menuDump from '../../../../erp_structure_dump.json'
 
 /** 页面标题（与左侧菜单「角色管理」一致） */
 const pageTitle = '角色管理'
@@ -192,6 +232,108 @@ const form = ref({
 /** 校验规则 */
 const formRules = {
   RoleName: [{ required: true, message: '请输入角色名称', trigger: 'blur' }],
+}
+
+/** 分配权限弹窗 */
+const permDialogVisible = ref(false)
+const permSaving = ref(false)
+const permRoleId = ref(null)
+const permRoleName = ref('')
+const permTreeRef = ref(null)
+/** 勾选后保存通配符 *，等价于不限制菜单 */
+const permFullAccess = ref(false)
+
+/**
+ * 把 erp_structure_dump 转成 el-tree 需要的节点（path 与路由 walkRoutes 规则一致）
+ */
+function buildPermTreeNodes(nodes, base = '') {
+  return nodes.map((n) => {
+    const path = base ? `${base}/${n.name}` : n.name
+    const item = { label: `${n.title}（${path}）`, path }
+    if (n.children?.length) {
+      item.children = buildPermTreeNodes(n.children, path)
+    }
+    return item
+  })
+}
+
+const permTreeData = computed(() => buildPermTreeNodes(menuDump))
+
+function onPermFullAccessChange() {
+  if (permFullAccess.value) {
+    permTreeRef.value?.setCheckedKeys([], false)
+  }
+}
+
+function onPermDialogClosed() {
+  permRoleId.value = null
+  permRoleName.value = ''
+  permFullAccess.value = false
+}
+
+function openPermDialog(row) {
+  permRoleId.value = row?.RoleID ?? null
+  permRoleName.value = row?.RoleName ?? ''
+  permDialogVisible.value = true
+
+  let keys = []
+  let wildcard = false
+  try {
+    if (row?.Permissions) {
+      const arr = typeof row.Permissions === 'string' ? JSON.parse(row.Permissions) : row.Permissions
+      if (Array.isArray(arr) && arr.includes('*')) {
+        wildcard = true
+      } else if (Array.isArray(arr)) {
+        keys = arr.map((x) => String(x).trim()).filter(Boolean)
+      }
+    }
+  } catch {
+    keys = []
+  }
+  permFullAccess.value = wildcard
+  nextTick(() => {
+    permTreeRef.value?.setCheckedKeys(wildcard ? [] : keys, false)
+  })
+}
+
+async function submitPermDialog() {
+  if (!permRoleId.value) {
+    ElMessage.error('缺少 RoleID')
+    return
+  }
+  const payload = permFullAccess.value ? ['*'] : collectCheckedPermPaths()
+  permSaving.value = true
+  try {
+    const res = await axios.put('/api/roles/permissions', {
+      RoleID: permRoleId.value,
+      Permissions: payload,
+    })
+    const json = res.data
+    if (json?.code !== 200) {
+      ElMessage.error(json?.msg || '保存失败')
+      return
+    }
+    ElMessage.success('权限已保存（已登录用户需重新登录后菜单与路由才会刷新）')
+    permDialogVisible.value = false
+    await loadRoles()
+  } catch (e) {
+    const backendMsg = e?.response?.data?.msg
+    ElMessage.error(backendMsg || '请求失败')
+  } finally {
+    permSaving.value = false
+  }
+}
+
+/**
+ * 合并「全选节点 + 半选父节点」，与 Element Plus 级联勾选一致，便于父 path 一并入库
+ */
+function collectCheckedPermPaths() {
+  const tree = permTreeRef.value
+  if (!tree) return []
+  const checked = tree.getCheckedKeys(false)
+  const half =
+    typeof tree.getHalfCheckedKeys === 'function' ? tree.getHalfCheckedKeys() : []
+  return [...new Set([...checked, ...half].map((x) => String(x).trim()).filter(Boolean))]
 }
 
 /**
@@ -474,5 +616,28 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
+}
+.perm-alert {
+  margin-bottom: 10px;
+}
+.perm-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.perm-tree-wrap {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  padding: 8px;
+}
+.perm-tree-wrap.is-tree-locked {
+  pointer-events: none;
+  opacity: 0.55;
+}
+.perm-tree {
+  max-height: 420px;
+  overflow: auto;
 }
 </style>

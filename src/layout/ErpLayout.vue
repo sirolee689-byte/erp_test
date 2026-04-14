@@ -16,7 +16,8 @@
           text-color="#ffffff"
           active-text-color="#5aa7ff"
         >
-          <ErpMenuTree :nodes="menuStructure" />
+          <!-- v1.0.7：侧栏菜单按当前用户 Permissions 过滤，不再整棵 JSON 全量展示 -->
+          <ErpMenuTree :nodes="filteredMenuStructure" />
         </el-menu>
       </el-scrollbar>
     </el-aside>
@@ -106,7 +107,8 @@
 <script setup>
 import { computed, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import menuStructure from '../../erp_structure_dump.json'
+import rawMenuStructure from '../../erp_structure_dump.json'
+import { filterMenuTreeByPermission, getPermissionSetFromStorage } from '@/utils/menuPermission'
 import ErpMenuTree from './ErpMenuTree.vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -116,6 +118,15 @@ const route = useRoute()
 const router = useRouter()
 const active = computed(() => route.path)
 const headerTitle = computed(() => (route.meta.title ? String(route.meta.title) : '首页'))
+
+/**
+ * 根据 localStorage 中 erp_user.Permissions 递归过滤菜单树（算法见 @/utils/menuPermission.js）
+ * 说明：localStorage 非响应式，登录后首次进入布局会读最新；若管理员改权限，用户需重新登录后生效。
+ */
+const filteredMenuStructure = computed(() => {
+  const permSet = getPermissionSetFromStorage()
+  return filterMenuTreeByPermission(rawMenuStructure, permSet, '')
+})
 
 const isCollapsed = ref(false)
 const asideWidth = computed(() => (isCollapsed.value ? '64px' : '260px'))

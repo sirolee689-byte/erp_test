@@ -12,8 +12,11 @@
 | `RoleName` | `NVARCHAR(50)` | 角色英文名（业务代码中可稳定引用：`Admin` / `Onduty` / `Viewer`） |
 | `Description` | `NVARCHAR(200)` | 中文描述 |
 | `Status` | `INT` | 1=启用，0=禁用（预留） |
+| `Permissions` | `NVARCHAR(MAX)` | 可选；JSON 数组字符串，元素为菜单 **path**（与 `erp_structure_dump.json` 拼接规则一致，如 `system/operator`）。含字符串 `"*"` 时表示不限制菜单。`NULL` 或缺列时，应用层按「不限制」兼容旧库。 |
 
 唯一约束：`RoleName` 唯一。
+
+**迁移**：执行 `scripts/migrations/sqlserver_v1.0.7_permissions_column.txt`（或 `docs/sql/erp_v1.0.7_permissions_column.txt`）增加 `Permissions` 列。
 
 ### 1.2 `Sys_Users`（操作员）扩展
 
@@ -50,6 +53,14 @@
 | `/api/roles` | PUT | 禁用：`{ RoleID, Status: 0 }`；编辑：`{ RoleID, RoleName, Description }`。 |
 | `/api/roles/resume` | PUT | 恢复启用：`{ RoleID }`。 |
 | `/api/roles/:id` | DELETE | 物理删除（要求已禁用且无 `Sys_Users` 引用）。 |
+| `/api/roles/permissions` | PUT | 仅更新 `Permissions`：`{ RoleID, Permissions: string[] \| JSON 字符串 }`。 |
+
+**前端权限**：
+
+- 登录接口 `data.user.Permissions` 随 `erp_user` 写入 `localStorage`。
+- 侧栏：`ErpLayout` 对 `erp_structure_dump.json` 做递归过滤后传给 `ErpMenuTree`（见 `src/utils/menuPermission.js` 中 **filter** 算法注释）。
+- 路由：`router.beforeEach` 对无权限 URL 重定向 `/403`；根路径 `/` 动态重定向到「第一个有权限的叶子菜单」。
+- 角色管理页「分配权限」：`el-tree` 勾选 path，保存为 JSON 数组；支持开关「全部菜单」写入 `["*"]`。
 
 详细交互与路由说明见 `role/README.md`。
 

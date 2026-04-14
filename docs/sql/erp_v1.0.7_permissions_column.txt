@@ -1,0 +1,7 @@
+-- 与 scripts/migrations/sqlserver_v1.0.7_permissions_column.txt 内容相同
+-- 按 .cursorrules：数据库变更脚本归档于 docs/sql/
+
+IF COL_LENGTH('dbo.Sys_Roles', 'Permissions') IS NULL
+BEGIN
+  ALTER TABLE dbo.Sys_Roles ADD Permissions NVARCHAR(MAX) NULL;
+END;

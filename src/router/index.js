@@ -1,6 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import menuStructure from '../../erp_structure_dump.json'
 import ErpLayout from '@/layout/ErpLayout.vue'
+import {
+  getFirstPermittedRoutePath,
+  getPermissionSetFromStorage,
+  isRouteAllowed,
+} from '@/utils/menuPermission'
 
 const viewModules = import.meta.glob('../views/**/index.vue')
 
@@ -29,21 +34,15 @@ function walkRoutes(nodes, base = '') {
   return out
 }
 
-/**
- * @param {any[]} nodes
- * @param {string} prefix
- */
-function firstLeafPath(nodes, prefix = '') {
-  for (const n of nodes) {
-    const p = prefix ? `${prefix}/${n.name}` : n.name
-    if (!n.children?.length) return `/${p}`
-    const sub = firstLeafPath(n.children, p)
-    if (sub) return sub
-  }
-  return '/system'
+/** 无权限提示页（不在 erp_structure_dump 中，单独注册） */
+const exception403Route = {
+  path: '403',
+  name: 'page-403',
+  component: () => import('@/views/exception/403/index.vue'),
+  meta: { title: '无权限' },
 }
 
-const childRoutes = walkRoutes(menuStructure)
+const childRoutes = [...walkRoutes(menuStructure), exception403Route]
 
 /**
  * 登录态判断（前端最简版）
@@ -54,18 +53,13 @@ const childRoutes = walkRoutes(menuStructure)
  * - 不在：认为“未登录”
  */
 function isLoggedIn() {
-  // 关键：localStorage 是浏览器自带的“小仓库”，关掉浏览器再打开数据还在
   const token = localStorage.getItem('erp_token')
-  // 关键：只要 token 是非空字符串，就当作已登录
   return !!String(token ?? '').trim()
 }
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    // =========================
-    // 登录页（独立路由，不放在后台布局里）
-    // =========================
     {
       path: '/login',
       name: 'login',
@@ -75,35 +69,34 @@ const router = createRouter({
     {
       path: '/',
       component: ErpLayout,
-      redirect: firstLeafPath(menuStructure),
+      // v1.0.7：按当前用户 Permissions 动态落到第一个有权的叶子菜单；全无则 /403
+      redirect: () => ({ path: getFirstPermittedRoutePath(menuStructure) }),
       children: childRoutes,
     },
   ],
 })
 
 /**
- * 路由守卫：简单拦截未登录访问后台页面
- * 小白版解释：
- * - 你直接在地址栏输入 /system/operator 想“跳过登录”
- * - 我们在这里把你拦下来，送回 /login
+ * 路由守卫：未登录拦截 + 无权限 URL 拦截
  */
 router.beforeEach((to) => {
-  // 关键：如果要去登录页，就不拦截
   if (to.path === '/login') {
-    // 关键：如果你已经登录了，还想去登录页，就直接送回系统首页（避免重复登录）
     if (isLoggedIn()) {
-      return { path: '/' }
+      return { path: getFirstPermittedRoutePath(menuStructure) }
     }
     return true
   }
 
-  // 关键：访问任何非 /login 的页面，都要求“已登录”
   if (!isLoggedIn()) {
-    // 关键：把你原本要去的页面地址带上，登录成功后可以跳回去
     return { path: '/login', query: { redirect: to.fullPath } }
   }
 
-  // 关键：已登录就放行
+  // v1.0.7：已登录访问具体页时，用 Sys_Roles.Permissions 与目标 path 比对
+  const permSet = getPermissionSetFromStorage()
+  if (!isRouteAllowed(to.path, permSet)) {
+    return { path: '/403', replace: true }
+  }
+
   return true
 })
 

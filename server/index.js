@@ -111,6 +111,39 @@ async function assertWritableRoleId(pool, roleIdRaw) {
 }
 
 /**
+ * 校验并规范化「菜单权限」写入内容（JSON 数组字符串）
+ * @returns {{ ok: true, jsonStr: string } | { ok: false, msg: string }}
+ */
+function parsePermissionsPayload(rawPermissions) {
+  if (rawPermissions === undefined || rawPermissions === null) {
+    return { ok: false, msg: 'Permissions 不能为空' }
+  }
+  let arr
+  if (typeof rawPermissions === 'string') {
+    try {
+      arr = JSON.parse(rawPermissions)
+    } catch {
+      return { ok: false, msg: 'Permissions 必须是合法 JSON' }
+    }
+  } else if (Array.isArray(rawPermissions)) {
+    arr = rawPermissions
+  } else {
+    return { ok: false, msg: 'Permissions 必须是数组或 JSON 字符串' }
+  }
+  if (!Array.isArray(arr)) {
+    return { ok: false, msg: 'Permissions 必须是 JSON 数组' }
+  }
+  const normalized = []
+  for (const item of arr) {
+    if (typeof item !== 'string' || !String(item).trim()) {
+      return { ok: false, msg: '权限 path 必须是非空字符串（如 system/operator）' }
+    }
+    normalized.push(String(item).trim())
+  }
+  return { ok: true, jsonStr: JSON.stringify(normalized) }
+}
+
+/**
  * 从请求中取出 token，并找到“当前登录用户”
  * 小白版解释：
  * - 前端每次请求需要“当前身份”的接口时，会带上请求头：
@@ -215,7 +248,8 @@ app.get('/api/roles', async (req, res) => {
           r.RoleID,
           r.RoleName,
           r.Description,
-          r.Status
+          r.Status,
+          r.Permissions
         FROM Sys_Roles AS r
         ${whereSql}
         ORDER BY r.RoleID ASC
@@ -246,13 +280,15 @@ app.get('/api/roles', async (req, res) => {
           RoleID,
           RoleName,
           Description,
-          Status
+          Status,
+          Permissions
         FROM (
           SELECT
             r.RoleID,
             r.RoleName,
             r.Description,
             r.Status,
+            r.Permissions,
             ROW_NUMBER() OVER (ORDER BY r.RoleID ASC) AS rn
           FROM Sys_Roles AS r
           ${whereSql}
@@ -292,9 +328,9 @@ app.post('/api/roles', async (req, res) => {
     let result
     try {
       result = await request.query(`
-        INSERT INTO Sys_Roles (RoleName, Description, Status)
-        OUTPUT INSERTED.RoleID, INSERTED.RoleName, INSERTED.Description, INSERTED.Status
-        VALUES (@RoleName, @Description, 1)
+        INSERT INTO Sys_Roles (RoleName, Description, Status, Permissions)
+        OUTPUT INSERTED.RoleID, INSERTED.RoleName, INSERTED.Description, INSERTED.Status, INSERTED.Permissions
+        VALUES (@RoleName, @Description, 1, NULL)
       `)
     } catch (dbErr) {
       const errNumber =
@@ -345,7 +381,7 @@ app.put('/api/roles', async (req, res) => {
       const result = await request.query(`
         UPDATE Sys_Roles
         SET Status = @Status
-        OUTPUT INSERTED.RoleID, INSERTED.RoleName, INSERTED.Description, INSERTED.Status
+        OUTPUT INSERTED.RoleID, INSERTED.RoleName, INSERTED.Description, INSERTED.Status, INSERTED.Permissions
         WHERE RoleID = @RoleID
       `)
       const updated = result.recordset?.[0]
@@ -375,7 +411,7 @@ app.put('/api/roles', async (req, res) => {
       result = await request.query(`
         UPDATE Sys_Roles
         SET RoleName = @RoleName, Description = @Description
-        OUTPUT INSERTED.RoleID, INSERTED.RoleName, INSERTED.Description, INSERTED.Status
+        OUTPUT INSERTED.RoleID, INSERTED.RoleName, INSERTED.Description, INSERTED.Status, INSERTED.Permissions
         WHERE RoleID = @RoleID
       `)
     } catch (dbErr) {
@@ -425,7 +461,7 @@ app.put('/api/roles/resume', async (req, res) => {
     const result = await request.query(`
       UPDATE Sys_Roles
       SET Status = @Status
-      OUTPUT INSERTED.RoleID, INSERTED.RoleName, INSERTED.Description, INSERTED.Status
+      OUTPUT INSERTED.RoleID, INSERTED.RoleName, INSERTED.Description, INSERTED.Status, INSERTED.Permissions
       WHERE RoleID = @RoleID
     `)
 
@@ -438,6 +474,48 @@ app.put('/api/roles/resume', async (req, res) => {
     res.json({ code: 200, msg: 'success', data: updated })
   } catch (err) {
     console.error('恢复 /api/roles/resume 失败：', err)
+    res.status(500).json({ code: 500, msg: '数据库写入失败', data: null })
+  }
+})
+
+/**
+ * 仅更新角色的菜单权限（Sys_Roles.Permissions，JSON 数组字符串）
+ */
+app.put('/api/roles/permissions', async (req, res) => {
+  try {
+    const roleId = Number(req.body?.RoleID)
+    if (!Number.isFinite(roleId) || roleId <= 0) {
+      res.status(400).json({ code: 400, msg: 'RoleID 不合法', data: null })
+      return
+    }
+
+    const parsed = parsePermissionsPayload(req.body?.Permissions)
+    if (!parsed.ok) {
+      res.status(400).json({ code: 400, msg: parsed.msg, data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const request = pool.request()
+    request.input('RoleID', sql.Int, roleId)
+    request.input('Permissions', sql.NVarChar(sql.MAX), parsed.jsonStr)
+
+    const result = await request.query(`
+      UPDATE Sys_Roles
+      SET Permissions = @Permissions
+      OUTPUT INSERTED.RoleID, INSERTED.RoleName, INSERTED.Description, INSERTED.Status, INSERTED.Permissions
+      WHERE RoleID = @RoleID
+    `)
+
+    const updated = result.recordset?.[0]
+    if (!updated) {
+      res.status(404).json({ code: 404, msg: '未找到该角色', data: null })
+      return
+    }
+
+    res.json({ code: 200, msg: 'success', data: updated })
+  } catch (err) {
+    console.error('更新 /api/roles/permissions 失败：', err)
     res.status(500).json({ code: 500, msg: '数据库写入失败', data: null })
   }
 })
@@ -538,7 +616,8 @@ app.post('/api/login', async (req, res) => {
         u.Password,
         u.Status,
         u.RoleID,
-        r.RoleName AS RoleName
+        r.RoleName AS RoleName,
+        r.Permissions AS Permissions
       FROM Sys_Users AS u
       LEFT JOIN Sys_Roles AS r ON u.RoleID = r.RoleID
       WHERE u.UserCode = @UserCode
@@ -599,6 +678,11 @@ app.post('/api/login', async (req, res) => {
           Status: userRow.Status,
           RoleID: userRow.RoleID != null ? Number(userRow.RoleID) : null,
           RoleName: userRow.RoleName != null ? String(userRow.RoleName) : null,
+          // v1.0.7：菜单权限 JSON 字符串（与 Sys_Roles.Permissions 一致）；NULL 表示未配置，前端按「不限制」处理
+          Permissions:
+            userRow.Permissions != null && userRow.Permissions !== undefined
+              ? String(userRow.Permissions)
+              : null,
         },
       },
     })
