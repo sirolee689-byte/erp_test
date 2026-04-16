@@ -99,11 +99,23 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'GET' && path === '/api/hr/departments') {
     return { menuPath: 'hr/files/department', action: 'view' }
   }
+  if (m === 'GET' && path === '/api/hr/departments/tree') {
+    return { menuPath: 'hr/files/department', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/hr/departments/options') {
+    return { menuPath: 'hr/files/department', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/hr/departments/posts') {
+    return { menuPath: 'hr/files/department', action: 'view' }
+  }
   if (m === 'POST' && path === '/api/hr/departments') {
     return { menuPath: 'hr/files/department', action: 'add' }
   }
   /* 须先于泛化的 PUT /api/hr/departments 匹配（审核 / 反审共用 audit 权限） */
   if (m === 'PUT' && path === '/api/hr/departments/audit') {
+    return { menuPath: 'hr/files/department', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/hr/departments/audit-batch') {
     return { menuPath: 'hr/files/department', action: 'audit' }
   }
   if (m === 'PUT' && path === '/api/hr/departments/unaudit') {
@@ -118,7 +130,16 @@ export function matchApiPermissionRule(method, path, body, params) {
   }
 
   /* v1.0.9：人事档案精简管理（菜单 path 与 erp_structure_dump 一致：hr/files/employee-files） */
+  if (m === 'GET' && path === '/api/hr/staff/department-options') {
+    return { menuPath: 'hr/files/employee-files', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/hr/staff/department-posts') {
+    return { menuPath: 'hr/files/employee-files', action: 'view' }
+  }
   if (m === 'GET' && path === '/api/hr/staff') {
+    return { menuPath: 'hr/files/employee-files', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/hr/staff/debug-code') {
     return { menuPath: 'hr/files/employee-files', action: 'view' }
   }
   if (m === 'POST' && path === '/api/hr/staff') {

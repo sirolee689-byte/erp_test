@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "user-sqlserver": {
+      "command": "npx",
+      "args": ["-y", "mssql-mcp@latest"],
+      "env": {
+        "DB_SERVER": "192.168.1.33",
+        "DB_DATABASE": "UB_ERP_V2.0",
+        "DB_USER": "erp_user",
+        "DB_PORT": "1433",
+        "DB_ENCRYPT": "false",
+        "DB_TRUST_SERVER_CERTIFICATE": "true",
+        "NODE_OPTIONS": "--openssl-legacy-provider --tls-min-v1.0 --tls-cipher-list=DEFAULT@SECLEVEL=0"
+      }
+    }
+  }
+}

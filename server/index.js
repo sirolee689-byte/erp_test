@@ -1551,6 +1551,9 @@ const HR_LEGACY_DEPT_KEYS = [
   'code',
   'name',
   'manager',
+  // v1.1.0：备注（迁移脚本新增列）
+  'remark',
+  'ParentID',
   'addtime',
   'edittime',
   'deltime',
@@ -1559,6 +1562,9 @@ const HR_LEGACY_DEPT_KEYS = [
   'flag',
   'info',
   'systemcode',
+  // v1.1.0：新增部门/岗位时记录创建人（旧表字段：uid/uname）
+  'uid',
+  'uname',
   'pass',
   'passid',
   'passuname',
@@ -1614,8 +1620,74 @@ function legacyDeptNowString() {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
 
+/**
+ * 旧表 code 主键：在整表取「可解析为整数的 code」的最大值 +1，生成新编码（字符串）。
+ * 部门与岗位统一用数字字符串，避免前端手填冲突。
+ */
+/**
+ * 名称查重（在册=未逻辑删除）
+ *
+ * 规则（按你最新需求）：
+ * - 顶级部门（ParentID 为空/0）：name 全局不可重复（只与顶级部门比，不与岗位比）
+ * - 岗位（ParentID 非空/非0）：同一 ParentID 下 name 不可重复（跨部门允许重复）
+ *
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {{ nameTrim: string, excludeCodeRaw?: string|null, parentIdTrim?: string|null }} args
+ */
+async function legacyDeptActiveNameExists(pool, args) {
+  const name = String(args?.nameTrim ?? '').trim()
+  if (!name) return false
+  const exclude = String(args?.excludeCodeRaw ?? '').trim()
+  const parentId = String(args?.parentIdTrim ?? '').trim()
+
+  const isPost = parentId.length > 0 && parentId !== '0'
+
+  const req = pool.request()
+  req.input('name', sql.NVarChar(50), name)
+  req.input('exclude', sql.NVarChar(50), exclude.length ? exclude : null)
+  req.input('isPost', sql.Int, isPost ? 1 : 0)
+  req.input('pid', sql.NVarChar(50), isPost ? parentId : null)
+  const r = await req.query(`
+    SELECT TOP (1) t.code
+    FROM ${HR_LEGACY_DEPT_FROM} AS t
+    WHERE (${HR_LEGACY_WHERE_ACTIVE})
+      AND LTRIM(RTRIM(ISNULL(t.name, N''))) = @name
+      AND (
+        (@isPost = 0 AND (ISNULL(t.ParentID, N'') = N'' OR t.ParentID = N'0')) -- 顶级部门范围
+        OR
+        (@isPost = 1 AND LTRIM(RTRIM(ISNULL(t.ParentID, N''))) = LTRIM(RTRIM(@pid))) -- 同部门岗位范围
+      )
+      AND (@exclude IS NULL OR LTRIM(RTRIM(ISNULL(t.code, N''))) <> LTRIM(RTRIM(@exclude)))
+  `)
+  return Boolean(r.recordset?.[0]?.code)
+}
+
+async function allocateNextLegacyDeptCode(pool) {
+  // 兼容 SQL Server 2008 R2 等：无 TRY_CONVERT，用 PATINDEX 筛「纯数字」再 CAST
+  const r = await pool.request().query(`
+    SELECT MAX(CAST(LTRIM(RTRIM(ISNULL(t.code, N''))) AS BIGINT)) AS maxNum
+    FROM ${HR_LEGACY_DEPT_FROM} AS t
+    WHERE LEN(LTRIM(RTRIM(ISNULL(t.code, N'')))) > 0
+      AND PATINDEX(N'%[^0-9]%', LTRIM(RTRIM(ISNULL(t.code, N'')))) = 0
+  `)
+  const raw = r.recordset?.[0]?.maxNum
+  const maxNum = raw == null || raw === '' ? 0 : Number(raw)
+  const safeMax = Number.isFinite(maxNum) && maxNum > 0 ? maxNum : 0
+  const next = safeMax + 1
+  if (next > Number.MAX_SAFE_INTEGER) {
+    throw new Error('部门编码数值超出系统可处理范围')
+  }
+  return String(next)
+}
+
 /** 列表只显示未逻辑删除：del 为空、'' 或 '0' */
 const HR_LEGACY_WHERE_ACTIVE = `(ISNULL(t.del, N'') = N'' OR t.del = N'0')`
+
+/**
+ * 旧部门表行「已审核」：与 legacyDeptPassIsAudited 一致，但用 CAST 兼容 pass 存为 int/bit 等类型
+ * （仅用 WHERE；别名必须为 t）
+ */
+const HR_LEGACY_WHERE_PASS_AUDITED = `LTRIM(RTRIM(COALESCE(CAST(t.pass AS NVARCHAR(50)), N''))) = N'1'`
 
 /**
  * 按 code 读一条（map 后的对象）
@@ -1627,14 +1699,127 @@ async function fetchLegacyDeptByCode(pool, codeRaw) {
   if (!code) return null
   const r = await pool.request().input('code', sql.NVarChar(50), code).query(`
     SELECT TOP (1)
-      t.code, t.name, t.manager, t.addtime, t.edittime, t.deltime, t.intime,
-      t.del, t.flag, t.info, t.systemcode, t.pass, t.passid, t.passuname, t.passuid, t.passutruename,
+      t.code, t.name, t.manager, t.remark, t.ParentID, t.addtime, t.edittime, t.deltime, t.intime,
+      t.del, t.flag, t.info, t.systemcode, t.uid, t.uname, t.pass, t.passid, t.passuname, t.passuid, t.passutruename,
       t.passtime, t.uploadtime, t.ip, t.delid, t.delname, t.deltruename
     FROM ${HR_LEGACY_DEPT_FROM} AS t
     WHERE t.code = @code
   `)
   return mapLegacyDeptRow(r.recordset?.[0])
 }
+
+/**
+ * 顶级部门下拉：GET /api/hr/departments/options
+ * - 只返回顶级部门（ParentID 为空），用于部门资料页「新增岗位」选所属部门等
+ * - **不按 pass 过滤**（未审核部门也可作为岗位的 ParentID）
+ * - 字段名与旧表一致：code / name
+ */
+app.get('/api/hr/departments/options', async (req, res) => {
+  try {
+    const pool = await getPool()
+    const r = await pool.request().query(`
+      SELECT t.code, t.name
+      FROM ${HR_LEGACY_DEPT_FROM} AS t
+      WHERE
+        (${HR_LEGACY_WHERE_ACTIVE})
+        AND (ISNULL(t.ParentID, N'') = N'' OR t.ParentID = N'0')
+      ORDER BY t.code
+    `)
+    const list = (r.recordset ?? []).map((row) => ({ code: row?.code ?? null, name: row?.name ?? null }))
+    res.json({ code: 200, msg: 'success', data: { list } })
+  } catch (err) {
+    console.error('GET /api/hr/departments/options 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取部门下拉失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * v1.1.0：岗位下拉（从 HR_Departments 接管表取岗位）
+ * GET /api/hr/departments/posts?parentId=部门code
+ * - 只返回 ParentID=parentId 的在册记录（del 正常）
+ * - **不按 pass 过滤**（与部门资料维护口径一致）
+ * - 字段：code / name
+ */
+app.get('/api/hr/departments/posts', async (req, res) => {
+  try {
+    const parentId = String(req.query?.parentId ?? '').trim()
+    if (!parentId) {
+      res.status(400).json({ code: 400, msg: 'parentId（部门编码）不能为空', data: null })
+      return
+    }
+    const pool = await getPool()
+    const r = await pool.request().input('pid', sql.NVarChar(50), parentId).query(`
+      SELECT t.code, t.name
+      FROM ${HR_LEGACY_DEPT_FROM} AS t
+      WHERE
+        (${HR_LEGACY_WHERE_ACTIVE})
+        AND LTRIM(RTRIM(ISNULL(t.ParentID, N''))) = LTRIM(RTRIM(@pid))
+      ORDER BY t.code
+    `)
+    const list = (r.recordset ?? []).map((row) => ({ code: row?.code ?? null, name: row?.name ?? null }))
+    res.json({ code: 200, msg: 'success', data: { list } })
+  } catch (err) {
+    console.error('GET /api/hr/departments/posts 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取岗位下拉失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 员工档案专用：入职部门下拉（仅已审核顶级部门）
+ * GET /api/hr/staff/department-options
+ */
+app.get('/api/hr/staff/department-options', async (req, res) => {
+  try {
+    const pool = await getPool()
+    const r = await pool.request().query(`
+      SELECT t.code, t.name
+      FROM ${HR_LEGACY_DEPT_FROM} AS t
+      WHERE
+        (${HR_LEGACY_WHERE_ACTIVE})
+        AND (${HR_LEGACY_WHERE_PASS_AUDITED})
+        AND (ISNULL(t.ParentID, N'') = N'' OR t.ParentID = N'0')
+      ORDER BY t.code
+    `)
+    const list = (r.recordset ?? []).map((row) => ({ code: row?.code ?? null, name: row?.name ?? null }))
+    res.json({ code: 200, msg: 'success', data: { list } })
+  } catch (err) {
+    console.error('GET /api/hr/staff/department-options 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取入职部门下拉失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 员工档案专用：岗位下拉（仅已审核岗位，且挂在指定 parentId 下）
+ * GET /api/hr/staff/department-posts?parentId=部门code
+ */
+app.get('/api/hr/staff/department-posts', async (req, res) => {
+  try {
+    const parentId = String(req.query?.parentId ?? '').trim()
+    if (!parentId) {
+      res.status(400).json({ code: 400, msg: 'parentId（部门编码）不能为空', data: null })
+      return
+    }
+    const pool = await getPool()
+    const r = await pool.request().input('pid', sql.NVarChar(50), parentId).query(`
+      SELECT t.code, t.name
+      FROM ${HR_LEGACY_DEPT_FROM} AS t
+      WHERE
+        (${HR_LEGACY_WHERE_ACTIVE})
+        AND (${HR_LEGACY_WHERE_PASS_AUDITED})
+        AND LTRIM(RTRIM(ISNULL(t.ParentID, N''))) = LTRIM(RTRIM(@pid))
+      ORDER BY t.code
+    `)
+    const list = (r.recordset ?? []).map((row) => ({ code: row?.code ?? null, name: row?.name ?? null }))
+    res.json({ code: 200, msg: 'success', data: { list } })
+  } catch (err) {
+    console.error('GET /api/hr/staff/department-posts 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取岗位下拉失败：${detail}`, data: null })
+  }
+})
 
 /**
  * 部门分页列表（旧表）：GET /api/hr/departments
@@ -1656,19 +1841,28 @@ app.get('/api/hr/departments', async (req, res) => {
     const hasKeyword = keywordRaw.length > 0
     const likeKey = `%${keywordRaw}%`
 
+    // 审核筛选：默认只看已审核（pass='1'），开关切换后只看待审核（pass='0'）
+    const passRaw = String(req.query?.pass ?? '1').trim()
+    const pass = passRaw === '0' ? '0' : '1'
+
     const pool = await getPool()
 
-    const whereBase = `WHERE ${HR_LEGACY_WHERE_ACTIVE}`
+    // 说明：这里统一使用别名 s（与你给的参考代码一致）
+    const whereActive = `(ISNULL(s.del, N'') = N'' OR s.del = N'0')`
+    const whereBase = `WHERE ${whereActive}`
+    // 说明：旧库 pass 可能存在空格（如 '1 '），这里统一 trim 后再判断，并且严格等于 @pass
+    const wherePass = ` AND LTRIM(RTRIM(ISNULL(s.pass, N''))) = @pass`
     const whereKw = hasKeyword
-      ? ` AND (t.name LIKE @key OR t.code LIKE @key)`
+      ? ` AND (s.name LIKE @key OR s.code LIKE @key OR ISNULL(s.remark, N'') LIKE @key)`
       : ''
 
     const totalReq = pool.request()
+    totalReq.input('pass', sql.NVarChar(10), pass)
     if (hasKeyword) totalReq.input('key', sql.NVarChar(200), likeKey)
     const totalResult = await totalReq.query(`
       SELECT COUNT(1) AS total
-      FROM ${HR_LEGACY_DEPT_FROM} AS t
-      ${whereBase}${whereKw}
+      FROM ${HR_LEGACY_DEPT_FROM} AS s
+      ${whereBase}${wherePass}${whereKw}
     `)
     const total = Number(totalResult.recordset?.[0]?.total ?? 0)
 
@@ -1676,16 +1870,17 @@ app.get('/api/hr/departments', async (req, res) => {
     const safeFetch = Math.max(1, Math.min(200, Math.floor(Number(safePageSize)) || 20))
 
     const listReq = pool.request()
+    listReq.input('pass', sql.NVarChar(10), pass)
     if (hasKeyword) listReq.input('key', sql.NVarChar(200), likeKey)
 
     const listSelect = `
       SELECT
-        t.code, t.name, t.manager, t.addtime, t.edittime, t.deltime, t.intime,
-        t.del, t.flag, t.info, t.systemcode, t.pass, t.passid, t.passuname, t.passuid, t.passutruename,
-        t.passtime, t.uploadtime, t.ip, t.delid, t.delname, t.deltruename
-      FROM ${HR_LEGACY_DEPT_FROM} AS t
-      ${whereBase}${whereKw}
-      ORDER BY t.code
+        s.code, s.name, s.manager, s.remark, s.ParentID, s.addtime, s.edittime, s.deltime, s.intime,
+        s.del, s.flag, s.info, s.systemcode, s.uid, s.uname, s.pass, s.passid, s.passuname, s.passuid, s.passutruename,
+        s.passtime, s.uploadtime, s.ip, s.delid, s.delname, s.deltruename
+      FROM ${HR_LEGACY_DEPT_FROM} AS s
+      ${whereBase}${wherePass}${whereKw}
+      ORDER BY s.code
     `
 
     let listResult
@@ -1709,20 +1904,21 @@ app.get('/api/hr/departments', async (req, res) => {
       const fb = pool.request()
       fb.input('startRow', sql.Int, startRow)
       fb.input('endRow', sql.Int, endRow)
+      fb.input('pass', sql.NVarChar(10), pass)
       if (hasKeyword) fb.input('key', sql.NVarChar(200), likeKey)
       listResult = await fb.query(`
         SELECT
-          code, name, manager, addtime, edittime, deltime, intime,
+          code, name, manager, remark, ParentID, addtime, edittime, deltime, intime,
           del, flag, info, systemcode, pass, passid, passuname, passuid, passutruename,
           passtime, uploadtime, ip, delid, delname, deltruename
         FROM (
           SELECT
-            t.code, t.name, t.manager, t.addtime, t.edittime, t.deltime, t.intime,
-            t.del, t.flag, t.info, t.systemcode, t.pass, t.passid, t.passuname, t.passuid, t.passutruename,
-            t.passtime, t.uploadtime, t.ip, t.delid, t.delname, t.deltruename,
-            ROW_NUMBER() OVER (ORDER BY t.code) AS rn
-          FROM ${HR_LEGACY_DEPT_FROM} AS t
-          ${whereBase}${whereKw}
+            s.code, s.name, s.manager, s.remark, s.ParentID, s.addtime, s.edittime, s.deltime, s.intime,
+            s.del, s.flag, s.info, s.systemcode, s.uid, s.uname, s.pass, s.passid, s.passuname, s.passuid, s.passutruename,
+            s.passtime, s.uploadtime, s.ip, s.delid, s.delname, s.deltruename,
+            ROW_NUMBER() OVER (ORDER BY s.code) AS rn
+          FROM ${HR_LEGACY_DEPT_FROM} AS s
+          ${whereBase}${wherePass}${whereKw}
         ) AS x
         WHERE x.rn BETWEEN @startRow AND @endRow
       `)
@@ -1739,34 +1935,177 @@ app.get('/api/hr/departments', async (req, res) => {
 })
 
 /**
+ * 部门树形列表：GET /api/hr/departments/tree
+ * - 用于前端树形表格（部门作为父节点，岗位作为子节点）
+ * - 过滤规则与分页列表一致：默认 pass='1'，keyword 模糊匹配 name/code/remark
+ * - 返回：{ list, total }，其中 list 为树形结构（children 挂岗位）
+ */
+app.get('/api/hr/departments/tree', async (req, res) => {
+  try {
+    const keywordRaw = String(req.query?.keyword ?? '').trim()
+    const hasKeyword = keywordRaw.length > 0
+    const likeKey = `%${keywordRaw}%`
+
+    const passRaw = String(req.query?.pass ?? '1').trim()
+    const pass = passRaw === '0' ? '0' : '1'
+
+    const pool = await getPool()
+
+    const whereActive = `(ISNULL(s.del, N'') = N'' OR s.del = N'0')`
+    const whereBase = `WHERE ${whereActive}`
+    const wherePass = ` AND LTRIM(RTRIM(ISNULL(s.pass, N''))) = @pass`
+    const whereKw = hasKeyword
+      ? ` AND (s.name LIKE @key OR s.code LIKE @key OR ISNULL(s.remark, N'') LIKE @key)`
+      : ''
+
+    const reqAll = pool.request()
+    reqAll.input('pass', sql.NVarChar(10), pass)
+    if (hasKeyword) reqAll.input('key', sql.NVarChar(200), likeKey)
+
+    // 说明：树形模式需要全量（或足够大）数据；这里做一个上限保护，避免误扫几十万
+    const r = await reqAll.query(`
+      SELECT TOP (5000)
+        s.code, s.name, s.manager, s.remark, s.ParentID, s.addtime, s.edittime, s.deltime, s.intime,
+        s.del, s.flag, s.info, s.systemcode, s.uid, s.uname, s.pass, s.passid, s.passuname, s.passuid, s.passutruename,
+        s.passtime, s.uploadtime, s.ip, s.delid, s.delname, s.deltruename
+      FROM ${HR_LEGACY_DEPT_FROM} AS s
+      ${whereBase}${wherePass}${whereKw}
+      ORDER BY s.code
+    `)
+
+    const flat = (r.recordset ?? []).map((row) => mapLegacyDeptRow(row)).filter(Boolean)
+
+    /** @type {Record<string, any>} */
+    const deptByCode = {}
+    const depts = []
+    const posts = []
+
+    for (const row of flat) {
+      const pid = String(row?.ParentID ?? '').trim()
+      const isPost = pid !== '' && pid !== '0'
+      if (isPost) posts.push(row)
+      else depts.push({ ...row, children: [] })
+    }
+
+    for (const d of depts) {
+      deptByCode[String(d.code ?? '').trim()] = d
+    }
+
+    for (const p of posts) {
+      const pid = String(p?.ParentID ?? '').trim()
+      const parent = deptByCode[pid]
+      if (parent) {
+        parent.children.push(p)
+      } else {
+        // 找不到父部门时：降级当作顶级展示，避免岗位“消失”
+        depts.push({ ...p, children: [] })
+      }
+    }
+
+    // 排序：保持 code 升序；岗位也按 code 升序
+    depts.sort((a, b) => String(a?.code ?? '').localeCompare(String(b?.code ?? ''), 'zh-Hans-CN'))
+    for (const d of depts) {
+      if (Array.isArray(d.children)) {
+        d.children.sort((a, b) => String(a?.code ?? '').localeCompare(String(b?.code ?? ''), 'zh-Hans-CN'))
+      }
+    }
+
+    const total = flat.length
+    res.json({ code: 200, msg: 'success', data: { list: depts, total } })
+  } catch (err) {
+    console.error('GET /api/hr/departments/tree 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取部门树失败：${detail}`, data: null })
+  }
+})
+
+/**
  * 新增：POST /api/hr/departments
- * body: { code, name, manager } — 字段名与旧表一致；pass/del 默认未审、未删
+ * body: { name, remark?, ParentID? } — code 由服务端按整表最大数字 code +1 生成；pass/del 默认未审、未删
  */
 app.post('/api/hr/departments', async (req, res) => {
+  // 在 Network「响应标头」里可看到：用于确认请求是否打到「本仓库当前」后端（旧进程不会带此头）
+  res.setHeader('X-ERP-Dept-Post', 'v1.1.0-auto-code')
   try {
     const body = req.body ?? {}
-    const code = String(body.code ?? '').trim()
     const name = String(body.name ?? '').trim()
-    const manager = String(body.manager ?? '').trim()
-    if (!code) {
-      res.status(400).json({ code: 400, msg: 'code（编码）不能为空', data: null })
-      return
-    }
+    const remark = String(body.remark ?? '').trim()
+    const parentId = String(body.ParentID ?? '').trim()
     if (!name) {
       res.status(400).json({ code: 400, msg: 'name（名称）不能为空', data: null })
       return
     }
 
     const pool = await getPool()
+    if (
+      await legacyDeptActiveNameExists(pool, {
+        nameTrim: name,
+        excludeCodeRaw: null,
+        parentIdTrim: parentId || null,
+      })
+    ) {
+      const isPost = String(parentId ?? '').trim().length > 0
+      res.status(400).json({
+        code: 400,
+        msg: isPost
+          ? `岗位名称「${name}」在该部门下已存在，不能重复`
+          : `部门名称「${name}」已存在，不能重复`,
+        data: null,
+      })
+      return
+    }
+
+    let code
+    try {
+      code = await allocateNextLegacyDeptCode(pool)
+    } catch (allocErr) {
+      const d = String(allocErr?.message ?? '生成编码失败')
+      res.status(500).json({ code: 500, msg: `新增部门失败：${d}`, data: null })
+      return
+    }
+
+    // 说明：ParentID 非空时视为“岗位”，必须选择所属部门
+    if (parentId) {
+      if (parentId === code) {
+        res.status(400).json({ code: 400, msg: 'ParentID 不能等于自身编码', data: null })
+        return
+      }
+    }
+
+    // 岗位必须有父部门：ParentID 指向一个“顶级部门”（ParentID 为空）
+    if (parentId) {
+      const pr = await pool.request().input('p', sql.NVarChar(50), parentId).query(`
+        SELECT TOP (1) t.code, t.ParentID, t.del
+        FROM ${HR_LEGACY_DEPT_FROM} AS t
+        WHERE t.code = @p
+      `)
+      const parentRow = mapLegacyDeptRow(pr.recordset?.[0])
+      if (!parentRow || !legacyDeptRowIsActive(parentRow)) {
+        res.status(400).json({ code: 400, msg: '所属部门不存在或已删除，请重新选择', data: null })
+        return
+      }
+      const ppid = String(parentRow?.ParentID ?? '').trim()
+      if (ppid && ppid !== '0') {
+        res.status(400).json({ code: 400, msg: '所属部门必须是顶级部门（不能选择岗位/子级）', data: null })
+        return
+      }
+    }
+
     const now = legacyDeptNowString()
+    const me = getCurrentUserFromReq(req)
+    const uidStr = me?.userId != null ? String(me.userId) : ''
+    const uname = me?.userName != null ? String(me.userName) : ''
     const ins = pool.request()
     ins.input('code', sql.NVarChar(50), code)
     ins.input('name', sql.NVarChar(50), name)
-    ins.input('manager', sql.NVarChar(50), manager || null)
+    ins.input('remark', sql.NVarChar(500), remark || null)
+    ins.input('ParentID', sql.NVarChar(50), parentId || null)
+    ins.input('uid', sql.NVarChar(50), uidStr || null)
+    ins.input('uname', sql.NVarChar(50), uname || null)
     ins.input('now', sql.NVarChar(50), now)
     await ins.query(`
-      INSERT INTO ${HR_LEGACY_DEPT_FROM} (code, name, manager, pass, del, addtime, edittime)
-      VALUES (@code, @name, @manager, N'0', N'0', @now, @now)
+      INSERT INTO ${HR_LEGACY_DEPT_FROM} (code, name, manager, ParentID, remark, uid, uname, pass, del, addtime, edittime)
+      VALUES (@code, @name, NULL, @ParentID, @remark, @uid, @uname, N'0', N'0', @now, @now)
     `)
 
     const row = await fetchLegacyDeptByCode(pool, code)
@@ -1785,20 +2124,26 @@ app.post('/api/hr/departments', async (req, res) => {
 
 /**
  * 编辑：PUT /api/hr/departments
- * body: { code, name, manager } — code 定位行，不可改主键
+ * body: { code, name, remark?, ParentID? } — code 定位行，不可改主键
  */
 app.put('/api/hr/departments', async (req, res) => {
   try {
     const body = req.body ?? {}
     const code = String(body.code ?? '').trim()
     const name = String(body.name ?? '').trim()
-    const manager = String(body.manager ?? '').trim()
+    const remark = String(body.remark ?? '').trim()
+    const parentId = String(body.ParentID ?? '').trim()
     if (!code) {
       res.status(400).json({ code: 400, msg: 'code 不能为空', data: null })
       return
     }
     if (!name) {
       res.status(400).json({ code: 400, msg: 'name（名称）不能为空', data: null })
+      return
+    }
+    // 说明：未审核的岗位允许改所属部门；已审核直接拦截（见下方 existing.pass 判断）
+    if (parentId && parentId === code) {
+      res.status(400).json({ code: 400, msg: 'ParentID 不能等于自身编码', data: null })
       return
     }
 
@@ -1813,15 +2158,53 @@ app.put('/api/hr/departments', async (req, res) => {
       return
     }
 
+    // 如果传了 ParentID（表示岗位/调整归属），则校验父部门必须是顶级部门
+    if (parentId) {
+      const pr = await pool.request().input('p', sql.NVarChar(50), parentId).query(`
+        SELECT TOP (1) t.code, t.ParentID, t.del
+        FROM ${HR_LEGACY_DEPT_FROM} AS t
+        WHERE t.code = @p
+      `)
+      const parentRow = mapLegacyDeptRow(pr.recordset?.[0])
+      if (!parentRow || !legacyDeptRowIsActive(parentRow)) {
+        res.status(400).json({ code: 400, msg: '所属部门不存在或已删除，请重新选择', data: null })
+        return
+      }
+      const ppid = String(parentRow?.ParentID ?? '').trim()
+      if (ppid && ppid !== '0') {
+        res.status(400).json({ code: 400, msg: '所属部门必须是顶级部门（不能选择岗位/子级）', data: null })
+        return
+      }
+    }
+
+    if (
+      await legacyDeptActiveNameExists(pool, {
+        nameTrim: name,
+        excludeCodeRaw: code,
+        parentIdTrim: parentId || null,
+      })
+    ) {
+      const isPost = String(parentId ?? '').trim().length > 0
+      res.status(400).json({
+        code: 400,
+        msg: isPost
+          ? `岗位名称「${name}」在该部门下已存在，不能重复`
+          : `部门名称「${name}」已存在，不能重复`,
+        data: null,
+      })
+      return
+    }
+
     const now = legacyDeptNowString()
     const upd = pool.request()
     upd.input('code', sql.NVarChar(50), code)
     upd.input('name', sql.NVarChar(50), name)
-    upd.input('manager', sql.NVarChar(50), manager || null)
+    upd.input('remark', sql.NVarChar(500), remark || null)
+    upd.input('ParentID', sql.NVarChar(50), parentId || null)
     upd.input('now', sql.NVarChar(50), now)
     await upd.query(`
       UPDATE t
-      SET t.name = @name, t.manager = @manager, t.edittime = @now
+      SET t.name = @name, t.remark = @remark, t.ParentID = @ParentID, t.edittime = @now
       FROM ${HR_LEGACY_DEPT_FROM} AS t
       WHERE t.code = @code AND (${HR_LEGACY_WHERE_ACTIVE})
     `)
@@ -1952,6 +2335,96 @@ app.put('/api/hr/departments/audit', async (req, res) => {
 })
 
 /**
+ * 批量审核：PUT /api/hr/departments/audit-batch
+ * body: { codes: string[] } — 仅用于“当前页批量审核”（建议 <= 200）
+ */
+app.put('/api/hr/departments/audit-batch', async (req, res) => {
+  try {
+    const me = getCurrentUserFromReq(req)
+    const auditorName = String(me?.userName ?? me?.userCode ?? '').trim() || '未知'
+    const userCode = String(me?.userCode ?? '').trim()
+    const uidStr = me?.userId != null ? String(me.userId) : ''
+
+    const body = req.body ?? {}
+    const codesRaw = body.codes
+    const codes = Array.isArray(codesRaw)
+      ? [...new Set(codesRaw.map((c) => String(c ?? '').trim()).filter(Boolean))]
+      : []
+
+    if (!codes.length) {
+      res.status(400).json({ code: 400, msg: 'codes 不能为空', data: null })
+      return
+    }
+    if (codes.length > 200) {
+      res.status(400).json({ code: 400, msg: '批量审核数量过多（最多 200 条）', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const tx = new sql.Transaction(pool)
+    await tx.begin()
+    try {
+      const now = legacyDeptNowString()
+      let successCount = 0
+      /** @type {{ code: string, msg: string }[]} */
+      const failed = []
+
+      for (const code of codes) {
+        try {
+          const existing = await fetchLegacyDeptByCode(tx, code)
+          if (!existing || !legacyDeptRowIsActive(existing)) {
+            failed.push({ code, msg: '未找到或已删除' })
+            continue
+          }
+          if (legacyDeptPassIsAudited(existing.pass)) {
+            // 已审核不算失败，直接跳过
+            continue
+          }
+          const q = new sql.Request(tx)
+          q.input('code', sql.NVarChar(50), code)
+          q.input('now', sql.NVarChar(50), now)
+          q.input('passutruename', sql.NVarChar(50), auditorName)
+          q.input('passuname', sql.NVarChar(50), userCode || null)
+          q.input('passuid', sql.NVarChar(50), uidStr || null)
+          q.input('passid', sql.NVarChar(50), uidStr || null)
+          await q.query(`
+            UPDATE t
+            SET
+              t.pass = N'1',
+              t.passutruename = @passutruename,
+              t.passuname = @passuname,
+              t.passuid = @passuid,
+              t.passid = @passid,
+              t.passtime = @now,
+              t.edittime = @now
+            FROM ${HR_LEGACY_DEPT_FROM} AS t
+            WHERE t.code = @code AND (${HR_LEGACY_WHERE_ACTIVE})
+          `)
+          successCount += 1
+        } catch (innerErr) {
+          const detail = String(innerErr?.message ?? '审核失败')
+          failed.push({ code, msg: detail })
+        }
+      }
+
+      await tx.commit()
+      res.json({ code: 200, msg: 'success', data: { successCount, failed, total: codes.length } })
+    } catch (innerErr) {
+      try {
+        await tx.rollback()
+      } catch {
+        // ignore
+      }
+      throw innerErr
+    }
+  } catch (err) {
+    console.error('PUT /api/hr/departments/audit-batch 失败：', err)
+    const detail = String(err?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `批量审核失败：${detail}`, data: null })
+  }
+})
+
+/**
  * 反审：PUT /api/hr/departments/unaudit
  * body: { code }
  */
@@ -2015,12 +2488,79 @@ const HR_STAFF_TABLE = (() => {
 /** 已解析的 FROM 子句，如 dbo.[Hr_staff] */
 const HR_STAFF_FROM = `dbo.[${HR_STAFF_TABLE}]`
 
+/** v1.1.1：缓存员工档案表列清单（避免不同库缺列导致 SQL 报错） */
+let HR_STAFF_COLSET_PROMISE = null
+
+/**
+ * 读取 Hr_staff 的列名集合（小写），并缓存到进程内
+ * @param {import('mssql').ConnectionPool} pool
+ * @returns {Promise<Set<string>>}
+ */
+async function getHrStaffColumnSet(pool) {
+  if (HR_STAFF_COLSET_PROMISE) return HR_STAFF_COLSET_PROMISE
+  HR_STAFF_COLSET_PROMISE = (async () => {
+    try {
+      const r = await pool
+        .request()
+        .input('t', sql.NVarChar(128), HR_STAFF_TABLE)
+        .query(`
+          SELECT COLUMN_NAME AS name
+          FROM INFORMATION_SCHEMA.COLUMNS
+          WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = @t
+        `)
+      const set = new Set()
+      for (const row of r.recordset ?? []) {
+        const n = String(row?.name ?? '').trim()
+        if (n) set.add(n.toLowerCase())
+      }
+      return set
+    } catch (err) {
+      // 降级策略：列探测失败时不阻断主流程（但也不会尝试写入扩展字段）
+      console.warn('[员工档案] 读取 Hr_staff 列清单失败，已降级：', err?.message ?? err)
+      return new Set()
+    }
+  })()
+  return HR_STAFF_COLSET_PROMISE
+}
+
 /**
  * 判断 pass 是否已审核：旧表 pass 为 nvarchar，'1' 表示已审核
  * @param {any} v
  */
 function staffPassIsAudited(v) {
   return String(v ?? '').trim() === '1'
+}
+
+/**
+ * v1.1.0：员工档案编码生成
+ * 规则：YYYYMMDD + 两位流水号（01..99）
+ * - 并发安全：SERIALIZABLE + UPDLOCK/HOLDLOCK 锁住当天前缀范围，避免重复
+ * @param {import('mssql').ConnectionPool|import('mssql').Transaction} poolOrTx
+ * @param {string} yyyymmdd
+ */
+async function allocateNextStaffCode(poolOrTx, yyyymmdd) {
+  const prefix = String(yyyymmdd ?? '').trim()
+  if (!/^\d{8}$/.test(prefix)) {
+    throw new Error('日期前缀不合法（期望 YYYYMMDD）')
+  }
+  const req = poolOrTx.request()
+  req.input('prefix', sql.NVarChar(8), prefix)
+  const r = await req.query(`
+    SELECT MAX(CAST(RIGHT(LTRIM(RTRIM(s.code)), 2) AS INT)) AS maxSeq
+    FROM ${HR_STAFF_FROM} AS s WITH (UPDLOCK, HOLDLOCK)
+    WHERE
+      LEN(LTRIM(RTRIM(ISNULL(s.code, N'')))) = 10
+      AND LEFT(LTRIM(RTRIM(s.code)), 8) = @prefix
+      AND PATINDEX(N'%[^0-9]%', LTRIM(RTRIM(s.code))) = 0
+  `)
+  const maxSeqRaw = r.recordset?.[0]?.maxSeq
+  const maxSeq = maxSeqRaw == null ? 0 : Number(maxSeqRaw)
+  const safeMax = Number.isFinite(maxSeq) && maxSeq > 0 ? maxSeq : 0
+  const next = safeMax + 1
+  if (next < 1 || next > 99) {
+    throw new Error('当天员工档案编码流水号已用尽（01-99）')
+  }
+  return `${prefix}${String(next).padStart(2, '0')}`
 }
 
 /**
@@ -2031,16 +2571,33 @@ function staffPassIsAudited(v) {
 async function fetchStaffByCode(pool, codeRaw) {
   const code = String(codeRaw ?? '').trim()
   if (!code) return null
+  const colset = await getHrStaffColumnSet(pool)
+  const extraSelect = []
+  if (colset.has('uid')) extraSelect.push('s.uid AS uid')
+  if (colset.has('uname')) extraSelect.push('s.uname AS uname')
+  if (colset.has('utruename')) extraSelect.push('s.utruename AS utruename')
+  if (colset.has('addtime')) extraSelect.push('s.addtime AS addtime')
+
   const r = await pool.request().input('code', sql.NVarChar(50), code).query(`
     SELECT TOP (1)
       s.code AS code,
+      s.new_code AS new_code,
       s.name AS name,
       s.sex AS sex,
+      s.nation AS nation,
+      s.highest AS highest,
+      s.yn_firend AS yn_firend,
+      s.birth AS birth,
       s.in_bm AS in_bm,
       s.card_number AS card_number,
+      s.join_department AS join_department,
+      s.position AS position,
       s.meal_type AS meal_type,
+      s.yn_history AS yn_history,
+      s.remark AS remark,
       s.intime AS intime,
       s.pass AS pass
+      ${extraSelect.length ? `,\n      ${extraSelect.join(',\n      ')}` : ''}
     FROM ${HR_STAFF_FROM} AS s
     WHERE s.code = @code
   `)
@@ -2058,6 +2615,7 @@ async function fetchStaffByCode(pool, codeRaw) {
  * 参数：
  * - page（默认 1）
  * - pageSize（默认 20）
+ * - pass（可选，默认 '1' 已审核；'0' 未审核）
  * - name（可选，模糊）
  * - code（可选，精确）
  * - card_number（可选，精确）
@@ -2082,24 +2640,33 @@ app.get('/api/hr/staff', async (req, res) => {
     const hasCode = !hasName && codeRaw.length > 0
     const hasCard = !hasName && !hasCode && cardRaw.length > 0
 
+    /** 与部门列表一致：默认只看已审核 pass='1'；传 pass=0 只看未审核 */
+    const passRaw = String(req.query?.pass ?? '1').trim()
+    const pass = passRaw === '0' ? '0' : '1'
+    const wherePass = ' AND LTRIM(RTRIM(ISNULL(s.pass, N\'\'))) = @pass'
+
     const pool = await getPool()
 
     let whereSql = ''
     const totalReq = pool.request()
     const listReq = pool.request()
+    totalReq.input('pass', sql.NVarChar(10), pass)
+    listReq.input('pass', sql.NVarChar(10), pass)
 
     if (hasName) {
-      whereSql = 'WHERE s.name LIKE @nameLike'
+      whereSql = `WHERE s.name LIKE @nameLike${wherePass}`
       totalReq.input('nameLike', sql.NVarChar(200), `%${nameRaw}%`)
       listReq.input('nameLike', sql.NVarChar(200), `%${nameRaw}%`)
     } else if (hasCode) {
-      whereSql = 'WHERE s.code = @code'
+      whereSql = `WHERE s.code = @code${wherePass}`
       totalReq.input('code', sql.NVarChar(50), codeRaw)
       listReq.input('code', sql.NVarChar(50), codeRaw)
     } else if (hasCard) {
-      whereSql = 'WHERE s.card_number = @cardNumber'
+      whereSql = `WHERE s.card_number = @cardNumber${wherePass}`
       totalReq.input('cardNumber', sql.NVarChar(50), cardRaw)
       listReq.input('cardNumber', sql.NVarChar(50), cardRaw)
+    } else {
+      whereSql = `WHERE 1 = 1${wherePass}`
     }
 
     const totalResult = await totalReq.query(`
@@ -2115,11 +2682,20 @@ app.get('/api/hr/staff', async (req, res) => {
     const listSelect = `
       SELECT
         s.code AS code,
+        s.new_code AS new_code,
         s.name AS name,
         s.sex AS sex,
+        s.nation AS nation,
+        s.highest AS highest,
+        s.yn_firend AS yn_firend,
+        s.birth AS birth,
         s.in_bm AS in_bm,
         s.card_number AS card_number,
+        s.join_department AS join_department,
+        s.position AS position,
         s.meal_type AS meal_type,
+        s.yn_history AS yn_history,
+        s.remark AS remark,
         s.intime AS intime,
         s.pass AS pass
       FROM ${HR_STAFF_FROM} AS s
@@ -2148,20 +2724,30 @@ app.get('/api/hr/staff', async (req, res) => {
       const fb = pool.request()
       fb.input('startRow', sql.Int, startRow)
       fb.input('endRow', sql.Int, endRow)
+      fb.input('pass', sql.NVarChar(10), pass)
       if (hasName) fb.input('nameLike', sql.NVarChar(200), `%${nameRaw}%`)
       if (hasCode) fb.input('code', sql.NVarChar(50), codeRaw)
       if (hasCard) fb.input('cardNumber', sql.NVarChar(50), cardRaw)
 
       listResult = await fb.query(`
-        SELECT code, name, sex, in_bm, card_number, meal_type, intime, pass
+        SELECT code, new_code, name, sex, nation, highest, yn_firend, birth, in_bm, card_number, join_department, position, meal_type, yn_history, remark, intime, pass
         FROM (
           SELECT
             s.code AS code,
+            s.new_code AS new_code,
             s.name AS name,
             s.sex AS sex,
+            s.nation AS nation,
+            s.highest AS highest,
+            s.yn_firend AS yn_firend,
+            s.birth AS birth,
             s.in_bm AS in_bm,
             s.card_number AS card_number,
+            s.join_department AS join_department,
+            s.position AS position,
             s.meal_type AS meal_type,
+            s.yn_history AS yn_history,
+            s.remark AS remark,
             s.intime AS intime,
             s.pass AS pass,
             ROW_NUMBER() OVER (ORDER BY s.code) AS rn
@@ -2181,47 +2767,218 @@ app.get('/api/hr/staff', async (req, res) => {
 })
 
 /**
- * v1.0.9：新增员工（只写你指定字段）
- * body: { code, name, sex, in_bm, card_number, meal_type, intime }
+ * v1.1.0：只读核验（给 RPA 截图用）
+ * GET /api/hr/staff/debug-code?name=xxx&card_number=1234567890
+ */
+app.get('/api/hr/staff/debug-code', async (req, res) => {
+  try {
+    const name = String(req.query?.name ?? '').trim()
+    const card = String(req.query?.card_number ?? '').trim()
+    if (!name || !card) {
+      res.status(400).json({ code: 400, msg: 'name 与 card_number 不能为空', data: null })
+      return
+    }
+
+    const today = new Date()
+    const p = (n) => String(n).padStart(2, '0')
+    const prefix = `${today.getFullYear()}${p(today.getMonth() + 1)}${p(today.getDate())}`
+
+    const pool = await getPool()
+    const reqMax = pool.request()
+    reqMax.input('prefix', sql.NVarChar(8), prefix)
+    const maxR = await reqMax.query(`
+      SELECT MAX(CAST(RIGHT(LTRIM(RTRIM(s.code)), 2) AS INT)) AS maxSeq
+      FROM ${HR_STAFF_FROM} AS s
+      WHERE
+        LEN(LTRIM(RTRIM(ISNULL(s.code, N'')))) = 10
+        AND LEFT(LTRIM(RTRIM(s.code)), 8) = @prefix
+        AND PATINDEX(N'%[^0-9]%', LTRIM(RTRIM(s.code))) = 0
+    `)
+    const maxSeqRaw = maxR.recordset?.[0]?.maxSeq
+    const maxSeq = maxSeqRaw == null ? 0 : Number(maxSeqRaw)
+    const safeMax = Number.isFinite(maxSeq) && maxSeq > 0 ? maxSeq : 0
+    const expectedNext = `${prefix}${String(safeMax + 1).padStart(2, '0')}`
+
+    const q = pool.request()
+    q.input('name', sql.NVarChar(50), name)
+    q.input('card', sql.NVarChar(50), card)
+    const r = await q.query(`
+      SELECT TOP (1)
+        s.code, s.new_code, s.name, s.card_number, s.join_department, s.position,
+        s.sex, s.nation, s.highest, s.yn_firend, s.birth,
+        s.meal_type, s.yn_history, s.remark, s.intime, s.pass, s.del
+      FROM ${HR_STAFF_FROM} AS s
+      WHERE LTRIM(RTRIM(ISNULL(s.name, N''))) = LTRIM(RTRIM(@name))
+        AND LTRIM(RTRIM(ISNULL(s.card_number, N''))) = LTRIM(RTRIM(@card))
+      ORDER BY s.code DESC
+    `)
+
+    res.json({
+      code: 200,
+      msg: 'success',
+      data: { todayPrefix: prefix, expectedNext, found: r.recordset?.[0] ?? null },
+    })
+  } catch (err) {
+    console.error('GET /api/hr/staff/debug-code 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `核验失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * v1.1.0：新增员工（按 Excel 字段调整 + 字段映射到旧表）
+ *
+ * 核心规则：
+ * - code：禁止手动输入。服务端按 YYYYMMDD + 两位流水号生成（如 2024041601）
+ * - new_code：新档案编码（可选，手动输入）
+ * - card_number：卡号（必填，固定 10 位数字）
+ * - join_department / position：入职部门/岗位（前端从 HR_Departments 实时下拉）
+ * - sex / meal_type（饭餐类型：员工餐、管理餐；空则按员工餐）/ yn_history（是否曾在我司应聘：是、否）
+ * - intime：默认当天（前端可改）
+ *
+ * body: { name, new_code, card_number, join_department, position, sex, nation, highest, yn_firend, birth, meal_type, yn_history, remark, intime }
  * - pass 默认 '0'（未审核）
  */
 app.post('/api/hr/staff', async (req, res) => {
   try {
+    const me = getCurrentUserFromReq(req)
     const body = req.body ?? {}
-    const code = String(body.code ?? '').trim()
     const name = String(body.name ?? '').trim()
-    const sex = String(body.sex ?? '').trim()
-    const inBm = String(body.in_bm ?? '').trim()
     const card = String(body.card_number ?? '').trim()
-    const mealType = String(body.meal_type ?? '').trim()
-    const intime = String(body.intime ?? '').trim()
+    const newCode = String(body.new_code ?? '').trim()
+    const joinDepartment = String(body.join_department ?? '').trim()
+    const position = String(body.position ?? '').trim()
+    const sex = String(body.sex ?? '').trim()
+    const nation = String(body.nation ?? '').trim()
+    const highest = String(body.highest ?? '').trim()
+    const ynFirend = String(body.yn_firend ?? '').trim()
+    const birthRaw = String(body.birth ?? '').trim()
+    const mealType = String(body.meal_type ?? '').trim() || '员工餐'
+    const ynHistory = String(body.yn_history ?? '').trim()
+    const remark = String(body.remark ?? '').trim()
+    const intimeRaw = String(body.intime ?? '').trim()
 
-    if (!code) {
-      res.status(400).json({ code: 400, msg: 'code（工号）不能为空', data: null })
-      return
-    }
     if (!name) {
       res.status(400).json({ code: 400, msg: 'name（姓名）不能为空', data: null })
       return
     }
+    if (!/^\d{10}$/.test(card)) {
+      res.status(400).json({ code: 400, msg: 'card_number（卡号）必须是 10 位数字', data: null })
+      return
+    }
 
     const pool = await getPool()
-    const ins = pool.request()
-    ins.input('code', sql.NVarChar(50), code)
-    ins.input('name', sql.NVarChar(50), name)
-    ins.input('sex', sql.NVarChar(50), sex || null)
-    ins.input('in_bm', sql.NVarChar(100), inBm || null)
-    ins.input('card_number', sql.NVarChar(50), card || null)
-    ins.input('meal_type', sql.NVarChar(50), mealType || null)
-    ins.input('intime', sql.NVarChar(50), intime || null)
+    const colset = await getHrStaffColumnSet(pool)
+    const tx = new sql.Transaction(pool)
+    await tx.begin(sql.ISOLATION_LEVEL.SERIALIZABLE)
+    try {
+      const today = new Date()
+      const p = (n) => String(n).padStart(2, '0')
+      const yyyymmdd = `${today.getFullYear()}${p(today.getMonth() + 1)}${p(today.getDate())}`
+      const code = await allocateNextStaffCode(tx, yyyymmdd)
+      const intime = intimeRaw || `${today.getFullYear()}-${p(today.getMonth() + 1)}-${p(today.getDate())}`
 
-    await ins.query(`
-      INSERT INTO ${HR_STAFF_FROM} (code, name, sex, in_bm, card_number, meal_type, intime, pass)
-      VALUES (@code, @name, @sex, @in_bm, @card_number, @meal_type, @intime, N'0')
-    `)
+      // v1.1.1：新增员工写入创建人 + 创建时间（按列存在情况兼容老库）
+      const uid = me?.userId != null ? String(me.userId) : ''
+      const uname = String(me?.userCode ?? '').trim()
+      const utruename = String(me?.userName ?? '').trim()
+      const addtimeNow = legacyDeptNowString()
 
-    const row = await fetchStaffByCode(pool, code)
-    res.json({ code: 200, msg: 'success', data: row })
+      const ins = new sql.Request(tx)
+      ins.input('code', sql.NVarChar(50), code)
+      ins.input('new_code', sql.NVarChar(50), newCode || null)
+      ins.input('name', sql.NVarChar(50), name)
+      ins.input('card_number', sql.NVarChar(50), card)
+      ins.input('join_department', sql.NVarChar(50), joinDepartment || null)
+      ins.input('position', sql.NVarChar(50), position || null)
+      ins.input('sex', sql.NVarChar(50), sex || null)
+      ins.input('nation', sql.NVarChar(50), nation || null)
+      ins.input('highest', sql.NVarChar(50), highest || null)
+      ins.input('yn_firend', sql.NVarChar(50), ynFirend || null)
+      ins.input('birth', sql.NVarChar(50), birthRaw || null)
+      ins.input('meal_type', sql.NVarChar(50), mealType || null)
+      ins.input('yn_history', sql.NVarChar(50), ynHistory || null)
+      ins.input('remark', sql.NVarChar(500), remark || null)
+      ins.input('intime', sql.NVarChar(50), intime || null)
+
+      /** @type {string[]} */
+      const cols = [
+        'code',
+        'new_code',
+        'name',
+        'card_number',
+        'join_department',
+        'position',
+        'sex',
+        'nation',
+        'highest',
+        'yn_firend',
+        'birth',
+        'meal_type',
+        'yn_history',
+        'remark',
+        'intime',
+        'pass',
+        'del',
+      ]
+      /** @type {string[]} */
+      const vals = [
+        '@code',
+        '@new_code',
+        '@name',
+        '@card_number',
+        '@join_department',
+        '@position',
+        '@sex',
+        '@nation',
+        '@highest',
+        '@yn_firend',
+        '@birth',
+        '@meal_type',
+        '@yn_history',
+        '@remark',
+        '@intime',
+        "N'0'",
+        "N'0'",
+      ]
+
+      if (colset.has('uname')) {
+        ins.input('uname', sql.NVarChar(50), uname || null)
+        cols.push('uname')
+        vals.push('@uname')
+      }
+      if (colset.has('uid')) {
+        ins.input('uid', sql.NVarChar(50), uid || null)
+        cols.push('uid')
+        vals.push('@uid')
+      }
+      if (colset.has('utruename')) {
+        ins.input('utruename', sql.NVarChar(50), utruename || null)
+        cols.push('utruename')
+        vals.push('@utruename')
+      }
+      if (colset.has('addtime')) {
+        ins.input('addtime', sql.NVarChar(50), addtimeNow || null)
+        cols.push('addtime')
+        vals.push('@addtime')
+      }
+
+      await ins.query(`
+        INSERT INTO ${HR_STAFF_FROM} (${cols.join(', ')})
+        VALUES (${vals.join(', ')})
+      `)
+
+      await tx.commit()
+      const row = await fetchStaffByCode(pool, code)
+      res.json({ code: 200, msg: 'success', data: row })
+    } catch (innerErr) {
+      try {
+        await tx.rollback()
+      } catch {
+        // ignore
+      }
+      throw innerErr
+    }
   } catch (err) {
     console.error('POST /api/hr/staff 失败：', err)
     const n = Number(err?.number ?? err?.originalError?.number ?? 0)
@@ -2236,7 +2993,7 @@ app.post('/api/hr/staff', async (req, res) => {
 
 /**
  * v1.0.9：编辑员工（已审核 pass='1' 禁止）
- * body: { code, name, sex, in_bm, card_number, meal_type, intime }
+ * body: { code, name, sex, nation, highest, yn_firend, birth, in_bm, card_number, join_department, position, meal_type, yn_history, remark, intime, new_code }
  */
 app.put('/api/hr/staff', async (req, res) => {
   try {
@@ -2244,10 +3001,19 @@ app.put('/api/hr/staff', async (req, res) => {
     const code = String(body.code ?? '').trim()
     const name = String(body.name ?? '').trim()
     const sex = String(body.sex ?? '').trim()
+    const nation = String(body.nation ?? '').trim()
+    const highest = String(body.highest ?? '').trim()
+    const ynFirend = String(body.yn_firend ?? '').trim()
+    const birth = String(body.birth ?? '').trim()
     const inBm = String(body.in_bm ?? '').trim()
     const card = String(body.card_number ?? '').trim()
-    const mealType = String(body.meal_type ?? '').trim()
+    const joinDepartment = String(body.join_department ?? '').trim()
+    const position = String(body.position ?? '').trim()
+    const mealType = String(body.meal_type ?? '').trim() || '员工餐'
+    const ynHistory = String(body.yn_history ?? '').trim()
+    const remark = String(body.remark ?? '').trim()
     const intime = String(body.intime ?? '').trim()
+    const newCode = String(body.new_code ?? '').trim()
 
     if (!code) {
       res.status(400).json({ code: 400, msg: 'code（工号）不能为空', data: null })
@@ -2273,20 +3039,38 @@ app.put('/api/hr/staff', async (req, res) => {
     upd.input('code', sql.NVarChar(50), code)
     upd.input('name', sql.NVarChar(50), name)
     upd.input('sex', sql.NVarChar(50), sex || null)
+    upd.input('nation', sql.NVarChar(50), nation || null)
+    upd.input('highest', sql.NVarChar(50), highest || null)
+    upd.input('yn_firend', sql.NVarChar(50), ynFirend || null)
+    upd.input('birth', sql.NVarChar(50), birth || null)
     upd.input('in_bm', sql.NVarChar(100), inBm || null)
     upd.input('card_number', sql.NVarChar(50), card || null)
+    upd.input('join_department', sql.NVarChar(50), joinDepartment || null)
+    upd.input('position', sql.NVarChar(50), position || null)
     upd.input('meal_type', sql.NVarChar(50), mealType || null)
+    upd.input('yn_history', sql.NVarChar(50), ynHistory || null)
+    upd.input('remark', sql.NVarChar(500), remark || null)
     upd.input('intime', sql.NVarChar(50), intime || null)
+    upd.input('new_code', sql.NVarChar(50), newCode || null)
 
     await upd.query(`
       UPDATE s
       SET
         s.name = @name,
         s.sex = @sex,
+        s.nation = @nation,
+        s.highest = @highest,
+        s.yn_firend = @yn_firend,
+        s.birth = @birth,
         s.in_bm = @in_bm,
         s.card_number = @card_number,
+        s.join_department = @join_department,
+        s.position = @position,
         s.meal_type = @meal_type,
-        s.intime = @intime
+        s.yn_history = @yn_history,
+        s.remark = @remark,
+        s.intime = @intime,
+        s.new_code = @new_code
       FROM ${HR_STAFF_FROM} AS s
       WHERE s.code = @code
     `)
@@ -2420,5 +3204,6 @@ process.on('SIGINT', async () => {
 const port = process.env.PORT ? Number(process.env.PORT) : 3001
 app.listen(port, () => {
   console.log(`API 服务已启动：http://localhost:${port}`)
+  console.log('[部门资料] POST /api/hr/departments：code 由服务端自增，不要求 body.code（若仍提示 code 必填，多为未重启后端或 3001 被其它程序占用）')
 })
 

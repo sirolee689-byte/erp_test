@@ -7,9 +7,10 @@
 
 | 列名 | 说明 |
 |------|------|
-| `code` | 部门编码（业务主键） |
+| `code` | 部门编码（业务主键；新增由服务端按整表最大数字 code +1 生成） |
 | `name` | 名称 |
-| `manager` | 负责人 |
+| `manager` | 负责人（历史列；新增写入为 NULL，界面已改为备注） |
+| `remark` | 备注（`nvarchar(500)`，迁移脚本添加） |
 | `addtime` / `edittime` / `deltime` / `intime` | 时间（旧表均为 nvarchar，按字符串读写） |
 | `del` | 逻辑删除：`''`/`NULL`/`'0'` 为在册；删除操作置 `'1'` |
 | `flag` | 标志位：**仅列表展示**，默认不参与 WHERE |
@@ -26,8 +27,8 @@
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/hr/departments` | `page`（默认1）、`pageSize`（**默认20**）、`keyword`（模糊 **`name`、`code`**）；仅 `del` 在册行；返回 `{ list, total }` |
-| POST | `/api/hr/departments` | body：`code`,`name`,`manager`；`pass=N'0'`,`del=N'0'`，`addtime`/`edittime` 填当前时间字符串 |
-| PUT | `/api/hr/departments` | body：`code`,`name`,`manager`；**`pass='1'` 禁止** |
+| POST | `/api/hr/departments` | body：`name`，可选 `remark`、`ParentID`（岗位必填）；**`code` 服务端自增**；`pass=N'0'`,`del=N'0'`，`addtime`/`edittime` 填当前时间字符串 |
+| PUT | `/api/hr/departments` | body：`code`,`name`，可选 `remark`、`ParentID`；**`pass='1'` 禁止** |
 | PUT | `/api/hr/departments/audit` | body：`{ code }` |
 | PUT | `/api/hr/departments/unaudit` | body：`{ code }` |
 | DELETE | `/api/hr/departments/:code` | **逻辑删除**（非物理 DELETE） |
@@ -42,4 +43,4 @@
 
 ## 5. 与 `HR_Departments` 迁移脚本
 
-`docs/sql/sqlserver_v1.0.8_hr_departments.txt` 可为空库建 **`HR_Departments`**；若表已存在且列结构为旧系统（`code`/`name`/`pass` 等），直接设默认表名即可。其它表名用 **`HR_LEGACY_DEPT_TABLE`** 覆盖。
+`docs/sql/sqlserver_v1.0.8_hr_departments.txt` 可为空库建 **`HR_Departments`**；若表已存在且列结构为旧系统（`code`/`name`/`pass` 等），直接设默认表名即可。其它表名用 **`HR_LEGACY_DEPT_TABLE`** 覆盖。备注列见 **`docs/sql/sqlserver_v1.1.0_hr_departments_add_remark.txt`**（`npm run migrate:hr-departments-remark`）。

@@ -1,0 +1,44 @@
+/*
+  ERP_TEST v1.1.0 — 人力资源：部门/岗位（SQL Server）
+
+  目的：
+  - 现有后端接口会读取 dbo.HR_Departments.ParentID 作为“岗位所属部门”字段
+  - 但你的库里 HR_Departments 缺少 ParentID，导致接口报错：
+    Invalid column name 'ParentID'
+
+  字段设计（对标旧库字段名要求）：
+  - ParentID：NVARCHAR(50) NULL
+    - 顶级部门：ParentID 为空（NULL 或 ''）
+    - 岗位：ParentID 存所属部门的 code（字符串）
+*/
+
+SET NOCOUNT ON;
+
+IF OBJECT_ID(N'dbo.HR_Departments', N'U') IS NULL
+BEGIN
+  RAISERROR(N'表 dbo.HR_Departments 不存在，无法添加 ParentID。', 16, 1);
+  RETURN;
+END;
+
+IF NOT EXISTS (
+  SELECT 1
+  FROM sys.columns
+  WHERE object_id = OBJECT_ID(N'dbo.HR_Departments')
+    AND name = N'ParentID'
+)
+BEGIN
+  ALTER TABLE dbo.HR_Departments
+  ADD ParentID NVARCHAR(50) NULL;
+END;
+
+IF NOT EXISTS (
+  SELECT 1
+  FROM sys.indexes
+  WHERE object_id = OBJECT_ID(N'dbo.HR_Departments')
+    AND name = N'IX_HR_Departments_ParentID'
+)
+BEGIN
+  CREATE INDEX IX_HR_Departments_ParentID
+  ON dbo.HR_Departments(ParentID);
+END;
+

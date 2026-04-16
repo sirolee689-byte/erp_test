@@ -1,0 +1,39 @@
+/*
+  ERP_TEST v1.1.0 — 人力资源：部门表备注列（SQL Server）
+
+  目的：
+  - 为 dbo.HR_Departments 增加 remark（备注），供部门资料接口读写
+  - 可选：将历史 manager（负责人）复制到 remark，避免老数据界面全空
+
+  注意：若实际表名不是 HR_Departments，请在 Navicat 中把脚本里的表名改成
+        与 .env 中 HR_LEGACY_DEPT_TABLE 一致后再执行。
+*/
+
+SET NOCOUNT ON;
+
+IF OBJECT_ID(N'dbo.HR_Departments', N'U') IS NULL
+BEGIN
+  RAISERROR(N'表 dbo.HR_Departments 不存在，无法添加 remark。', 16, 1);
+  RETURN;
+END;
+
+IF NOT EXISTS (
+  SELECT 1
+  FROM sys.columns
+  WHERE object_id = OBJECT_ID(N'dbo.HR_Departments')
+    AND name = N'remark'
+)
+BEGIN
+  ALTER TABLE dbo.HR_Departments
+  ADD remark NVARCHAR(500) NULL;
+END;
+
+/* 下一批再回填：避免同一批内编译器尚未识别新列 remark（Node 驱动按 GO 拆分执行） */
+GO
+
+/* 历史数据：有负责人无备注时，复制一份到备注（仅 remark 仍为空时执行） */
+UPDATE dbo.HR_Departments
+SET remark = LTRIM(RTRIM(manager))
+WHERE remark IS NULL
+  AND manager IS NOT NULL
+  AND LTRIM(RTRIM(manager)) <> N'';
