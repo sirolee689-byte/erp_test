@@ -4,10 +4,11 @@
 
 > 约定：本文只维护“项目当前明确使用到”的表与字段；如需扩展，请同时补充迁移脚本（见 `docs/sql/` 与 `scripts/migrations/`）和相关设计文档。
 
-## 1. 全局概览（当前确认：4 张表）
+## 1. 全局概览（当前确认：5 张表）
 
 - **HR_Departments**：部门 / 岗位（旧系统表接管）
 - **Hr_staff**：人事档案资料（精简字段查询）
+- **Sys_OperationLogs**：全局操作审计日志（新增）
 - **Sys_Roles**：角色管理（含菜单权限 `Permissions`）
 - **Sys_Users**：用户/操作员（通过 `RoleID` 关联角色）
 
@@ -37,6 +38,7 @@
 - **关键字段（接口 JSON 均为小写键）**（见 `hr_department_design.md`）
   - **主键（业务）**：`code`（字符串；新增按整表最大数字 code + 1 生成）
   - **常用字段**：`name`、`remark`、`manager`（历史列）、`flag`
+  - **审计关联**：`uid`、`uname` 已存在于数据库真实表结构中，可用于记录当前操作人
   - **审核**：`pass`（`'1'` 已审核锁定；`'0'`/空 未审核）
   - **逻辑删除**：`del`（`''`/`NULL`/`'0'` 在册；`'1'` 删除）
   - **时间字符串**：`addtime`/`edittime`/`deltime`/`intime`
@@ -69,12 +71,45 @@
   - `card_number`、`meal_type`、`yn_history`
   - `remark`（`nvarchar(500)`）
   - `intime`
+  - `uid`、`uname`（数据库真实表已存在，可用于写入当前操作人）
   - `pass`（`'1'` 已审核锁定；`'0'`/空 未审核）
 - **权限（按钮级）**
   - 菜单 path：`hr/files/employee-files`
   - 操作：`view` / `add` / `edit` / `delete` / `audit`
 
-### 3.3 `Sys_Roles`（角色管理，RBAC Phase 1）
+### 3.3 `Sys_OperationLogs`（全局操作审计日志）
+
+- **Schema**：`dbo`
+- **表用途**
+  - 记录关键操作：新增、编辑、删除、审核等
+  - **v1.1.1+ 全自动审计**：由 `server/operationAuditMiddleware.js` 两段组成：
+    1. **`createOperationAuditPrepareMiddleware`**（在 `apiPermissionGate` 之后、业务路由之前）：对 `DELETE /api/hr/staff/:code` **删除前**查询 `name/code`；对 `PUT /api/hr/staff` **修改前**读取当前行，与 `req.body` 按字段中文映射比对，生成「修改了[字段]：由[旧]改为[新]」文案（挂到 `req`）。
+    2. **`createOperationAuditMiddleware`**：`res.finish` 且 **HTTP 200** 后异步 `INSERT`（失败只打控制台）。
+  - **操作人来源**：从登录态 `getCurrentUserFromReq`（Bearer Token → 内存 `tokenStore`）取 `userId` → 写入 `UserId`；`userName`（优先真实姓名，否则工号）→ 写入 `UserName`（列表接口别名 `uname` / `user_id`）。
+  - **Action / TargetTable**：按路由映射为可读中文（如 `删除员工档案`、`修改员工档案`、`新增员工档案`）；未命中规则时用「新增/修改/删除 + path」截断，避免把裸 URL 当作业务动作名。
+  - **Content（详情）**：
+    - **员工删除 / 修改 / 新增**：详情句首带 **`操作人{姓名}`**；删除为「删除了员工档案…」；修改为「修改了员工档案：修改了[字段]…」；新增为「新增了员工档案，姓名[…]…」。
+    - **部门/岗位（POST/PUT/DELETE/审核/批量审核）**：同样带 **`操作人{姓名}`**；**POST** 仅展示非空字段（`remark`、`ParentID` 等为空则不写入详情）；**审核** 在准备阶段读库补全「名称+编码」中文句，避免只记 `{"code":"1106"}`。
+    - **其它接口**：仍为 **脱敏后的 `req.body` JSON**（密码类等替换为 `***`），超长截断至 `NVARCHAR(2000)`。
+  - **IPAddress**：取 `X-Forwarded-For` 首段，否则取 `req.ip` / socket 地址（去掉 `::ffff:`）。
+  - **不参与审计的路径**：`/api/login`、`/api/health`。
+- **模块/页面**
+  - 前端：`src/views/system/logs/index.vue`
+- **关键字段**（已按数据库真实结构核对）
+  - `LogID`（INT IDENTITY，主键）
+  - `UserId`、`UserName`
+  - `Action`（操作类型）
+  - `TargetTable`（目标表名）
+  - `Content`（操作详情 / SQL 快照 / 业务摘要）
+  - `IPAddress`
+  - `CreateTime`（`nvarchar(50)`，默认 `GETDATE()` 格式化字符串）
+- **接口（后端：`server/index.js`）**
+  - `GET /api/sys/logs`：分页查询；`action` 筛选为 **LIKE 模糊**；返回含 `user_id`（`UserId`）供核对
+  - `DELETE /api/sys/logs/clear`：清空全表（仅工号 `admin` 不区分大小写，或角色名「系统管理员」）；成功后仍由上述中间件追加一条「清空操作日志」记录
+- **迁移脚本**
+  - 建表：`docs/sql/sqlserver_v1.1.0_create_sys_operationlogs.txt`
+
+### 3.4 `Sys_Roles`（角色管理，RBAC Phase 1）
 
 - **Schema**：通常为 `dbo`（实际由数据库决定）
 - **模块/页面**
@@ -96,7 +131,7 @@
 - **迁移脚本**
   - 增加 `Permissions` 列：`docs/sql/erp_v1.0.7_permissions_column.txt`（或 `scripts/migrations/sqlserver_v1.0.7_permissions_column.txt`）
 
-### 3.4 `Sys_Users`（用户 / 操作员）
+### 3.5 `Sys_Users`（用户 / 操作员）
 
 - **Schema**：通常为 `dbo`（实际由数据库决定）
 - **模块/页面**
@@ -129,6 +164,9 @@
 - **`Sys_Roles`**
   - 来源：`server/index.js`（角色管理、用户列表 JOIN 角色名、登录返回权限）
   - 来源：`server/apiPermissionGate.js`（鉴权 JOIN 读取 `Permissions`）
+- **`Sys_OperationLogs`**
+  - 来源：`server/index.js`（列表、清空、底层 `writeOperationLog`）
+  - 来源：`server/operationAuditMiddleware.js`（v1.1.1 起：POST/PUT/DELETE 成功后的自动审计写入）
 - **`dbo.[${HR_LEGACY_DEPT_TABLE}]`（默认 `dbo.[HR_Departments]`）**
   - 来源：`server/index.js`
   - 说明：通过 `HR_LEGACY_DEPT_FROM = \`dbo.[${HR_LEGACY_DEPT_TABLE}]\`` 统一引用；同时被部门资料接口与员工档案“部门/岗位下拉”接口使用。

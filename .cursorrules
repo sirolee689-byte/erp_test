@@ -150,13 +150,18 @@
 
 ## 16. 全局操作审计规范 (Global Audit Trail)
 - **表结构强制要求**：
-    1. **用户信息关联**：所有业务表（如 `HR_staff`, `HR_Departments` 等）必须包含以下字段：
-        - `UID`: 对应 `Sys_Users` 表的 `UserId`。
-        - `uname`: 对应 `Sys_Users` 表的 `username`。
+    1. **用户信息关联**：今后新建业务表（例如入库单 `Inv_StockIn`）必须默认包含：
+        - `UID`: 对应 `Sys_Users.UserId`。
+        - `uname`: 对应 `Sys_Users` 展示名（与登录态 `UserName`/`UserCode` 一致）。
     2. **时间戳**：必须包含 `create_time`（默认 `GETDATE()`）或 `update_time`。
-- **CRUD 自动记录逻辑**：
-    - **写入逻辑**：在执行任何 `INSERT` 或 `UPDATE` 操作时，AI 必须自动从当前登录会话（Session/Token）中提取 `UserId` 和 `username`，并填充到 `UID` 和 `uname` 字段中。
-    - **日志表同步**：除业务表自身的字段外，所有关键操作（增、删、改、审核）必须同步向 `Sys_OperationLogs` 表写入一条记录。
+    3. **存量表**：已存在的物理表（如 `HR_staff`）仍遵守「禁止私自改字段名」；仅在新增表时强制 UID/uname。
+- **INSERT/UPDATE 写入操作者**：
+    - `apiPermissionGate` 校验通过后会挂载 `req.user`（与 Bearer Token 解析结果一致）。
+    - 执行 `INSERT`（及需要记录最后修改人时的 `UPDATE`）时，必须调用 `server/businessAuditFields.js` 的 `getActorAuditFromReq(req)` 得到 `{ UID, uname }` 并写入 SQL 参数，禁止在业务代码里手写重复取用户逻辑。
+- **操作日志（Sys_OperationLogs）**：
+    - **自动审计**：`POST`/`PUT`/`DELETE` 且 HTTP 200 时由 `operationAuditMiddleware` 按 `server/action_map.js` 映射写入；路径未在映射表命中时，`Action` 兜底为「系统操作」。
+    - **手工补记**：关键分支或异步后续处理需额外落一条日志时，调用 `server/operationLogWriter.js` 的 `writeLog(req, action, details)`（自动带出 `UserId`/`UserName`/`IPAddress`；`CreateTime` 由表默认值填充）；`details` 可为字符串或可 JSON 的对象（对象会脱敏）。
+    - 新业务接口上线前必须在 `action_map.js` 的 `OPERATION_AUDIT_ROUTE_RULES` 中补充 Method+Path 映射，避免长期落在「系统操作」。
 - **日志表结构参考**：
     - `LogID`, `UserId`, `UserName`, `Action` (操作类型), `TargetTable` (目标表), `Content` (操作详情/SQL快照), `IPAddress`, `CreateTime`。
 - **Playwright 自检**：自动化测试时，必须验证提交后 `Sys_OperationLogs` 是否生成了对应的审计记录。

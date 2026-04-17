@@ -12,6 +12,11 @@ import crypto from 'node:crypto'
 import bcrypt from 'bcrypt'
 import { createApiPermissionGate } from './apiPermissionGate.js'
 import { serializePermissionsForStore } from './permissions.js'
+import {
+  createOperationAuditMiddleware,
+  createOperationAuditPrepareMiddleware,
+} from './operationAuditMiddleware.js'
+import { configureOperationLogWriter, writeOperationLog, SYS_OPERATION_LOGS_FROM } from './operationLogWriter.js'
 
 dotenv.config()
 
@@ -28,6 +33,11 @@ app.use(express.json())
  * getCurrentUserFromReq 在下方函数声明（函数声明会提升，闭包在请求到达时已可用）
  */
 app.use((req, res, next) => createApiPermissionGate({ getCurrentUserFromReq })(req, res, next))
+
+/**
+ * v1.1.1+：操作审计「准备」——在 DELETE/PUT 员工等路由执行前读库，生成中文详情上下文
+ */
+app.use(createOperationAuditPrepareMiddleware())
 
 /**
  * 简易登录态（后端内存版）
@@ -127,6 +137,11 @@ async function assertWritableRoleId(pool, roleIdRaw) {
  * - 查到就说明这个 token 还有效，我们就知道“当前是谁”
  */
 function getCurrentUserFromReq(req) {
+  // 已通过 apiPermissionGate 时直接复用 req.user，避免重复解析 Bearer
+  if (req?.user && typeof req.user === 'object') {
+    return req.user
+  }
+
   // 关键：读取 Authorization 请求头
   const auth = String(req.headers?.authorization ?? '').trim()
   // 关键：标准写法是 "Bearer token"
@@ -157,11 +172,218 @@ function getCurrentUserFromReq(req) {
   }
 }
 
+configureOperationLogWriter({ getCurrentUserFromReq })
+
+/**
+ * 操作日志「清空」运维特权：工号为 admin（不区分大小写）或角色名为系统管理员
+ * @param {ReturnType<typeof getCurrentUserFromReq>} user
+ */
+function isOperationLogAdminUser(user) {
+  if (!user) return false
+  const code = String(user.userCode ?? '').trim().toLowerCase()
+  if (code === 'admin') return true
+  const rn = String(user.roleName ?? '').trim()
+  return rn === '系统管理员'
+}
+
+/** 缓存日志表列清单，兼容未来表结构扩展 */
+let SYS_OPERATION_LOGS_COLSET_PROMISE = null
+
+/**
+ * 读取 Sys_OperationLogs 的列名集合（小写）
+ * @param {import('mssql').ConnectionPool} pool
+ * @returns {Promise<Set<string>>}
+ */
+async function getOperationLogsColumnSet(pool) {
+  if (SYS_OPERATION_LOGS_COLSET_PROMISE) return SYS_OPERATION_LOGS_COLSET_PROMISE
+  SYS_OPERATION_LOGS_COLSET_PROMISE = (async () => {
+    try {
+      const r = await pool.request().input('tableName', sql.NVarChar(128), 'Sys_OperationLogs').query(`
+        SELECT COLUMN_NAME AS name
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = @tableName
+      `)
+      const set = new Set()
+      for (const row of r.recordset ?? []) {
+        const name = String(row?.name ?? '').trim().toLowerCase()
+        if (name) set.add(name)
+      }
+      return set
+    } catch (err) {
+      console.warn('[操作日志] 读取 Sys_OperationLogs 列清单失败：', err?.message ?? err)
+      return new Set()
+    }
+  })()
+  return SYS_OPERATION_LOGS_COLSET_PROMISE
+}
+
+/**
+ * v1.1.1：全局操作审计（POST/PUT/DELETE 且 HTTP 200 后异步落库）
+ */
+app.use(
+  createOperationAuditMiddleware({
+    getCurrentUserFromReq,
+    writeOperationLogAsync: async (payload) => {
+      const pool = await getPool()
+      await writeOperationLog(pool, payload)
+    },
+  }),
+)
+
 /**
  * 健康检查
  */
 app.get('/api/health', (req, res) => {
   res.json({ ok: true })
+})
+
+/**
+ * v1.1.1：操作日志分页查询
+ * 说明：
+ * - 只返回前端日志页需要的字段别名
+ * - 若未来日志表扩展了 pass/status/del，则自动只看“正常记录”
+ */
+app.get('/api/sys/logs', async (req, res) => {
+  try {
+    const page = Number(req.query?.page ?? 1)
+    const pageSize = Number(req.query?.pageSize ?? 20)
+    const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1
+    const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.floor(pageSize), 200) : 20
+    const offset = (safePage - 1) * safePageSize
+
+    const uname = String(req.query?.uname ?? '').trim()
+    const action = String(req.query?.action ?? '').trim()
+    const startDate = String(req.query?.startDate ?? '').trim()
+    const endDate = String(req.query?.endDate ?? '').trim()
+
+    const pool = await getPool()
+    const colset = await getOperationLogsColumnSet(pool)
+    const totalReq = pool.request()
+    const listReq = pool.request()
+    const whereParts = ['1 = 1']
+
+    if (uname) {
+      whereParts.push('L.UserName LIKE @unameLike')
+      totalReq.input('unameLike', sql.NVarChar(100), `%${uname}%`)
+      listReq.input('unameLike', sql.NVarChar(100), `%${uname}%`)
+    }
+    if (action) {
+      whereParts.push('L.Action LIKE @actionLike')
+      totalReq.input('actionLike', sql.NVarChar(80), `%${action}%`)
+      listReq.input('actionLike', sql.NVarChar(80), `%${action}%`)
+    }
+    if (startDate) {
+      whereParts.push('LTRIM(RTRIM(ISNULL(L.CreateTime, N\'\'))) >= @startDate')
+      totalReq.input('startDate', sql.NVarChar(20), `${startDate} 00:00:00`)
+      listReq.input('startDate', sql.NVarChar(20), `${startDate} 00:00:00`)
+    }
+    if (endDate) {
+      whereParts.push('LTRIM(RTRIM(ISNULL(L.CreateTime, N\'\'))) <= @endDate')
+      totalReq.input('endDate', sql.NVarChar(20), `${endDate} 23:59:59`)
+      listReq.input('endDate', sql.NVarChar(20), `${endDate} 23:59:59`)
+    }
+
+    // 严格按“正常状态”思路兼容未来表结构；当前 v1.1.1 建表没有这些列时自动跳过
+    if (colset.has('pass')) {
+      whereParts.push("LTRIM(RTRIM(ISNULL(L.pass, N''))) = N'1'")
+    }
+    if (colset.has('del')) {
+      whereParts.push("(LTRIM(RTRIM(ISNULL(L.del, N''))) = N'' OR LTRIM(RTRIM(ISNULL(L.del, N''))) = N'0')")
+    }
+    if (colset.has('status')) {
+      whereParts.push('(L.Status = 1 OR LTRIM(RTRIM(CONVERT(NVARCHAR(50), ISNULL(L.Status, 1)))) = N\'1\')')
+    }
+
+    const whereSql = `WHERE ${whereParts.join(' AND ')}`
+
+    const totalResult = await totalReq.query(`
+      SELECT COUNT(1) AS total
+      FROM ${SYS_OPERATION_LOGS_FROM} AS L
+      ${whereSql}
+    `)
+    const total = Number(totalResult.recordset?.[0]?.total ?? 0)
+
+    const safeOffset = Math.max(0, Math.floor(Number(offset)) || 0)
+    const safeFetch = Math.max(1, Math.min(200, Math.floor(Number(safePageSize)) || 20))
+
+    let listResult
+    try {
+      listResult = await listReq.query(`
+        SELECT
+          L.CreateTime AS create_time,
+          L.UserId AS user_id,
+          L.UserName AS uname,
+          L.Action AS action,
+          L.Content AS details,
+          L.IPAddress AS ip_address
+        FROM ${SYS_OPERATION_LOGS_FROM} AS L
+        ${whereSql}
+        ORDER BY L.LogID DESC
+        OFFSET ${safeOffset} ROWS
+        FETCH NEXT ${safeFetch} ROWS ONLY
+      `)
+    } catch (pageErr) {
+      const msg = String(pageErr?.message ?? pageErr?.originalError?.message ?? '')
+      const shouldFallback =
+        msg.includes('Invalid usage of the option NEXT') ||
+        msg.includes("Incorrect syntax near 'OFFSET'") ||
+        msg.toLowerCase().includes('offset') ||
+        msg.toLowerCase().includes('fetch')
+      if (!shouldFallback) throw pageErr
+
+      const startRow = safeOffset + 1
+      const endRow = safeOffset + safeFetch
+      const fb = pool.request()
+      if (uname) fb.input('unameLike', sql.NVarChar(100), `%${uname}%`)
+      if (action) fb.input('actionLike', sql.NVarChar(80), `%${action}%`)
+      if (startDate) fb.input('startDate', sql.NVarChar(20), `${startDate} 00:00:00`)
+      if (endDate) fb.input('endDate', sql.NVarChar(20), `${endDate} 23:59:59`)
+      fb.input('startRow', sql.Int, startRow)
+      fb.input('endRow', sql.Int, endRow)
+      listResult = await fb.query(`
+        SELECT create_time, user_id, uname, action, details, ip_address
+        FROM (
+          SELECT
+            L.CreateTime AS create_time,
+            L.UserId AS user_id,
+            L.UserName AS uname,
+            L.Action AS action,
+            L.Content AS details,
+            L.IPAddress AS ip_address,
+            ROW_NUMBER() OVER (ORDER BY L.LogID DESC) AS rn
+          FROM ${SYS_OPERATION_LOGS_FROM} AS L
+          ${whereSql}
+        ) AS x
+        WHERE x.rn BETWEEN @startRow AND @endRow
+      `)
+    }
+
+    res.json({ code: 200, msg: 'success', data: { list: listResult.recordset ?? [], total } })
+  } catch (err) {
+    console.error('GET /api/sys/logs 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取操作日志失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * v1.1.1：清空操作日志（仅工号 admin 或角色「系统管理员」；成功后仍由审计中间件记一条「清空操作日志」）
+ */
+app.delete('/api/sys/logs/clear', async (req, res) => {
+  try {
+    const me = getCurrentUserFromReq(req)
+    if (!isOperationLogAdminUser(me)) {
+      res.status(403).json({ code: 403, msg: '仅管理员可清空操作日志', data: null })
+      return
+    }
+    const pool = await getPool()
+    await pool.request().query(`DELETE FROM ${SYS_OPERATION_LOGS_FROM}`)
+    res.json({ code: 200, msg: 'success', data: { cleared: true } })
+  } catch (err) {
+    console.error('DELETE /api/sys/logs/clear 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库执行失败')
+    res.status(500).json({ code: 500, msg: `清空操作日志失败：${detail}`, data: null })
+  }
 })
 
 /**

@@ -5,11 +5,11 @@
     "children": [
       { "name": "operator", "title": "操作员资料" },
       { "name": "role", "title": "角色管理" },
+      { "name": "logs", "title": "操作日志" },
       { 
         "name": "related", 
         "title": "系统相关", 
         "children": [
-          { "name": "logs", "title": "系统日志" },
           { "name": "features", "title": "系统功能" },
           { "name": "forms", "title": "系统表单" }
         ]

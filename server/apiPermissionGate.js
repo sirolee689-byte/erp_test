@@ -95,6 +95,10 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'system/role', action: 'delete' }
   }
 
+  if (m === 'GET' && path === '/api/sys/logs') {
+    return { menuPath: 'system/logs', action: 'view' }
+  }
+
   /* v1.0.8：人力资源 — 部门资料（菜单 path与 erp_structure_dump 一致：hr/files/department） */
   if (m === 'GET' && path === '/api/hr/departments') {
     return { menuPath: 'hr/files/department', action: 'view' }
@@ -184,6 +188,9 @@ export function createApiPermissionGate(deps) {
       })
       return
     }
+
+    // 供业务 INSERT（UID/uname）与 writeLog 等统一读取当前登录用户（与 Bearer 解析结果一致）
+    req.user = user
 
     const rule = matchApiPermissionRule(req.method, p, req.body, req.params)
     if (!rule) {

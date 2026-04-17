@@ -1,0 +1,20 @@
+BEGIN TRY
+    IF OBJECT_ID(N'dbo.Sys_OperationLogs', N'U') IS NULL
+    BEGIN
+        CREATE TABLE dbo.Sys_OperationLogs (
+            LogID INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+            UserId NVARCHAR(50) NULL,
+            UserName NVARCHAR(50) NULL,
+            Action NVARCHAR(50) NOT NULL,
+            TargetTable NVARCHAR(100) NOT NULL,
+            Content NVARCHAR(2000) NULL,
+            IPAddress NVARCHAR(50) NULL,
+            CreateTime NVARCHAR(50) NOT NULL
+                CONSTRAINT DF_Sys_OperationLogs_CreateTime
+                DEFAULT (CONVERT(NVARCHAR(19), GETDATE(), 120))
+        )
+    END
+END TRY
+BEGIN CATCH
+    SELECT ERROR_NUMBER() AS ErrorNumber, ERROR_MESSAGE() AS ErrorMessage
+END CATCH;

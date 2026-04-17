@@ -1,7 +1,7 @@
 {
   "name": "erp-test",
   "private": true,
-  "version": "1.0.9",
+  "version": "1.1.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,7 +16,8 @@
     "migrate:hr-staff-remark": "node scripts/run-migration-sqlserver_v1.1.0_hr_staff_add_remark.mjs",
     "e2e:dept-office": "node scripts/e2e-dept-office.mjs",
     "e2e:dept-batch-audit": "node scripts/e2e-dept-batch-audit.mjs",
-    "e2e:staff-form-ui": "node scripts/e2e-staff-form-ui.mjs"
+    "e2e:staff-form-ui": "node scripts/e2e-staff-form-ui.mjs",
+    "e2e:operation-logs": "node scripts/e2e-operation-logs.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
