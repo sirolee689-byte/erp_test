@@ -1,0 +1,36 @@
+-- v1.1.2 离职交互增强：离职原因 / 黑名单字段（重复执行安全）
+
+IF NOT EXISTS (
+  SELECT 1
+  FROM sys.columns AS c
+  INNER JOIN sys.tables AS tb ON c.object_id = tb.object_id
+  INNER JOIN sys.schemas AS s ON tb.schema_id = s.schema_id
+  WHERE s.name = N'dbo' AND tb.name = N'Hr_staff' AND c.name = N'leave_reason'
+)
+BEGIN
+  ALTER TABLE dbo.[Hr_staff] ADD [leave_reason] NVARCHAR(200) NULL;
+END
+
+IF NOT EXISTS (
+  SELECT 1
+  FROM sys.columns AS c
+  INNER JOIN sys.tables AS tb ON c.object_id = tb.object_id
+  INNER JOIN sys.schemas AS s ON tb.schema_id = s.schema_id
+  WHERE s.name = N'dbo' AND tb.name = N'Hr_staff' AND c.name = N'is_blacklist'
+)
+BEGIN
+  ALTER TABLE dbo.[Hr_staff]
+  ADD [is_blacklist] INT NOT NULL CONSTRAINT DF_Hr_staff_is_blacklist DEFAULT ((0));
+END
+
+IF NOT EXISTS (
+  SELECT 1
+  FROM sys.columns AS c
+  INNER JOIN sys.tables AS tb ON c.object_id = tb.object_id
+  INNER JOIN sys.schemas AS s ON tb.schema_id = s.schema_id
+  WHERE s.name = N'dbo' AND tb.name = N'Hr_staff' AND c.name = N'blacklist_reason'
+)
+BEGIN
+  ALTER TABLE dbo.[Hr_staff] ADD [blacklist_reason] NVARCHAR(200) NULL;
+END
+

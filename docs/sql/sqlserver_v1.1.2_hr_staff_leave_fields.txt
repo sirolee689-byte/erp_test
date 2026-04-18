@@ -1,0 +1,43 @@
+-- v1.1.2 员工离职/状态修改：字段补齐（重复执行安全）
+-- 说明：仅新增字段，不改动旧字段名（遵守接管旧表规则）
+
+/* 1) Hr_staff：status（在职/离职）与 leave_date（离职日期） */
+IF NOT EXISTS (
+  SELECT 1
+  FROM sys.columns AS c
+  INNER JOIN sys.tables AS tb ON c.object_id = tb.object_id
+  INNER JOIN sys.schemas AS s ON tb.schema_id = s.schema_id
+  WHERE s.name = N'dbo' AND tb.name = N'Hr_staff' AND c.name = N'status'
+)
+BEGIN
+  ALTER TABLE dbo.[Hr_staff]
+  ADD [status] NVARCHAR(20) NOT NULL
+      CONSTRAINT DF_Hr_staff_status DEFAULT (N'在职');
+END
+
+IF NOT EXISTS (
+  SELECT 1
+  FROM sys.columns AS c
+  INNER JOIN sys.tables AS tb ON c.object_id = tb.object_id
+  INNER JOIN sys.schemas AS s ON tb.schema_id = s.schema_id
+  WHERE s.name = N'dbo' AND tb.name = N'Hr_staff' AND c.name = N'leave_date'
+)
+BEGIN
+  ALTER TABLE dbo.[Hr_staff]
+  ADD [leave_date] DATETIME NULL;
+END
+
+/* 2) Sys_Users：is_active（账号是否可登录：1 可用 / 0 封禁） */
+IF NOT EXISTS (
+  SELECT 1
+  FROM sys.columns AS c
+  INNER JOIN sys.tables AS tb ON c.object_id = tb.object_id
+  INNER JOIN sys.schemas AS s ON tb.schema_id = s.schema_id
+  WHERE s.name = N'dbo' AND tb.name = N'Sys_Users' AND c.name = N'is_active'
+)
+BEGIN
+  ALTER TABLE dbo.[Sys_Users]
+  ADD [is_active] INT NOT NULL
+      CONSTRAINT DF_Sys_Users_is_active DEFAULT ((1));
+END
+

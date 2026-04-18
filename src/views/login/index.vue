@@ -40,11 +40,11 @@
           - 点击登录时，我们把变量提交给后端 /api/login
         -->
         <el-form :model="form" class="login-form" @keyup.enter="onLogin">
-          <!-- 工号输入框 -->
+          <!-- 账号输入框 -->
           <el-form-item>
             <el-input
-              v-model="form.userCode"
-              placeholder="请输入工号"
+              v-model="form.account"
+              placeholder="请输入账号"
               clearable
               size="large"
               autocomplete="username"
@@ -105,8 +105,8 @@ const route = useRoute()
 // 2) 表单数据
 // =========================
 const form = reactive({
-  // 工号（对应数据库 Sys_Users.UserCode）
-  userCode: '',
+  // 登录账号（对应数据库 Sys_Users.Account）
+  account: '',
   // 密码（对应数据库 Sys_Users.Password）
   password: '',
 })
@@ -125,12 +125,12 @@ const loading = ref(false)
  */
 async function onLogin() {
   // 关键：去掉左右空格，避免“复制粘贴多了空格”导致登录失败
-  const userCode = String(form.userCode ?? '').trim()
+  const account = String(form.account ?? '').trim()
   const password = String(form.password ?? '').trim()
 
   // 关键：前端必填校验
-  if (!userCode) {
-    ElMessage.error('请输入工号')
+  if (!account) {
+    ElMessage.error('请输入账号')
     return
   }
   if (!password) {
@@ -144,7 +144,7 @@ async function onLogin() {
     // 关键：请求后端登录接口
     const res = await axios.post('/api/login', {
       // 关键：字段名保持简单清晰（后端也按这个取值）
-      UserCode: userCode,
+      Account: account,
       Password: password,
     })
 

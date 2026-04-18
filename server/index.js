@@ -10,13 +10,14 @@ import dotenv from 'dotenv'
 import { getPool, sql } from './db.js'
 import crypto from 'node:crypto'
 import bcrypt from 'bcrypt'
+import * as XLSX from 'xlsx'
 import { createApiPermissionGate } from './apiPermissionGate.js'
 import { serializePermissionsForStore } from './permissions.js'
 import {
   createOperationAuditMiddleware,
   createOperationAuditPrepareMiddleware,
 } from './operationAuditMiddleware.js'
-import { configureOperationLogWriter, writeOperationLog, SYS_OPERATION_LOGS_FROM } from './operationLogWriter.js'
+import { configureOperationLogWriter, writeLog, writeOperationLog, SYS_OPERATION_LOGS_FROM } from './operationLogWriter.js'
 
 dotenv.config()
 
@@ -26,7 +27,8 @@ const app = express()
 // - 开发阶段前端通过 Vite 代理 /api，不会跨域
 // - 但如果你单独访问后端，保留 cors 也更稳妥
 app.use(cors())
-app.use(express.json())
+// v1.1.2：批量更新需要上传 Excel（base64），默认 100kb 不够用
+app.use(express.json({ limit: '20mb' }))
 
 /**
  * v1.0.7+：除登录/健康检查外，/api/* 需带 Bearer token；已配置规则的接口再校验按钮级权限
@@ -785,12 +787,18 @@ app.delete('/api/roles/:id', async (req, res) => {
 app.post('/api/login', async (req, res) => {
   try {
     // 关键：从请求体读取用户输入
-    const userCode = String(req.body?.UserCode ?? '').trim()
+    const account = String(req.body?.Account ?? '').trim()
+    const fallbackUserCode = String(req.body?.UserCode ?? '').trim()
     const password = String(req.body?.Password ?? '')
 
     // 关键：基础必填校验（避免空请求打到数据库）
-    if (!userCode) {
-      res.status(400).json({ code: 400, msg: '工号不能为空', data: null })
+    if (!account) {
+      // 兼容旧前端：未升级时仍传 UserCode
+      if (fallbackUserCode) {
+        res.status(400).json({ code: 400, msg: '登录账号不能为空（请升级前端以使用 Account 登录）', data: null })
+        return
+      }
+      res.status(400).json({ code: 400, msg: '登录账号不能为空', data: null })
       return
     }
     if (!String(password).trim()) {
@@ -800,25 +808,28 @@ app.post('/api/login', async (req, res) => {
 
     // 关键：获取数据库连接池
     const pool = await getPool()
+    const userColset = await getSysUsersColumnSet(pool)
 
     // 关键：参数化查询（防 SQL 注入 + nvarchar 兼容中文）
     const request = pool.request()
-    request.input('UserCode', sql.NVarChar(50), userCode)
+    request.input('Account', sql.NVarChar(50), account)
 
-    // 关键：查一条用户记录（按工号精确匹配）
+    // 关键：查一条用户记录（按 Account 精确匹配）
     const result = await request.query(`
       SELECT TOP (1)
         u.UserID,
         u.UserCode,
+        ${userColset.has('account') ? 'u.Account AS Account,' : ''}
         u.UserName,
         u.Password,
         u.Status,
+        ${userColset.has('is_active') ? 'u.is_active AS is_active,' : ''}
         u.RoleID,
         r.RoleName AS RoleName,
         r.Permissions AS Permissions
       FROM Sys_Users AS u
       LEFT JOIN Sys_Roles AS r ON u.RoleID = r.RoleID
-      WHERE u.UserCode = @UserCode
+      WHERE ${userColset.has('account') ? 'u.Account = @Account' : 'u.UserCode = @Account'}
     `)
 
     // 关键：拿到用户行
@@ -826,13 +837,18 @@ app.post('/api/login', async (req, res) => {
 
     // 1) 校验工号是否存在
     if (!userRow) {
-      res.status(400).json({ code: 400, msg: '工号不存在', data: null })
+      res.status(400).json({ code: 400, msg: '账号不存在', data: null })
       return
     }
 
     // 2) 校验账号是否被禁用（Status=0）
     if (Number(userRow.Status) === 0) {
       res.status(403).json({ code: 403, msg: '账号已被禁用，请联系管理员', data: null })
+      return
+    }
+    // v1.1.2：账号是否可登录（is_active=0 则封禁）
+    if (userColset.has('is_active') && Number(userRow.is_active ?? 1) === 0) {
+      res.status(403).json({ code: 403, msg: '该账号已封禁或员工已离职', data: null })
       return
     }
 
@@ -855,7 +871,8 @@ app.post('/api/login', async (req, res) => {
     // 关键：保存到后端内存（可用于后续接口鉴权升级）
     tokenStore.set(token, {
       userId: Number(userRow.UserID),
-      userCode: String(userRow.UserCode ?? ''),
+      // 约定：把登录账号写入 userCode，便于各处统一展示（旧字段名不改）
+      userCode: String(userRow.Account ?? userRow.UserCode ?? ''),
       // v1.0.8：审核写入 Auditor 时用真实姓名（与 Sys_Users.UserName 一致）
       userName: String(userRow.UserName ?? ''),
       // v1.0.7：附带角色，便于后续把接口鉴权与角色打通（当前仍以 token 为主）
@@ -874,6 +891,7 @@ app.post('/api/login', async (req, res) => {
         user: {
           UserID: userRow.UserID,
           UserCode: userRow.UserCode,
+          Account: userRow.Account ?? null,
           UserName: userRow.UserName,
           Status: userRow.Status,
           RoleID: userRow.RoleID != null ? Number(userRow.RoleID) : null,
@@ -2713,6 +2731,37 @@ const HR_STAFF_FROM = `dbo.[${HR_STAFF_TABLE}]`
 /** v1.1.1：缓存员工档案表列清单（避免不同库缺列导致 SQL 报错） */
 let HR_STAFF_COLSET_PROMISE = null
 
+/** v1.1.2：缓存 Sys_Users 列清单（用于兼容 is_active 可能未迁移） */
+let SYS_USERS_COLSET_PROMISE = null
+
+/**
+ * 读取 Sys_Users 的列名集合（小写），并缓存到进程内
+ * @param {import('mssql').ConnectionPool} pool
+ * @returns {Promise<Set<string>>}
+ */
+async function getSysUsersColumnSet(pool) {
+  if (SYS_USERS_COLSET_PROMISE) return SYS_USERS_COLSET_PROMISE
+  SYS_USERS_COLSET_PROMISE = (async () => {
+    try {
+      const r = await pool.request().query(`
+        SELECT COLUMN_NAME AS name
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'Sys_Users'
+      `)
+      const set = new Set()
+      for (const row of r.recordset ?? []) {
+        const n = String(row?.name ?? '').trim()
+        if (n) set.add(n.toLowerCase())
+      }
+      return set
+    } catch (err) {
+      console.warn('[Sys_Users] 读取列清单失败，已降级：', err?.message ?? err)
+      return new Set()
+    }
+  })()
+  return SYS_USERS_COLSET_PROMISE
+}
+
 /**
  * 读取 Hr_staff 的列名集合（小写），并缓存到进程内
  * @param {import('mssql').ConnectionPool} pool
@@ -2751,6 +2800,42 @@ async function getHrStaffColumnSet(pool) {
  */
 function staffPassIsAudited(v) {
   return String(v ?? '').trim() === '1'
+}
+
+/**
+ * 卡号是否与「在职且未逻辑删除」的员工冲突（离职、已删除不参与占用判断）
+ * @param {import('mssql').ConnectionPool | import('mssql').Transaction} poolOrTx
+ * @param {string} card 10 位数字卡号
+ * @param {string} [excludeCode] 编辑时排除当前工号
+ * @returns {Promise<string|null>} 冲突方工号，无冲突返回 null
+ */
+async function findActiveStaffCodeByCardNumber(poolOrTx, card, excludeCode = '') {
+  const c = String(card ?? '').trim()
+  if (!/^\d{10}$/.test(c)) return null
+  const rq = new sql.Request(poolOrTx)
+  rq.input('card', sql.NVarChar(50), c)
+  const ex = String(excludeCode ?? '').trim()
+  if (ex) rq.input('ex', sql.NVarChar(50), ex)
+  const r = await rq.query(`
+    SELECT TOP (1) LTRIM(RTRIM(CAST(s.code AS NVARCHAR(50)))) AS code
+    FROM ${HR_STAFF_FROM} AS s
+    WHERE LTRIM(RTRIM(ISNULL(s.card_number, N''))) = @card
+      AND LTRIM(RTRIM(ISNULL(s.del, N'0'))) <> N'1'
+      AND LTRIM(RTRIM(ISNULL(s.status, N''))) <> N'离职'
+      ${ex ? ' AND LTRIM(RTRIM(CAST(s.code AS NVARCHAR(50)))) <> @ex' : ''}
+  `)
+  const row = r.recordset?.[0]
+  const hit = row?.code != null ? String(row.code).trim() : ''
+  return hit || null
+}
+
+/**
+ * v1.1.2：批量更新 Excel 字段清洗（统一为字符串并去首尾空格）
+ * @param {any} v
+ */
+function normalizeExcelCellString(v) {
+  const s = String(v ?? '').replace(/\u00a0/g, ' ').trim()
+  return s
 }
 
 /**
@@ -2799,9 +2884,12 @@ async function fetchStaffByCode(pool, codeRaw) {
   if (colset.has('uname')) extraSelect.push('s.uname AS uname')
   if (colset.has('utruename')) extraSelect.push('s.utruename AS utruename')
   if (colset.has('addtime')) extraSelect.push('s.addtime AS addtime')
+  if (colset.has('status')) extraSelect.push('s.status AS status')
+  if (colset.has('leave_date')) extraSelect.push('s.leave_date AS leave_date')
 
   const r = await pool.request().input('code', sql.NVarChar(50), code).query(`
     SELECT TOP (1)
+      s.id AS id,
       s.code AS code,
       s.new_code AS new_code,
       s.name AS name,
@@ -2818,12 +2906,124 @@ async function fetchStaffByCode(pool, codeRaw) {
       s.yn_history AS yn_history,
       s.remark AS remark,
       s.intime AS intime,
-      s.pass AS pass
+      s.pass AS pass,
+      s.del AS del
       ${extraSelect.length ? `,\n      ${extraSelect.join(',\n      ')}` : ''}
     FROM ${HR_STAFF_FROM} AS s
     WHERE s.code = @code
   `)
   return r.recordset?.[0] ?? null
+}
+
+/**
+ * v1.1.2：按 id 读取员工（用于办理离职）
+ * @param {import('mssql').ConnectionPool|import('mssql').Transaction} poolOrTx
+ * @param {number} idRaw
+ */
+async function fetchStaffById(poolOrTx, idRaw) {
+  const id = Number(idRaw)
+  if (!Number.isFinite(id) || id <= 0) return null
+  const r = await poolOrTx.request().input('id', sql.Int, Math.floor(id)).query(`
+    SELECT TOP (1)
+      s.id AS id,
+      s.code AS code,
+      s.name AS name,
+      s.pass AS pass,
+      s.del AS del,
+      s.status AS status,
+      s.leave_date AS leave_date,
+      s.leave_reason AS leave_reason,
+      s.is_blacklist AS is_blacklist,
+      s.blacklist_reason AS blacklist_reason
+    FROM ${HR_STAFF_FROM} AS s
+    WHERE s.id = @id
+  `)
+  return r.recordset?.[0] ?? null
+}
+
+/**
+ * v1.1.2：按姓名查询员工列表（允许重名）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {string} nameRaw
+ */
+async function fetchStaffListByName(pool, nameRaw) {
+  const name = String(nameRaw ?? '').trim()
+  if (!name) return []
+  const r = await pool.request().input('name', sql.NVarChar(50), name).query(`
+    SELECT
+      s.code AS code,
+      s.name AS name,
+      s.pass AS pass
+    FROM ${HR_STAFF_FROM} AS s
+    WHERE LTRIM(RTRIM(ISNULL(s.name, N''))) = LTRIM(RTRIM(@name))
+    ORDER BY s.code DESC
+  `)
+  return r.recordset ?? []
+}
+
+/**
+ * v1.1.2：按「部门名称」找唯一顶级部门 code（必须唯一、且已审核、且未删除）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {string} deptNameRaw
+ */
+async function fetchUniqueAuditedTopDeptByName(pool, deptNameRaw) {
+  const deptName = String(deptNameRaw ?? '').trim()
+  if (!deptName) return { ok: false, reason: '部门为空', row: null }
+  const r = await pool.request().input('name', sql.NVarChar(100), deptName).query(`
+    SELECT TOP (2)
+      d.code AS code,
+      d.name AS name,
+      d.ParentID AS ParentID,
+      d.pass AS pass,
+      d.del AS del
+    FROM ${HR_LEGACY_DEPT_FROM} AS d
+    WHERE
+      (ISNULL(d.del, N'') = N'' OR d.del = N'0')
+      AND LTRIM(RTRIM(ISNULL(d.name, N''))) = LTRIM(RTRIM(@name))
+      AND (d.ParentID IS NULL OR LTRIM(RTRIM(ISNULL(d.ParentID, N''))) IN (N'', N'0'))
+      AND LTRIM(RTRIM(CAST(ISNULL(d.pass, N'') AS nvarchar(10)))) = N'1'
+    ORDER BY d.code
+  `)
+  const rows = r.recordset ?? []
+  if (rows.length === 0) return { ok: false, reason: '部门不存在/未审核/已删除', row: null }
+  if (rows.length > 1) return { ok: false, reason: '部门名称重复（匹配到多条顶级部门）', row: null }
+  return { ok: true, reason: '', row: rows[0] }
+}
+
+/**
+ * v1.1.2：按「岗位名称 + 所属部门 code」找唯一岗位 code（必须唯一、且已审核、且未删除）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {string} deptCodeRaw
+ * @param {string} postNameRaw
+ */
+async function fetchUniqueAuditedPostByDeptAndName(pool, deptCodeRaw, postNameRaw) {
+  const deptCode = String(deptCodeRaw ?? '').trim()
+  const postName = String(postNameRaw ?? '').trim()
+  if (!deptCode) return { ok: false, reason: '部门编码为空', row: null }
+  if (!postName) return { ok: false, reason: '岗位为空', row: null }
+  const r = await pool
+    .request()
+    .input('pid', sql.NVarChar(50), deptCode)
+    .input('name', sql.NVarChar(100), postName)
+    .query(`
+      SELECT TOP (2)
+        d.code AS code,
+        d.name AS name,
+        d.ParentID AS ParentID,
+        d.pass AS pass,
+        d.del AS del
+      FROM ${HR_LEGACY_DEPT_FROM} AS d
+      WHERE
+        (ISNULL(d.del, N'') = N'' OR d.del = N'0')
+        AND LTRIM(RTRIM(ISNULL(d.ParentID, N''))) = LTRIM(RTRIM(@pid))
+        AND LTRIM(RTRIM(ISNULL(d.name, N''))) = LTRIM(RTRIM(@name))
+        AND LTRIM(RTRIM(CAST(ISNULL(d.pass, N'') AS nvarchar(10)))) = N'1'
+      ORDER BY d.code
+    `)
+  const rows = r.recordset ?? []
+  if (rows.length === 0) return { ok: false, reason: '岗位不存在/未审核/已删除（请确认岗位挂在该部门下）', row: null }
+  if (rows.length > 1) return { ok: false, reason: '岗位名称重复（同部门下匹配到多条岗位）', row: null }
+  return { ok: true, reason: '', row: rows[0] }
 }
 
 /**
@@ -2838,6 +3038,7 @@ async function fetchStaffByCode(pool, codeRaw) {
  * - page（默认 1）
  * - pageSize（默认 20）
  * - pass（可选，默认 '1' 已审核；'0' 未审核）
+ * - include_leaved（仅当 del=0 时生效）：'0' 排除离职；'1' 仅 status=离职；'all' 不按 status 筛选（兼容）
  * - name（可选，模糊）
  * - code（可选，精确）
  * - card_number（可选，精确）
@@ -2867,6 +3068,24 @@ app.get('/api/hr/staff', async (req, res) => {
     const pass = passRaw === '0' ? '0' : '1'
     const wherePass = ' AND LTRIM(RTRIM(ISNULL(s.pass, N\'\'))) = @pass'
 
+    /** v1.1.2：del=0 默认只看未删除；传 del=1 显示已删除 */
+    const delRaw = String(req.query?.del ?? '0').trim()
+    const del = delRaw === '1' ? '1' : '0'
+    const whereDel = ' AND LTRIM(RTRIM(ISNULL(s.del, N\'0\'))) = @del'
+
+    /** del=1 时不按 status 筛；del=0 时 include_leaved：0=排除离职 1=仅离职 all=不筛 */
+    let whereStatus = ''
+    if (del !== '1') {
+      const scopeRaw = String(req.query?.include_leaved ?? '0').trim().toLowerCase()
+      if (scopeRaw === '0' || scopeRaw === 'false') {
+        whereStatus = ` AND LTRIM(RTRIM(ISNULL(s.status, N''))) <> N'离职'`
+      } else if (scopeRaw === '1' || scopeRaw === 'true') {
+        whereStatus = ` AND LTRIM(RTRIM(ISNULL(s.status, N''))) = N'离职'`
+      } else {
+        whereStatus = ''
+      }
+    }
+
     const pool = await getPool()
 
     let whereSql = ''
@@ -2874,21 +3093,23 @@ app.get('/api/hr/staff', async (req, res) => {
     const listReq = pool.request()
     totalReq.input('pass', sql.NVarChar(10), pass)
     listReq.input('pass', sql.NVarChar(10), pass)
+    totalReq.input('del', sql.NVarChar(10), del)
+    listReq.input('del', sql.NVarChar(10), del)
 
     if (hasName) {
-      whereSql = `WHERE s.name LIKE @nameLike${wherePass}`
+      whereSql = `WHERE s.name LIKE @nameLike${wherePass}${whereDel}${whereStatus}`
       totalReq.input('nameLike', sql.NVarChar(200), `%${nameRaw}%`)
       listReq.input('nameLike', sql.NVarChar(200), `%${nameRaw}%`)
     } else if (hasCode) {
-      whereSql = `WHERE s.code = @code${wherePass}`
+      whereSql = `WHERE s.code = @code${wherePass}${whereDel}${whereStatus}`
       totalReq.input('code', sql.NVarChar(50), codeRaw)
       listReq.input('code', sql.NVarChar(50), codeRaw)
     } else if (hasCard) {
-      whereSql = `WHERE s.card_number = @cardNumber${wherePass}`
+      whereSql = `WHERE s.card_number = @cardNumber${wherePass}${whereDel}${whereStatus}`
       totalReq.input('cardNumber', sql.NVarChar(50), cardRaw)
       listReq.input('cardNumber', sql.NVarChar(50), cardRaw)
     } else {
-      whereSql = `WHERE 1 = 1${wherePass}`
+      whereSql = `WHERE 1 = 1${wherePass}${whereDel}${whereStatus}`
     }
 
     const totalResult = await totalReq.query(`
@@ -2903,6 +3124,7 @@ app.get('/api/hr/staff', async (req, res) => {
 
     const listSelect = `
       SELECT
+        s.id AS id,
         s.code AS code,
         s.new_code AS new_code,
         s.name AS name,
@@ -2919,7 +3141,10 @@ app.get('/api/hr/staff', async (req, res) => {
         s.yn_history AS yn_history,
         s.remark AS remark,
         s.intime AS intime,
-        s.pass AS pass
+        s.pass AS pass,
+        s.del AS del,
+        ISNULL(NULLIF(LTRIM(RTRIM(ISNULL(s.status, N''))), N''), N'在职') AS status,
+        s.leave_date AS leave_date
       FROM ${HR_STAFF_FROM} AS s
       ${whereSql}
       ORDER BY s.code
@@ -2947,14 +3172,16 @@ app.get('/api/hr/staff', async (req, res) => {
       fb.input('startRow', sql.Int, startRow)
       fb.input('endRow', sql.Int, endRow)
       fb.input('pass', sql.NVarChar(10), pass)
+      fb.input('del', sql.NVarChar(10), del)
       if (hasName) fb.input('nameLike', sql.NVarChar(200), `%${nameRaw}%`)
       if (hasCode) fb.input('code', sql.NVarChar(50), codeRaw)
       if (hasCard) fb.input('cardNumber', sql.NVarChar(50), cardRaw)
 
       listResult = await fb.query(`
-        SELECT code, new_code, name, sex, nation, highest, yn_firend, birth, in_bm, card_number, join_department, position, meal_type, yn_history, remark, intime, pass
+        SELECT id, code, new_code, name, sex, nation, highest, yn_firend, birth, in_bm, card_number, join_department, position, meal_type, yn_history, remark, intime, pass, del, status, leave_date
         FROM (
           SELECT
+            s.id AS id,
             s.code AS code,
             s.new_code AS new_code,
             s.name AS name,
@@ -2972,6 +3199,9 @@ app.get('/api/hr/staff', async (req, res) => {
             s.remark AS remark,
             s.intime AS intime,
             s.pass AS pass,
+            s.del AS del,
+            ISNULL(NULLIF(LTRIM(RTRIM(ISNULL(s.status, N''))), N''), N'在职') AS status,
+            s.leave_date AS leave_date,
             ROW_NUMBER() OVER (ORDER BY s.code) AS rn
           FROM ${HR_STAFF_FROM} AS s
           ${whereSql}
@@ -3048,12 +3278,38 @@ app.get('/api/hr/staff/debug-code', async (req, res) => {
 })
 
 /**
+ * v1.1.2：员工档案详情（按 code）
+ * GET /api/hr/staff/:code
+ * - 说明：用于前端「查看」详情；允许查看已删除记录
+ */
+app.get('/api/hr/staff/:code', async (req, res) => {
+  try {
+    const code = String(req.params?.code ?? '').trim()
+    if (!code) {
+      res.status(400).json({ code: 400, msg: 'code 不能为空', data: null })
+      return
+    }
+    const pool = await getPool()
+    const row = await fetchStaffByCode(pool, code)
+    if (!row) {
+      res.status(404).json({ code: 404, msg: '未找到该员工', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('GET /api/hr/staff/:code 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取员工详情失败：${detail}`, data: null })
+  }
+})
+
+/**
  * v1.1.0：新增员工（按 Excel 字段调整 + 字段映射到旧表）
  *
  * 核心规则：
  * - code：禁止手动输入。服务端按 YYYYMMDD + 两位流水号生成（如 2024041601）
  * - new_code：新档案编码（可选，手动输入）
- * - card_number：卡号（必填，固定 10 位数字）
+ * - card_number：卡号（必填，固定 10 位数字；唯一性仅相对「未删除且非离职」员工）
  * - join_department / position：入职部门/岗位（前端从 HR_Departments 实时下拉）
  * - sex / meal_type（饭餐类型：员工餐、管理餐；空则按员工餐）/ yn_history（是否曾在我司应聘：是、否）
  * - intime：默认当天（前端可改）
@@ -3094,6 +3350,13 @@ app.post('/api/hr/staff', async (req, res) => {
     const tx = new sql.Transaction(pool)
     await tx.begin(sql.ISOLATION_LEVEL.SERIALIZABLE)
     try {
+      const conflictCard = await findActiveStaffCodeByCardNumber(tx, card, '')
+      if (conflictCard) {
+        await tx.rollback()
+        res.status(400).json({ code: 400, msg: `该卡号已被在职员工占用（工号：${conflictCard}）`, data: null })
+        return
+      }
+
       const today = new Date()
       const p = (n) => String(n).padStart(2, '0')
       const yyyymmdd = `${today.getFullYear()}${p(today.getMonth() + 1)}${p(today.getDate())}`
@@ -3216,6 +3479,7 @@ app.post('/api/hr/staff', async (req, res) => {
 /**
  * v1.0.9：编辑员工（已审核 pass='1' 禁止）
  * body: { code, name, sex, nation, highest, yn_firend, birth, in_bm, card_number, join_department, position, meal_type, yn_history, remark, intime, new_code }
+ * - card_number：若填写 10 位数字，唯一性仅相对「未删除且非离职」员工（不含本人工号）
  */
 app.put('/api/hr/staff', async (req, res) => {
   try {
@@ -3255,6 +3519,14 @@ app.put('/api/hr/staff', async (req, res) => {
     if (staffPassIsAudited(existing.pass)) {
       res.status(400).json({ code: 400, msg: HR_STAFF_AUDIT_LOCK_MSG, data: null })
       return
+    }
+
+    if (/^\d{10}$/.test(card)) {
+      const conflictCard = await findActiveStaffCodeByCardNumber(pool, card, code)
+      if (conflictCard) {
+        res.status(400).json({ code: 400, msg: `该卡号已被在职员工占用（工号：${conflictCard}）`, data: null })
+        return
+      }
     }
 
     const upd = pool.request()
@@ -3328,15 +3600,224 @@ app.delete('/api/hr/staff/:code', async (req, res) => {
       return
     }
 
+    // v1.1.2：员工档案改为逻辑删除（del=1），便于恢复
     await pool.request().input('code', sql.NVarChar(50), code).query(`
-      DELETE FROM ${HR_STAFF_FROM}
-      WHERE code = @code
+      UPDATE s SET s.del = N'1'
+      FROM ${HR_STAFF_FROM} AS s
+      WHERE s.code = @code
     `)
     res.json({ code: 200, msg: 'success', data: { code } })
   } catch (err) {
     console.error('DELETE /api/hr/staff 失败：', err)
     const detail = String(err?.message ?? '数据库删除失败')
     res.status(500).json({ code: 500, msg: `删除员工失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * v1.1.2：恢复员工档案（del=0）
+ * body: { code }
+ */
+app.put('/api/hr/staff/restore', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const code = String(body.code ?? '').trim()
+    if (!code) {
+      res.status(400).json({ code: 400, msg: 'code 不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchStaffByCode(pool, code)
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该员工', data: null })
+      return
+    }
+    if (staffPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: HR_STAFF_AUDIT_LOCK_MSG, data: null })
+      return
+    }
+
+    await pool.request().input('code', sql.NVarChar(50), code).query(`
+      UPDATE s SET s.del = N'0'
+      FROM ${HR_STAFF_FROM} AS s
+      WHERE s.code = @code
+    `)
+
+    const row = await fetchStaffByCode(pool, code)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/hr/staff/restore 失败：', err)
+    const detail = String(err?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `恢复员工失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * v1.1.2：办理离职（事务：员工状态 + 离职日期 + 封禁账号）
+ * PUT /api/hr/staff/leave/:id
+ */
+app.put('/api/hr/staff/leave/:id', async (req, res) => {
+  try {
+    const id = Number(req.params?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const body = req.body ?? {}
+    const leaveDateRaw = String(body.leave_date ?? '').trim()
+    const leaveReason = String(body.leave_reason ?? '').trim()
+    const isBlacklist = Number(body.is_blacklist ?? 0) === 1 ? 1 : 0
+    const blacklistReason = String(body.blacklist_reason ?? '').trim()
+
+    if (!leaveDateRaw) {
+      res.status(400).json({ code: 400, msg: 'leave_date（离职日期）不能为空', data: null })
+      return
+    }
+    // 允许 YYYY-MM-DD 或可被 Date 解析的字符串
+    const leaveDate = new Date(leaveDateRaw)
+    if (Number.isNaN(leaveDate.getTime())) {
+      res.status(400).json({ code: 400, msg: 'leave_date（离职日期）格式不正确', data: null })
+      return
+    }
+    if (!leaveReason) {
+      res.status(400).json({ code: 400, msg: 'leave_reason（离职原因）不能为空', data: null })
+      return
+    }
+    if (isBlacklist === 1 && !blacklistReason) {
+      res.status(400).json({ code: 400, msg: 'blacklist_reason（黑名单备注）不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const staffColset = await getHrStaffColumnSet(pool)
+    const userColset = await getSysUsersColumnSet(pool)
+    if (
+      !staffColset.has('status') ||
+      !staffColset.has('leave_date') ||
+      !staffColset.has('leave_reason') ||
+      !staffColset.has('is_blacklist') ||
+      !staffColset.has('blacklist_reason')
+    ) {
+      res.status(400).json({
+        code: 400,
+        msg:
+          '员工表缺少离职/黑名单字段，请先执行迁移：npm run migrate:hr-staff-leave-fields 与 npm run migrate:hr-staff-leave-blacklist-fields',
+        data: null,
+      })
+      return
+    }
+    if (!userColset.has('is_active')) {
+      res.status(400).json({
+        code: 400,
+        msg: 'Sys_Users 表缺少 is_active 字段，请先执行迁移：npm run migrate:hr-staff-leave-fields',
+        data: null,
+      })
+      return
+    }
+
+    const tx = new sql.Transaction(pool)
+    await tx.begin(sql.ISOLATION_LEVEL.SERIALIZABLE)
+    let staffRow = null
+    try {
+      staffRow = await fetchStaffById(tx, id)
+      if (!staffRow) {
+        await tx.rollback()
+        res.status(404).json({ code: 404, msg: '未找到该员工', data: null })
+        return
+      }
+      if (String(staffRow?.del ?? '').trim() === '1') {
+        await tx.rollback()
+        res.status(400).json({ code: 400, msg: '该员工已删除，不能办理离职', data: null })
+        return
+      }
+
+      const staffCode = String(staffRow?.code ?? '').trim()
+      const staffName = String(staffRow?.name ?? '').trim()
+      if (!staffCode) {
+        await tx.rollback()
+        res.status(400).json({ code: 400, msg: '员工工号为空，无法办理离职', data: null })
+        return
+      }
+
+      // 关联系统账号（可选）：并非每个员工都有 Sys_Users 记录
+      const userCheck = await tx
+        .request()
+        .input('v', sql.NVarChar(50), staffCode)
+        .query(`
+          SELECT TOP (1) u.UserID, u.UserCode, u.Account
+          FROM Sys_Users AS u
+          WHERE u.Account = @v OR u.UserCode = @v
+          ORDER BY u.UserID DESC
+        `)
+      const userRow = userCheck.recordset?.[0]
+      const account = userRow ? String(userRow?.Account ?? userRow?.UserCode ?? '').trim() || staffCode : ''
+
+      await tx
+        .request()
+        .input('id', sql.Int, Math.floor(id))
+        .input('leave_date', sql.DateTime, leaveDate)
+        .input('leave_reason', sql.NVarChar(200), leaveReason)
+        .input('is_blacklist', sql.Int, isBlacklist)
+        .input('blacklist_reason', sql.NVarChar(200), isBlacklist === 1 ? blacklistReason : null)
+        .query(`
+          UPDATE s
+          SET s.status = N'离职',
+              s.leave_date = @leave_date,
+              s.leave_reason = @leave_reason,
+              s.is_blacklist = @is_blacklist,
+              s.blacklist_reason = @blacklist_reason
+          FROM ${HR_STAFF_FROM} AS s
+          WHERE s.id = @id
+        `)
+
+      // 若存在关联账号，则封禁；不存在则跳过（不影响员工离职落库）
+      if (userRow) {
+        const updUser = await tx
+          .request()
+          .input('v', sql.NVarChar(50), staffCode)
+          .query(`
+            UPDATE u
+            SET u.is_active = 0
+            FROM Sys_Users AS u
+            WHERE u.Account = @v OR u.UserCode = @v
+          `)
+        const affected = Number(updUser?.rowsAffected?.[0] ?? 0)
+        if (affected <= 0) {
+          await tx.rollback()
+          res.status(500).json({ code: 500, msg: '封禁账号失败：未更新到 Sys_Users 记录', data: null })
+          return
+        }
+      }
+
+      await tx.commit()
+
+      // 给操作审计中间件使用：落库时写成你要求的中文语义
+      if (isBlacklist === 1) {
+        req.__auditLeaveContent = `${staffName || staffCode} 已办理离职并列入黑名单，原因：${blacklistReason}`
+      } else if (account) {
+        req.__auditLeaveContent = `办理了工号为[${staffCode}]的员工离职，封禁其登录账号[${account}]`
+      } else {
+        req.__auditLeaveContent = `办理了工号为[${staffCode}]的员工离职（该员工未关联系统登录账号，已跳过封禁）`
+      }
+
+      await writeLog(req, '办理员工离职', String(req.__auditLeaveContent), { targetTable: 'HR_staff' })
+
+      const fresh = await fetchStaffById(pool, id)
+      res.json({ code: 200, msg: 'success', data: fresh })
+    } catch (innerErr) {
+      try {
+        await tx.rollback()
+      } catch {
+        // ignore
+      }
+      throw innerErr
+    }
+  } catch (err) {
+    console.error('PUT /api/hr/staff/leave/:id 失败：', err)
+    const detail = String(err?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `办理离职失败：${detail}`, data: null })
   }
 })
 
@@ -3411,6 +3892,212 @@ app.put('/api/hr/staff/unaudit', async (req, res) => {
     console.error('PUT /api/hr/staff/unaudit 失败：', err)
     const detail = String(err?.message ?? '数据库更新失败')
     res.status(500).json({ code: 500, msg: `反审失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * v1.1.2：批量更新（Excel：姓名 / 部门 / 岗位）
+ *
+ * 前端上传 xls/xlsx 文件，转换为 base64 传入（避免引入 multipart 上传中间件）
+ * body: { fileName, fileBase64 }
+ *
+ * 关联规则（大白话）：
+ * - 先用「姓名」在 Hr_staff 找员工（必须唯一）
+ * - 再用「部门」在 HR_Departments 找顶级部门（必须唯一、且已审核、且未删除）
+ * - 再用「岗位」在 HR_Departments 找岗位（必须挂在该部门下、且已审核、且未删除）
+ * - 最后更新 Hr_staff：in_bm=部门名称（显示用）、join_department=部门code、position=岗位code
+ * - 特权：仅本接口允许更新已审核员工（pass='1'），未审核则跳过
+ */
+app.post('/api/hr/staff/batch-update', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const fileName = String(body.fileName ?? '').trim()
+    const fileBase64 = String(body.fileBase64 ?? '').trim()
+
+    if (!fileBase64) {
+      res.status(400).json({ code: 400, msg: 'fileBase64 不能为空', data: null })
+      return
+    }
+    if (fileName && !/\.(xlsx|xls)$/i.test(fileName)) {
+      res.status(400).json({ code: 400, msg: '仅支持上传 xlsx 或 xls 文件', data: null })
+      return
+    }
+
+    let buffer
+    try {
+      buffer = Buffer.from(fileBase64, 'base64')
+    } catch {
+      res.status(400).json({ code: 400, msg: '文件内容解析失败（base64 不合法）', data: null })
+      return
+    }
+    if (!buffer || buffer.length < 10) {
+      res.status(400).json({ code: 400, msg: '文件内容为空或不完整', data: null })
+      return
+    }
+
+    let wb
+    try {
+      wb = XLSX.read(buffer, { type: 'buffer' })
+    } catch (e) {
+      res.status(400).json({ code: 400, msg: `Excel 解析失败：${String(e?.message ?? e)}`, data: null })
+      return
+    }
+    const sheetName = wb.SheetNames?.[0]
+    if (!sheetName) {
+      res.status(400).json({ code: 400, msg: 'Excel 中未找到工作表', data: null })
+      return
+    }
+    const sheet = wb.Sheets?.[sheetName]
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
+    if (!Array.isArray(rows) || rows.length < 2) {
+      res.status(400).json({ code: 400, msg: 'Excel 内容为空（至少需要表头 + 1 行数据）', data: null })
+      return
+    }
+
+    const header = (rows[0] ?? []).map((v) => normalizeExcelCellString(v))
+    const idxName = header.findIndex((h) => h === '姓名')
+    const idxDept = header.findIndex((h) => h === '部门')
+    const idxPost = header.findIndex((h) => h === '岗位')
+    if (idxName < 0 || idxDept < 0 || idxPost < 0) {
+      res.status(400).json({
+        code: 400,
+        msg: '表头必须包含三列：姓名、部门、岗位（请检查第一行）',
+        data: { header },
+      })
+      return
+    }
+
+    const pool = await getPool()
+
+    /** @type {{rowNo:number,name:string,dept:string,post:string,code?:string,status:'success'|'failed'|'skipped',message:string}[]} */
+    const details = []
+
+    for (let i = 1; i < rows.length; i++) {
+      const r = Array.isArray(rows[i]) ? rows[i] : []
+      const name = normalizeExcelCellString(r[idxName])
+      const dept = normalizeExcelCellString(r[idxDept])
+      const post = normalizeExcelCellString(r[idxPost])
+      const rowNo = i + 1
+
+      // 空行直接跳过（不算失败）
+      if (!name && !dept && !post) continue
+
+      if (!name || !dept || !post) {
+        details.push({ rowNo, name, dept, post, status: 'failed', message: '姓名/部门/岗位 不能为空' })
+        continue
+      }
+
+      try {
+        const staffList = await fetchStaffListByName(pool, name)
+        if (!staffList.length) {
+          details.push({ rowNo, name, dept, post, status: 'failed', message: '员工不存在（按姓名未匹配到）' })
+          continue
+        }
+
+        const deptMatch = await fetchUniqueAuditedTopDeptByName(pool, dept)
+        if (!deptMatch.ok) {
+          details.push({ rowNo, name, dept, post, status: 'failed', message: deptMatch.reason })
+          continue
+        }
+        const deptCode = String(deptMatch.row?.code ?? '').trim()
+        if (!deptCode) {
+          details.push({ rowNo, name, dept, post, status: 'failed', message: '部门编码为空，无法更新' })
+          continue
+        }
+
+        const postMatch = await fetchUniqueAuditedPostByDeptAndName(pool, deptCode, post)
+        if (!postMatch.ok) {
+          details.push({ rowNo, name, dept, post, status: 'failed', message: postMatch.reason })
+          continue
+        }
+        const postCode = String(postMatch.row?.code ?? '').trim()
+        if (!postCode) {
+          details.push({ rowNo, name, dept, post, status: 'failed', message: '岗位编码为空，无法更新' })
+          continue
+        }
+
+        let updatedCount = 0
+        for (const staffRow of staffList) {
+          const staffCode = String(staffRow?.code ?? '').trim()
+          if (!staffCode) {
+            details.push({ rowNo, name, dept, post, status: 'failed', message: '员工工号为空，无法更新' })
+            continue
+          }
+          if (!staffPassIsAudited(staffRow?.pass)) {
+            details.push({
+              rowNo,
+              name,
+              dept,
+              post,
+              code: staffCode,
+              status: 'skipped',
+              message: '员工未审核（pass!=1），已跳过',
+            })
+            continue
+          }
+
+          const upd = pool.request()
+          upd.input('code', sql.NVarChar(50), staffCode)
+          upd.input('in_bm', sql.NVarChar(100), dept)
+          upd.input('join_department', sql.NVarChar(50), deptCode)
+          upd.input('position', sql.NVarChar(50), postCode)
+          await upd.query(`
+            UPDATE s
+            SET
+              s.in_bm = @in_bm,
+              s.join_department = @join_department,
+              s.position = @position
+            FROM ${HR_STAFF_FROM} AS s
+            WHERE s.code = @code
+          `)
+          updatedCount += 1
+          details.push({
+            rowNo,
+            name,
+            dept,
+            post,
+            code: staffCode,
+            status: 'success',
+            message: `已更新：部门=${deptCode}，岗位=${postCode}`,
+          })
+        }
+
+        if (updatedCount <= 0) {
+          details.push({
+            rowNo,
+            name,
+            dept,
+            post,
+            status: 'skipped',
+            message: '同名员工均为未审核（pass!=1），无可更新记录',
+          })
+        }
+      } catch (e) {
+        details.push({
+          rowNo,
+          name,
+          dept,
+          post,
+          status: 'failed',
+          message: `更新异常：${String(e?.message ?? e)}`,
+        })
+      }
+    }
+
+    const total = details.length
+    const success = details.filter((d) => d.status === 'success').length
+    const failed = details.filter((d) => d.status === 'failed').length
+    const skipped = details.filter((d) => d.status === 'skipped').length
+
+    res.json({
+      code: 200,
+      msg: 'success',
+      data: { total, success, failed, skipped, details },
+    })
+  } catch (err) {
+    console.error('POST /api/hr/staff/batch-update 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库处理失败')
+    res.status(500).json({ code: 500, msg: `批量更新失败：${detail}`, data: null })
   }
 })
 

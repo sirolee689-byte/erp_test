@@ -143,11 +143,17 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'GET' && path === '/api/hr/staff') {
     return { menuPath: 'hr/files/employee-files', action: 'view' }
   }
+  if (m === 'GET' && /^\/api\/hr\/staff\/.+$/.test(path)) {
+    return { menuPath: 'hr/files/employee-files', action: 'view' }
+  }
   if (m === 'GET' && path === '/api/hr/staff/debug-code') {
     return { menuPath: 'hr/files/employee-files', action: 'view' }
   }
   if (m === 'POST' && path === '/api/hr/staff') {
     return { menuPath: 'hr/files/employee-files', action: 'add' }
+  }
+  if (m === 'POST' && path === '/api/hr/staff/batch-update') {
+    return { menuPath: 'hr/files/employee-files', action: 'edit' }
   }
   if (m === 'PUT' && path === '/api/hr/staff/audit') {
     return { menuPath: 'hr/files/employee-files', action: 'audit' }
@@ -156,6 +162,12 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'hr/files/employee-files', action: 'audit' }
   }
   if (m === 'PUT' && path === '/api/hr/staff') {
+    return { menuPath: 'hr/files/employee-files', action: 'edit' }
+  }
+  if (m === 'PUT' && path === '/api/hr/staff/restore') {
+    return { menuPath: 'hr/files/employee-files', action: 'edit' }
+  }
+  if (m === 'PUT' && /^\/api\/hr\/staff\/leave\/.+$/.test(path)) {
     return { menuPath: 'hr/files/employee-files', action: 'edit' }
   }
   if (m === 'DELETE' && /^\/api\/hr\/staff\/.+$/.test(path)) {

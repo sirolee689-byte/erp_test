@@ -408,6 +408,9 @@ export function createOperationAuditMiddleware(deps) {
         } else if (method === 'PUT' && path === '/api/hr/staff' && req.__auditPutStaffDiff) {
           const op = operatorDisplayName(user)
           content = `操作人${op}修改了员工档案：${String(req.__auditPutStaffDiff).trim()}`
+        } else if (method === 'PUT' && /^\/api\/hr\/staff\/leave\/.+/.test(path) && String(req.__auditLeaveContent ?? '').trim()) {
+          // v1.1.1：员工离职专用语义化日志（由路由写入 req.__auditLeaveContent）
+          content = String(req.__auditLeaveContent).trim()
         } else if (method === 'POST' && path === '/api/hr/staff') {
           content = buildPostStaffChineseSummary(user, req.body ?? {})
         } else if (method === 'POST' && path === '/api/hr/departments') {

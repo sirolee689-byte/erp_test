@@ -62,8 +62,10 @@
   - `GET /api/hr/staff`：分页 + 搜索（优先级：`name` 模糊 > `code` 精确 > `card_number` 精确）
   - `POST /api/hr/staff`：新增（`pass` 默认 `'0'`）
   - `PUT /api/hr/staff`：编辑（`pass='1'` 禁止）
-  - `DELETE /api/hr/staff/:code`：当前为物理删除（`pass='1'` 禁止）
+  - `DELETE /api/hr/staff/:code`：逻辑删除（写 `del='1'`；`pass='1'` 禁止）
+  - `PUT /api/hr/staff/restore`：恢复（写 `del='0'`；`pass='1'` 禁止）
   - `PUT /api/hr/staff/audit`、`PUT /api/hr/staff/unaudit`
+  - `PUT /api/hr/staff/leave/:id`：办理离职（事务：写 `status='离职'` + `leave_date`，并封禁账号 `Sys_Users.is_active=0`）
   - 下拉辅助：`GET /api/hr/staff/department-options`、`GET /api/hr/staff/department-posts`
 - **本模块“允许使用的字段”**（性能约束，见 `hr_staff_design.md`）
   - `code`（工号，业务主键）
@@ -73,6 +75,12 @@
   - `intime`
   - `uid`、`uname`（数据库真实表已存在，可用于写入当前操作人）
   - `pass`（`'1'` 已审核锁定；`'0'`/空 未审核）
+  - `del`（逻辑删除：`'0'` 在册；`'1'` 删除）
+  - `status`（`在职/离职`，默认 `在职`）
+  - `leave_date`（离职日期）
+  - `leave_reason`（离职原因）
+  - `is_blacklist`（是否黑名单：0/1）
+  - `blacklist_reason`（黑名单原因）
 - **权限（按钮级）**
   - 菜单 path：`hr/files/employee-files`
   - 操作：`view` / `add` / `edit` / `delete` / `audit`
@@ -142,6 +150,7 @@
   - `POST /api/users` / `PUT /api/users` / `DELETE /api/users/...`：以实际后端实现为准（本文仅记录已确认的表关系）
 - **关键字段（已确认）**
   - `RoleID`：外键指向 `Sys_Roles.RoleID`（约束名：`FK_Sys_Users_Sys_Roles_RoleID`）
+  - `is_active`：账号可登录（1/0）；员工离职后置 0（用于封禁登录）
 
 ## 4. 环境变量清单（与表名相关）
 

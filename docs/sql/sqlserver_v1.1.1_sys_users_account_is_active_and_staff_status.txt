@@ -1,0 +1,96 @@
+-- v1.1.1 数据库优化 + 辞职模块：字段补齐（重复执行安全）
+-- 说明：只新增字段/约束，不改旧字段名
+
+/* 1) Sys_Users：Account（登录账号）与 is_active（账号启用状态） */
+IF NOT EXISTS (
+  SELECT 1
+  FROM sys.columns AS c
+  INNER JOIN sys.tables AS tb ON c.object_id = tb.object_id
+  INNER JOIN sys.schemas AS s ON tb.schema_id = s.schema_id
+  WHERE s.name = N'dbo' AND tb.name = N'Sys_Users' AND c.name = N'Account'
+)
+BEGIN
+  ALTER TABLE dbo.[Sys_Users] ADD [Account] NVARCHAR(50) NULL;
+END
+
+-- 先尽量用现有 UserCode 回填（避免新增列全为空导致后续 NOT NULL 失败）
+UPDATE dbo.[Sys_Users]
+SET Account = LTRIM(RTRIM(UserCode))
+WHERE (Account IS NULL OR LTRIM(RTRIM(Account)) = N'') AND LTRIM(RTRIM(UserCode)) <> N'';
+
+-- 将 Account 改为 NOT NULL（若你的 UserCode 有空值，请先补齐后再执行）
+IF EXISTS (
+  SELECT 1
+  FROM sys.columns AS c
+  INNER JOIN sys.tables AS tb ON c.object_id = tb.object_id
+  INNER JOIN sys.schemas AS s ON tb.schema_id = s.schema_id
+  WHERE s.name = N'dbo' AND tb.name = N'Sys_Users' AND c.name = N'Account' AND c.is_nullable = 1
+)
+BEGIN
+  ALTER TABLE dbo.[Sys_Users] ALTER COLUMN [Account] NVARCHAR(50) NOT NULL;
+END
+
+-- 唯一约束（若已存在则跳过）
+IF NOT EXISTS (
+  SELECT 1
+  FROM sys.key_constraints AS kc
+  INNER JOIN sys.tables AS tb ON kc.parent_object_id = tb.object_id
+  INNER JOIN sys.schemas AS s ON tb.schema_id = s.schema_id
+  WHERE s.name = N'dbo' AND tb.name = N'Sys_Users' AND kc.type = N'UQ' AND kc.name = N'UQ_Sys_Users_Account'
+)
+BEGIN
+  ALTER TABLE dbo.[Sys_Users] ADD CONSTRAINT UQ_Sys_Users_Account UNIQUE ([Account]);
+END
+
+IF NOT EXISTS (
+  SELECT 1
+  FROM sys.columns AS c
+  INNER JOIN sys.tables AS tb ON c.object_id = tb.object_id
+  INNER JOIN sys.schemas AS s ON tb.schema_id = s.schema_id
+  WHERE s.name = N'dbo' AND tb.name = N'Sys_Users' AND c.name = N'is_active'
+)
+BEGIN
+  ALTER TABLE dbo.[Sys_Users]
+  ADD [is_active] INT NOT NULL CONSTRAINT DF_Sys_Users_is_active DEFAULT ((1));
+END
+
+/* 2) Hr_staff：UserCode（档案工号）/ status / leave_date */
+IF NOT EXISTS (
+  SELECT 1
+  FROM sys.columns AS c
+  INNER JOIN sys.tables AS tb ON c.object_id = tb.object_id
+  INNER JOIN sys.schemas AS s ON tb.schema_id = s.schema_id
+  WHERE s.name = N'dbo' AND tb.name = N'Hr_staff' AND c.name = N'UserCode'
+)
+BEGIN
+  ALTER TABLE dbo.[Hr_staff] ADD [UserCode] NVARCHAR(50) NULL;
+END
+
+-- 用现有 code 回填 UserCode（若你已用其它字段表示工号，请按实际改这里）
+UPDATE dbo.[Hr_staff]
+SET UserCode = LTRIM(RTRIM(code))
+WHERE (UserCode IS NULL OR LTRIM(RTRIM(UserCode)) = N'') AND LTRIM(RTRIM(code)) <> N'';
+
+IF NOT EXISTS (
+  SELECT 1
+  FROM sys.columns AS c
+  INNER JOIN sys.tables AS tb ON c.object_id = tb.object_id
+  INNER JOIN sys.schemas AS s ON tb.schema_id = s.schema_id
+  WHERE s.name = N'dbo' AND tb.name = N'Hr_staff' AND c.name = N'status'
+)
+BEGIN
+  ALTER TABLE dbo.[Hr_staff]
+  ADD [status] NVARCHAR(20) NOT NULL CONSTRAINT DF_Hr_staff_status DEFAULT (N'在职');
+END
+
+IF NOT EXISTS (
+  SELECT 1
+  FROM sys.columns AS c
+  INNER JOIN sys.tables AS tb ON c.object_id = tb.object_id
+  INNER JOIN sys.schemas AS s ON tb.schema_id = s.schema_id
+  WHERE s.name = N'dbo' AND tb.name = N'Hr_staff' AND c.name = N'leave_date'
+)
+BEGIN
+  ALTER TABLE dbo.[Hr_staff] ADD [leave_date] DATETIME NULL;
+END
+

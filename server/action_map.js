@@ -24,6 +24,9 @@ export const DEFAULT_UNKNOWN_TARGET_TABLE = 'ERP'
 export const OPERATION_AUDIT_ROUTE_RULES = [
   { method: 'PUT', path: '/api/hr/staff/audit', action: '审核员工档案', targetTable: 'HR_staff' },
   { method: 'PUT', path: '/api/hr/staff/unaudit', action: '反审员工档案', targetTable: 'HR_staff' },
+  { method: 'PUT', path: '/api/hr/staff/restore', action: '恢复员工档案', targetTable: 'HR_staff' },
+  { method: 'PUT', path: /^\/api\/hr\/staff\/leave\/.+$/, action: '办理员工离职', targetTable: 'HR_staff' },
+  { method: 'POST', path: '/api/hr/staff/batch-update', action: '批量更新员工档案', targetTable: 'HR_staff' },
   { method: 'POST', path: '/api/hr/staff', action: '新增员工档案', targetTable: 'HR_staff' },
   { method: 'PUT', path: '/api/hr/staff', action: '修改员工档案', targetTable: 'HR_staff' },
   { method: 'DELETE', path: /^\/api\/hr\/staff\/.+/, action: '删除员工档案', targetTable: 'HR_staff' },

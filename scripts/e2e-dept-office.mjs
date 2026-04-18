@@ -24,7 +24,7 @@ async function loginJson() {
   const res = await fetch(`${apiBase}/api/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ UserCode: userCode, Password: password }),
+    body: JSON.stringify({ Account: userCode, Password: password }),
   })
   const json = await res.json().catch(() => ({}))
   return { ok: res.ok, status: res.status, json }

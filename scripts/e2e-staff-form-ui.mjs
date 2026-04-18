@@ -46,7 +46,7 @@ async function loginJson() {
   const res = await fetch(`${apiBase}/api/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ UserCode: userCode, Password: password }),
+    body: JSON.stringify({ Account: userCode, Password: password }),
   })
   const json = await res.json().catch(() => ({}))
   return { ok: res.ok, status: res.status, json }
@@ -113,7 +113,7 @@ async function main() {
   try {
     // 走真实登录流程：避免 localStorage 注入时序/权限模型导致仍停留在登录页
     await page.goto(`${baseUrl}/login`, { waitUntil: 'domcontentloaded' })
-    await page.getByPlaceholder('请输入工号').fill(String(userCode))
+    await page.getByPlaceholder('请输入账号').fill(String(userCode))
     await page.getByPlaceholder('请输入密码').fill(String(password))
     await page.getByRole('button', { name: '登录' }).click()
     // 登录成功后会跳转到 redirect 或第一个有权限菜单

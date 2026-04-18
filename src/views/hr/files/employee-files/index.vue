@@ -11,16 +11,31 @@
       <template #header>
         <span class="page-title">{{ pageTitle }}</span>
       </template>
-      <p class="page-desc">仅展示必用字段；已审核（pass=1）记录锁定，编辑与删除需先反审。</p>
+      <p class="page-desc">
+        仅展示必用字段；已审核（pass=1）记录锁定，编辑与删除需先反审。默认仅在职；打开「仅显示离职员工」后列表仅含
+        Hr_staff.status 为离职的档案。
+      </p>
 
       <div class="operator-toolbar">
         <el-button v-permission="'add'" class="toolbar-btn btn-action" @click="openCreate">
           <el-icon class="btn-icon"><Plus /></el-icon>
           新增员工
         </el-button>
+        <el-button v-permission="'edit'" class="toolbar-btn btn-action" @click="openBatchUpdate">
+          <el-icon class="btn-icon"><Upload /></el-icon>
+          批量更新
+        </el-button>
         <div class="audit-switch">
           <span class="switch-label">显示未审核</span>
-          <el-switch v-model="showUnAudited" />
+          <el-switch v-model="showUnAudited" :disabled="showDeleted" />
+        </div>
+        <div class="audit-switch">
+          <span class="switch-label">显示已删除</span>
+          <el-switch v-model="showDeleted" />
+        </div>
+        <div class="audit-switch">
+          <span class="switch-label">仅显示离职员工</span>
+          <el-switch v-model="showLeaved" :disabled="showDeleted" title="开启后仅列出 status=离职；查看已删除时不按在职状态筛选" />
         </div>
         <el-button class="toolbar-btn btn-view" :loading="loading" @click="loadList">
           <el-icon class="btn-icon"><Refresh /></el-icon>
@@ -85,22 +100,63 @@
             <el-table-column prop="meal_type" label="饭餐类型" min-width="90" show-overflow-tooltip />
             <el-table-column prop="remark" label="备注" min-width="100" show-overflow-tooltip />
             <el-table-column prop="intime" label="入职时间" min-width="140" show-overflow-tooltip />
+            <el-table-column label="在职状态" width="90">
+              <template #default="{ row }">
+                <el-tag v-if="staffIsLeaved(row)" type="danger" effect="light">离职</el-tag>
+                <el-tag v-else type="success" effect="light">在职</el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="审核状态" width="90">
               <template #default="{ row }">
                 <el-tag v-if="rowIsAudited(row)" type="success" effect="light">已审核</el-tag>
                 <el-tag v-else type="info" effect="light">未审核</el-tag>
               </template>
             </el-table-column>
+            <el-table-column label="删除状态" width="90">
+              <template #default="{ row }">
+                <el-tag v-if="rowIsDeleted(row)" type="danger" effect="light">已删除</el-tag>
+                <el-tag v-else type="success" effect="light">正常</el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="操作" min-width="360" fixed="right">
               <template #default="{ row }">
-                <el-button v-permission="'edit'" size="small" :disabled="rowIsAudited(row)" @click="openEdit(row)">
+                <el-button v-permission="'view'" size="small" @click="openView(row)">查看</el-button>
+                <el-button
+                  v-permission="'edit'"
+                  size="small"
+                  type="danger"
+                  v-if="!showDeleted && !showUnAudited"
+                  :disabled="staffIsLeaved(row)"
+                  @click="confirmLeave(row)"
+                >
+                  办理离职
+                </el-button>
+                <el-button
+                  v-permission="'edit'"
+                  size="small"
+                  type="primary"
+                  plain
+                  v-if="showDeleted"
+                  :disabled="rowIsAudited(row) || !rowIsDeleted(row)"
+                  @click="confirmRestore(row)"
+                >
+                  恢复
+                </el-button>
+                <el-button
+                  v-permission="'edit'"
+                  size="small"
+                  v-if="!showDeleted && showUnAudited"
+                  :disabled="rowIsAudited(row) || rowIsDeleted(row)"
+                  @click="openEdit(row)"
+                >
                   编辑
                 </el-button>
                 <el-button
                   v-permission="'delete'"
                   size="small"
                   type="danger"
-                  :disabled="rowIsAudited(row)"
+                  v-if="!showDeleted && showUnAudited"
+                  :disabled="rowIsAudited(row) || rowIsDeleted(row)"
                   @click="confirmDelete(row)"
                 >
                   删除
@@ -110,7 +166,8 @@
                   size="small"
                   type="success"
                   plain
-                  :disabled="rowIsAudited(row)"
+                  v-if="!showDeleted && showUnAudited"
+                  :disabled="rowIsAudited(row) || rowIsDeleted(row)"
                   @click="doAudit(row)"
                 >
                   审核
@@ -120,7 +177,8 @@
                   size="small"
                   type="warning"
                   plain
-                  :disabled="!rowIsAudited(row)"
+                  v-if="!showDeleted && !showUnAudited"
+                  :disabled="!rowIsAudited(row) || rowIsDeleted(row)"
                   @click="doUnaudit(row)"
                 >
                   反审
@@ -159,6 +217,7 @@
         class="staff-form-dialog"
         :model="form"
         :rules="formRules"
+        :disabled="dialogMode === 'view'"
         label-width="140px"
         label-position="right"
         size="small"
@@ -184,6 +243,7 @@
           <el-col :span="12">
             <el-form-item label="卡号" prop="card_number">
               <el-input v-model="form.card_number" maxlength="10" placeholder="固定 10 位数字" />
+              <div class="staff-form-item-hint">与同卡号的离职或已删除档案不冲突；仅不可与在职且未删除的员工重复。</div>
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -324,8 +384,125 @@
         </el-row>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="submitForm">确定</el-button>
+        <el-button @click="dialogVisible = false">{{ dialogMode === 'view' ? '关闭' : '取消' }}</el-button>
+        <el-button v-if="dialogMode !== 'view'" type="primary" :loading="submitting" @click="submitForm">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- v1.1.2：批量更新（Excel：姓名/部门/岗位） -->
+    <el-dialog v-model="batchDialogVisible" title="批量更新（Excel）" width="760px" align-center destroy-on-close>
+      <el-alert
+        title="Excel 仅支持 xlsx/xls；第一行必须是表头：姓名、部门、岗位。会按姓名匹配员工，按部门/岗位名称去部门表找已审核数据；仅更新已审核员工（pass=1），未审核会自动跳过。"
+        type="info"
+        show-icon
+        :closable="false"
+        style="margin-bottom: 10px"
+      />
+      <el-upload
+        :auto-upload="false"
+        :limit="1"
+        accept=".xlsx,.xls"
+        :on-change="onBatchFileChange"
+        :on-remove="onBatchFileRemove"
+        :before-upload="beforeBatchUpload"
+      >
+        <el-button type="primary">选择 Excel 文件</el-button>
+        <template #tip>
+          <div class="el-upload__tip">建议文件不要太大（会走 base64 传输）。</div>
+        </template>
+      </el-upload>
+
+      <el-divider />
+
+      <div style="display: flex; justify-content: flex-end; gap: 8px">
+        <el-button @click="batchDialogVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="batchSubmitting" :disabled="!batchFileBase64" @click="submitBatchUpdate">
+          开始更新
+        </el-button>
+      </div>
+
+      <el-divider v-if="batchResult" />
+
+      <div v-if="batchResult">
+        <el-alert
+          :title="`本次处理：${batchResult.total} 行；成功 ${batchResult.success} 行；失败 ${batchResult.failed} 行；跳过 ${batchResult.skipped} 行`"
+          :type="batchResult.failed > 0 ? 'warning' : 'success'"
+          show-icon
+          :closable="false"
+          style="margin-bottom: 10px"
+        />
+        <el-table :data="batchResult.details" border stripe height="300">
+          <el-table-column prop="rowNo" label="行号" width="70" />
+          <el-table-column prop="name" label="姓名" min-width="90" show-overflow-tooltip />
+          <el-table-column prop="dept" label="部门" min-width="110" show-overflow-tooltip />
+          <el-table-column prop="post" label="岗位" min-width="110" show-overflow-tooltip />
+          <el-table-column prop="code" label="工号" min-width="110" show-overflow-tooltip />
+          <el-table-column prop="status" label="状态" width="90">
+            <template #default="{ row }">
+              <el-tag v-if="row.status === 'success'" type="success" effect="light">成功</el-tag>
+              <el-tag v-else-if="row.status === 'skipped'" type="info" effect="light">跳过</el-tag>
+              <el-tag v-else type="danger" effect="light">失败</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="message" label="说明" min-width="200" show-overflow-tooltip />
+        </el-table>
+      </div>
+    </el-dialog>
+
+    <!-- v1.1.2：办理离职弹窗（离职日期/原因/黑名单） -->
+    <el-dialog v-model="leaveDialogVisible" title="办理离职" width="680px" align-center destroy-on-close>
+      <el-form :model="leaveForm" label-width="110px" size="small">
+        <el-form-item label="离职日期" required>
+          <el-date-picker
+            v-model="leaveForm.leave_date"
+            type="date"
+            value-format="YYYY-MM-DD"
+            format="YYYY-MM-DD"
+            placeholder="选择离职日期"
+            style="width: 100%"
+          />
+        </el-form-item>
+
+        <el-form-item label="离职原因" required>
+          <div style="display: flex; flex-direction: column; gap: 8px; width: 100%">
+            <div style="display: flex; gap: 8px; flex-wrap: wrap">
+              <el-button size="small" @click="appendLeaveReason('个人原因')">个人原因</el-button>
+              <el-button size="small" @click="appendLeaveReason('合同到期')">合同到期</el-button>
+              <el-button size="small" @click="appendLeaveReason('辞退')">辞退</el-button>
+            </div>
+            <el-input
+              v-model="leaveForm.leave_reason"
+              type="textarea"
+              :rows="3"
+              maxlength="200"
+              show-word-limit
+              placeholder="请输入离职原因"
+            />
+          </div>
+        </el-form-item>
+
+        <el-form-item label="加入黑名单" required>
+          <el-select v-model="leaveForm.is_blacklist" placeholder="请选择" style="width: 100%">
+            <el-option label="否" :value="0" />
+            <el-option label="是" :value="1" />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item v-if="leaveForm.is_blacklist === 1" label="黑名单备注" required>
+          <el-input
+            v-model="leaveForm.blacklist_reason"
+            type="textarea"
+            :rows="3"
+            maxlength="200"
+            show-word-limit
+            placeholder="请输入黑名单原因（必填）"
+          />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="leaveDialogVisible = false">取消</el-button>
+        <el-button type="danger" :loading="leaveSubmitting" @click="submitLeave">确认办理离职</el-button>
       </template>
     </el-dialog>
   </div>
@@ -335,7 +512,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
-import { Plus, Refresh } from '@element-plus/icons-vue'
+import { Plus, Refresh, Upload } from '@element-plus/icons-vue'
 
 /** 页面标题（与左侧菜单一致） */
 const pageTitle = '员工档案资料'
@@ -356,11 +533,33 @@ const pageSize = ref(20)
 
 /** 是否显示未审核（pass='0'） */
 const showUnAudited = ref(false)
+/** v1.1.2：是否显示已删除（del='1'） */
+const showDeleted = ref(false)
+/** 为 true 时列表仅含 status=离职；关闭时接口排除离职，分页 total 准确 */
+const showLeaved = ref(false)
 
 const dialogVisible = ref(false)
 const dialogMode = ref('create')
 const submitting = ref(false)
 const formRef = ref()
+
+/** v1.1.2：批量更新弹窗 */
+const batchDialogVisible = ref(false)
+const batchSubmitting = ref(false)
+const batchFileBase64 = ref('')
+const batchFileName = ref('')
+const batchResult = ref(null)
+
+/** v1.1.2：办理离职弹窗 */
+const leaveDialogVisible = ref(false)
+const leaveSubmitting = ref(false)
+const leaveTarget = ref({ id: null, code: '', name: '' })
+const leaveForm = ref({
+  leave_date: '',
+  leave_reason: '',
+  is_blacklist: 0,
+  blacklist_reason: '',
+})
 
 /** 部门/岗位下拉（来自 HR_Departments） */
 const deptOptions = ref([])
@@ -460,7 +659,10 @@ const mealTypeSelectOptions = computed(() => {
   return base
 })
 
-const dialogTitle = computed(() => (dialogMode.value === 'edit' ? '编辑员工' : '新增员工'))
+const dialogTitle = computed(() => {
+  if (dialogMode.value === 'view') return '查看员工'
+  return dialogMode.value === 'edit' ? '编辑员工' : '新增员工'
+})
 
 const formRules = {
   name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
@@ -473,6 +675,16 @@ const formRules = {
 /** pass === '1' 为已审核 */
 function rowIsAudited(row) {
   return String(row?.pass ?? '').trim() === '1'
+}
+
+/** del === '1' 为已删除 */
+function rowIsDeleted(row) {
+  return String(row?.del ?? '').trim() === '1'
+}
+
+/** status === '离职' 视为已离职（空/其它默认在职） */
+function staffIsLeaved(row) {
+  return String(row?.status ?? '').trim() === '离职'
 }
 
 /** card_number 不足 10 位提示（空值不提示） */
@@ -549,6 +761,8 @@ async function loadList() {
         page: page.value,
         pageSize: pageSize.value,
         pass: showUnAudited.value ? '0' : '1',
+        del: showDeleted.value ? '1' : '0',
+        include_leaved: showDeleted.value ? 'all' : showLeaved.value ? '1' : '0',
         ...buildQueryParams(),
       },
     })
@@ -577,6 +791,20 @@ function onSearch() {
 }
 
 watch(showUnAudited, () => {
+  page.value = 1
+  loadList()
+})
+
+watch(showDeleted, () => {
+  // 业务约定：只有未审核数据允许删除/恢复，因此「显示已删除」开启时强制同时打开「显示未审核」
+  if (showDeleted.value) {
+    showUnAudited.value = true
+  }
+  page.value = 1
+  loadList()
+})
+
+watch(showLeaved, () => {
   page.value = 1
   loadList()
 })
@@ -649,6 +877,45 @@ function openEdit(row) {
   dialogVisible.value = true
 }
 
+async function openView(row) {
+  const code = String(row?.code ?? '').trim()
+  if (!code) return
+  dialogMode.value = 'view'
+  submitting.value = false
+  try {
+    const res = await axios.get(`/api/hr/staff/${encodeURIComponent(code)}`)
+    const body = res.data
+    if (body?.code !== 200) {
+      ElMessage.error(String(body?.msg ?? '读取详情失败'))
+      return
+    }
+    const r = body?.data ?? {}
+    form.value = {
+      code: String(r?.code ?? ''),
+      new_code: String(r?.new_code ?? ''),
+      name: String(r?.name ?? ''),
+      card_number: String(r?.card_number ?? ''),
+      join_department: String(r?.join_department ?? ''),
+      position: String(r?.position ?? ''),
+      sex: String(r?.sex ?? ''),
+      nation: String(r?.nation ?? ''),
+      birth: String(r?.birth ?? ''),
+      highest: String(r?.highest ?? ''),
+      yn_firend: String(r?.yn_firend ?? ''),
+      meal_type: String(r?.meal_type ?? '').trim() || DEFAULT_MEAL_TYPE,
+      yn_history: normalizeYnHistoryForForm(r?.yn_history),
+      remark: String(r?.remark ?? ''),
+      intime: String(r?.intime ?? ''),
+    }
+    void loadDeptOptions()
+    void loadPostOptions(form.value.join_department)
+    dialogVisible.value = true
+  } catch (e) {
+    const msg = e?.response?.data?.msg
+    ElMessage.error(String(msg ?? e?.message ?? '请求失败'))
+  }
+}
+
 async function submitForm() {
   try {
     await formRef.value?.validate()
@@ -706,6 +973,10 @@ async function confirmDelete(row) {
     ElMessage.warning('该记录已审核锁定，请反审后再操作')
     return
   }
+  if (rowIsDeleted(row)) {
+    ElMessage.warning('该记录已删除，请使用“恢复”')
+    return
+  }
   const code = String(row?.code ?? '')
   try {
     await ElMessageBox.confirm(`确定删除员工「${row?.name}」（工号=${code}）吗？`, '确认删除', { type: 'warning' })
@@ -724,6 +995,123 @@ async function confirmDelete(row) {
   } catch (e) {
     const msg = e?.response?.data?.msg
     ElMessage.error(String(msg ?? e?.message ?? '请求失败'))
+  }
+}
+
+async function confirmRestore(row) {
+  if (rowIsAudited(row)) {
+    ElMessage.warning('该记录已审核锁定，请反审后再操作')
+    return
+  }
+  if (!rowIsDeleted(row)) return
+  const code = String(row?.code ?? '')
+  try {
+    await ElMessageBox.confirm(`确定恢复员工「${row?.name}」（工号=${code}）吗？`, '确认恢复', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    const res = await axios.put('/api/hr/staff/restore', { code })
+    const body = res.data
+    if (body?.code !== 200) {
+      ElMessage.error(String(body?.msg ?? '恢复失败'))
+      return
+    }
+    ElMessage.success('已恢复')
+    await loadList()
+  } catch (e) {
+    const msg = e?.response?.data?.msg
+    ElMessage.error(String(msg ?? e?.message ?? '请求失败'))
+  }
+}
+
+async function confirmLeave(row) {
+  if (rowIsDeleted(row)) {
+    ElMessage.warning('该员工已删除，不能办理离职')
+    return
+  }
+  if (staffIsLeaved(row)) {
+    ElMessage.warning('该员工已是离职状态')
+    return
+  }
+  const id = Number(row?.id)
+  if (!Number.isFinite(id) || id <= 0) {
+    ElMessage.error('员工ID不合法，无法办理离职')
+    return
+  }
+
+  // 打开离职弹窗并初始化默认值（离职日期默认今天）
+  leaveTarget.value = { id, code: String(row?.code ?? ''), name: String(row?.name ?? '') }
+  leaveForm.value = {
+    leave_date: todayString(),
+    leave_reason: '',
+    is_blacklist: 0,
+    blacklist_reason: '',
+  }
+  leaveDialogVisible.value = true
+}
+
+function appendLeaveReason(text) {
+  const cur = String(leaveForm.value.leave_reason ?? '').trim()
+  if (!cur) {
+    leaveForm.value.leave_reason = text
+    return
+  }
+  if (cur.includes(text)) return
+  leaveForm.value.leave_reason = `${cur}；${text}`
+}
+
+async function submitLeave() {
+  const id = Number(leaveTarget.value?.id)
+  if (!Number.isFinite(id) || id <= 0) {
+    ElMessage.error('员工ID不合法，无法办理离职')
+    return
+  }
+  const leaveDate = String(leaveForm.value.leave_date ?? '').trim()
+  const leaveReason = String(leaveForm.value.leave_reason ?? '').trim()
+  const isBlacklist = Number(leaveForm.value.is_blacklist ?? 0) === 1 ? 1 : 0
+  const blacklistReason = String(leaveForm.value.blacklist_reason ?? '').trim()
+
+  if (!leaveDate) {
+    ElMessage.error('请选择离职日期')
+    return
+  }
+  if (!leaveReason) {
+    ElMessage.error('请输入离职原因')
+    return
+  }
+  if (isBlacklist === 1 && !blacklistReason) {
+    ElMessage.error('请输入黑名单备注')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm('确定要为该员工办理离职吗？办理后其系统账号将无法登录。', '确认离职', { type: 'warning' })
+  } catch {
+    return
+  }
+
+  leaveSubmitting.value = true
+  try {
+    const res = await axios.put(`/api/hr/staff/leave/${encodeURIComponent(String(id))}`, {
+      leave_date: leaveDate,
+      leave_reason: leaveReason,
+      is_blacklist: isBlacklist,
+      blacklist_reason: blacklistReason,
+    })
+    const body = res.data
+    if (body?.code !== 200) {
+      ElMessage.error(String(body?.msg ?? '办理离职失败'))
+      return
+    }
+    ElMessage.success('已办理离职')
+    leaveDialogVisible.value = false
+    await loadList()
+  } catch (e) {
+    const msg = e?.response?.data?.msg
+    ElMessage.error(String(msg ?? e?.message ?? '请求失败'))
+  } finally {
+    leaveSubmitting.value = false
   }
 }
 
@@ -780,6 +1168,79 @@ async function doUnaudit(row) {
 onMounted(() => {
   loadList()
 })
+
+function openBatchUpdate() {
+  batchDialogVisible.value = true
+  batchSubmitting.value = false
+  batchFileBase64.value = ''
+  batchFileName.value = ''
+  batchResult.value = null
+}
+
+function beforeBatchUpload(file) {
+  const name = String(file?.name ?? '')
+  if (!/\.(xlsx|xls)$/i.test(name)) {
+    ElMessage.error('只能上传 xlsx 或 xls 文件')
+    return false
+  }
+  return true
+}
+
+async function onBatchFileChange(file) {
+  const raw = file?.raw
+  if (!raw) return
+  const name = String(raw.name ?? '')
+  if (!/\.(xlsx|xls)$/i.test(name)) {
+    ElMessage.error('只能上传 xlsx 或 xls 文件')
+    return
+  }
+  batchFileName.value = name
+  batchResult.value = null
+
+  try {
+    const ab = await raw.arrayBuffer()
+    const bytes = new Uint8Array(ab)
+    let binary = ''
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+    batchFileBase64.value = btoa(binary)
+  } catch (e) {
+    batchFileBase64.value = ''
+    ElMessage.error(String(e?.message ?? '读取文件失败'))
+  }
+}
+
+function onBatchFileRemove() {
+  batchFileBase64.value = ''
+  batchFileName.value = ''
+  batchResult.value = null
+}
+
+async function submitBatchUpdate() {
+  if (!batchFileBase64.value) {
+    ElMessage.warning('请先选择 Excel 文件')
+    return
+  }
+  batchSubmitting.value = true
+  try {
+    const res = await axios.post('/api/hr/staff/batch-update', {
+      fileName: batchFileName.value,
+      fileBase64: batchFileBase64.value,
+    })
+    const body = res.data
+    if (body?.code !== 200) {
+      ElMessage.error(String(body?.msg ?? '批量更新失败'))
+      return
+    }
+    batchResult.value = body?.data ?? null
+    ElMessage.success('批量更新已完成')
+    await loadList()
+  } catch (e) {
+    const msg = e?.response?.data?.msg
+    ElMessage.error(String(msg ?? e?.message ?? '请求失败'))
+  } finally {
+    batchSubmitting.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -874,5 +1335,11 @@ onMounted(() => {
 .staff-form-item--multiline-label :deep(.el-form-item__label) {
   white-space: normal;
   word-break: break-all;
+}
+.staff-form-item-hint {
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.4;
+  margin-top: 4px;
 }
 </style>
