@@ -4,10 +4,13 @@
 
 > 约定：本文只维护“项目当前明确使用到”的表与字段；如需扩展，请同时补充迁移脚本（见 `docs/sql/` 与 `scripts/migrations/`）和相关设计文档。
 
-## 1. 全局概览（当前确认：5 张表）
+## 1. 全局概览（当前确认：8 张表）
 
 - **HR_Departments**：部门 / 岗位（旧系统表接管）
 - **Hr_staff**：人事档案资料（精简字段查询）
+- **Hr_room**：宿舍房间主数据（v1.1.3 起）
+- **Hr_room_in**：宿舍入住记录（v1.1.3 起）
+- **Hr_room_use**：宿舍电费/用量等（`room_code` 与 `Hr_room.s_code` 对应；住宿总览按 `tj_date` 所在月汇总 `c_sum_money`，v1.1.4 起）
 - **Sys_OperationLogs**：全局操作审计日志（新增）
 - **Sys_Roles**：角色管理（含菜单权限 `Permissions`）
 - **Sys_Users**：用户/操作员（通过 `RoleID` 关联角色）
@@ -139,7 +142,41 @@
 - **迁移脚本**
   - 增加 `Permissions` 列：`docs/sql/erp_v1.0.7_permissions_column.txt`（或 `scripts/migrations/sqlserver_v1.0.7_permissions_column.txt`）
 
-### 3.5 `Sys_Users`（用户 / 操作员）
+### 3.5 `Hr_room` / `Hr_room_in`（宿舍：房间与入住，v1.1.3）
+
+- **Schema**：`dbo`
+- **模块/页面**
+  - 前端：`src/views/hr/dormitory/room-management/index.vue`、`src/views/hr/dormitory/lodging-records/index.vue`
+  - 说明：`src/views/hr/dormitory/README.md`
+- **接口（后端：`server/index.js`）**
+  - `GET /api/hr/dormitory/rooms`：房间分页列表；`WHERE del='0' AND pass=@pass`；在住人数子查询统计 `Hr_room_in` 中 `del=0` 且 `in_room='1'` 且 `out_room='0'`（按 `room_systemcode` 汇总）
+  - `GET /api/hr/dormitory/rooms/:id`：单条详情（`del=0`，不按 `pass` 限制）；含在住人数与创建/审核辅助字段
+  - `POST /api/hr/dormitory/rooms`：新增房间（在册 `s_code` 不可重复）；写入 `s_code`、`s_code1`（使用/闲置）、`code`（普通房/空调房/大房）、`in_bad`、`info`，`name` 固定「宿舍」，默认 `pass='0'`
+  - `PUT /api/hr/dormitory/rooms/audit`：按 `id` 审核房间（`pass='1'`，写入 `passuid`/`passuname`/`passutruename`/`passip`/`edittime` 等）
+  - `PUT /api/hr/dormitory/rooms/unaudit`：按 `id` 反审（`pass='0'`，清空 `pass*` 审核人字段）
+  - `POST /api/hr/dormitory/check-in`（v1.1.3-final）：办理入住（写入旧表 `Hr_room_in`）
+    - **入参**：`staff_code`（员工工号）、`room_code`（房号= `Hr_room.s_code`）、`in_time`（入住日期，建议 `YYYY-MM-DD`）、`electric`（优惠电量，数字）、`room_info`（备注）、`pass`（匹配已审/未审房间资料）
+    - **排他性**：员工若存在在宿记录则拦截（优先 `status=1`；否则按 `in_room=1 AND out_room=0`）
+    - **满员拦截**：按 `Hr_room.BedCount`（若存在）或 `Hr_room.in_bad` 作为床位数，与当前在宿人数对比；满员提示固定为「该房间已满员，无法办理入住」
+    - **写入字段**：默认 `pass='0'`、`del='0'`、`in_room='1'`、`out_room='0'`；若旧库存在 `status` 列则同时写入 `status=1`；若存在 `electric/room_info` 列则写入对应值
+    - **审计日志**：`Sys_OperationLogs.Content` 记录「管理员[uname]办理入住：房间[room_code], 员工[姓名], 优惠电量[electric]」
+  - `GET /api/hr/dormitory/check-in/staff-options`（v1.1.3+）：办理入住员工下拉；只返回 `Hr_staff` 中 `del=0 AND status='在职' AND is_blacklist=0` 且当前不在住（`Hr_room_in` 里 `in_room=1 AND out_room=0`）的员工
+  - `GET /api/hr/dormitory/room-occupants`（v1.1.3+）：入住管理-当前在住人员（`del=0 AND out_room=0`），按 `room_code` 查询；部门取 `Hr_staff.join_department`（`Hr_staff.new_code = Hr_room_in.staff_code`）
+    - v1.1.3+：部门中文名：`HR_Departments.code = Hr_staff.join_department`，展示 `HR_Departments.name`
+  - `PUT /api/hr/dormitory/check-out`（v1.1.3+）：办理退宿：仅更新当前行 `id`，设置 `out_room='1'` + `out_time='YYYY-MM-DD HH:mm'`，并写入操作审计（Action：办理了退宿）
+  - `PUT /api/hr/dormitory/room-in/room-info`（v1.1.3+）：入住管理-备注编辑：仅更新 `Hr_room_in.room_info`，并写入操作审计（Action：修改入住备注）
+  - `GET /api/hr/dormitory/lodging-overview`（v1.1.10+）：房间总览分页；**入住人数/名单**显示“当前在住”（不按月份，按 `del=0`、`in_room=1`、`out_room=0` 汇总）；**电费**按参数 `tj_date`（格式 `YYYY-M`，如 `2026-3`）精确匹配 `Hr_room_use.tj_date`（该列为 `nvarchar(50)`）；同房同月取 **`MAX(c_sum_money)`** 防止重复累加（并过滤 `del=0`）；`c_sum_money` 为 nvarchar 时先清洗再转 decimal；入住名单优先 `staff_truename`，空则回退 `staff_code`
+  - `GET /api/hr/dormitory/lodging-history`：住宿历史（按 `in_time` 所在月）；`PUT /api/hr/dormitory/lodging-in/audit*`：入住单审核
+- **关键字段（与当前代码一致）**
+  - **房间**：`s_code`（房号，与办理入住时 `room_code` 一致）、`s_code1`（使用/闲置）、`in_bad`（床位数）、`systemcode`（房间稳定关联键，写入入住行的 `room_systemcode`）
+  - **入住行**：`staff_code`、`staff_truename`、`room_code`、`room_systemcode`、`in_room` / `out_room`（在住：`1`/`0`）、`in_time`、`pass` / `del`（沿用项目审核与逻辑删除约定）
+  - **入住扩展**：`room_info`（备注）、`electric`（优惠电量）；部分旧库可能存在 `status`（1=在宿）用于在宿判定
+  - **员工**：`Hr_staff.code`（工号）、`Hr_staff.name`（姓名）、`status`（在职/离职）、`is_blacklist`（黑名单 0/1）
+  - **电费表 `Hr_room_use`**：`room_code`、`tj_date`（与总览「设定日期」年月对齐）、`c_sum_money`（同月多条则后端 `SUM`）
+- **权限（按钮级）**
+  - 菜单 path：`hr/dormitory/room-management`（`view` / `add` 添加房间 / **`audit` 审核房间**）、`hr/dormitory/lodging-records`（`add` 办理入住）
+
+### 3.6 `Sys_Users`（用户 / 操作员）
 
 - **Schema**：通常为 `dbo`（实际由数据库决定）
 - **模块/页面**
@@ -182,4 +219,6 @@
 - **`dbo.[${HR_STAFF_TABLE}]`（默认 `dbo.[Hr_staff]`）**
   - 来源：`server/index.js`
   - 说明：通过 `HR_STAFF_FROM = \`dbo.[${HR_STAFF_TABLE}]\`` 统一引用；员工档案 CRUD/审核均走该表。
+- **`dbo.[Hr_room]` / `dbo.[Hr_room_in]` / `dbo.[Hr_room_use]`**
+  - 来源：`server/index.js`（宿舍列表、办理入住、住宿总览/历史/入住单审核）
 

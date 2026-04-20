@@ -16,7 +16,9 @@ import { serializePermissionsForStore } from './permissions.js'
 import {
   createOperationAuditMiddleware,
   createOperationAuditPrepareMiddleware,
+  getRequestIp,
 } from './operationAuditMiddleware.js'
+import { getActorAuditFromReq } from './businessAuditFields.js'
 import { configureOperationLogWriter, writeLog, writeOperationLog, SYS_OPERATION_LOGS_FROM } from './operationLogWriter.js'
 
 dotenv.config()
@@ -2728,8 +2730,156 @@ const HR_STAFF_TABLE = (() => {
 /** 已解析的 FROM 子句，如 dbo.[Hr_staff] */
 const HR_STAFF_FROM = `dbo.[${HR_STAFF_TABLE}]`
 
+/** v1.1.3：宿舍房间 / 入住（物理表名已由库端统一为 Hr_room、Hr_room_in） */
+const HR_ROOM_FROM = 'dbo.[Hr_room]'
+const HR_ROOM_IN_FROM = 'dbo.[Hr_room_in]'
+/** 宿舍电费汇总等：room_code 与 Hr_room.s_code / Hr_room_in.room_code 对应 */
+const HR_ROOM_USE_FROM = 'dbo.[Hr_room_use]'
+
+/**
+ * 日期/时间列落在 [@mStart, @mEnd) 自然月半开区间；兼容 SQL Server 2008 R2（无 TRY_CONVERT）。
+ * 要点：若列已是 datetime，不能再「先转 nvarchar 再 CONVERT 回 datetime」，否则受会话语言/格式影响易报 241。
+ * 做法：CASE 短路——日期型直接比较参数；字符型先尝试 style 120 的 yyyy-MM-dd / 8 位 yyyymmdd；
+ * 再兜底「旧库常见」：非日期型列但存 varchar 日期且 ISDATE=1 时用隐式 CONVERT（覆盖 2026-4-1 等非零补串，否则入住名单会被整月滤空）。
+ * @param {string} colExpr 列引用，如 i.in_time、u.tj_date
+ */
+function hrSqlDateColumnInMonthRangeSql(colExpr) {
+  const c = String(colExpr ?? '').trim()
+  const v = `LTRIM(RTRIM(CONVERT(nvarchar(100), ${c})))`
+  const iso10 = `REPLACE(REPLACE(SUBSTRING(${v}, 1, 10), N'/', N'-'), N'.', N'-')`
+  return (
+    `(CASE ` +
+    `WHEN ${c} IS NULL THEN 0 ` +
+    `WHEN SQL_VARIANT_PROPERTY(CAST(${c} AS sql_variant), N'BaseType') IN (N'datetime', N'smalldatetime', N'date', N'datetime2') ` +
+    `THEN CASE WHEN ${c} >= @mStart AND ${c} < @mEnd THEN 1 ELSE 0 END ` +
+    `WHEN LEN(${v}) >= 10 AND SUBSTRING(${v}, 5, 1) IN (N'-', N'/', N'.') AND SUBSTRING(${v}, 8, 1) IN (N'-', N'/', N'.') ` +
+    `AND ISNUMERIC(SUBSTRING(${v}, 1, 4) + N'e0') = 1 AND ISNUMERIC(SUBSTRING(${v}, 6, 2) + N'e0') = 1 AND ISNUMERIC(SUBSTRING(${v}, 9, 2) + N'e0') = 1 ` +
+    `THEN CASE WHEN CONVERT(datetime, ${iso10}, 120) >= @mStart AND CONVERT(datetime, ${iso10}, 120) < @mEnd THEN 1 ELSE 0 END ` +
+    `WHEN PATINDEX(N'%[^0-9]%', ${v}) = 0 AND LEN(${v}) >= 8 ` +
+    `THEN CASE WHEN CONVERT(datetime, STUFF(STUFF(LEFT(${v}, 8), 5, 0, N'-'), 8, 0, N'-'), 120) >= @mStart AND CONVERT(datetime, STUFF(STUFF(LEFT(${v}, 8), 5, 0, N'-'), 8, 0, N'-'), 120) < @mEnd THEN 1 ELSE 0 END ` +
+    `WHEN SQL_VARIANT_PROPERTY(CAST(${c} AS sql_variant), N'BaseType') IN (N'varchar', N'nvarchar', N'char', N'nchar') AND LEN(${v}) > 0 AND ISDATE(${v}) = 1 ` +
+    `THEN CASE WHEN CONVERT(datetime, ${v}) >= @mStart AND CONVERT(datetime, ${v}) < @mEnd THEN 1 ELSE 0 END ` +
+    `ELSE 0 END) = 1`
+  )
+}
+
+/** @deprecated 语义别名：入住单 in_time 按月 */
+function hrRoomInTimeBetweenMonthSql(colExpr) {
+  return hrSqlDateColumnInMonthRangeSql(colExpr)
+}
+
+/** 电费表 tj_date 按月（与 hrSqlDateColumnInMonthRangeSql 同一套比较逻辑） */
+function hrRoomUseTjDateBetweenMonthSql(colExpr) {
+  return hrSqlDateColumnInMonthRangeSql(colExpr)
+}
+
+/**
+ * 入住名单展示用姓名：优先 staff_truename，空则回退 staff_code（旧数据可能未写入姓名）
+ * @param {string} tableAlias 表别名，如 x
+ */
+function hrRoomInStaffDisplayNameSql(tableAlias) {
+  const a = String(tableAlias ?? 'x').trim()
+  const tru = `LTRIM(RTRIM(CONVERT(nvarchar(400), ISNULL(${a}.staff_truename, N''))))`
+  const code = `LTRIM(RTRIM(ISNULL(${a}.staff_code, N'')))`
+  return `CASE WHEN ${tru} <> N'' THEN ${tru} ELSE ${code} END`
+}
+
+/**
+ * Hr_room_use.c_sum_money 在库中可能为 nvarchar：SUM 前转为 decimal；空或非数字视为 0。
+ * 去掉空格与英文逗号后再 ISNUMERIC + CAST（SQL Server 2008 R2，无 TRY_CONVERT）。
+ * @param {string} colExpr 列引用，如 u.c_sum_money
+ */
+function hrRoomUseCsumMoneyAsDecimalSql(colExpr) {
+  const c = String(colExpr ?? 'u.c_sum_money').trim()
+  const norm = `REPLACE(REPLACE(LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(${c}, N'')))), N' ', N''), N',', N'')`
+  return `CASE WHEN ${norm} = N'' THEN CAST(0 AS decimal(18,2)) WHEN ISNUMERIC(${norm}) = 1 THEN CAST(${norm} AS decimal(18,2)) ELSE CAST(0 AS decimal(18,2)) END`
+}
+
+/**
+ * 将入住/退宿日期列转为 datetime 或 NULL（非法或空则为 NULL），供 DATEDIFF 使用
+ * @param {string} colExpr 列引用
+ */
+function hrRoomDateTimeExprNullableSql(colExpr) {
+  const c = String(colExpr ?? '').trim()
+  const v = `LTRIM(RTRIM(CONVERT(nvarchar(100), ${c})))`
+  const iso10 = `REPLACE(REPLACE(SUBSTRING(${v}, 1, 10), N'/', N'-'), N'.', N'-')`
+  return (
+    `CASE ` +
+    `WHEN ${c} IS NULL THEN NULL ` +
+    `WHEN SQL_VARIANT_PROPERTY(CAST(${c} AS sql_variant), N'BaseType') IN (N'datetime', N'smalldatetime', N'date', N'datetime2') ` +
+    `THEN CAST(${c} AS datetime) ` +
+    `WHEN LEN(${v}) >= 10 AND SUBSTRING(${v}, 5, 1) IN (N'-', N'/', N'.') AND SUBSTRING(${v}, 8, 1) IN (N'-', N'/', N'.') ` +
+    `AND ISNUMERIC(SUBSTRING(${v}, 1, 4) + N'e0') = 1 AND ISNUMERIC(SUBSTRING(${v}, 6, 2) + N'e0') = 1 AND ISNUMERIC(SUBSTRING(${v}, 9, 2) + N'e0') = 1 ` +
+    `THEN CONVERT(datetime, ${iso10}, 120) ` +
+    `WHEN PATINDEX(N'%[^0-9]%', ${v}) = 0 AND LEN(${v}) >= 8 ` +
+    `THEN CONVERT(datetime, STUFF(STUFF(LEFT(${v}, 8), 5, 0, N'-'), 8, 0, N'-'), 120) ` +
+    `WHEN SQL_VARIANT_PROPERTY(CAST(${c} AS sql_variant), N'BaseType') IN (N'varchar', N'nvarchar', N'char', N'nchar') AND LEN(${v}) > 0 AND ISDATE(${v}) = 1 ` +
+    `THEN CONVERT(datetime, ${v}) ` +
+    `ELSE NULL END`
+  )
+}
+
+/**
+ * 是否在 API JSON 中附带 SQL 调试信息（含 precedingErrors）。
+ * - 设置 DEBUG_API=true 时始终附带
+ * - 或未设置 NODE_ENV=production 时附带（本地 node server 常见未设 NODE_ENV，便于排错）
+ */
+function shouldAttachSqlDebugToApiResponse() {
+  if (String(process.env.DEBUG_API ?? 'false').toLowerCase() === 'true') return true
+  return String(process.env.NODE_ENV ?? '').toLowerCase() !== 'production'
+}
+
+/**
+ * 将 mssql/tedious 的 RequestError 序列化为可放进 JSON 的纯对象（不含连接串）
+ * @param {unknown} err
+ */
+function serializeMssqlRequestErrorForClient(err) {
+  const e = err && typeof err === 'object' ? err : {}
+  const pe = Array.isArray(e.precedingErrors) ? e.precedingErrors : []
+  return {
+    name: e.name != null ? String(e.name) : undefined,
+    code: e.code != null ? String(e.code) : undefined,
+    message: e.message != null ? String(e.message) : undefined,
+    number: e.number,
+    lineNumber: e.lineNumber,
+    state: e.state,
+    class: e.class,
+    serverName: e.serverName != null ? String(e.serverName) : undefined,
+    procName: e.procName != null ? String(e.procName) : undefined,
+    precedingErrors: pe.map((x) => ({
+      message: x?.message != null ? String(x.message) : undefined,
+      number: x?.number,
+      lineNumber: x?.lineNumber,
+      state: x?.state,
+      code: x?.code != null ? String(x.code) : undefined,
+    })),
+  }
+}
+
+/**
+ * 住宿业务：解析查询年月，返回 [mStart, mEnd) 的 Date 对象（用于 in_time 区间）
+ */
+function lodgingMonthRangeOrThrow(yearRaw, monthRaw) {
+  const now = new Date()
+  const y = Math.floor(Number(yearRaw ?? now.getFullYear()))
+  const mo = Math.floor(Number(monthRaw ?? now.getMonth() + 1))
+  if (!Number.isFinite(y) || y < 1990 || y > 2100) {
+    throw new Error('年份不合法')
+  }
+  if (!Number.isFinite(mo) || mo < 1 || mo > 12) {
+    throw new Error('月份不合法')
+  }
+  const mStart = new Date(y, mo - 1, 1, 0, 0, 0, 0)
+  const nextMo = mo === 12 ? 1 : mo + 1
+  const nextY = mo === 12 ? y + 1 : y
+  const mEnd = new Date(nextY, nextMo - 1, 1, 0, 0, 0, 0)
+  return { y, mo, mStart, mEnd }
+}
+
 /** v1.1.1：缓存员工档案表列清单（避免不同库缺列导致 SQL 报错） */
 let HR_STAFF_COLSET_PROMISE = null
+let HR_ROOM_IN_COLSET_PROMISE = null
+let HR_ROOM_COLSET_PROMISE = null
 
 /** v1.1.2：缓存 Sys_Users 列清单（用于兼容 is_active 可能未迁移） */
 let SYS_USERS_COLSET_PROMISE = null
@@ -2792,6 +2942,67 @@ async function getHrStaffColumnSet(pool) {
     }
   })()
   return HR_STAFF_COLSET_PROMISE
+}
+
+/**
+ * 读取 Hr_room_in 的列名集合（小写），并缓存到进程内
+ * 说明：用于兼容旧库字段不一致（如 status/electric/room_info 是否存在）
+ * @param {import('mssql').ConnectionPool} pool
+ * @returns {Promise<Set<string>>}
+ */
+async function getHrRoomInColumnSet(pool) {
+  if (HR_ROOM_IN_COLSET_PROMISE) return HR_ROOM_IN_COLSET_PROMISE
+  HR_ROOM_IN_COLSET_PROMISE = (async () => {
+    try {
+      const r = await pool.request().query(`
+        SELECT COLUMN_NAME AS name
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'Hr_room_in'
+      `)
+      const set = new Set()
+      for (const row of r.recordset ?? []) {
+        const n = String(row?.name ?? '').trim()
+        if (n) set.add(n.toLowerCase())
+      }
+      return set
+    } catch (err) {
+      console.warn('[宿舍入住] 读取 Hr_room_in 列清单失败，已降级：', err?.message ?? err)
+      return new Set()
+    }
+  })()
+  return HR_ROOM_IN_COLSET_PROMISE
+}
+
+/**
+ * 读取 Hr_room 的列名集合（小写），并缓存到进程内
+ * 说明：用于兼容床位字段可能为 BedCount / in_bad
+ * @param {import('mssql').ConnectionPool} pool
+ * @returns {Promise<Set<string>>}
+ */
+async function getHrRoomColumnSet(pool) {
+  if (HR_ROOM_COLSET_PROMISE) return HR_ROOM_COLSET_PROMISE
+  HR_ROOM_COLSET_PROMISE = (async () => {
+    try {
+      const r = await pool
+        .request()
+        .input('t', sql.NVarChar(128), HR_ROOM_TABLE)
+        .query(`
+          SELECT COLUMN_NAME AS name
+          FROM INFORMATION_SCHEMA.COLUMNS
+          WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = @t
+        `)
+      const set = new Set()
+      for (const row of r.recordset ?? []) {
+        const n = String(row?.name ?? '').trim()
+        if (n) set.add(n.toLowerCase())
+      }
+      return set
+    } catch (err) {
+      console.warn('[宿舍房间] 读取 Hr_room 列清单失败，已降级：', err?.message ?? err)
+      return new Set()
+    }
+  })()
+  return HR_ROOM_COLSET_PROMISE
 }
 
 /**
@@ -4101,6 +4312,1524 @@ app.post('/api/hr/staff/batch-update', async (req, res) => {
   }
 })
 
+/**
+ * v1.1.3：宿舍房间分页列表（含在住人数）
+ * GET /api/hr/dormitory/rooms
+ * - page、pageSize：分页
+ * - pass：'1' 已审核（默认）/'0' 未审核
+ * - keyword：模糊匹配房号 s_code、楼栋 in_lou、名称 name、房型 code
+ *
+ * 在住人数：Hr_room_in 中 del=0 且 in_room=1 且 out_room=0 的记录条数（不按 pass 过滤，避免与床位占用不一致）
+ */
+app.get('/api/hr/dormitory/rooms', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-Rooms', 'v1.1.3')
+  try {
+    const pageRaw = req.query?.page
+    const pageSizeRaw = req.query?.pageSize
+    const page = Number(pageRaw ?? 1)
+    const pageSize = Number(pageSizeRaw ?? 20)
+    const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1
+    const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.floor(pageSize), 200) : 20
+    const offset = (safePage - 1) * safePageSize
+
+    const passRaw = String(req.query?.pass ?? '1').trim()
+    const pass = passRaw === '0' ? '0' : '1'
+
+    const keywordRaw = String(req.query?.keyword ?? '').trim()
+    const hasKw = keywordRaw.length > 0
+
+    const pool = await getPool()
+    const kwPat = hasKw ? `%${keywordRaw}%` : ''
+
+    const whereBase = `
+      WHERE LTRIM(RTRIM(ISNULL(r.del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(r.pass, N'0'))) = @pass
+        AND (
+          @hasKw = 0
+          OR r.s_code LIKE @kw
+          OR r.in_lou LIKE @kw
+          OR r.name LIKE @kw
+          OR r.code LIKE @kw
+        )
+    `
+
+    const totalReq = pool.request()
+    totalReq.input('pass', sql.NVarChar(10), pass)
+    totalReq.input('hasKw', sql.Bit, hasKw ? 1 : 0)
+    totalReq.input('kw', sql.NVarChar(200), kwPat)
+    const totalRow = await totalReq.query(`
+      SELECT COUNT(1) AS total
+      FROM ${HR_ROOM_FROM} AS r
+      ${whereBase}
+    `)
+    const total = Number(totalRow.recordset?.[0]?.total ?? 0)
+
+    // 不用 OFFSET/FETCH 绑定变量：部分 SQL Server/驱动会报 “Invalid usage of the option NEXT”
+    const startRow = offset + 1
+    const endRow = offset + safePageSize
+
+    const listReq = pool.request()
+    listReq.input('pass', sql.NVarChar(10), pass)
+    listReq.input('hasKw', sql.Bit, hasKw ? 1 : 0)
+    listReq.input('kw', sql.NVarChar(200), kwPat)
+    listReq.input('startRow', sql.Int, startRow)
+    listReq.input('endRow', sql.Int, endRow)
+
+    const listResult = await listReq.query(`
+      SELECT
+        t.id,
+        t.systemcode,
+        t.s_code,
+        t.s_code1,
+        t.code,
+        t.name,
+        t.in_lou,
+        t.in_bad,
+        t.pass,
+        t.del,
+        t.live_in_count
+      FROM (
+        SELECT
+          r.id AS id,
+          r.systemcode AS systemcode,
+          r.s_code AS s_code,
+          r.s_code1 AS s_code1,
+          r.code AS code,
+          r.name AS name,
+          r.in_lou AS in_lou,
+          r.in_bad AS in_bad,
+          r.pass AS pass,
+          r.del AS del,
+          ISNULL(occ.cnt, 0) AS live_in_count,
+          ROW_NUMBER() OVER (ORDER BY r.in_lou ASC, r.s_code ASC, r.id ASC) AS rn
+        FROM ${HR_ROOM_FROM} AS r
+        LEFT JOIN (
+          SELECT i.room_systemcode AS sc, COUNT(1) AS cnt
+          FROM ${HR_ROOM_IN_FROM} AS i
+          WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+            AND LTRIM(RTRIM(ISNULL(i.in_room, N'1'))) = N'1'
+            AND LTRIM(RTRIM(ISNULL(i.out_room, N'0'))) = N'0'
+          GROUP BY i.room_systemcode
+        ) AS occ ON occ.sc = r.systemcode
+        ${whereBase}
+      ) AS t
+      WHERE t.rn BETWEEN @startRow AND @endRow
+      ORDER BY t.rn
+    `)
+
+    res.json({
+      code: 200,
+      msg: 'success',
+      data: { total, list: listResult.recordset ?? [] },
+    })
+  } catch (err) {
+    console.error('GET /api/hr/dormitory/rooms 失败：', err)
+    const detail = String(err?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `加载宿舍房间失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 宿舍房间详情（单条，含在住人数）：GET /api/hr/dormitory/rooms/:id
+ * — 仅未逻辑删除（del=0）可查；不限制 pass，便于在「未审核/已审核」列表中查看
+ */
+app.get('/api/hr/dormitory/rooms/:id', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-Room-Detail', 'v1.1.3')
+  try {
+    const id = Number(req.params?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    const rs = await q.query(`
+      SELECT TOP 1
+        r.id,
+        r.systemcode,
+        r.s_code,
+        r.s_code1,
+        r.code,
+        r.name,
+        r.in_lou,
+        r.in_bad,
+        r.info,
+        r.pass,
+        r.del,
+        r.uid,
+        r.uname,
+        r.utruename,
+        r.addtime,
+        r.edittime,
+        r.passutruename,
+        r.passuname,
+        ISNULL(occ.cnt, 0) AS live_in_count
+      FROM ${HR_ROOM_FROM} AS r
+      LEFT JOIN (
+        SELECT i.room_systemcode AS sc, COUNT(1) AS cnt
+        FROM ${HR_ROOM_IN_FROM} AS i
+        WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+          AND LTRIM(RTRIM(ISNULL(i.in_room, N'1'))) = N'1'
+          AND LTRIM(RTRIM(ISNULL(i.out_room, N'0'))) = N'0'
+        GROUP BY i.room_systemcode
+      ) AS occ ON occ.sc = r.systemcode
+      WHERE r.id = @id
+        AND LTRIM(RTRIM(ISNULL(r.del, N'0'))) = N'0'
+    `)
+    const row = rs.recordset?.[0]
+    if (!row) {
+      res.status(404).json({ code: 404, msg: '未找到该房间或已删除', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('GET /api/hr/dormitory/rooms/:id 失败：', err)
+    const detail = String(err?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取房间详情失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 新增宿舍房间：POST /api/hr/dormitory/rooms
+ * body: { s_code, s_code1?, code?, in_bad?, info? }
+ * - s_code：房号（与列表 s_code 一致）；在册（del=0）下不可重复
+ * - s_code1：使用 | 闲置，默认 使用
+ * - code：宿舍类型 普通房|空调房|大房，默认 普通房（写入 Hr_room.code）
+ * - in_bad：床位数，默认 6
+ * - info：备注
+ * 新建默认 pass=0、del=0
+ */
+app.post('/api/hr/dormitory/rooms', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-Room-Post', 'v1.1.3')
+  try {
+    const body = req.body ?? {}
+    const sCode = String(body.s_code ?? '').trim()
+    const sCode1Raw = String(body.s_code1 ?? '使用').trim() || '使用'
+    const codeTypeRaw = String(body.code ?? '普通房').trim() || '普通房'
+    const inBadRaw = body.in_bad
+    const info = String(body.info ?? '').trim()
+
+    const allowedState = new Set(['使用', '闲置'])
+    const allowedType = new Set(['普通房', '空调房', '大房'])
+
+    if (!sCode) {
+      res.status(400).json({ code: 400, msg: '房间号（编码）不能为空', data: null })
+      return
+    }
+    if (!allowedState.has(sCode1Raw)) {
+      res.status(400).json({ code: 400, msg: '宿舍状态仅支持：使用、闲置', data: null })
+      return
+    }
+    if (!allowedType.has(codeTypeRaw)) {
+      res.status(400).json({ code: 400, msg: '宿舍类型仅支持：普通房、空调房、大房', data: null })
+      return
+    }
+
+    let inBad = Number(inBadRaw)
+    if (!Number.isFinite(inBad)) {
+      inBad = 6
+    }
+    inBad = Math.floor(inBad)
+    if (inBad < 1 || inBad > 99) {
+      res.status(400).json({ code: 400, msg: '床位数量须在 1～99 之间', data: null })
+      return
+    }
+
+    const { UID, uname: auditUname } = getActorAuditFromReq(req)
+    const me = getCurrentUserFromReq(req)
+    const uidStr = UID != null ? String(UID) : ''
+    const unameLegacy = String(me?.userCode ?? '').trim() || (auditUname != null ? String(auditUname).trim() : '')
+    const utruename = String(me?.userName ?? '').trim() || null
+    const nowStr = legacyDeptNowString()
+    const ipStr = getRequestIp(req) || null
+    const newSystemcode = crypto.randomBytes(20).toString('hex').toUpperCase().slice(0, 40)
+
+    const pool = await getPool()
+    const dupReq = pool.request()
+    dupReq.input('sCode', sql.NVarChar(50), sCode)
+    const dupRs = await dupReq.query(`
+      SELECT COUNT(1) AS cnt
+      FROM ${HR_ROOM_FROM} AS r
+      WHERE LTRIM(RTRIM(ISNULL(r.del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(r.s_code)) = @sCode
+    `)
+    const dup = Number(dupRs.recordset?.[0]?.cnt ?? 0)
+    if (dup > 0) {
+      res.status(400).json({ code: 400, msg: `房号「${sCode}」已存在（在册记录），请勿重复添加`, data: null })
+      return
+    }
+
+    const ins = pool.request()
+    ins.input('systemcode', sql.NVarChar(50), newSystemcode)
+    ins.input('s_code', sql.NVarChar(50), sCode)
+    ins.input('s_code1', sql.NVarChar(50), sCode1Raw)
+    ins.input('code', sql.NVarChar(50), codeTypeRaw)
+    ins.input('name', sql.NVarChar(50), '宿舍')
+    ins.input('in_bad', sql.Int, inBad)
+    ins.input('info', sql.NVarChar(500), info || null)
+    ins.input('uid', sql.NVarChar(50), uidStr || null)
+    ins.input('uname', sql.NVarChar(50), unameLegacy || null)
+    ins.input('utruename', sql.NVarChar(50), utruename)
+    ins.input('addtime', sql.NVarChar(50), nowStr)
+    ins.input('ip', sql.NVarChar(50), ipStr)
+
+    const out = await ins.query(`
+      INSERT INTO ${HR_ROOM_FROM} (
+        systemcode, s_code, s_code1, code, name, in_bad, info,
+        uid, uname, utruename, addtime, ip,
+        del, pass
+      )
+      OUTPUT INSERTED.id AS id, INSERTED.systemcode AS systemcode, INSERTED.s_code AS s_code
+      VALUES (
+        @systemcode, @s_code, @s_code1, @code, @name, @in_bad, @info,
+        @uid, @uname, @utruename, @addtime, @ip,
+        N'0', N'0'
+      )
+    `)
+
+    const row = out.recordset?.[0]
+    res.json({
+      code: 200,
+      msg: 'success',
+      data: {
+        id: row?.id ?? null,
+        systemcode: row?.systemcode ?? newSystemcode,
+        s_code: row?.s_code ?? sCode,
+      },
+    })
+  } catch (err) {
+    console.error('POST /api/hr/dormitory/rooms 失败：', err)
+    const n = Number(err?.number ?? err?.originalError?.number ?? 0)
+    if (n === 2627 || n === 2601) {
+      res.status(400).json({ code: 400, msg: '房间数据冲突（唯一约束），请检查房号是否重复', data: null })
+      return
+    }
+    const detail = String(err?.message ?? '数据库写入失败')
+    res.status(500).json({ code: 500, msg: `添加房间失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 审核宿舍房间：PUT /api/hr/dormitory/rooms/audit
+ * body: { id } — 主键 id，仅允许未审核且未删除的记录
+ */
+app.put('/api/hr/dormitory/rooms/audit', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-Room-Audit', 'v1.1.3')
+  try {
+    const me = getCurrentUserFromReq(req)
+    const auditorName = String(me?.userName ?? me?.userCode ?? '').trim() || '未知'
+    const userCode = String(me?.userCode ?? '').trim()
+    const uidStr = me?.userId != null ? String(me.userId) : ''
+
+    const body = req.body ?? {}
+    const idRaw = body.id
+    const id = Number(idRaw)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id（房间主键）不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const exReq = pool.request()
+    exReq.input('id', sql.Int, id)
+    const exRs = await exReq.query(`
+      SELECT TOP 1 r.id, r.pass, r.del, r.s_code
+      FROM ${HR_ROOM_FROM} AS r
+      WHERE r.id = @id
+    `)
+    const existing = exRs.recordset?.[0]
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该房间', data: null })
+      return
+    }
+    if (String(existing?.del ?? '').trim() === '1') {
+      res.status(400).json({ code: 400, msg: '该房间已删除，不能审核', data: null })
+      return
+    }
+    if (String(existing?.pass ?? '').trim() === '1') {
+      res.status(400).json({ code: 400, msg: '当前已是已审核状态', data: null })
+      return
+    }
+
+    const now = legacyDeptNowString()
+    const passip = getRequestIp(req) || null
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    q.input('now', sql.NVarChar(50), now)
+    q.input('passutruename', sql.NVarChar(50), auditorName)
+    q.input('passuname', sql.NVarChar(50), userCode || null)
+    q.input('passuid', sql.NVarChar(50), uidStr || null)
+    q.input('passid', sql.NVarChar(50), uidStr || null)
+    q.input('passip', sql.NVarChar(50), passip)
+    await q.query(`
+      UPDATE r
+      SET
+        r.pass = N'1',
+        r.passutruename = @passutruename,
+        r.passuname = @passuname,
+        r.passuid = @passuid,
+        r.passid = @passid,
+        r.passip = @passip,
+        r.edittime = @now
+      FROM ${HR_ROOM_FROM} AS r
+      WHERE r.id = @id
+        AND LTRIM(RTRIM(ISNULL(r.del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(r.pass, N'0'))) = N'0'
+    `)
+
+    const afterReq = pool.request()
+    afterReq.input('id', sql.Int, id)
+    const afterRs = await afterReq.query(`
+      SELECT TOP 1
+        r.id, r.systemcode, r.s_code, r.s_code1, r.code, r.name, r.in_lou, r.in_bad, r.pass, r.del, r.info
+      FROM ${HR_ROOM_FROM} AS r
+      WHERE r.id = @id
+    `)
+    res.json({ code: 200, msg: 'success', data: afterRs.recordset?.[0] ?? null })
+  } catch (err) {
+    console.error('PUT /api/hr/dormitory/rooms/audit 失败：', err)
+    const detail = String(err?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `审核失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 反审宿舍房间：PUT /api/hr/dormitory/rooms/unaudit
+ * body: { id } — 仅已审核且未删除
+ */
+app.put('/api/hr/dormitory/rooms/unaudit', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-Room-Unaudit', 'v1.1.3')
+  try {
+    const body = req.body ?? {}
+    const id = Number(body.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id（房间主键）不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const exReq = pool.request()
+    exReq.input('id', sql.Int, id)
+    const exRs = await exReq.query(`
+      SELECT TOP 1 r.id, r.pass, r.del, r.s_code
+      FROM ${HR_ROOM_FROM} AS r
+      WHERE r.id = @id
+    `)
+    const existing = exRs.recordset?.[0]
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该房间', data: null })
+      return
+    }
+    if (String(existing?.del ?? '').trim() === '1') {
+      res.status(400).json({ code: 400, msg: '该房间已删除，不能反审', data: null })
+      return
+    }
+    if (String(existing?.pass ?? '').trim() !== '1') {
+      res.status(400).json({ code: 400, msg: '当前为未审核状态，无需反审', data: null })
+      return
+    }
+
+    const now = legacyDeptNowString()
+    await pool.request().input('id', sql.Int, id).input('now', sql.NVarChar(50), now).query(`
+      UPDATE r
+      SET
+        r.pass = N'0',
+        r.passutruename = NULL,
+        r.passuname = NULL,
+        r.passuid = NULL,
+        r.passid = NULL,
+        r.passip = NULL,
+        r.edittime = @now
+      FROM ${HR_ROOM_FROM} AS r
+      WHERE r.id = @id
+        AND LTRIM(RTRIM(ISNULL(r.del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(r.pass, N'0'))) = N'1'
+    `)
+
+    const afterReq = pool.request()
+    afterReq.input('id', sql.Int, id)
+    const afterRs = await afterReq.query(`
+      SELECT TOP 1
+        r.id, r.systemcode, r.s_code, r.s_code1, r.code, r.name, r.in_lou, r.in_bad, r.pass, r.del, r.info
+      FROM ${HR_ROOM_FROM} AS r
+      WHERE r.id = @id
+    `)
+    res.json({ code: 200, msg: 'success', data: afterRs.recordset?.[0] ?? null })
+  } catch (err) {
+    console.error('PUT /api/hr/dormitory/rooms/unaudit 失败：', err)
+    const detail = String(err?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `反审失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * v1.1.3+：办理入住-员工可选项（在职、非黑名单、且当前不在住）
+ * GET /api/hr/dormitory/check-in/staff-options
+ * query: { keyword? } — 支持工号/姓名模糊
+ */
+app.get('/api/hr/dormitory/check-in/staff-options', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-CheckIn-StaffOptions', 'v1.1.3')
+  try {
+    const keywordRaw = String(req.query?.keyword ?? '').trim()
+    const hasKw = keywordRaw.length > 0
+    const kw = hasKw ? `%${keywordRaw}%` : ''
+
+    const pool = await getPool()
+    const colset = await getHrStaffColumnSet(pool)
+    const hasUserCodeCol = colset.has('usercode')
+
+    const q = pool.request()
+    q.input('hasKw', sql.Bit, hasKw ? 1 : 0)
+    q.input('kw', sql.NVarChar(200), kw)
+
+    const userCodeSelect = hasUserCodeCol ? ', s.UserCode AS userCode' : ', CAST(NULL AS nvarchar(50)) AS userCode'
+    const userCodeKw = hasUserCodeCol ? ' OR s.UserCode LIKE @kw ' : ''
+
+    // 旧库口径：在宿 = out_room = '0'
+    // 关联口径（兼容）：优先 new_code，否则 code
+    const notLivingSql = `
+      AND NOT EXISTS (
+        SELECT 1
+        FROM ${HR_ROOM_IN_FROM} AS i
+        WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+          AND LTRIM(RTRIM(ISNULL(i.out_room, N'0'))) = N'0'
+          AND LTRIM(RTRIM(ISNULL(i.staff_code, N''))) = LTRIM(RTRIM(ISNULL(NULLIF(LTRIM(RTRIM(s.new_code)), N''), s.code)))
+      )
+    `
+
+    const rs = await q.query(`
+      SELECT TOP (50)
+        ISNULL(NULLIF(LTRIM(RTRIM(s.new_code)), N''), LTRIM(RTRIM(s.code))) AS code,
+        s.name AS name
+        ${userCodeSelect}
+      FROM ${HR_STAFF_FROM} AS s
+      WHERE LTRIM(RTRIM(ISNULL(s.del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(s.status, N''))) = N'在职'
+        AND ISNULL(s.is_blacklist, 0) = 0
+        AND (
+          @hasKw = 0
+          OR s.new_code LIKE @kw
+          OR s.code LIKE @kw
+          OR s.name LIKE @kw
+          ${userCodeKw}
+        )
+        ${notLivingSql}
+      ORDER BY ISNULL(NULLIF(LTRIM(RTRIM(s.new_code)), N''), LTRIM(RTRIM(s.code))) ASC
+    `)
+
+    res.json({ code: 200, msg: 'success', data: rs.recordset ?? [] })
+  } catch (err) {
+    console.error('GET /api/hr/dormitory/check-in/staff-options 失败：', err)
+    const detail = String(err?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `加载可选员工失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * v1.1.3：办理入住（写入 Hr_room_in）
+ * POST /api/hr/dormitory/check-in
+ * body: { staff_code, room_code, pass? } — pass 与房间列表一致，用于定位「已审/未审」房间资料，默认 '1'
+ */
+app.post('/api/hr/dormitory/check-in', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-CheckIn', 'v1.1.3-final')
+  try {
+    const body = req.body ?? {}
+    const staffCode = String(body.staff_code ?? '').trim()
+    const roomCode = String(body.room_code ?? '').trim()
+    const passForRoom = String(body.pass ?? '1').trim() === '0' ? '0' : '1'
+    const inTimeRaw = body.in_time
+    const inTime = inTimeRaw != null ? String(inTimeRaw).trim() : ''
+    const roomInfoRaw = body.room_info
+    const roomInfo = roomInfoRaw != null ? String(roomInfoRaw).trim() : ''
+    const electricRaw = body.electric
+    const electricNum = Number(electricRaw ?? 0)
+    const electric = Number.isFinite(electricNum) && electricNum >= 0 ? electricNum : 0
+
+    if (!staffCode || !roomCode) {
+      res.status(400).json({ code: 400, msg: '员工工号与房间编码（房号）不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const colset = await getHrStaffColumnSet(pool)
+    const hasUserCodeCol = colset.has('usercode')
+    const inColset = await getHrRoomInColumnSet(pool)
+    const roomColset = await getHrRoomColumnSet(pool)
+    const hasElectricCol = inColset.has('electric')
+    const hasRoomInfoCol = inColset.has('room_info')
+    const hasInTimeCol = inColset.has('in_time')
+    const hasBedCountCol = roomColset.has('bedcount')
+
+    const { UID, uname: auditUname } = getActorAuditFromReq(req)
+    const me = getCurrentUserFromReq(req)
+    const uidStr = UID != null ? String(UID) : ''
+    const unameLegacy = String(me?.userCode ?? '').trim() || (auditUname != null ? String(auditUname).trim() : '')
+    const utruename = String(me?.userName ?? '').trim() || null
+    const nowStr = legacyDeptNowString()
+    const ipStr = getRequestIp(req) || null
+
+    const tx = new sql.Transaction(pool)
+    await tx.begin(sql.ISOLATION_LEVEL.SERIALIZABLE)
+    try {
+      const roomReq = new sql.Request(tx)
+      roomReq.input('roomCode', sql.NVarChar(50), roomCode)
+      roomReq.input('pass', sql.NVarChar(10), passForRoom)
+      const roomRs = await roomReq.query(`
+        SELECT TOP 4
+          r.id,
+          r.systemcode,
+          r.s_code,
+          r.in_bad,
+          ${hasBedCountCol ? 'r.BedCount AS BedCount,' : 'CAST(NULL AS int) AS BedCount,'}
+          r.s_code1,
+          r.name,
+          r.code,
+          r.info,
+          r.water,
+          r.electric,
+          r.zt,
+          r.intime
+        FROM ${HR_ROOM_FROM} AS r
+        WHERE LTRIM(RTRIM(ISNULL(r.del, N'0'))) = N'0'
+          AND LTRIM(RTRIM(ISNULL(r.pass, N'0'))) = @pass
+          AND LTRIM(RTRIM(r.s_code)) = @roomCode
+      `)
+      const roomRows = roomRs.recordset ?? []
+      if (roomRows.length === 0) {
+        await tx.rollback()
+        res.status(400).json({
+          code: 400,
+          msg: '未找到匹配的房间：请确认房号正确，且与当前「审核视图」一致（已审核/未审核）',
+          data: null,
+        })
+        return
+      }
+      if (roomRows.length > 1) {
+        await tx.rollback()
+        res.status(400).json({
+          code: 400,
+          msg: '房号在系统中存在多条房间资料，无法唯一确定房间，请联系管理员核对 Hr_room.s_code',
+          data: null,
+        })
+        return
+      }
+
+      const room = roomRows[0]
+      const roomSystemcode = String(room?.systemcode ?? '').trim()
+      if (!roomSystemcode) {
+        await tx.rollback()
+        res.status(400).json({ code: 400, msg: '房间资料缺少 systemcode，无法办理入住', data: null })
+        return
+      }
+
+      const useState = String(room?.s_code1 ?? '').trim()
+      if (useState && useState !== '使用') {
+        await tx.rollback()
+        res.status(400).json({ code: 400, msg: `该房间当前状态为「${useState}」，仅「使用」中的房间可办理入住`, data: null })
+        return
+      }
+
+      const capBedCount = Number(room?.BedCount)
+      const capInBad = Number(room?.in_bad)
+      const bedCapRaw = Number.isFinite(capBedCount) && capBedCount > 0 ? capBedCount : capInBad
+      const bedCap = Number.isFinite(bedCapRaw) && bedCapRaw > 0 ? bedCapRaw : 4
+
+      const occReq = new sql.Request(tx)
+      occReq.input('roomCode', sql.NVarChar(50), roomCode)
+      const occRs = await occReq.query(`
+        SELECT COUNT(1) AS cnt
+        FROM ${HR_ROOM_IN_FROM} AS i
+        WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+          AND LTRIM(RTRIM(ISNULL(i.out_room, N'0'))) = N'0'
+          AND LTRIM(RTRIM(ISNULL(i.room_code, N''))) = @roomCode
+      `)
+      const occ = Number(occRs.recordset?.[0]?.cnt ?? 0)
+      if (occ >= bedCap) {
+        await tx.rollback()
+        // 业务强制文案：前端也依赖该提示做“满员拦截”验证
+        res.status(400).json({ code: 400, msg: '该房间已满员，无法办理入住', data: null })
+        return
+      }
+
+      const dupReq = new sql.Request(tx)
+      dupReq.input('staffCode', sql.NVarChar(50), staffCode)
+      const dupRs = await dupReq.query(`
+        SELECT COUNT(1) AS cnt
+        FROM ${HR_ROOM_IN_FROM} AS i
+        WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+          AND LTRIM(RTRIM(ISNULL(i.out_room, N'0'))) = N'0'
+          AND LTRIM(RTRIM(i.staff_code)) = @staffCode
+      `)
+      const dup = Number(dupRs.recordset?.[0]?.cnt ?? 0)
+      if (dup > 0) {
+        await tx.rollback()
+        res.status(400).json({ code: 400, msg: '该员工已在宿', data: null })
+        return
+      }
+
+      const staffReq = new sql.Request(tx)
+      staffReq.input('staffCode', sql.NVarChar(50), staffCode)
+      // 口径锁定：Hr_staff.new_code = Hr_room_in.staff_code
+      // 兼容：允许传老工号 code / UserCode 时也能匹配到 new_code（便于手工输入）
+      const staffWhereExtra = hasUserCodeCol
+        ? 'AND (LTRIM(RTRIM(s.new_code)) = @staffCode OR LTRIM(RTRIM(s.code)) = @staffCode OR LTRIM(RTRIM(ISNULL(s.UserCode, N\'\'))) = @staffCode)'
+        : 'AND (LTRIM(RTRIM(s.new_code)) = @staffCode OR LTRIM(RTRIM(s.code)) = @staffCode)'
+      const staffRs = await staffReq.query(`
+        SELECT TOP 1
+          s.code AS code,
+          s.new_code AS new_code,
+          s.name AS name,
+          s.status AS status,
+          ISNULL(s.is_blacklist, 0) AS is_blacklist,
+          s.in_bm AS in_bm,
+          s.join_department AS join_department
+        FROM ${HR_STAFF_FROM} AS s
+        WHERE LTRIM(RTRIM(ISNULL(s.del, N'0'))) = N'0'
+          ${staffWhereExtra}
+      `)
+      const staffRow = staffRs.recordset?.[0]
+      if (!staffRow) {
+        await tx.rollback()
+        res.status(400).json({
+          code: 400,
+          msg: '未找到可用的在职员工档案（请核对工号，含 UserCode 时亦会匹配）',
+          data: null,
+        })
+        return
+      }
+      if (String(staffRow?.status ?? '').trim() !== '在职') {
+        await tx.rollback()
+        res.status(400).json({ code: 400, msg: '该员工不在职，无法办理入住', data: null })
+        return
+      }
+      if (Number(staffRow?.is_blacklist ?? 0) !== 0) {
+        await tx.rollback()
+        res.status(400).json({ code: 400, msg: '该员工在黑名单中，无法办理入住', data: null })
+        return
+      }
+
+      const staffDbCode = String(staffRow?.code ?? '').trim()
+      const staffNewCode = String(staffRow?.new_code ?? '').trim()
+      const staffName = String(staffRow?.name ?? '').trim() || null
+      const staffDeptName = String(staffRow?.join_department ?? '').trim() || null
+      const staffBmSys = String(staffRow?.join_department ?? '').trim() || null
+      // 兼容：new_code 可能为空；此时用 code 作为宿舍关联员工编码
+      const staffLinkCode = staffNewCode || staffDbCode || staffCode
+
+      // 旧库字段自检：不存在就提示（便于你回到 Navicat/旧系统核对字段）
+      /** @type {string[]} */
+      const missing = []
+      if (!hasInTimeCol) missing.push('Hr_room_in.in_time')
+      if (!hasRoomInfoCol) missing.push('Hr_room_in.room_info')
+      if (!hasElectricCol) missing.push('Hr_room_in.electric')
+      if (!inColset.has('room_code')) missing.push('Hr_room_in.room_code')
+      if (!inColset.has('staff_code')) missing.push('Hr_room_in.staff_code')
+      if (!inColset.has('out_room')) missing.push('Hr_room_in.out_room')
+      if (missing.length > 0) {
+        await tx.rollback()
+        res.status(400).json({ code: 400, msg: `旧表字段缺失，无法办理入住：${missing.join('、')}`, data: null })
+        return
+      }
+      if (!staffLinkCode) {
+        await tx.rollback()
+        res.status(400).json({ code: 400, msg: '该员工档案缺少可用编码（code/new_code），无法办理入住', data: null })
+        return
+      }
+
+      const newSystemcode = crypto.randomBytes(20).toString('hex').toUpperCase().slice(0, 40)
+      const roomIdStr = String(room?.id ?? '').trim()
+
+      const ins = new sql.Request(tx)
+      ins.input('uid', sql.NVarChar(50), uidStr || null)
+      ins.input('uname', sql.NVarChar(50), unameLegacy || null)
+      ins.input('utruename', sql.NVarChar(50), utruename)
+      ins.input('addtime', sql.NVarChar(50), nowStr)
+      ins.input('ip', sql.NVarChar(50), ipStr)
+      ins.input('systemcode', sql.NVarChar(50), newSystemcode)
+      ins.input('name', sql.NVarChar(50), String(room?.name ?? '').trim() || null)
+      ins.input('code', sql.NVarChar(50), String(room?.code ?? '').trim() || null)
+      ins.input('s_code', sql.NVarChar(50), String(room?.s_code ?? '').trim() || null)
+      ins.input('s_code1', sql.NVarChar(50), String(room?.s_code1 ?? '').trim() || null)
+      ins.input('zt', sql.NVarChar(50), room?.zt != null ? String(room.zt).trim() || null : null)
+      ins.input('intime', sql.NVarChar(50), room?.intime != null ? String(room.intime).trim() || null : null)
+      ins.input('staff_code', sql.NVarChar(50), staffLinkCode)
+      ins.input('staff_truename', sql.NVarChar(50), staffName)
+      ins.input('staff_systemcode', sql.NVarChar(50), staffLinkCode || null)
+      ins.input('staff_bm_name', sql.NVarChar(50), staffDeptName)
+      ins.input('staff_bm_systemcode', sql.NVarChar(50), staffBmSys)
+      ins.input('room_id', sql.NVarChar(50), roomIdStr || null)
+      ins.input('room_code', sql.NVarChar(50), roomCode)
+      ins.input('room_systemcode', sql.NVarChar(50), roomSystemcode)
+      ins.input('in_time', sql.NVarChar(50), inTime || nowStr)
+      ins.input('room_info', sql.NVarChar(500), roomInfo || (room?.info != null ? String(room.info).trim() || null : null))
+      ins.input('room_water', sql.NVarChar(50), room?.water != null ? String(room.water).trim() || null : null)
+      ins.input('room_electric', sql.NVarChar(50), room?.electric != null ? String(room.electric).trim() || null : null)
+      if (hasElectricCol) ins.input('electric', sql.Decimal(18, 2), electric)
+
+      const electricCols = hasElectricCol ? ', electric' : ''
+      const electricVals = hasElectricCol ? ', @electric' : ''
+
+      await ins.query(`
+        INSERT INTO ${HR_ROOM_IN_FROM} (
+          uid, uname, utruename, addtime, ip,
+          del, pass,
+          systemcode,
+          name, code, s_code, s_code1, zt, intime,
+          staff_code, staff_truename, staff_systemcode, staff_bm_name, staff_bm_systemcode,
+          room_id, room_code, room_systemcode,
+          in_room, out_room, in_time,
+          room_info, room_water, room_electric
+          ${electricCols}
+        )
+        VALUES (
+          @uid, @uname, @utruename, @addtime, @ip,
+          N'0', N'0',
+          @systemcode,
+          @name, @code, @s_code, @s_code1, @zt, @intime,
+          @staff_code, @staff_truename, @staff_systemcode, @staff_bm_name, @staff_bm_systemcode,
+          @room_id, @room_code, @room_systemcode,
+          N'1', N'0', @in_time,
+          @room_info, @room_water, @room_electric
+          ${electricVals}
+        )
+      `)
+
+      await tx.commit()
+      // 操作审计：用更可读的中文文案写入 Sys_OperationLogs.Content
+      req.__auditDormCheckInContent = `管理员[${unameLegacy || '未知'}]办理入住：房间[${roomCode}], 员工[${staffName || staffDbCode || staffCode || '未知'}], 优惠电量[${electric}]`
+      res.json({
+        code: 200,
+        msg: 'success',
+        data: { id: newSystemcode, staff_code: staffLinkCode, room_code: roomCode },
+      })
+    } catch (innerErr) {
+      try {
+        await tx.rollback()
+      } catch {
+        // ignore
+      }
+      throw innerErr
+    }
+  } catch (err) {
+    console.error('POST /api/hr/dormitory/check-in 失败：', err)
+    const n = Number(err?.number ?? err?.originalError?.number ?? 0)
+    if (n === 2627 || n === 2601) {
+      res.status(400).json({ code: 400, msg: '入住单写入冲突（唯一键/重复），请重试', data: null })
+      return
+    }
+    const detail = String(err?.message ?? '数据库写入失败')
+    res.status(500).json({ code: 500, msg: `办理入住失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 入住管理：按房号查询当前在住人员（out_room=0）
+ * GET /api/hr/dormitory/room-occupants
+ * query: { room_code }
+ */
+app.get('/api/hr/dormitory/room-occupants', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-Room-Occupants', 'v1.1.3')
+  try {
+    const roomCode = String(req.query?.room_code ?? '').trim()
+    if (!roomCode) {
+      res.status(400).json({ code: 400, msg: 'room_code（房号）不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const q = pool.request()
+    q.input('roomCode', sql.NVarChar(50), roomCode)
+
+    const rs = await q.query(`
+      SELECT
+        i.id,
+        LTRIM(RTRIM(ISNULL(i.staff_code, N''))) AS staff_code,
+        LTRIM(RTRIM(ISNULL(i.staff_truename, N''))) AS staff_truename,
+        LTRIM(RTRIM(ISNULL(d.name, ISNULL(s.join_department, i.staff_bm_name)))) AS dept_name,
+        LTRIM(RTRIM(ISNULL(i.in_time, N''))) AS in_time,
+        LTRIM(RTRIM(ISNULL(i.electric, N''))) AS electric,
+        LTRIM(RTRIM(ISNULL(i.room_info, N''))) AS room_info
+      FROM ${HR_ROOM_IN_FROM} AS i
+      LEFT JOIN ${HR_STAFF_FROM} AS s
+        ON LTRIM(RTRIM(ISNULL(s.new_code, N''))) = LTRIM(RTRIM(ISNULL(i.staff_code, N'')))
+      LEFT JOIN ${HR_LEGACY_DEPT_FROM} AS d
+        ON LTRIM(RTRIM(ISNULL(d.code, N''))) = LTRIM(RTRIM(ISNULL(s.join_department, N'')))
+      WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(i.out_room, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(i.room_code, N''))) = @roomCode
+      ORDER BY i.id DESC
+    `)
+
+    res.json({ code: 200, msg: 'success', data: rs.recordset ?? [] })
+  } catch (err) {
+    console.error('GET /api/hr/dormitory/room-occupants 失败：', err)
+    const detail = String(err?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `加载入住人员失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 入住管理：编辑备注（仅更新当前行 room_info）
+ * PUT /api/hr/dormitory/room-in/room-info
+ * body: { id, room_info }
+ */
+app.put('/api/hr/dormitory/room-in/room-info', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-RoomIn-RoomInfo', 'v1.1.3')
+  try {
+    const body = req.body ?? {}
+    const id = Number(body.id)
+    const roomInfo = body.room_info != null ? String(body.room_info).trim() : ''
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const exReq = pool.request().input('id', sql.Int, id)
+    const exRs = await exReq.query(`
+      SELECT TOP 1 i.id, i.room_info, i.staff_truename, i.room_code
+      FROM ${HR_ROOM_IN_FROM} AS i
+      WHERE i.id = @id
+        AND LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+    `)
+    const row = exRs.recordset?.[0]
+    if (!row) {
+      res.status(404).json({ code: 404, msg: '未找到该入住记录', data: null })
+      return
+    }
+
+    const { UID, uname: auditUname } = getActorAuditFromReq(req)
+    const me = getCurrentUserFromReq(req)
+    const uidStr = UID != null ? String(UID) : ''
+    const unameLegacy = String(me?.userCode ?? '').trim() || (auditUname != null ? String(auditUname).trim() : '')
+    const nowStr = legacyDeptNowString()
+    const ipStr = getRequestIp(req) || null
+
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    q.input('roomInfo', sql.NVarChar(500), roomInfo || null)
+    q.input('uid', sql.NVarChar(50), uidStr || null)
+    q.input('uname', sql.NVarChar(50), unameLegacy || null)
+    q.input('edittime', sql.NVarChar(50), nowStr)
+    q.input('editip', sql.NVarChar(50), ipStr)
+    await q.query(`
+      UPDATE i
+      SET
+        i.room_info = @roomInfo,
+        i.uid = COALESCE(@uid, i.uid),
+        i.uname = COALESCE(@uname, i.uname),
+        i.edittime = @edittime,
+        i.editip = @editip
+      FROM ${HR_ROOM_IN_FROM} AS i
+      WHERE i.id = @id
+        AND LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+    `)
+
+    const staffName = String(row?.staff_truename ?? '').trim() || '未知'
+    const roomCode = String(row?.room_code ?? '').trim() || '未知'
+    req.__auditDormRoomInfoContent = `管理员[${unameLegacy || '未知'}]修改了入住备注：房间[${roomCode}] 员工[${staffName}] 备注[${roomInfo || '空'}]`
+
+    res.json({ code: 200, msg: 'success', data: { id, room_info: roomInfo } })
+  } catch (err) {
+    console.error('PUT /api/hr/dormitory/room-in/room-info 失败：', err)
+    const detail = String(err?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `保存备注失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 办理退宿：仅更新当前行，不影响历史
+ * PUT /api/hr/dormitory/check-out
+ * body: { id, out_time } — out_time 形如 'YYYY-MM-DD HH:mm'
+ */
+app.put('/api/hr/dormitory/check-out', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-CheckOut', 'v1.1.3')
+  try {
+    const body = req.body ?? {}
+    const id = Number(body.id)
+    const outTime = String(body.out_time ?? '').trim()
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+    if (!outTime) {
+      res.status(400).json({ code: 400, msg: 'out_time（退宿时间）不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const exReq = pool.request()
+    exReq.input('id', sql.Int, id)
+    const exRs = await exReq.query(`
+      SELECT TOP 1
+        i.id,
+        i.out_room,
+        i.staff_truename,
+        i.in_time
+      FROM ${HR_ROOM_IN_FROM} AS i
+      WHERE i.id = @id
+        AND LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+    `)
+    const row = exRs.recordset?.[0]
+    if (!row) {
+      res.status(404).json({ code: 404, msg: '未找到该入住记录', data: null })
+      return
+    }
+    if (String(row?.out_room ?? '').trim() === '1') {
+      res.status(400).json({ code: 400, msg: '该记录已退宿，无需重复操作', data: null })
+      return
+    }
+
+    // 退宿时间不得小于入住时间（SQL Server 2008R2 兼容解析）
+    const chkReq = pool.request()
+    chkReq.input('inTime', sql.NVarChar(50), row?.in_time != null ? String(row.in_time).trim() : '')
+    chkReq.input('outTime', sql.NVarChar(50), outTime)
+    const chkRs = await chkReq.query(`
+      SELECT
+        ${hrRoomDateTimeExprNullableSql('@inTime')} AS in_dt,
+        ${hrRoomDateTimeExprNullableSql('@outTime')} AS out_dt
+    `)
+    const inDt = chkRs.recordset?.[0]?.in_dt ?? null
+    const outDt = chkRs.recordset?.[0]?.out_dt ?? null
+    if (!inDt) {
+      res.status(400).json({ code: 400, msg: '入住时间格式异常，无法校验退宿时间（请联系管理员核对该条记录）', data: null })
+      return
+    }
+    if (!outDt) {
+      res.status(400).json({ code: 400, msg: '退宿时间格式不合法，请重新选择', data: null })
+      return
+    }
+    if (new Date(outDt).getTime() < new Date(inDt).getTime()) {
+      res.status(400).json({ code: 400, msg: '退宿时间不得小于入住时间', data: null })
+      return
+    }
+
+    const { UID, uname: auditUname } = getActorAuditFromReq(req)
+    const me = getCurrentUserFromReq(req)
+    const uidStr = UID != null ? String(UID) : ''
+    const unameLegacy = String(me?.userCode ?? '').trim() || (auditUname != null ? String(auditUname).trim() : '')
+    const nowStr = legacyDeptNowString()
+    const ipStr = getRequestIp(req) || null
+    const staffName = String(row?.staff_truename ?? '').trim() || '未知'
+
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    q.input('outTime', sql.NVarChar(50), outTime)
+    q.input('uid', sql.NVarChar(50), uidStr || null)
+    q.input('uname', sql.NVarChar(50), unameLegacy || null)
+    q.input('edittime', sql.NVarChar(50), nowStr)
+    q.input('editip', sql.NVarChar(50), ipStr)
+    await q.query(`
+      UPDATE i
+      SET
+        i.out_room = N'1',
+        i.out_time = @outTime,
+        i.uid = COALESCE(@uid, i.uid),
+        i.uname = COALESCE(@uname, i.uname),
+        i.edittime = @edittime,
+        i.editip = @editip
+      FROM ${HR_ROOM_IN_FROM} AS i
+      WHERE i.id = @id
+        AND LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+    `)
+
+    // 审计内容（由 operationAuditMiddleware 写入 Sys_OperationLogs.Content）
+    req.__auditDormCheckOutContent = `管理员[${unameLegacy || '未知'}]办理了员工[${staffName}]的退宿，日期：[${outTime}]`
+
+    res.json({ code: 200, msg: 'success', data: { id, out_room: '1', out_time: outTime } })
+  } catch (err) {
+    console.error('PUT /api/hr/dormitory/check-out 失败：', err)
+    const detail = String(err?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `办理退宿失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 住宿管理 — 房间总览（已审房间 + 指定年月的在住聚合 + 电费）
+ * GET /api/hr/dormitory/lodging-overview
+ * - tj_date：电费查询年月（格式 YYYY-M，例如 2026-3）；不传则由 year/month 拼接（YYYY-M）
+ * - year、month：入住人数/名单为“当前在住”（不按月份）；电费按 Hr_room_use.tj_date 精确匹配 tj_date
+ * - 电费：同房同月可能多行但金额相同，取 MAX(c_sum_money) 防止重复累加
+ * - keyword：房号/楼栋/名称/房型
+ * - staffKeyword：在住记录中匹配员工工号或姓名（不限定月份，仅筛「该房是否存在该员工在住」）
+ */
+app.get('/api/hr/dormitory/lodging-overview', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-Lodging-Overview', 'v1.1.10')
+  try {
+    let range
+    try {
+      range = lodgingMonthRangeOrThrow(req.query?.year, req.query?.month)
+    } catch (e) {
+      res.status(400).json({ code: 400, msg: String(e?.message ?? '年月参数错误'), data: null })
+      return
+    }
+
+    const pageRaw = req.query?.page
+    const pageSizeRaw = req.query?.pageSize
+    const page = Number(pageRaw ?? 1)
+    const pageSize = Number(pageSizeRaw ?? 20)
+    const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1
+    const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.floor(pageSize), 200) : 20
+    const offset = (safePage - 1) * safePageSize
+
+    const keywordRaw = String(req.query?.keyword ?? '').trim()
+    const hasKw = keywordRaw.length > 0
+    const kwPat = hasKw ? `%${keywordRaw}%` : ''
+
+    const staffRaw = String(req.query?.staffKeyword ?? '').trim()
+    const hasStaff = staffRaw.length > 0
+    const staffPat = hasStaff ? `%${staffRaw}%` : ''
+
+    const pool = await getPool()
+
+    const whereRoom = `
+      WHERE LTRIM(RTRIM(ISNULL(r.pass, N'0'))) = N'1'
+        AND LTRIM(RTRIM(ISNULL(r.del, N'0'))) = N'0'
+        AND (
+          @hasKw = 0
+          OR r.s_code LIKE @kw
+          OR r.in_lou LIKE @kw
+          OR r.name LIKE @kw
+          OR r.code LIKE @kw
+        )
+        AND (
+          @hasStaff = 0
+          OR EXISTS (
+            SELECT 1
+            FROM ${HR_ROOM_IN_FROM} AS si
+            WHERE LTRIM(RTRIM(ISNULL(si.room_code, N''))) = LTRIM(RTRIM(ISNULL(r.s_code, N'')))
+              AND LTRIM(RTRIM(ISNULL(si.del, N'0'))) = N'0'
+              AND LTRIM(RTRIM(ISNULL(si.in_room, N'1'))) = N'1'
+              AND LTRIM(RTRIM(ISNULL(si.out_room, N'0'))) = N'0'
+              AND (
+                si.staff_code LIKE @staffKw
+                OR si.staff_truename LIKE @staffKw
+              )
+          )
+        )
+    `
+
+    const totalReq = pool.request()
+    totalReq.input('hasKw', sql.Bit, hasKw ? 1 : 0)
+    totalReq.input('kw', sql.NVarChar(200), kwPat)
+    totalReq.input('hasStaff', sql.Bit, hasStaff ? 1 : 0)
+    totalReq.input('staffKw', sql.NVarChar(200), staffPat)
+    const totalRow = await totalReq.query(`
+      SELECT COUNT(1) AS total
+      FROM ${HR_ROOM_FROM} AS r
+      ${whereRoom}
+    `)
+    const total = Number(totalRow.recordset?.[0]?.total ?? 0)
+
+    const startRow = offset + 1
+    const endRow = offset + safePageSize
+
+    const listReq = pool.request()
+    listReq.input('hasKw', sql.Bit, hasKw ? 1 : 0)
+    listReq.input('kw', sql.NVarChar(200), kwPat)
+    listReq.input('hasStaff', sql.Bit, hasStaff ? 1 : 0)
+    listReq.input('staffKw', sql.NVarChar(200), staffPat)
+    // 电费表 tj_date 为 nvarchar（常见：'YYYY-M'），前端会传 tj_date；未传则按 year/month 兜底
+    const tjDateRaw = String(req.query?.tj_date ?? '').trim()
+    const tjDate = tjDateRaw || `${range.y}-${range.mo}`
+    listReq.input('tj_date', sql.NVarChar(20), tjDate)
+    listReq.input('startRow', sql.Int, startRow)
+    listReq.input('endRow', sql.Int, endRow)
+
+    const listResult = await listReq.query(`
+      SELECT
+        t.id,
+        t.systemcode,
+        t.in_lou,
+        t.s_code,
+        t.name,
+        t.code,
+        t.s_code1,
+        t.in_bad,
+        t.live_in_count,
+        t.occupant_names,
+        t.c_sum_money
+      FROM (
+        SELECT
+          r.id AS id,
+          r.systemcode AS systemcode,
+          r.in_lou AS in_lou,
+          r.s_code AS s_code,
+          r.name AS name,
+          r.code AS code,
+          r.s_code1 AS s_code1,
+          r.in_bad AS in_bad,
+          ISNULL(occ.cnt, 0) AS live_in_count,
+          occ.names AS occupant_names,
+          ele.c_sum_money AS c_sum_money,
+          ROW_NUMBER() OVER (ORDER BY r.in_lou ASC, r.s_code ASC, r.id ASC) AS rn
+        FROM ${HR_ROOM_FROM} AS r
+        LEFT JOIN (
+          SELECT
+            LTRIM(RTRIM(ISNULL(i.room_code, N''))) AS rc,
+            COUNT(1) AS cnt,
+            STUFF((
+              SELECT N', ' + (${hrRoomInStaffDisplayNameSql('x')})
+              FROM ${HR_ROOM_IN_FROM} AS x
+              WHERE LTRIM(RTRIM(ISNULL(x.room_code, N''))) = LTRIM(RTRIM(ISNULL(i.room_code, N'')))
+                AND LTRIM(RTRIM(ISNULL(x.del, N'0'))) = N'0'
+                AND LTRIM(RTRIM(ISNULL(x.in_room, N'1'))) = N'1'
+                AND LTRIM(RTRIM(ISNULL(x.out_room, N'0'))) = N'0'
+                AND (
+                  LTRIM(RTRIM(ISNULL(x.staff_code, N''))) <> N''
+                  OR LTRIM(RTRIM(CONVERT(nvarchar(400), ISNULL(x.staff_truename, N'')))) <> N''
+                )
+              ORDER BY x.staff_code
+              FOR XML PATH('')
+            ), 1, 2, N'') AS names
+          FROM ${HR_ROOM_IN_FROM} AS i
+          WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+            AND LTRIM(RTRIM(ISNULL(i.in_room, N'1'))) = N'1'
+            AND LTRIM(RTRIM(ISNULL(i.out_room, N'0'))) = N'0'
+            AND LTRIM(RTRIM(ISNULL(i.room_code, N''))) <> N''
+          GROUP BY LTRIM(RTRIM(ISNULL(i.room_code, N'')))
+        ) AS occ ON occ.rc = LTRIM(RTRIM(ISNULL(r.s_code, N'')))
+        LEFT JOIN (
+          SELECT
+            LTRIM(RTRIM(ISNULL(u.room_code, N''))) AS room_code,
+            CAST(ISNULL(MAX(${hrRoomUseCsumMoneyAsDecimalSql('u.c_sum_money')}), 0) AS decimal(18, 2)) AS c_sum_money
+          FROM ${HR_ROOM_USE_FROM} AS u
+          WHERE LTRIM(RTRIM(ISNULL(u.del, N'0'))) = N'0'
+            AND LTRIM(RTRIM(ISNULL(u.tj_date, N''))) = @tj_date
+            AND LTRIM(RTRIM(ISNULL(u.room_code, N''))) <> N''
+          GROUP BY LTRIM(RTRIM(ISNULL(u.room_code, N'')))
+        ) AS ele ON ele.room_code = LTRIM(RTRIM(ISNULL(r.s_code, N'')))
+        ${whereRoom}
+      ) AS t
+      WHERE t.rn BETWEEN @startRow AND @endRow
+      ORDER BY t.rn
+    `)
+
+    const list = (listResult.recordset ?? []).map((row) => ({
+      ...row,
+      remaining_beds: Math.max(0, Number(row?.in_bad ?? 0) - Number(row?.live_in_count ?? 0)),
+    }))
+
+    res.json({ code: 200, msg: 'success', data: { total, list, year: range.y, month: range.mo } })
+  } catch (err) {
+    console.error('GET /api/hr/dormitory/lodging-overview 失败：', err)
+    const detail = String(err?.message ?? '数据库查询失败')
+    res.status(500).json({
+      code: 500,
+      msg: `加载住宿总览失败：${detail}`,
+      data: shouldAttachSqlDebugToApiResponse() ? { sqlDebug: serializeMssqlRequestErrorForClient(err) } : null,
+    })
+  }
+})
+
+/**
+ * 住宿历史列表（住/退宿）：GET /api/hr/dormitory/lodging-history
+ * - year、month：按 Hr_room_in.in_time 落入该自然月
+ * - pass：'1'|'0'|不传=全部；del 固定 0
+ * - keyword：员工工号/姓名/宿舍编码模糊
+ */
+app.get('/api/hr/dormitory/lodging-history', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-Lodging-History', 'v1.1.3')
+  try {
+    let range
+    try {
+      range = lodgingMonthRangeOrThrow(req.query?.year, req.query?.month)
+    } catch (e) {
+      res.status(400).json({ code: 400, msg: String(e?.message ?? '年月参数错误'), data: null })
+      return
+    }
+
+    const pageRaw = req.query?.page
+    const pageSizeRaw = req.query?.pageSize
+    const page = Number(pageRaw ?? 1)
+    const pageSize = Number(pageSizeRaw ?? 20)
+    const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1
+    const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.floor(pageSize), 200) : 20
+    const offset = (safePage - 1) * safePageSize
+
+    const passRaw = String(req.query?.pass ?? '').trim()
+    let passWhere = ''
+    if (passRaw === '0' || passRaw === '1') {
+      passWhere = ` AND LTRIM(RTRIM(ISNULL(i.pass, N'0'))) = @pass `
+    }
+
+    const keywordRaw = String(req.query?.keyword ?? '').trim()
+    const hasKw = keywordRaw.length > 0
+    const kwPat = hasKw ? `%${keywordRaw}%` : ''
+
+    const pool = await getPool()
+    const inColset = await getHrRoomInColumnSet(pool)
+    const hasRoomInfoCol = inColset.has('room_info')
+    const hasElectricCol = inColset.has('electric')
+    const offsetRows = offset
+    const endRow = offset + safePageSize
+
+    const totalReq = pool.request()
+    totalReq.input('mStart', sql.DateTime2, range.mStart)
+    totalReq.input('mEnd', sql.DateTime2, range.mEnd)
+    totalReq.input('hasKw', sql.Bit, hasKw ? 1 : 0)
+    totalReq.input('kw', sql.NVarChar(200), kwPat)
+    if (passRaw === '0' || passRaw === '1') {
+      totalReq.input('pass', sql.NVarChar(10), passRaw)
+    }
+    const totalRow = await totalReq.query(`
+      SELECT COUNT(1) AS total
+      FROM ${HR_ROOM_IN_FROM} AS i
+      LEFT JOIN ${HR_ROOM_FROM} AS r ON r.systemcode = i.room_systemcode
+      WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+        AND ${hrRoomInTimeBetweenMonthSql('i.in_time')}
+        ${passWhere}
+        AND (
+          @hasKw = 0
+          OR i.staff_code LIKE @kw
+          OR i.staff_truename LIKE @kw
+          OR i.room_code LIKE @kw
+        )
+    `)
+    const total = Number(totalRow.recordset?.[0]?.total ?? 0)
+
+    const listReq = pool.request()
+    listReq.input('mStart', sql.DateTime2, range.mStart)
+    listReq.input('mEnd', sql.DateTime2, range.mEnd)
+    listReq.input('hasKw', sql.Bit, hasKw ? 1 : 0)
+    listReq.input('kw', sql.NVarChar(200), kwPat)
+    listReq.input('startRow', sql.Int, offsetRows + 1)
+    listReq.input('endRow', sql.Int, endRow)
+    if (passRaw === '0' || passRaw === '1') {
+      listReq.input('pass', sql.NVarChar(10), passRaw)
+    }
+
+    const roomInfoSelect = hasRoomInfoCol ? 'i.room_info AS room_info,' : "CAST(NULL AS nvarchar(500)) AS room_info,"
+    const electricSelect = hasElectricCol ? 'i.electric AS electric,' : 'CAST(NULL AS decimal(18,2)) AS electric,'
+
+    const listResult = await listReq.query(`
+      SELECT
+        t.id,
+        t.staff_code,
+        t.staff_truename,
+        t.staff_bm_name,
+        t.room_code,
+        t.dorm_name,
+        t.dorm_type,
+        t.in_time,
+        t.room_info,
+        t.electric,
+        t.out_time_disp,
+        t.stay_duration_label,
+        t.pass,
+        t.room_id
+      FROM (
+        SELECT
+          i.id AS id,
+          i.staff_code AS staff_code,
+          i.staff_truename AS staff_truename,
+          i.staff_bm_name AS staff_bm_name,
+          i.room_code AS room_code,
+          ISNULL(r.name, i.name) AS dorm_name,
+          ISNULL(r.code, i.code) AS dorm_type,
+          i.in_time AS in_time,
+          ${roomInfoSelect}
+          ${electricSelect}
+          CASE
+            WHEN NULLIF(LTRIM(RTRIM(ISNULL(i.out_time, N''))), N'') IS NOT NULL
+              THEN LTRIM(RTRIM(i.out_time))
+            WHEN NULLIF(LTRIM(RTRIM(ISNULL(i.out_time2, N''))), N'') IS NOT NULL
+              THEN LTRIM(RTRIM(i.out_time2))
+            ELSE N''
+          END AS out_time_disp,
+          CASE
+            WHEN LTRIM(RTRIM(ISNULL(i.out_room, N'0'))) = N'0' THEN N'暂未退宿'
+            ELSE
+              ISNULL(
+                CAST(
+                  DATEDIFF(
+                    day,
+                    ${hrRoomDateTimeExprNullableSql('i.in_time')},
+                    COALESCE(
+                      ${hrRoomDateTimeExprNullableSql('i.out_time')},
+                      ${hrRoomDateTimeExprNullableSql('i.out_time2')}
+                    )
+                  ) AS nvarchar(20)
+                ),
+                N'0'
+              ) + N'天'
+          END AS stay_duration_label,
+          i.pass AS pass,
+          i.room_id AS room_id,
+          ROW_NUMBER() OVER (ORDER BY i.in_time DESC, i.id DESC) AS rn
+        FROM ${HR_ROOM_IN_FROM} AS i
+        LEFT JOIN ${HR_ROOM_FROM} AS r ON r.systemcode = i.room_systemcode
+        WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+          AND ${hrRoomInTimeBetweenMonthSql('i.in_time')}
+          ${passWhere}
+          AND (
+            @hasKw = 0
+            OR i.staff_code LIKE @kw
+            OR i.staff_truename LIKE @kw
+            OR i.room_code LIKE @kw
+          )
+      ) AS t
+      WHERE t.rn BETWEEN @startRow AND @endRow
+      ORDER BY t.rn
+    `)
+
+    res.json({
+      code: 200,
+      msg: 'success',
+      data: { total, list: listResult.recordset ?? [], year: range.y, month: range.mo },
+    })
+  } catch (err) {
+    console.error('GET /api/hr/dormitory/lodging-history 失败：', err)
+    const detail = String(err?.message ?? '数据库查询失败')
+    res.status(500).json({
+      code: 500,
+      msg: `加载住宿历史失败：${detail}`,
+      data: shouldAttachSqlDebugToApiResponse() ? { sqlDebug: serializeMssqlRequestErrorForClient(err) } : null,
+    })
+  }
+})
+
+/**
+ * 审核入住单：PUT /api/hr/dormitory/lodging-in/audit
+ * body: { id } — Hr_room_in.id
+ */
+app.put('/api/hr/dormitory/lodging-in/audit', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-Lodging-In-Audit', 'v1.1.3')
+  try {
+    const me = getCurrentUserFromReq(req)
+    const auditorName = String(me?.userName ?? me?.userCode ?? '').trim() || '未知'
+    const userCode = String(me?.userCode ?? '').trim()
+    const uidStr = me?.userId != null ? String(me.userId) : ''
+
+    const body = req.body ?? {}
+    const id = Number(body.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const exReq = pool.request()
+    exReq.input('id', sql.Int, id)
+    const exRs = await exReq.query(`
+      SELECT TOP 1 i.id, i.pass, i.del, i.staff_code, i.room_code
+      FROM ${HR_ROOM_IN_FROM} AS i
+      WHERE i.id = @id
+    `)
+    const existing = exRs.recordset?.[0]
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该入住记录', data: null })
+      return
+    }
+    if (String(existing?.del ?? '').trim() === '1') {
+      res.status(400).json({ code: 400, msg: '该记录已删除，不能审核', data: null })
+      return
+    }
+    if (String(existing?.pass ?? '').trim() === '1') {
+      res.status(400).json({ code: 400, msg: '当前已是已审核状态', data: null })
+      return
+    }
+
+    const now = legacyDeptNowString()
+    const passip = getRequestIp(req) || null
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    q.input('now', sql.NVarChar(50), now)
+    q.input('passutruename', sql.NVarChar(50), auditorName)
+    q.input('passuname', sql.NVarChar(50), userCode || null)
+    q.input('passuid', sql.NVarChar(50), uidStr || null)
+    q.input('passid', sql.NVarChar(50), uidStr || null)
+    q.input('passip', sql.NVarChar(50), passip)
+    await q.query(`
+      UPDATE i
+      SET
+        i.pass = N'1',
+        i.passutruename = @passutruename,
+        i.passuname = @passuname,
+        i.passuid = @passuid,
+        i.passid = @passid,
+        i.passip = @passip,
+        i.edittime = @now
+      FROM ${HR_ROOM_IN_FROM} AS i
+      WHERE i.id = @id
+        AND LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(i.pass, N'0'))) = N'0'
+    `)
+
+    res.json({ code: 200, msg: 'success', data: { id } })
+  } catch (err) {
+    console.error('PUT /api/hr/dormitory/lodging-in/audit 失败：', err)
+    const detail = String(err?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `审核失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 批量审核入住单：PUT /api/hr/dormitory/lodging-in/audit-batch
+ * body: { ids: number[] }
+ */
+app.put('/api/hr/dormitory/lodging-in/audit-batch', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-Lodging-In-Audit-Batch', 'v1.1.3')
+  try {
+    const me = getCurrentUserFromReq(req)
+    const auditorName = String(me?.userName ?? me?.userCode ?? '').trim() || '未知'
+    const userCode = String(me?.userCode ?? '').trim()
+    const uidStr = me?.userId != null ? String(me.userId) : ''
+
+    const body = req.body ?? {}
+    const idsRaw = body.ids
+    const ids = Array.isArray(idsRaw)
+      ? [...new Set(idsRaw.map((x) => Math.floor(Number(x))).filter((n) => Number.isFinite(n) && n > 0))]
+      : []
+    if (ids.length === 0) {
+      res.status(400).json({ code: 400, msg: 'ids 不能为空', data: null })
+      return
+    }
+    if (ids.length > 200) {
+      res.status(400).json({ code: 400, msg: '单次最多审核 200 条', data: null })
+      return
+    }
+
+    const idList = ids.join(',')
+    const now = legacyDeptNowString()
+    const passip = getRequestIp(req) || null
+
+    const pool = await getPool()
+    const q = pool.request()
+    q.input('now', sql.NVarChar(50), now)
+    q.input('passutruename', sql.NVarChar(50), auditorName)
+    q.input('passuname', sql.NVarChar(50), userCode || null)
+    q.input('passuid', sql.NVarChar(50), uidStr || null)
+    q.input('passid', sql.NVarChar(50), uidStr || null)
+    q.input('passip', sql.NVarChar(50), passip)
+
+    const upd = await q.query(`
+      UPDATE i
+      SET
+        i.pass = N'1',
+        i.passutruename = @passutruename,
+        i.passuname = @passuname,
+        i.passuid = @passuid,
+        i.passid = @passid,
+        i.passip = @passip,
+        i.edittime = @now
+      FROM ${HR_ROOM_IN_FROM} AS i
+      WHERE i.id IN (${idList})
+        AND LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(i.pass, N'0'))) = N'0'
+    `)
+
+    const affected = Number(upd.rowsAffected?.[0] ?? 0)
+    res.json({ code: 200, msg: 'success', data: { requested: ids.length, updated: affected } })
+  } catch (err) {
+    console.error('PUT /api/hr/dormitory/lodging-in/audit-batch 失败：', err)
+    const detail = String(err?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `批量审核失败：${detail}`, data: null })
+  }
+})
+
 // 可选：优雅关闭（例如 Ctrl+C）
 process.on('SIGINT', async () => {
   try {
@@ -4112,7 +5841,19 @@ process.on('SIGINT', async () => {
 
 const port = process.env.PORT ? Number(process.env.PORT) : 3001
 app.listen(port, () => {
+  const bootAt = new Date().toISOString()
   console.log(`API 服务已启动：http://localhost:${port}`)
+  console.log(`[启动指纹] bootAt=${bootAt}`)
+  console.log(`[启动指纹] v1.1.3-ElectricFee-Fix bootAt=${bootAt}`)
+  console.log(`Dorm-Module-Query-Trigger-Active ${bootAt}`)
+  console.log(`Dorm-CheckIn-SmartLogic-v1.1.3-Active ${bootAt}`)
+  console.log(`Dorm-CheckIn-Final-v1.1.3-Active ${bootAt}`)
+  console.log(`Dorm-CheckOut-OutRoomLogic-Active ${bootAt}`)
+  console.log(`Dorm-Manage-Popup-Optimized-Active ${bootAt}`)
+  console.log(`Dorm-CheckIn-NullBug-Fixed-${bootAt}`)
   console.log('[部门资料] POST /api/hr/departments：code 由服务端自增，不要求 body.code（若仍提示 code 必填，多为未重启后端或 3001 被其它程序占用）')
+  console.log(
+    '[宿舍管理] v1.1.10 电费：tj_date=yyyy-m/yy-mm 字符串匹配 + MAX(c_sum_money) 防重复累加；含 lodging-overview/history、入住单 audit*',
+  )
 })
 

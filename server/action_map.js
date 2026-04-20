@@ -31,6 +31,15 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   { method: 'PUT', path: '/api/hr/staff', action: '修改员工档案', targetTable: 'HR_staff' },
   { method: 'DELETE', path: /^\/api\/hr\/staff\/.+/, action: '删除员工档案', targetTable: 'HR_staff' },
 
+  { method: 'POST', path: '/api/hr/dormitory/rooms', action: '新增宿舍房间', targetTable: 'Hr_room' },
+  { method: 'PUT', path: '/api/hr/dormitory/rooms/audit', action: '审核宿舍房间', targetTable: 'Hr_room' },
+  { method: 'PUT', path: '/api/hr/dormitory/rooms/unaudit', action: '反审宿舍房间', targetTable: 'Hr_room' },
+  { method: 'POST', path: '/api/hr/dormitory/check-in', action: '办理了入住', targetTable: 'Hr_room_in' },
+  { method: 'PUT', path: '/api/hr/dormitory/room-in/room-info', action: '修改入住备注', targetTable: 'Hr_room_in' },
+  { method: 'PUT', path: '/api/hr/dormitory/check-out', action: '办理了退宿', targetTable: 'Hr_room_in' },
+  { method: 'PUT', path: '/api/hr/dormitory/lodging-in/audit', action: '审核入住单', targetTable: 'Hr_room_in' },
+  { method: 'PUT', path: '/api/hr/dormitory/lodging-in/audit-batch', action: '批量审核入住单', targetTable: 'Hr_room_in' },
+
   { method: 'PUT', path: '/api/hr/departments/audit-batch', action: '批量审核部门', targetTable: 'HR_Departments' },
   { method: 'PUT', path: '/api/hr/departments/audit', action: '审核部门', targetTable: 'HR_Departments' },
   { method: 'PUT', path: '/api/hr/departments/unaudit', action: '反审部门', targetTable: 'HR_Departments' },

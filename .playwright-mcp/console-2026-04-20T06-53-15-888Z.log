@@ -1,0 +1,11 @@
+[  476461ms] [WARNING] Property "loadOverviewByTjDate" was accessed during render but is not defined on instance. Proxy(Object) at <ElTabPane>
+at <ElTabs>
+at <ElCard>
+at <Index>
+at <RouterView>
+at <ElMain>
+at <ElContainer>
+at <ElContainer>
+at <ErpLayout>
+at <RouterView>
+at <App> [Object, Object, Object, Object, Object, Object, Object, Object, Object, Object, Object] @ http://localhost:5173/node_modules/.vite/deps/element-plus.js?v=4e630648:24297

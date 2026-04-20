@@ -174,6 +174,50 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'hr/files/employee-files', action: 'delete' }
   }
 
+  /* v1.1.3：宿舍 — 房间管理 / 住宿办理（菜单 path 与 erp_structure_dump 一致） */
+  if (m === 'GET' && path === '/api/hr/dormitory/rooms') {
+    return { menuPath: 'hr/dormitory/room-management', action: 'view' }
+  }
+  if (m === 'GET' && /^\/api\/hr\/dormitory\/rooms\/\d+$/.test(path)) {
+    return { menuPath: 'hr/dormitory/room-management', action: 'view' }
+  }
+  if (m === 'POST' && path === '/api/hr/dormitory/rooms') {
+    return { menuPath: 'hr/dormitory/room-management', action: 'add' }
+  }
+  if (m === 'PUT' && path === '/api/hr/dormitory/rooms/audit') {
+    return { menuPath: 'hr/dormitory/room-management', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/hr/dormitory/rooms/unaudit') {
+    return { menuPath: 'hr/dormitory/room-management', action: 'audit' }
+  }
+  if (m === 'POST' && path === '/api/hr/dormitory/check-in') {
+    return { menuPath: 'hr/dormitory/lodging-records', action: 'add' }
+  }
+  if (m === 'GET' && path === '/api/hr/dormitory/check-in/staff-options') {
+    return { menuPath: 'hr/dormitory/lodging-records', action: 'add' }
+  }
+  if (m === 'GET' && path === '/api/hr/dormitory/room-occupants') {
+    return { menuPath: 'hr/dormitory/lodging-records', action: 'view' }
+  }
+  if (m === 'PUT' && path === '/api/hr/dormitory/check-out') {
+    return { menuPath: 'hr/dormitory/lodging-records', action: 'add' }
+  }
+  if (m === 'PUT' && path === '/api/hr/dormitory/room-in/room-info') {
+    return { menuPath: 'hr/dormitory/lodging-records', action: 'edit' }
+  }
+  if (m === 'GET' && path === '/api/hr/dormitory/lodging-overview') {
+    return { menuPath: 'hr/dormitory/lodging-records', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/hr/dormitory/lodging-history') {
+    return { menuPath: 'hr/dormitory/lodging-records', action: 'view' }
+  }
+  if (m === 'PUT' && path === '/api/hr/dormitory/lodging-in/audit') {
+    return { menuPath: 'hr/dormitory/lodging-records', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/hr/dormitory/lodging-in/audit-batch') {
+    return { menuPath: 'hr/dormitory/lodging-records', action: 'audit' }
+  }
+
   return null
 }
 

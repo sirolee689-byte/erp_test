@@ -1,0 +1,683 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e337]:
+    - complementary [ref=e338]:
+      - generic [ref=e339]: ERP 基础框架
+      - menubar [ref=e343]:
+        - menuitem "系统管理" [ref=e344]:
+          - generic [ref=e345] [cursor=pointer]:
+            - img [ref=e347]
+            - generic [ref=e349]: 系统管理
+            - img [ref=e351]
+        - menuitem "智能饭堂" [ref=e353]:
+          - generic [ref=e354] [cursor=pointer]:
+            - img [ref=e356]
+            - generic [ref=e358]: 智能饭堂
+            - img [ref=e360]
+        - menuitem "销售/采购/外协管理" [ref=e362]:
+          - generic [ref=e363] [cursor=pointer]:
+            - img [ref=e365]
+            - generic [ref=e368]: 销售/采购/外协管理
+            - img [ref=e370]
+        - menuitem "库存管理" [ref=e372]:
+          - generic [ref=e373] [cursor=pointer]:
+            - img [ref=e375]
+            - generic [ref=e379]: 库存管理
+            - img [ref=e381]
+        - menuitem "生产管理" [ref=e383]:
+          - generic [ref=e384] [cursor=pointer]:
+            - img [ref=e386]
+            - generic [ref=e388]: 生产管理
+            - img [ref=e390]
+        - menuitem "人力资源管理" [expanded] [ref=e392]:
+          - generic [ref=e393] [cursor=pointer]:
+            - img [ref=e395]
+            - generic [ref=e397]: 人力资源管理
+            - img [ref=e399]
+          - menu [ref=e401]:
+            - menuitem "档案管理" [ref=e402]:
+              - generic [ref=e403] [cursor=pointer]:
+                - img [ref=e405]
+                - generic [ref=e407]: 档案管理
+                - img [ref=e409]
+            - menuitem "宿舍管理" [expanded] [ref=e411]:
+              - generic [ref=e412] [cursor=pointer]:
+                - img [ref=e414]
+                - generic [ref=e416]: 宿舍管理
+                - img [ref=e418]
+              - menu [ref=e420]:
+                - menuitem "房间管理" [ref=e421] [cursor=pointer]:
+                  - img [ref=e423]
+                  - text: 房间管理
+                - menuitem "住宿管理" [ref=e425] [cursor=pointer]:
+                  - img [ref=e427]
+                  - text: 住宿管理
+            - menuitem "考勤管理" [ref=e429]:
+              - generic [ref=e430] [cursor=pointer]:
+                - img [ref=e432]
+                - generic [ref=e434]: 考勤管理
+                - img [ref=e436]
+        - menuitem "资产管理" [ref=e438] [cursor=pointer]:
+          - img [ref=e440]
+          - text: 资产管理
+        - menuitem "追溯系统" [ref=e444] [cursor=pointer]:
+          - img [ref=e446]
+          - text: 追溯系统
+    - generic [ref=e448]:
+      - generic [ref=e449]:
+        - button [ref=e450] [cursor=pointer]:
+          - img [ref=e453]
+        - generic [ref=e455]: 住宿管理
+        - button "锋" [ref=e458] [cursor=pointer]:
+          - img [ref=e460]
+          - generic [ref=e462]: 锋
+          - img [ref=e464]
+      - main [ref=e466]:
+        - generic [ref=e469]:
+          - generic [ref=e470]: 住宿管理
+          - generic [ref=e472]:
+            - tablist [ref=e476]:
+              - tab "房间列表" [selected] [ref=e478]
+              - tab "住宿历史列表" [ref=e479]
+            - tabpanel "房间列表" [ref=e481]:
+              - generic [ref=e482]:
+                - button "收起办理入住" [ref=e483] [cursor=pointer]:
+                  - generic [ref=e484]: 收起办理入住
+                - button "立即查询" [ref=e485] [cursor=pointer]:
+                  - generic [ref=e486]: 立即查询
+                - button "重置" [ref=e487] [cursor=pointer]:
+                  - generic [ref=e488]: 重置
+                - button "查询全部" [ref=e489] [cursor=pointer]:
+                  - generic [ref=e490]: 查询全部
+              - generic [ref=e491]:
+                - paragraph [ref=e492]:
+                  - text: 办理后写入
+                  - code [ref=e493]: Hr_room_in
+                  - text: （默认未审核）。房间须为已审（pass=1）。
+                - generic [ref=e494]:
+                  - generic [ref=e495]: 匹配未审核的房间资料
+                  - generic [ref=e496]:
+                    - switch
+                - generic [ref=e499]:
+                  - generic [ref=e500]:
+                    - generic [ref=e501]: "* 员工工号"
+                    - textbox "* 员工工号" [ref=e505]
+                  - generic [ref=e506]:
+                    - generic [ref=e507]: "* 房间编码（房号）"
+                    - textbox "* 房间编码（房号）" [ref=e511]
+                  - generic [ref=e513]:
+                    - button "办理入住" [ref=e514] [cursor=pointer]:
+                      - generic [ref=e515]: 办理入住
+                    - button "清空" [ref=e516] [cursor=pointer]:
+                      - generic [ref=e517]: 清空
+              - generic [ref=e518]:
+                - generic [ref=e519]: 房间列表
+                - generic [ref=e520]:
+                  - generic [ref=e521]: 设定日期
+                  - generic [ref=e522]:
+                    - button "减少数值" [ref=e523] [cursor=pointer]:
+                      - img [ref=e525]
+                    - button "增加数值" [ref=e527] [cursor=pointer]:
+                      - img [ref=e529]
+                    - spinbutton [ref=e533]: "2026"
+                  - generic [ref=e534]: 年
+                  - generic [ref=e535]:
+                    - button "减少数值" [ref=e536] [cursor=pointer]:
+                      - img [ref=e538]
+                    - button "增加数值" [ref=e540] [cursor=pointer]:
+                      - img [ref=e542]
+                    - spinbutton [ref=e546]: "4"
+                  - generic [ref=e547]: 月
+                  - button "立即查询" [ref=e548] [cursor=pointer]:
+                    - generic [ref=e549]: 立即查询
+                  - generic [ref=e550]: （入住人员/人数显示“当前在住”；电费按 Hr_room_use.tj_date 同月汇总）
+                - generic [ref=e551]:
+                  - textbox "搜索入住宿舍：房号/楼栋/名称/房型" [ref=e554]
+                  - textbox "搜索入住员工：工号或姓名" [ref=e557]
+              - generic [ref=e559]:
+                - table [ref=e561]:
+                  - rowgroup [ref=e573]:
+                    - row "楼号 编码 名称 类型 状态 入住人数 剩余床位 入住人员 电费(汇总) 操作" [ref=e574]:
+                      - columnheader "楼号" [ref=e575]:
+                        - generic [ref=e576]: 楼号
+                      - columnheader "编码" [ref=e577]:
+                        - generic [ref=e578]: 编码
+                      - columnheader "名称" [ref=e579]:
+                        - generic [ref=e580]: 名称
+                      - columnheader "类型" [ref=e581]:
+                        - generic [ref=e582]: 类型
+                      - columnheader "状态" [ref=e583]:
+                        - generic [ref=e584]: 状态
+                      - columnheader "入住人数" [ref=e585]:
+                        - generic [ref=e586]: 入住人数
+                      - columnheader "剩余床位" [ref=e587]:
+                        - generic [ref=e588]: 剩余床位
+                      - columnheader "入住人员" [ref=e589]:
+                        - generic [ref=e590]: 入住人员
+                      - columnheader "电费(汇总)" [ref=e591]:
+                        - generic [ref=e592]: 电费(汇总)
+                      - columnheader "操作" [ref=e593]:
+                        - generic [ref=e594]: 操作
+                - table [ref=e599]:
+                  - rowgroup [ref=e611]:
+                    - row "222 宿舍 普通房 使用 0 6 — — 增加入住 入住管理" [ref=e612]:
+                      - cell [ref=e613]
+                      - cell "222" [ref=e614]:
+                        - generic [ref=e615]: "222"
+                      - cell "宿舍" [ref=e616]:
+                        - generic [ref=e617]: 宿舍
+                      - cell "普通房" [ref=e618]:
+                        - generic [ref=e619]: 普通房
+                      - cell "使用" [ref=e620]:
+                        - generic [ref=e621]: 使用
+                      - cell "0" [ref=e622]:
+                        - generic [ref=e623]: "0"
+                      - cell "6" [ref=e624]:
+                        - generic [ref=e625]: "6"
+                      - cell "—" [ref=e626]:
+                        - generic [ref=e627]: —
+                      - cell "—" [ref=e628]:
+                        - generic [ref=e629]: —
+                      - cell "增加入住 入住管理" [ref=e630]:
+                        - generic [ref=e631]:
+                          - button "增加入住" [ref=e632] [cursor=pointer]:
+                            - generic [ref=e633]: 增加入住
+                          - button "入住管理" [ref=e634] [cursor=pointer]:
+                            - generic [ref=e635]: 入住管理
+                    - row "新厂 201 宿舍 普通房 使用 5 3 刘业升, 舒子奎, 刘贵长, 潘用专, 李顺强 — 增加入住 入住管理" [ref=e636]:
+                      - cell "新厂" [ref=e637]:
+                        - generic [ref=e638]: 新厂
+                      - cell "201" [ref=e639]:
+                        - generic [ref=e640]: "201"
+                      - cell "宿舍" [ref=e641]:
+                        - generic [ref=e642]: 宿舍
+                      - cell "普通房" [ref=e643]:
+                        - generic [ref=e644]: 普通房
+                      - cell "使用" [ref=e645]:
+                        - generic [ref=e646]: 使用
+                      - cell "5" [ref=e647]:
+                        - generic [ref=e648]: "5"
+                      - cell "3" [ref=e649]:
+                        - generic [ref=e650]: "3"
+                      - cell "刘业升, 舒子奎, 刘贵长, 潘用专, 李顺强" [ref=e651]:
+                        - generic [ref=e652]: 刘业升, 舒子奎, 刘贵长, 潘用专, 李顺强
+                      - cell "—" [ref=e653]:
+                        - generic [ref=e654]: —
+                      - cell "增加入住 入住管理" [ref=e655]:
+                        - generic [ref=e656]:
+                          - button "增加入住" [ref=e657] [cursor=pointer]:
+                            - generic [ref=e658]: 增加入住
+                          - button "入住管理" [ref=e659] [cursor=pointer]:
+                            - generic [ref=e660]: 入住管理
+                    - row "新厂 202 宿舍 普通房 使用 3 5 严杜飞, 黄志浩, 周旺喜 — 增加入住 入住管理" [ref=e661]:
+                      - cell "新厂" [ref=e662]:
+                        - generic [ref=e663]: 新厂
+                      - cell "202" [ref=e664]:
+                        - generic [ref=e665]: "202"
+                      - cell "宿舍" [ref=e666]:
+                        - generic [ref=e667]: 宿舍
+                      - cell "普通房" [ref=e668]:
+                        - generic [ref=e669]: 普通房
+                      - cell "使用" [ref=e670]:
+                        - generic [ref=e671]: 使用
+                      - cell "3" [ref=e672]:
+                        - generic [ref=e673]: "3"
+                      - cell "5" [ref=e674]:
+                        - generic [ref=e675]: "5"
+                      - cell "严杜飞, 黄志浩, 周旺喜" [ref=e676]:
+                        - generic [ref=e677]: 严杜飞, 黄志浩, 周旺喜
+                      - cell "—" [ref=e678]:
+                        - generic [ref=e679]: —
+                      - cell "增加入住 入住管理" [ref=e680]:
+                        - generic [ref=e681]:
+                          - button "增加入住" [ref=e682] [cursor=pointer]:
+                            - generic [ref=e683]: 增加入住
+                          - button "入住管理" [ref=e684] [cursor=pointer]:
+                            - generic [ref=e685]: 入住管理
+                    - row "新厂 203 宿舍 普通房 使用 2 6 王伟, 刘伟 — 增加入住 入住管理" [ref=e686]:
+                      - cell "新厂" [ref=e687]:
+                        - generic [ref=e688]: 新厂
+                      - cell "203" [ref=e689]:
+                        - generic [ref=e690]: "203"
+                      - cell "宿舍" [ref=e691]:
+                        - generic [ref=e692]: 宿舍
+                      - cell "普通房" [ref=e693]:
+                        - generic [ref=e694]: 普通房
+                      - cell "使用" [ref=e695]:
+                        - generic [ref=e696]: 使用
+                      - cell "2" [ref=e697]:
+                        - generic [ref=e698]: "2"
+                      - cell "6" [ref=e699]:
+                        - generic [ref=e700]: "6"
+                      - cell "王伟, 刘伟" [ref=e701]:
+                        - generic [ref=e702]: 王伟, 刘伟
+                      - cell "—" [ref=e703]:
+                        - generic [ref=e704]: —
+                      - cell "增加入住 入住管理" [ref=e705]:
+                        - generic [ref=e706]:
+                          - button "增加入住" [ref=e707] [cursor=pointer]:
+                            - generic [ref=e708]: 增加入住
+                          - button "入住管理" [ref=e709] [cursor=pointer]:
+                            - generic [ref=e710]: 入住管理
+                    - row "新厂 204 宿舍 普通房 使用 3 5 卢家柱, 莫光晓, 梁大勇 — 增加入住 入住管理" [ref=e711]:
+                      - cell "新厂" [ref=e712]:
+                        - generic [ref=e713]: 新厂
+                      - cell "204" [ref=e714]:
+                        - generic [ref=e715]: "204"
+                      - cell "宿舍" [ref=e716]:
+                        - generic [ref=e717]: 宿舍
+                      - cell "普通房" [ref=e718]:
+                        - generic [ref=e719]: 普通房
+                      - cell "使用" [ref=e720]:
+                        - generic [ref=e721]: 使用
+                      - cell "3" [ref=e722]:
+                        - generic [ref=e723]: "3"
+                      - cell "5" [ref=e724]:
+                        - generic [ref=e725]: "5"
+                      - cell "卢家柱, 莫光晓, 梁大勇" [ref=e726]:
+                        - generic [ref=e727]: 卢家柱, 莫光晓, 梁大勇
+                      - cell "—" [ref=e728]:
+                        - generic [ref=e729]: —
+                      - cell "增加入住 入住管理" [ref=e730]:
+                        - generic [ref=e731]:
+                          - button "增加入住" [ref=e732] [cursor=pointer]:
+                            - generic [ref=e733]: 增加入住
+                          - button "入住管理" [ref=e734] [cursor=pointer]:
+                            - generic [ref=e735]: 入住管理
+                    - row "新厂 205 宿舍 普通房 使用 2 6 杨创奔, 吴富培 — 增加入住 入住管理" [ref=e736]:
+                      - cell "新厂" [ref=e737]:
+                        - generic [ref=e738]: 新厂
+                      - cell "205" [ref=e739]:
+                        - generic [ref=e740]: "205"
+                      - cell "宿舍" [ref=e741]:
+                        - generic [ref=e742]: 宿舍
+                      - cell "普通房" [ref=e743]:
+                        - generic [ref=e744]: 普通房
+                      - cell "使用" [ref=e745]:
+                        - generic [ref=e746]: 使用
+                      - cell "2" [ref=e747]:
+                        - generic [ref=e748]: "2"
+                      - cell "6" [ref=e749]:
+                        - generic [ref=e750]: "6"
+                      - cell "杨创奔, 吴富培" [ref=e751]:
+                        - generic [ref=e752]: 杨创奔, 吴富培
+                      - cell "—" [ref=e753]:
+                        - generic [ref=e754]: —
+                      - cell "增加入住 入住管理" [ref=e755]:
+                        - generic [ref=e756]:
+                          - button "增加入住" [ref=e757] [cursor=pointer]:
+                            - generic [ref=e758]: 增加入住
+                          - button "入住管理" [ref=e759] [cursor=pointer]:
+                            - generic [ref=e760]: 入住管理
+                    - row "新厂 206 宿舍 普通房 使用 3 5 赵能志, 姚华全, 梁超 — 增加入住 入住管理" [ref=e761]:
+                      - cell "新厂" [ref=e762]:
+                        - generic [ref=e763]: 新厂
+                      - cell "206" [ref=e764]:
+                        - generic [ref=e765]: "206"
+                      - cell "宿舍" [ref=e766]:
+                        - generic [ref=e767]: 宿舍
+                      - cell "普通房" [ref=e768]:
+                        - generic [ref=e769]: 普通房
+                      - cell "使用" [ref=e770]:
+                        - generic [ref=e771]: 使用
+                      - cell "3" [ref=e772]:
+                        - generic [ref=e773]: "3"
+                      - cell "5" [ref=e774]:
+                        - generic [ref=e775]: "5"
+                      - cell "赵能志, 姚华全, 梁超" [ref=e776]:
+                        - generic [ref=e777]: 赵能志, 姚华全, 梁超
+                      - cell "—" [ref=e778]:
+                        - generic [ref=e779]: —
+                      - cell "增加入住 入住管理" [ref=e780]:
+                        - generic [ref=e781]:
+                          - button "增加入住" [ref=e782] [cursor=pointer]:
+                            - generic [ref=e783]: 增加入住
+                          - button "入住管理" [ref=e784] [cursor=pointer]:
+                            - generic [ref=e785]: 入住管理
+                    - row "新厂 207 宿舍 普通房 使用 1 7 梁胜炎 — 增加入住 入住管理" [ref=e786]:
+                      - cell "新厂" [ref=e787]:
+                        - generic [ref=e788]: 新厂
+                      - cell "207" [ref=e789]:
+                        - generic [ref=e790]: "207"
+                      - cell "宿舍" [ref=e791]:
+                        - generic [ref=e792]: 宿舍
+                      - cell "普通房" [ref=e793]:
+                        - generic [ref=e794]: 普通房
+                      - cell "使用" [ref=e795]:
+                        - generic [ref=e796]: 使用
+                      - cell "1" [ref=e797]:
+                        - generic [ref=e798]: "1"
+                      - cell "7" [ref=e799]:
+                        - generic [ref=e800]: "7"
+                      - cell "梁胜炎" [ref=e801]:
+                        - generic [ref=e802]: 梁胜炎
+                      - cell "—" [ref=e803]:
+                        - generic [ref=e804]: —
+                      - cell "增加入住 入住管理" [ref=e805]:
+                        - generic [ref=e806]:
+                          - button "增加入住" [ref=e807] [cursor=pointer]:
+                            - generic [ref=e808]: 增加入住
+                          - button "入住管理" [ref=e809] [cursor=pointer]:
+                            - generic [ref=e810]: 入住管理
+                    - row "新厂 208 宿舍 普通房 使用 4 4 周吉兵, 尹小明, 莫国强, 田洪彦 — 增加入住 入住管理" [ref=e811]:
+                      - cell "新厂" [ref=e812]:
+                        - generic [ref=e813]: 新厂
+                      - cell "208" [ref=e814]:
+                        - generic [ref=e815]: "208"
+                      - cell "宿舍" [ref=e816]:
+                        - generic [ref=e817]: 宿舍
+                      - cell "普通房" [ref=e818]:
+                        - generic [ref=e819]: 普通房
+                      - cell "使用" [ref=e820]:
+                        - generic [ref=e821]: 使用
+                      - cell "4" [ref=e822]:
+                        - generic [ref=e823]: "4"
+                      - cell "4" [ref=e824]:
+                        - generic [ref=e825]: "4"
+                      - cell "周吉兵, 尹小明, 莫国强, 田洪彦" [ref=e826]:
+                        - generic [ref=e827]: 周吉兵, 尹小明, 莫国强, 田洪彦
+                      - cell "—" [ref=e828]:
+                        - generic [ref=e829]: —
+                      - cell "增加入住 入住管理" [ref=e830]:
+                        - generic [ref=e831]:
+                          - button "增加入住" [ref=e832] [cursor=pointer]:
+                            - generic [ref=e833]: 增加入住
+                          - button "入住管理" [ref=e834] [cursor=pointer]:
+                            - generic [ref=e835]: 入住管理
+                    - row "新厂 209 宿舍 普通房 使用 1 7 欧阳开华 — 增加入住 入住管理" [ref=e836]:
+                      - cell "新厂" [ref=e837]:
+                        - generic [ref=e838]: 新厂
+                      - cell "209" [ref=e839]:
+                        - generic [ref=e840]: "209"
+                      - cell "宿舍" [ref=e841]:
+                        - generic [ref=e842]: 宿舍
+                      - cell "普通房" [ref=e843]:
+                        - generic [ref=e844]: 普通房
+                      - cell "使用" [ref=e845]:
+                        - generic [ref=e846]: 使用
+                      - cell "1" [ref=e847]:
+                        - generic [ref=e848]: "1"
+                      - cell "7" [ref=e849]:
+                        - generic [ref=e850]: "7"
+                      - cell "欧阳开华" [ref=e851]:
+                        - generic [ref=e852]: 欧阳开华
+                      - cell "—" [ref=e853]:
+                        - generic [ref=e854]: —
+                      - cell "增加入住 入住管理" [ref=e855]:
+                        - generic [ref=e856]:
+                          - button "增加入住" [ref=e857] [cursor=pointer]:
+                            - generic [ref=e858]: 增加入住
+                          - button "入住管理" [ref=e859] [cursor=pointer]:
+                            - generic [ref=e860]: 入住管理
+                    - row "新厂 210 宿舍 普通房 使用 2 6 杨庆萍, 杨克凤 — 增加入住 入住管理" [ref=e861]:
+                      - cell "新厂" [ref=e862]:
+                        - generic [ref=e863]: 新厂
+                      - cell "210" [ref=e864]:
+                        - generic [ref=e865]: "210"
+                      - cell "宿舍" [ref=e866]:
+                        - generic [ref=e867]: 宿舍
+                      - cell "普通房" [ref=e868]:
+                        - generic [ref=e869]: 普通房
+                      - cell "使用" [ref=e870]:
+                        - generic [ref=e871]: 使用
+                      - cell "2" [ref=e872]:
+                        - generic [ref=e873]: "2"
+                      - cell "6" [ref=e874]:
+                        - generic [ref=e875]: "6"
+                      - cell "杨庆萍, 杨克凤" [ref=e876]:
+                        - generic [ref=e877]: 杨庆萍, 杨克凤
+                      - cell "—" [ref=e878]:
+                        - generic [ref=e879]: —
+                      - cell "增加入住 入住管理" [ref=e880]:
+                        - generic [ref=e881]:
+                          - button "增加入住" [ref=e882] [cursor=pointer]:
+                            - generic [ref=e883]: 增加入住
+                          - button "入住管理" [ref=e884] [cursor=pointer]:
+                            - generic [ref=e885]: 入住管理
+                    - row "新厂 211 宿舍 普通房 使用 4 4 何香, 王福英, 潘连枝, 梁淑娴 — 增加入住 入住管理" [ref=e886]:
+                      - cell "新厂" [ref=e887]:
+                        - generic [ref=e888]: 新厂
+                      - cell "211" [ref=e889]:
+                        - generic [ref=e890]: "211"
+                      - cell "宿舍" [ref=e891]:
+                        - generic [ref=e892]: 宿舍
+                      - cell "普通房" [ref=e893]:
+                        - generic [ref=e894]: 普通房
+                      - cell "使用" [ref=e895]:
+                        - generic [ref=e896]: 使用
+                      - cell "4" [ref=e897]:
+                        - generic [ref=e898]: "4"
+                      - cell "4" [ref=e899]:
+                        - generic [ref=e900]: "4"
+                      - cell "何香, 王福英, 潘连枝, 梁淑娴" [ref=e901]:
+                        - generic [ref=e902]: 何香, 王福英, 潘连枝, 梁淑娴
+                      - cell "—" [ref=e903]:
+                        - generic [ref=e904]: —
+                      - cell "增加入住 入住管理" [ref=e905]:
+                        - generic [ref=e906]:
+                          - button "增加入住" [ref=e907] [cursor=pointer]:
+                            - generic [ref=e908]: 增加入住
+                          - button "入住管理" [ref=e909] [cursor=pointer]:
+                            - generic [ref=e910]: 入住管理
+                    - row "新厂 212 宿舍 普通房 使用 7 1 王晓峰, 朱要晓, 王会锋, 杭福明, 利伟培, 何国洪, 吴洪标 — 增加入住 入住管理" [ref=e911]:
+                      - cell "新厂" [ref=e912]:
+                        - generic [ref=e913]: 新厂
+                      - cell "212" [ref=e914]:
+                        - generic [ref=e915]: "212"
+                      - cell "宿舍" [ref=e916]:
+                        - generic [ref=e917]: 宿舍
+                      - cell "普通房" [ref=e918]:
+                        - generic [ref=e919]: 普通房
+                      - cell "使用" [ref=e920]:
+                        - generic [ref=e921]: 使用
+                      - cell "7" [ref=e922]:
+                        - generic [ref=e923]: "7"
+                      - cell "1" [ref=e924]:
+                        - generic [ref=e925]: "1"
+                      - cell "王晓峰, 朱要晓, 王会锋, 杭福明, 利伟培, 何国洪, 吴洪标" [ref=e926]:
+                        - generic [ref=e927]: 王晓峰, 朱要晓, 王会锋, 杭福明, 利伟培, 何国洪, 吴洪标
+                      - cell "—" [ref=e928]:
+                        - generic [ref=e929]: —
+                      - cell "增加入住 入住管理" [ref=e930]:
+                        - generic [ref=e931]:
+                          - button "增加入住" [ref=e932] [cursor=pointer]:
+                            - generic [ref=e933]: 增加入住
+                          - button "入住管理" [ref=e934] [cursor=pointer]:
+                            - generic [ref=e935]: 入住管理
+                    - row "新厂 301 宿舍 普通房 使用 5 3 柏林霞, 段小红, 赵德碧, 李小萍, 史制琴 — 增加入住 入住管理" [ref=e936]:
+                      - cell "新厂" [ref=e937]:
+                        - generic [ref=e938]: 新厂
+                      - cell "301" [ref=e939]:
+                        - generic [ref=e940]: "301"
+                      - cell "宿舍" [ref=e941]:
+                        - generic [ref=e942]: 宿舍
+                      - cell "普通房" [ref=e943]:
+                        - generic [ref=e944]: 普通房
+                      - cell "使用" [ref=e945]:
+                        - generic [ref=e946]: 使用
+                      - cell "5" [ref=e947]:
+                        - generic [ref=e948]: "5"
+                      - cell "3" [ref=e949]:
+                        - generic [ref=e950]: "3"
+                      - cell "柏林霞, 段小红, 赵德碧, 李小萍, 史制琴" [ref=e951]:
+                        - generic [ref=e952]: 柏林霞, 段小红, 赵德碧, 李小萍, 史制琴
+                      - cell "—" [ref=e953]:
+                        - generic [ref=e954]: —
+                      - cell "增加入住 入住管理" [ref=e955]:
+                        - generic [ref=e956]:
+                          - button "增加入住" [ref=e957] [cursor=pointer]:
+                            - generic [ref=e958]: 增加入住
+                          - button "入住管理" [ref=e959] [cursor=pointer]:
+                            - generic [ref=e960]: 入住管理
+                    - row "新厂 302 宿舍 普通房 使用 2 6 廖四枝, 黄丽玲 — 增加入住 入住管理" [ref=e961]:
+                      - cell "新厂" [ref=e962]:
+                        - generic [ref=e963]: 新厂
+                      - cell "302" [ref=e964]:
+                        - generic [ref=e965]: "302"
+                      - cell "宿舍" [ref=e966]:
+                        - generic [ref=e967]: 宿舍
+                      - cell "普通房" [ref=e968]:
+                        - generic [ref=e969]: 普通房
+                      - cell "使用" [ref=e970]:
+                        - generic [ref=e971]: 使用
+                      - cell "2" [ref=e972]:
+                        - generic [ref=e973]: "2"
+                      - cell "6" [ref=e974]:
+                        - generic [ref=e975]: "6"
+                      - cell "廖四枝, 黄丽玲" [ref=e976]:
+                        - generic [ref=e977]: 廖四枝, 黄丽玲
+                      - cell "—" [ref=e978]:
+                        - generic [ref=e979]: —
+                      - cell "增加入住 入住管理" [ref=e980]:
+                        - generic [ref=e981]:
+                          - button "增加入住" [ref=e982] [cursor=pointer]:
+                            - generic [ref=e983]: 增加入住
+                          - button "入住管理" [ref=e984] [cursor=pointer]:
+                            - generic [ref=e985]: 入住管理
+                    - row "新厂 303 宿舍 普通房 使用 4 4 李玉珍, 任玉连, 杨金平, 王乙琳 — 增加入住 入住管理" [ref=e986]:
+                      - cell "新厂" [ref=e987]:
+                        - generic [ref=e988]: 新厂
+                      - cell "303" [ref=e989]:
+                        - generic [ref=e990]: "303"
+                      - cell "宿舍" [ref=e991]:
+                        - generic [ref=e992]: 宿舍
+                      - cell "普通房" [ref=e993]:
+                        - generic [ref=e994]: 普通房
+                      - cell "使用" [ref=e995]:
+                        - generic [ref=e996]: 使用
+                      - cell "4" [ref=e997]:
+                        - generic [ref=e998]: "4"
+                      - cell "4" [ref=e999]:
+                        - generic [ref=e1000]: "4"
+                      - cell "李玉珍, 任玉连, 杨金平, 王乙琳" [ref=e1001]:
+                        - generic [ref=e1002]: 李玉珍, 任玉连, 杨金平, 王乙琳
+                      - cell "—" [ref=e1003]:
+                        - generic [ref=e1004]: —
+                      - cell "增加入住 入住管理" [ref=e1005]:
+                        - generic [ref=e1006]:
+                          - button "增加入住" [ref=e1007] [cursor=pointer]:
+                            - generic [ref=e1008]: 增加入住
+                          - button "入住管理" [ref=e1009] [cursor=pointer]:
+                            - generic [ref=e1010]: 入住管理
+                    - row "新厂 304 宿舍 普通房 使用 3 5 杨绍明, 李茂仙, 罗凤 — 增加入住 入住管理" [ref=e1011]:
+                      - cell "新厂" [ref=e1012]:
+                        - generic [ref=e1013]: 新厂
+                      - cell "304" [ref=e1014]:
+                        - generic [ref=e1015]: "304"
+                      - cell "宿舍" [ref=e1016]:
+                        - generic [ref=e1017]: 宿舍
+                      - cell "普通房" [ref=e1018]:
+                        - generic [ref=e1019]: 普通房
+                      - cell "使用" [ref=e1020]:
+                        - generic [ref=e1021]: 使用
+                      - cell "3" [ref=e1022]:
+                        - generic [ref=e1023]: "3"
+                      - cell "5" [ref=e1024]:
+                        - generic [ref=e1025]: "5"
+                      - cell "杨绍明, 李茂仙, 罗凤" [ref=e1026]:
+                        - generic [ref=e1027]: 杨绍明, 李茂仙, 罗凤
+                      - cell "—" [ref=e1028]:
+                        - generic [ref=e1029]: —
+                      - cell "增加入住 入住管理" [ref=e1030]:
+                        - generic [ref=e1031]:
+                          - button "增加入住" [ref=e1032] [cursor=pointer]:
+                            - generic [ref=e1033]: 增加入住
+                          - button "入住管理" [ref=e1034] [cursor=pointer]:
+                            - generic [ref=e1035]: 入住管理
+                    - row "新厂 305 宿舍 普通房 使用 4 4 马秀珍, 黄会玲, 王苗, 石玉凤 — 增加入住 入住管理" [ref=e1036]:
+                      - cell "新厂" [ref=e1037]:
+                        - generic [ref=e1038]: 新厂
+                      - cell "305" [ref=e1039]:
+                        - generic [ref=e1040]: "305"
+                      - cell "宿舍" [ref=e1041]:
+                        - generic [ref=e1042]: 宿舍
+                      - cell "普通房" [ref=e1043]:
+                        - generic [ref=e1044]: 普通房
+                      - cell "使用" [ref=e1045]:
+                        - generic [ref=e1046]: 使用
+                      - cell "4" [ref=e1047]:
+                        - generic [ref=e1048]: "4"
+                      - cell "4" [ref=e1049]:
+                        - generic [ref=e1050]: "4"
+                      - cell "马秀珍, 黄会玲, 王苗, 石玉凤" [ref=e1051]:
+                        - generic [ref=e1052]: 马秀珍, 黄会玲, 王苗, 石玉凤
+                      - cell "—" [ref=e1053]:
+                        - generic [ref=e1054]: —
+                      - cell "增加入住 入住管理" [ref=e1055]:
+                        - generic [ref=e1056]:
+                          - button "增加入住" [ref=e1057] [cursor=pointer]:
+                            - generic [ref=e1058]: 增加入住
+                          - button "入住管理" [ref=e1059] [cursor=pointer]:
+                            - generic [ref=e1060]: 入住管理
+                    - row "新厂 306 宿舍 普通房 使用 3 5 唐素香, 谢相英, 赵春花 — 增加入住 入住管理" [ref=e1061]:
+                      - cell "新厂" [ref=e1062]:
+                        - generic [ref=e1063]: 新厂
+                      - cell "306" [ref=e1064]:
+                        - generic [ref=e1065]: "306"
+                      - cell "宿舍" [ref=e1066]:
+                        - generic [ref=e1067]: 宿舍
+                      - cell "普通房" [ref=e1068]:
+                        - generic [ref=e1069]: 普通房
+                      - cell "使用" [ref=e1070]:
+                        - generic [ref=e1071]: 使用
+                      - cell "3" [ref=e1072]:
+                        - generic [ref=e1073]: "3"
+                      - cell "5" [ref=e1074]:
+                        - generic [ref=e1075]: "5"
+                      - cell "唐素香, 谢相英, 赵春花" [ref=e1076]:
+                        - generic [ref=e1077]: 唐素香, 谢相英, 赵春花
+                      - cell "—" [ref=e1078]:
+                        - generic [ref=e1079]: —
+                      - cell "增加入住 入住管理" [ref=e1080]:
+                        - generic [ref=e1081]:
+                          - button "增加入住" [ref=e1082] [cursor=pointer]:
+                            - generic [ref=e1083]: 增加入住
+                          - button "入住管理" [ref=e1084] [cursor=pointer]:
+                            - generic [ref=e1085]: 入住管理
+                    - row "新厂 307 宿舍 普通房 使用 3 5 张益, 蒙光仙, 秦信莲 — 增加入住 入住管理" [ref=e1086]:
+                      - cell "新厂" [ref=e1087]:
+                        - generic [ref=e1088]: 新厂
+                      - cell "307" [ref=e1089]:
+                        - generic [ref=e1090]: "307"
+                      - cell "宿舍" [ref=e1091]:
+                        - generic [ref=e1092]: 宿舍
+                      - cell "普通房" [ref=e1093]:
+                        - generic [ref=e1094]: 普通房
+                      - cell "使用" [ref=e1095]:
+                        - generic [ref=e1096]: 使用
+                      - cell "3" [ref=e1097]:
+                        - generic [ref=e1098]: "3"
+                      - cell "5" [ref=e1099]:
+                        - generic [ref=e1100]: "5"
+                      - cell "张益, 蒙光仙, 秦信莲" [ref=e1101]:
+                        - generic [ref=e1102]: 张益, 蒙光仙, 秦信莲
+                      - cell "—" [ref=e1103]:
+                        - generic [ref=e1104]: —
+                      - cell "增加入住 入住管理" [ref=e1105]:
+                        - generic [ref=e1106]:
+                          - button "增加入住" [ref=e1107] [cursor=pointer]:
+                            - generic [ref=e1108]: 增加入住
+                          - button "入住管理" [ref=e1109] [cursor=pointer]:
+                            - generic [ref=e1110]: 入住管理
+              - generic [ref=e1113]:
+                - generic [ref=e1114]: 共 37 条
+                - generic [ref=e1117] [cursor=pointer]:
+                  - generic:
+                    - combobox [ref=e1119]
+                    - generic [ref=e1120]: 20条/页
+                  - img [ref=e1123]
+                - button "上一页" [disabled] [ref=e1125]:
+                  - generic:
+                    - img
+                - list [ref=e1126]:
+                  - listitem "第 1 页" [ref=e1127]: "1"
+                  - listitem "第 2 页" [ref=e1128] [cursor=pointer]: "2"
+                - button "下一页" [ref=e1129] [cursor=pointer]:
+                  - generic:
+                    - img
+                - generic [ref=e1130]:
+                  - generic [ref=e1131]: 前往
+                  - spinbutton "页" [ref=e1134]: "1"
+                  - generic [ref=e1135]: 页
+  - alert [ref=e1136]:
+    - img [ref=e1138]
+    - paragraph [ref=e1140]: 登录成功

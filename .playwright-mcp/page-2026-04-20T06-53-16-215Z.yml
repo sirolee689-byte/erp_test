@@ -1,0 +1,183 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]: ERP 基础框架
+    - menubar [ref=e9]:
+      - menuitem "系统管理" [ref=e10]:
+        - generic [ref=e11] [cursor=pointer]:
+          - img [ref=e13]
+          - generic [ref=e15]: 系统管理
+          - img [ref=e17]
+      - menuitem "智能饭堂" [ref=e19]:
+        - generic [ref=e20] [cursor=pointer]:
+          - img [ref=e22]
+          - generic [ref=e24]: 智能饭堂
+          - img [ref=e26]
+      - menuitem "销售/采购/外协管理" [ref=e28]:
+        - generic [ref=e29] [cursor=pointer]:
+          - img [ref=e31]
+          - generic [ref=e34]: 销售/采购/外协管理
+          - img [ref=e36]
+      - menuitem "库存管理" [ref=e38]:
+        - generic [ref=e39] [cursor=pointer]:
+          - img [ref=e41]
+          - generic [ref=e45]: 库存管理
+          - img [ref=e47]
+      - menuitem "生产管理" [ref=e49]:
+        - generic [ref=e50] [cursor=pointer]:
+          - img [ref=e52]
+          - generic [ref=e54]: 生产管理
+          - img [ref=e56]
+      - menuitem "人力资源管理" [expanded] [ref=e58]:
+        - generic [ref=e59] [cursor=pointer]:
+          - img [ref=e61]
+          - generic [ref=e63]: 人力资源管理
+          - img [ref=e65]
+        - menu [ref=e67]:
+          - menuitem "档案管理" [ref=e68]:
+            - generic [ref=e69] [cursor=pointer]:
+              - img [ref=e71]
+              - generic [ref=e73]: 档案管理
+              - img [ref=e75]
+          - menuitem "宿舍管理" [expanded] [ref=e77]:
+            - generic [ref=e78] [cursor=pointer]:
+              - img [ref=e80]
+              - generic [ref=e82]: 宿舍管理
+              - img [ref=e84]
+            - menu [ref=e86]:
+              - menuitem "房间管理" [ref=e87] [cursor=pointer]:
+                - img [ref=e89]
+                - text: 房间管理
+              - menuitem "住宿管理" [ref=e91] [cursor=pointer]:
+                - img [ref=e93]
+                - text: 住宿管理
+          - menuitem "考勤管理" [ref=e95]:
+            - generic [ref=e96] [cursor=pointer]:
+              - img [ref=e98]
+              - generic [ref=e100]: 考勤管理
+              - img [ref=e102]
+      - menuitem "资产管理" [ref=e104] [cursor=pointer]:
+        - img [ref=e106]
+        - text: 资产管理
+      - menuitem "追溯系统" [ref=e110] [cursor=pointer]:
+        - img [ref=e112]
+        - text: 追溯系统
+  - generic [ref=e114]:
+    - generic [ref=e115]:
+      - button [ref=e116] [cursor=pointer]:
+        - img [ref=e119]
+      - generic [ref=e121]: 住宿管理
+      - button "锋" [ref=e124] [cursor=pointer]:
+        - img [ref=e126]
+        - generic [ref=e128]: 锋
+        - img [ref=e130]
+    - main [ref=e132]:
+      - generic [ref=e135]:
+        - generic [ref=e136]: 住宿管理
+        - generic [ref=e138]:
+          - tablist [ref=e142]:
+            - tab "房间列表" [selected] [ref=e144]
+            - tab "住宿历史列表" [ref=e145]
+          - tabpanel "房间列表" [ref=e147]:
+            - generic [ref=e148]:
+              - button "收起办理入住" [ref=e149] [cursor=pointer]:
+                - generic [ref=e150]: 收起办理入住
+              - button "立即查询" [disabled]:
+                - generic:
+                  - img
+                - generic: 立即查询
+              - button "重置" [ref=e151] [cursor=pointer]:
+                - generic [ref=e152]: 重置
+              - button "查询全部" [ref=e153] [cursor=pointer]:
+                - generic [ref=e154]: 查询全部
+            - generic [ref=e155]:
+              - paragraph [ref=e156]:
+                - text: 办理后写入
+                - code [ref=e157]: Hr_room_in
+                - text: （默认未审核）。房间须为已审（pass=1）。
+              - generic [ref=e158]:
+                - generic [ref=e159]: 匹配未审核的房间资料
+                - generic [ref=e160]:
+                  - switch
+              - generic [ref=e163]:
+                - generic [ref=e164]:
+                  - generic [ref=e165]: "* 员工工号"
+                  - textbox "* 员工工号" [ref=e169]
+                - generic [ref=e170]:
+                  - generic [ref=e171]: "* 房间编码（房号）"
+                  - textbox "* 房间编码（房号）" [ref=e175]
+                - generic [ref=e177]:
+                  - button "办理入住" [ref=e178] [cursor=pointer]:
+                    - generic [ref=e179]: 办理入住
+                  - button "清空" [ref=e180] [cursor=pointer]:
+                    - generic [ref=e181]: 清空
+            - generic [ref=e182]:
+              - generic [ref=e183]: 房间列表
+              - generic [ref=e184]:
+                - generic [ref=e185]: 设定日期
+                - generic [ref=e186]:
+                  - button "减少数值" [ref=e187] [cursor=pointer]:
+                    - img [ref=e189]
+                  - button "增加数值" [ref=e191] [cursor=pointer]:
+                    - img [ref=e193]
+                  - spinbutton [ref=e197]: "2026"
+                - generic [ref=e198]: 年
+                - generic [ref=e199]:
+                  - button "减少数值" [ref=e200] [cursor=pointer]:
+                    - img [ref=e202]
+                  - button "增加数值" [ref=e204] [cursor=pointer]:
+                    - img [ref=e206]
+                  - spinbutton [ref=e210]: "4"
+                - generic [ref=e211]: 月
+                - generic [ref=e212]: （入住人员/人数显示“当前在住”；电费按 Hr_room_use.tj_date 同月汇总）
+              - generic [ref=e213]:
+                - textbox "搜索入住宿舍：房号/楼栋/名称/房型" [ref=e216]
+                - textbox "搜索入住员工：工号或姓名" [ref=e219]
+            - generic [ref=e220]:
+              - generic [ref=e221]:
+                - table [ref=e223]:
+                  - rowgroup [ref=e235]:
+                    - row "楼号 编码 名称 类型 状态 入住人数 剩余床位 入住人员 电费(汇总) 操作" [ref=e236]:
+                      - columnheader "楼号" [ref=e237]:
+                        - generic [ref=e238]: 楼号
+                      - columnheader "编码" [ref=e239]:
+                        - generic [ref=e240]: 编码
+                      - columnheader "名称" [ref=e241]:
+                        - generic [ref=e242]: 名称
+                      - columnheader "类型" [ref=e243]:
+                        - generic [ref=e244]: 类型
+                      - columnheader "状态" [ref=e245]:
+                        - generic [ref=e246]: 状态
+                      - columnheader "入住人数" [ref=e247]:
+                        - generic [ref=e248]: 入住人数
+                      - columnheader "剩余床位" [ref=e249]:
+                        - generic [ref=e250]: 剩余床位
+                      - columnheader "入住人员" [ref=e251]:
+                        - generic [ref=e252]: 入住人员
+                      - columnheader "电费(汇总)" [ref=e253]:
+                        - generic [ref=e254]: 电费(汇总)
+                      - columnheader "操作" [ref=e255]:
+                        - generic [ref=e256]: 操作
+                - generic [ref=e260]:
+                  - table:
+                    - rowgroup
+                  - generic [ref=e262]: 暂无数据
+              - img [ref=e266]
+            - generic [ref=e269]:
+              - generic [ref=e270]: 共 0 条
+              - generic [ref=e273] [cursor=pointer]:
+                - generic:
+                  - combobox [ref=e275]
+                  - generic [ref=e276]: 20条/页
+                - img [ref=e279]
+              - button "上一页" [disabled] [ref=e281]:
+                - generic:
+                  - img
+              - list [ref=e282]:
+                - listitem "第 1 页" [ref=e283]: "1"
+              - button "下一页" [disabled] [ref=e284]:
+                - generic:
+                  - img
+              - generic [ref=e285]:
+                - generic [ref=e286]: 前往
+                - spinbutton "页" [ref=e289]: "1"
+                - generic [ref=e290]: 页

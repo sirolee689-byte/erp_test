@@ -426,6 +426,15 @@ export function createOperationAuditMiddleware(deps) {
           const op = operatorDisplayName(user)
           const { name, code } = req.__auditDeptCodeName
           content = `操作人${op}反审了部门/岗位「${displayCell(name)}」（编码：${displayCell(code)}）`
+        } else if (method === 'POST' && path === '/api/hr/dormitory/check-in' && String(req.__auditDormCheckInContent ?? '').trim()) {
+          // 宿舍：办理入住专用可读日志（由路由写入 req.__auditDormCheckInContent）
+          content = String(req.__auditDormCheckInContent).trim()
+        } else if (method === 'PUT' && path === '/api/hr/dormitory/room-in/room-info' && String(req.__auditDormRoomInfoContent ?? '').trim()) {
+          // 宿舍：入住管理-备注编辑
+          content = String(req.__auditDormRoomInfoContent).trim()
+        } else if (method === 'PUT' && path === '/api/hr/dormitory/check-out' && String(req.__auditDormCheckOutContent ?? '').trim()) {
+          // 宿舍：办理退宿专用可读日志
+          content = String(req.__auditDormCheckOutContent).trim()
         } else if (method === 'PUT' && path === '/api/hr/departments/audit-batch') {
           const op = operatorDisplayName(user)
           const n = Array.isArray(req.__auditDeptBatchCodes) ? req.__auditDeptBatchCodes.length : 0
