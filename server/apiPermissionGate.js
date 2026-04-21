@@ -211,6 +211,21 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'GET' && path === '/api/hr/dormitory/lodging-history') {
     return { menuPath: 'hr/dormitory/lodging-records', action: 'view' }
   }
+  /* v1.1.5：电费历史联动（按月份回填） */
+  if (m === 'GET' && path === '/api/dorm/get-electric-history') {
+    return { menuPath: 'hr/dormitory/lodging-records', action: 'view' }
+  }
+  /* v1.1.5：电费管理中心（挂在房间总览操作列） */
+  if (m === 'GET' && path === '/api/hr/dormitory/electric/context') {
+    return { menuPath: 'hr/dormitory/lodging-records', action: 'view' }
+  }
+  if (m === 'POST' && path === '/api/hr/dormitory/electric/settle') {
+    return { menuPath: 'hr/dormitory/lodging-records', action: 'add' }
+  }
+  /* v1.1.6：电费数据回滚（删除）- 审核级权限 */
+  if (m === 'POST' && path === '/api/dorm/delete-electric') {
+    return { menuPath: 'hr/dormitory/lodging-records', action: 'audit' }
+  }
   /* v1.1.4：入住审批 Tab 并入「住宿管理」；列表/审核走 lodging-records 权限 */
   if (m === 'GET' && path === '/api/hr/dormitory/lodging-in/audit-center-list') {
     return { menuPath: 'hr/dormitory/lodging-records', action: 'view' }

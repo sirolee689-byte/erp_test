@@ -42,6 +42,8 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   { method: 'PUT', path: '/api/dorm/un-audit', action: '入住单反审核', targetTable: 'Hr_room_in' },
   { method: 'DELETE', path: '/api/dorm/delete-checkin', action: '彻底删除未审核入住申请', targetTable: 'Hr_room_in' },
   { method: 'PUT', path: '/api/hr/dormitory/lodging-in/audit-batch', action: '批量审核入住单', targetTable: 'Hr_room_in' },
+  { method: 'POST', path: '/api/hr/dormitory/electric/settle', action: '电费核算', targetTable: 'Hr_room_use' },
+  { method: 'POST', path: '/api/dorm/delete-electric', action: '删除电费记录', targetTable: 'Hr_room_use' },
 
   { method: 'PUT', path: '/api/hr/departments/audit-batch', action: '批量审核部门', targetTable: 'HR_Departments' },
   { method: 'PUT', path: '/api/hr/departments/audit', action: '审核部门', targetTable: 'HR_Departments' },

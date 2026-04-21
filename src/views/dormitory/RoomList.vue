@@ -108,6 +108,8 @@
         <template #default="{ row }">
           <el-button v-permission="'add'" type="success" size="small" link @click="openCheckInForRoom(row)">增加入住</el-button>
           <el-button v-permission="'view'" type="primary" size="small" link @click="openOccupantsByRow(row)">入住管理</el-button>
+          <el-button v-permission="'view'" type="warning" size="small" link @click="openElectricManage(row)">电费管理</el-button>
+          <el-button v-permission="'audit'" type="danger" size="small" link @click="onDeleteElectric(row)">删除电费</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -176,13 +178,21 @@
         <el-button type="danger" :loading="checkOutSubmitting" @click="submitCheckOut">确认退宿</el-button>
       </template>
     </el-dialog>
+
+    <ElectricManage
+      v-model="electricVisible"
+      :room-code="electricRoomCode"
+      :tj-date="electricTjDate"
+      @saved="onElectricSaved"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import ElectricManage from './ElectricManage.vue'
 
 const emit = defineEmits(['dorm-data-changed'])
 
@@ -223,6 +233,10 @@ const checkOutVisible = ref(false)
 const checkOutSubmitting = ref(false)
 const checkOutForm = ref({ id: 0, out_date: '', out_hm: '00:00' })
 const roomInfoSaving = ref(new Set())
+
+const electricVisible = ref(false)
+const electricRoomCode = ref('')
+const electricTjDate = ref('')
 
 function formatMoney(v) {
   if (v == null || String(v).trim() === '') return '—'
@@ -340,6 +354,59 @@ function openOccupantsByRow(row) {
   }
   occupantsVisible.value = true
   loadOccupants()
+}
+
+function openElectricManage(row) {
+  const rc = String(row?.s_code ?? '').trim()
+  if (!rc) {
+    ElMessage.error('缺少房间编码（房号）')
+    return
+  }
+  electricRoomCode.value = rc
+  electricTjDate.value = `${Number(ovYear.value)}-${Number(ovMonth.value)}`
+  electricVisible.value = true
+}
+
+async function onElectricSaved() {
+  await loadOverview()
+  emit('dorm-data-changed')
+}
+
+async function onDeleteElectric(row) {
+  const roomCode = String(row?.s_code ?? '').trim()
+  if (!roomCode) {
+    ElMessage.error('缺少房间编码（房号）')
+    return
+  }
+  const tjDate = `${Number(ovYear.value)}-${Number(ovMonth.value)}`
+  try {
+    await ElMessageBox.confirm(
+      `确认删除此房间在当前设定月份（${tjDate}）的所有电费数据吗？`,
+      '删除确认',
+      {
+        type: 'warning',
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+        confirmButtonClass: 'el-button--danger',
+      },
+    )
+  } catch {
+    return
+  }
+
+  try {
+    const res = await axios.post('/api/dorm/delete-electric', { room_code: roomCode, tj_date: tjDate })
+    const body = res.data
+    if (body?.code !== 200) {
+      ElMessage.error(String(body?.msg ?? '删除失败'))
+      return
+    }
+    ElMessage.success(`已删除 ${roomCode} ${tjDate} 的电费数据`)
+    await loadOverview()
+    emit('dorm-data-changed')
+  } catch (e) {
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '请求失败'))
+  }
 }
 
 async function loadOccupants() {

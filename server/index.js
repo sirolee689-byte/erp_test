@@ -5226,6 +5226,505 @@ app.get('/api/hr/dormitory/room-occupants', async (req, res) => {
 })
 
 /**
+ * v1.1.5：电费管理中心 - 上期读数 + 当前在住人员
+ * GET /api/hr/dormitory/electric/context
+ * query: { room_code, tj_date? }
+ */
+app.get('/api/hr/dormitory/electric/context', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-Electric-Context', 'v1.1.5')
+  try {
+    const roomCode = String(req.query?.room_code ?? '').trim()
+    const tjDate = String(req.query?.tj_date ?? '').trim()
+    if (!roomCode) {
+      res.status(400).json({ code: 400, msg: 'room_code（房号）不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+
+    // 若传了 tj_date，则按该月份做“跨月在住”重叠过滤（修复：2 月入住不该出现在 1 月统计）
+    let hasMonthFilter = false
+    let mStartStr = null
+    let mEndStr = null
+    if (tjDate) {
+      const mm = /^(\d{4})-(\d{1,2})$/.exec(tjDate) || /^(\d{4})-(\d{2})$/.exec(tjDate)
+      if (!mm) {
+        res.status(400).json({ code: 400, msg: 'tj_date 格式不合法，应为 YYYY-M 或 YYYY-MM', data: null })
+        return
+      }
+      const y = Number(mm[1])
+      const mo = Number(mm[2])
+      const range = lodgingMonthRangeOrThrow(y, mo)
+      hasMonthFilter = true
+      const pad2 = (n) => String(n).padStart(2, '0')
+      const nextMo = mo === 12 ? 1 : mo + 1
+      const nextY = mo === 12 ? y + 1 : y
+      // 重要：用字符串传入 SQL 再 CONVERT(style 120)，避免 JS Date 时区偏移导致少算一天
+      mStartStr = `${y}-${pad2(mo)}-01 00:00:00`
+      mEndStr = `${nextY}-${pad2(nextMo)}-01 00:00:00`
+    }
+
+    // 上期读数：取该房间最近一条电费记录的本期读数 c_this 作为“上期读数”
+    const lastReq = pool.request().input('roomCode', sql.NVarChar(50), roomCode)
+    const lastRs = await lastReq.query(`
+      SELECT TOP 1
+        u.id,
+        LTRIM(RTRIM(ISNULL(u.tj_date, N''))) AS tj_date,
+        LTRIM(RTRIM(ISNULL(u.c_this, N''))) AS c_this
+      FROM ${HR_ROOM_USE_FROM} AS u
+      WHERE LTRIM(RTRIM(ISNULL(u.del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(u.room_code, N''))) = @roomCode
+      ORDER BY u.id DESC
+    `)
+    const lastRow = lastRs.recordset?.[0] ?? null
+    const lastReading = Number(String(lastRow?.c_this ?? '').trim() || '0')
+    const lastReadingSafe = Number.isFinite(lastReading) ? lastReading : 0
+
+    // 在住人员：若带月份，则按“时间重叠”过滤；否则保持原口径（当前在住）
+    const occReq = pool.request().input('roomCode', sql.NVarChar(50), roomCode)
+    occReq.input('hasMonth', sql.Bit, hasMonthFilter ? 1 : 0)
+    occReq.input('mStartStr', sql.NVarChar(19), mStartStr)
+    occReq.input('mEndStr', sql.NVarChar(19), mEndStr)
+    const occRs = await occReq.query(`
+      DECLARE @mStart datetime = CASE WHEN @hasMonth = 1 THEN CONVERT(datetime, @mStartStr, 120) ELSE NULL END;
+      DECLARE @mEnd datetime = CASE WHEN @hasMonth = 1 THEN CONVERT(datetime, @mEndStr, 120) ELSE NULL END;
+
+      SELECT
+        i.id,
+        LTRIM(RTRIM(ISNULL(i.staff_code, N''))) AS staff_code,
+        LTRIM(RTRIM(ISNULL(i.staff_truename, N''))) AS staff_truename,
+        LTRIM(RTRIM(ISNULL(d.name, ISNULL(s.join_department, i.staff_bm_name)))) AS dept_name,
+        LTRIM(RTRIM(ISNULL(i.in_time, N''))) AS in_time,
+        LTRIM(RTRIM(ISNULL(i.electric, N''))) AS electric,
+        CASE
+          WHEN @hasMonth = 0 THEN NULL
+          ELSE
+            CASE
+              WHEN ${hrRoomDateTimeExprNullableSql('i.in_time')} IS NULL THEN NULL
+              ELSE
+                (
+                  -- 按“自然日(日期)”计算：先转成 day-index 再相减，避免任何时分秒导致少一天
+                  (
+                    (
+                      CASE
+                        WHEN ${hrRoomDateTimeExprNullableSql("COALESCE(i.out_time2, i.out_time)")} IS NULL THEN DATEDIFF(day, 0, DATEADD(day, -1, @mEnd))
+                        WHEN DATEDIFF(day, 0, ${hrRoomDateTimeExprNullableSql("COALESCE(i.out_time2, i.out_time)")}) < DATEDIFF(day, 0, DATEADD(day, -1, @mEnd))
+                          THEN DATEDIFF(day, 0, ${hrRoomDateTimeExprNullableSql("COALESCE(i.out_time2, i.out_time)")})
+                        ELSE DATEDIFF(day, 0, DATEADD(day, -1, @mEnd))
+                      END
+                    )
+                    -
+                    (
+                      CASE
+                        WHEN DATEDIFF(day, 0, ${hrRoomDateTimeExprNullableSql('i.in_time')}) > DATEDIFF(day, 0, @mStart)
+                          THEN DATEDIFF(day, 0, ${hrRoomDateTimeExprNullableSql('i.in_time')})
+                        ELSE DATEDIFF(day, 0, @mStart)
+                      END
+                    )
+                  ) + 1
+                )
+            END
+        END AS stay_days
+      FROM ${HR_ROOM_IN_FROM} AS i
+      LEFT JOIN ${HR_STAFF_FROM} AS s
+        ON LTRIM(RTRIM(ISNULL(s.new_code, N''))) = LTRIM(RTRIM(ISNULL(i.staff_code, N'')))
+      LEFT JOIN ${HR_LEGACY_DEPT_FROM} AS d
+        ON LTRIM(RTRIM(ISNULL(d.code, N''))) = LTRIM(RTRIM(ISNULL(s.join_department, N'')))
+      WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+        AND (
+          @hasMonth = 0
+          OR (
+            ${hrRoomDateTimeExprNullableSql('i.in_time')} < @mEnd
+            AND (
+              ${hrRoomDateTimeExprNullableSql("COALESCE(i.out_time2, i.out_time)")} IS NULL
+              OR ${hrRoomDateTimeExprNullableSql("COALESCE(i.out_time2, i.out_time)")} >= @mStart
+            )
+          )
+        )
+        AND (
+          @hasMonth = 1
+          OR LTRIM(RTRIM(ISNULL(i.out_room, N'0'))) = N'0'
+        )
+        AND LTRIM(RTRIM(ISNULL(i.room_code, N''))) = @roomCode
+      ORDER BY i.id DESC
+    `)
+
+    const occupants = (occRs.recordset ?? []).map((r) => {
+      const disc = Number(String(r?.electric ?? '').trim() || '0')
+      const daysNum = Number(r?.stay_days)
+      const stayDays = Number.isFinite(daysNum) && daysNum > 0 ? Math.floor(daysNum) : 0
+      return {
+        ...r,
+        electric_discount: Number.isFinite(disc) && disc > 0 ? disc : 0,
+        stay_days: stayDays,
+      }
+    })
+
+    const discountTotal = occupants.reduce((sum, r) => sum + Number(r?.electric_discount ?? 0), 0)
+    res.json({
+      code: 200,
+      msg: 'success',
+      data: {
+        room_code: roomCode,
+        tj_date: tjDate || null,
+        last: lastRow ? { id: lastRow.id, tj_date: lastRow.tj_date, c_this: String(lastRow.c_this ?? '').trim() } : null,
+        last_reading: lastReadingSafe,
+        occupants,
+        occupant_count: occupants.length,
+        discount_total: discountTotal,
+      },
+    })
+  } catch (err) {
+    console.error('GET /api/hr/dormitory/electric/context 失败：', err)
+    const detail = String(err?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `加载电费数据失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * v1.1.5：电费历史联动（按房号+月份回填抄表）
+ * GET /api/dorm/get-electric-history
+ * query: { room_code, tj_date }
+ *
+ * 返回规则：
+ * - 若该月份存在记录：返回 found=true + c_star + c_this
+ * - 若该月份无记录：返回 found=false + fallback_last_c_this（该房间最近一条记录的 c_this），并由前端将 c_this 置 0
+ */
+app.get('/api/dorm/get-electric-history', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-Electric-History', 'v1.1.5')
+  try {
+    const roomCode = String(req.query?.room_code ?? '').trim()
+    const tjDate = String(req.query?.tj_date ?? '').trim()
+    if (!roomCode) {
+      res.status(400).json({ code: 400, msg: 'room_code（房间号）不能为空', data: null })
+      return
+    }
+    if (!tjDate) {
+      res.status(400).json({ code: 400, msg: 'tj_date（统计月份）不能为空，例如 2026-03', data: null })
+      return
+    }
+
+    const pool = await getPool()
+
+    // tj_date 兼容：库里常见为 'YYYY-M'（不补 0），而前端可能传 'YYYY-MM'
+    const tjDateTrim = tjDate
+    let tjDateAlt = ''
+    const m = /^(\d{4})-(\d{1,2})$/.exec(tjDateTrim) || /^(\d{4})-(\d{2})$/.exec(tjDateTrim)
+    if (m) {
+      const y = m[1]
+      const mo = String(Number(m[2]))
+      if (mo !== 'NaN') {
+        const moPad = String(Number(m[2])).padStart(2, '0')
+        // 两个候选：补 0 与不补 0
+        const a = `${y}-${mo}`
+        const b = `${y}-${moPad}`
+        tjDateAlt = a === tjDateTrim ? b : a
+      }
+    }
+
+    const q = pool.request()
+    q.input('room_code', sql.NVarChar(50), roomCode)
+    q.input('tj_date', sql.NVarChar(50), tjDate)
+    q.input('tj_date_alt', sql.NVarChar(50), tjDateAlt || null)
+    const rs = await q.query(`
+      SELECT TOP 1
+        LTRIM(RTRIM(ISNULL(u.c_star, N''))) AS c_star,
+        LTRIM(RTRIM(ISNULL(u.c_this, N''))) AS c_this
+      FROM ${HR_ROOM_USE_FROM} AS u
+      WHERE LTRIM(RTRIM(ISNULL(u.del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(u.room_code, N''))) = @room_code
+        AND (
+          LTRIM(RTRIM(ISNULL(u.tj_date, N''))) = @tj_date
+          OR (@tj_date_alt IS NOT NULL AND LTRIM(RTRIM(ISNULL(u.tj_date, N''))) = @tj_date_alt)
+        )
+      ORDER BY u.id DESC
+    `)
+
+    const row = rs.recordset?.[0] ?? null
+    if (row) {
+      res.json({
+        code: 200,
+        msg: 'success',
+        data: {
+          found: true,
+          room_code: roomCode,
+          tj_date: tjDate,
+          c_star: String(row.c_star ?? '').trim(),
+          c_this: String(row.c_this ?? '').trim(),
+        },
+      })
+      return
+    }
+
+    const lastReq = pool.request().input('room_code', sql.NVarChar(50), roomCode)
+    const lastRs = await lastReq.query(`
+      SELECT TOP 1
+        LTRIM(RTRIM(ISNULL(u.c_this, N''))) AS c_this
+      FROM ${HR_ROOM_USE_FROM} AS u
+      WHERE LTRIM(RTRIM(ISNULL(u.del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(u.room_code, N''))) = @room_code
+      ORDER BY u.id DESC
+    `)
+    const lastRow = lastRs.recordset?.[0] ?? null
+
+    res.json({
+      code: 200,
+      msg: 'success',
+      data: {
+        found: false,
+        room_code: roomCode,
+        tj_date: tjDate,
+        fallback_last_c_this: String(lastRow?.c_this ?? '').trim(),
+      },
+    })
+  } catch (err) {
+    console.error('GET /api/dorm/get-electric-history 失败：', err)
+    const detail = String(err?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `加载电费历史失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * v1.1.6：电费数据回滚（删除）
+ * POST /api/dorm/delete-electric
+ * body: { room_code, tj_date }
+ */
+app.post('/api/dorm/delete-electric', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-Delete-Electric', 'v1.1.6')
+  try {
+    const body = req.body ?? {}
+    const roomCode = String(body.room_code ?? '').trim()
+    const tjDate = String(body.tj_date ?? '').trim()
+    if (!roomCode) {
+      res.status(400).json({ code: 400, msg: 'room_code（房间号）不能为空', data: null })
+      return
+    }
+    if (!tjDate) {
+      res.status(400).json({ code: 400, msg: 'tj_date（统计月份）不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const q = pool.request()
+    q.input('room_code', sql.NVarChar(50), roomCode)
+    q.input('tj_date', sql.NVarChar(50), tjDate)
+    const r = await q.query(`
+      DELETE FROM ${HR_ROOM_USE_FROM}
+      WHERE LTRIM(RTRIM(ISNULL(room_code, N''))) = @room_code
+        AND LTRIM(RTRIM(ISNULL(tj_date, N''))) = @tj_date
+    `)
+    const deleted = Array.isArray(r.rowsAffected) ? Number(r.rowsAffected[0] ?? 0) : 0
+
+    const me = getCurrentUserFromReq(req)
+    const uname = String(me?.userCode ?? me?.userName ?? '').trim() || '未知'
+    await writeLog(req, '删除电费记录', `管理员 [${uname}] 删除了 [${roomCode}] [${tjDate}] 的电费记录`, {
+      targetTable: 'Hr_room_use',
+      pool,
+    })
+
+    res.json({ code: 200, msg: 'success', data: { deleted } })
+  } catch (err) {
+    console.error('POST /api/dorm/delete-electric 失败：', err)
+    const detail = String(err?.message ?? '数据库删除失败')
+    res.status(500).json({ code: 500, msg: `删除电费失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * v1.1.5：电费管理中心 - 核算并落库 Hr_room_use
+ * POST /api/hr/dormitory/electric/settle
+ * body: { room_code, tj_date, c_this, price, change?, manual_electric? }
+ */
+app.post('/api/hr/dormitory/electric/settle', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-Electric-Settle', 'v1.1.5')
+  try {
+    const body = req.body ?? {}
+    const roomCode = String(body.room_code ?? '').trim()
+    const tjDate = String(body.tj_date ?? '').trim()
+    const cStarRaw = body.c_star
+    const cOldEndRaw = body.c_old_end
+    const cNewStarRaw = body.c_new_star
+    const cThisRaw = body.c_this
+    const changeFlag = String(body.change ?? '').trim() === '1' || body.change === true
+
+    if (!roomCode) {
+      res.status(400).json({ code: 400, msg: 'room_code（房号）不能为空', data: null })
+      return
+    }
+    if (!tjDate) {
+      res.status(400).json({ code: 400, msg: 'tj_date（统计月份）不能为空，例如 2026-4', data: null })
+      return
+    }
+
+    const cThisNum = Number(cThisRaw)
+    const cThis = Number.isFinite(cThisNum) && cThisNum >= 0 ? cThisNum : NaN
+    if (!Number.isFinite(cThis)) {
+      res.status(400).json({ code: 400, msg: 'c_this（本期读数）必须为非负数字', data: null })
+      return
+    }
+
+    const pool = await getPool()
+
+    // 上期读数（最近一条记录的 c_this）
+    const lastReq = pool.request().input('roomCode', sql.NVarChar(50), roomCode)
+    const lastRs = await lastReq.query(`
+      SELECT TOP 1
+        u.id,
+        LTRIM(RTRIM(ISNULL(u.c_this, N''))) AS c_this
+      FROM ${HR_ROOM_USE_FROM} AS u
+      WHERE LTRIM(RTRIM(ISNULL(u.del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(u.room_code, N''))) = @roomCode
+      ORDER BY u.id DESC
+    `)
+    const lastRow = lastRs.recordset?.[0] ?? null
+    const lastReading = Number(String(lastRow?.c_this ?? '').trim() || '0')
+    const lastReadingSafe = Number.isFinite(lastReading) ? lastReading : 0
+
+    // 上期读数优先使用前端回填的 c_star；未传则回退最近一条 c_this
+    const cStarNum = Number(cStarRaw)
+    const cStar = Number.isFinite(cStarNum) && cStarNum >= 0 ? cStarNum : lastReadingSafe
+
+    let usedElectric = 0
+    if (changeFlag) {
+      const cOldEndNum = Number(cOldEndRaw)
+      const cOldEnd = Number.isFinite(cOldEndNum) && cOldEndNum >= 0 ? cOldEndNum : NaN
+      if (!Number.isFinite(cOldEnd)) {
+        res.status(400).json({ code: 400, msg: '已勾选“换表”时，c_old_end（旧表结束数）必须为非负数字', data: null })
+        return
+      }
+      const cNewStarNum = Number(cNewStarRaw)
+      const cNewStar = Number.isFinite(cNewStarNum) && cNewStarNum >= 0 ? cNewStarNum : NaN
+      if (!Number.isFinite(cNewStar)) {
+        res.status(400).json({ code: 400, msg: '已勾选“换表”时，c_new_star（新表开始数）必须为非负数字', data: null })
+        return
+      }
+      usedElectric = (cOldEnd - cStar) + (cThis - cNewStar)
+    } else {
+      usedElectric = cThis - cStar
+    }
+    if (!Number.isFinite(usedElectric) || usedElectric < 0) {
+      res.status(400).json({ code: 400, msg: '用电量计算结果不合法（本期读数不得小于上期读数）', data: null })
+      return
+    }
+
+    const price = 0.93
+    const totalMoney = usedElectric * price
+
+    // 当前在住人员（分摊用）
+    const occReq = pool.request().input('roomCode', sql.NVarChar(50), roomCode)
+    const occRs = await occReq.query(`
+      SELECT
+        i.id,
+        LTRIM(RTRIM(ISNULL(i.staff_code, N''))) AS staff_code,
+        LTRIM(RTRIM(ISNULL(i.staff_truename, N''))) AS staff_truename,
+        LTRIM(RTRIM(ISNULL(d.name, ISNULL(s.join_department, i.staff_bm_name)))) AS dept_name,
+        LTRIM(RTRIM(ISNULL(i.electric, N''))) AS electric
+      FROM ${HR_ROOM_IN_FROM} AS i
+      LEFT JOIN ${HR_STAFF_FROM} AS s
+        ON LTRIM(RTRIM(ISNULL(s.new_code, N''))) = LTRIM(RTRIM(ISNULL(i.staff_code, N'')))
+      LEFT JOIN ${HR_LEGACY_DEPT_FROM} AS d
+        ON LTRIM(RTRIM(ISNULL(d.code, N''))) = LTRIM(RTRIM(ISNULL(s.join_department, N'')))
+      WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(i.out_room, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(i.room_code, N''))) = @roomCode
+      ORDER BY i.id DESC
+    `)
+
+    const occupants = (occRs.recordset ?? []).map((r) => {
+      const disc = Number(String(r?.electric ?? '').trim() || '0')
+      const discount = Number.isFinite(disc) && disc > 0 ? disc : 0
+      return { ...r, electric_discount: discount }
+    })
+    if (!occupants.length) {
+      res.status(400).json({ code: 400, msg: '该房间当前无在住人员，无法核算', data: null })
+      return
+    }
+
+    const baseShare = occupants.length > 0 ? totalMoney / occupants.length : 0
+    const avgEle = occupants.length > 0 ? usedElectric / occupants.length : 0
+    const shares = occupants.map((p) => {
+      const disc = Number(p.electric_discount ?? 0)
+      const discount = Number.isFinite(disc) && disc >= 0 ? disc : 0
+      const billedEle = Math.max(0, avgEle - discount)
+      const money = billedEle * 0.93
+      const safeMoney = Number.isFinite(money) && money >= 0 ? money : 0
+      const floored = Math.floor(safeMoney * 100) / 100
+      return { ...p, share_money: floored }
+    })
+
+    const discountTotal = shares.reduce((sum, r) => sum + Number(r?.electric_discount ?? 0), 0)
+
+    const { UID, uname: auditUname } = getActorAuditFromReq(req)
+    const me = getCurrentUserFromReq(req)
+    const uidStr = UID != null ? String(UID) : ''
+    const unameLegacy = String(me?.userCode ?? '').trim() || (auditUname != null ? String(auditUname).trim() : '')
+    const nowStr = legacyDeptNowString()
+    const ipStr = getRequestIp(req) || null
+
+    const ins = pool.request()
+    ins.input('room_code', sql.NVarChar(50), roomCode)
+    ins.input('tj_date', sql.NVarChar(50), tjDate)
+    ins.input('c_star', sql.NVarChar(50), String(cStar))
+    ins.input('c_old_end', sql.NVarChar(50), changeFlag ? String(Number(cOldEndRaw ?? 0)) : null)
+    ins.input('c_new_star', sql.NVarChar(50), changeFlag ? String(Number(cNewStarRaw ?? 0)) : null)
+    ins.input('c_this', sql.NVarChar(50), String(cThis))
+    ins.input('c_change', sql.NVarChar(50), changeFlag ? '1' : '0')
+    ins.input('c_electric', sql.NVarChar(50), String(usedElectric))
+    ins.input('c_money', sql.NVarChar(50), String(price))
+    ins.input('c_yh_electric', sql.NVarChar(50), String(discountTotal))
+    ins.input('c_sum_money', sql.NVarChar(50), String(Math.round(totalMoney * 100) / 100))
+    ins.input('c_date', sql.NVarChar(50), nowStr)
+    ins.input('uid', sql.NVarChar(50), uidStr || null)
+    ins.input('uname', sql.NVarChar(50), unameLegacy || null)
+    ins.input('addtime', sql.NVarChar(50), nowStr)
+    ins.input('ip', sql.NVarChar(50), ipStr)
+
+    const insRs = await ins.query(`
+      INSERT INTO ${HR_ROOM_USE_FROM} (
+        room_code, tj_date,
+        c_star, c_old_end, c_new_star, c_this, c_change, c_electric, c_money, c_yh_electric, c_sum_money, c_date,
+        uid, uname, addtime, ip,
+        del, pass
+      )
+      VALUES (
+        @room_code, @tj_date,
+        @c_star, @c_old_end, @c_new_star, @c_this, @c_change, @c_electric, @c_money, @c_yh_electric, @c_sum_money, @c_date,
+        @uid, @uname, @addtime, @ip,
+        N'0', N'1'
+      );
+      SELECT SCOPE_IDENTITY() AS id;
+    `)
+    const newId = Number(insRs.recordset?.[0]?.id ?? 0)
+
+    await writeLog(req, '电费核算', `管理员 [${unameLegacy || '未知'}] 完成了 [${roomCode}] 的电费核算`, {
+      targetTable: 'Hr_room_use',
+      pool,
+    })
+
+    res.json({
+      code: 200,
+      msg: 'success',
+      data: {
+        id: newId,
+        room_code: roomCode,
+        tj_date: tjDate,
+        c_star: cStar,
+        c_this: cThis,
+        used_electric: usedElectric,
+        price,
+        total_money: Math.round(totalMoney * 100) / 100,
+        discount_total: discountTotal,
+        shares,
+      },
+    })
+  } catch (err) {
+    console.error('POST /api/hr/dormitory/electric/settle 失败：', err)
+    const detail = String(err?.message ?? '数据库写入失败')
+    res.status(500).json({ code: 500, msg: `电费核算失败：${detail}`, data: null })
+  }
+})
+
+/**
  * 入住管理：编辑备注（仅更新当前行 room_info）
  * PUT /api/hr/dormitory/room-in/room-info
  * body: { id, room_info }
@@ -5439,6 +5938,10 @@ app.get('/api/hr/dormitory/lodging-overview', async (req, res) => {
 
     const pool = await getPool()
 
+    // 本月区间参数：用于“跨月在住”重叠判定（SQL Server 2008 R2 兼容）
+    const mStart = range.mStart
+    const mEnd = range.mEnd
+
     const whereRoom = `
       WHERE LTRIM(RTRIM(ISNULL(r.pass, N'0'))) = N'1'
         AND LTRIM(RTRIM(ISNULL(r.del, N'0'))) = N'0'
@@ -5456,8 +5959,11 @@ app.get('/api/hr/dormitory/lodging-overview', async (req, res) => {
             FROM ${HR_ROOM_IN_FROM} AS si
             WHERE LTRIM(RTRIM(ISNULL(si.room_code, N''))) = LTRIM(RTRIM(ISNULL(r.s_code, N'')))
               AND LTRIM(RTRIM(ISNULL(si.del, N'0'))) = N'0'
-              AND LTRIM(RTRIM(ISNULL(si.in_room, N'1'))) = N'1'
-              AND LTRIM(RTRIM(ISNULL(si.out_room, N'0'))) = N'0'
+              AND ${hrRoomDateTimeExprNullableSql('si.in_time')} < @mEnd
+              AND (
+                ${hrRoomDateTimeExprNullableSql("COALESCE(si.out_time2, si.out_time)")} IS NULL
+                OR ${hrRoomDateTimeExprNullableSql("COALESCE(si.out_time2, si.out_time)")} >= @mStart
+              )
               AND (
                 si.staff_code LIKE @staffKw
                 OR si.staff_truename LIKE @staffKw
@@ -5471,6 +5977,8 @@ app.get('/api/hr/dormitory/lodging-overview', async (req, res) => {
     totalReq.input('kw', sql.NVarChar(200), kwPat)
     totalReq.input('hasStaff', sql.Bit, hasStaff ? 1 : 0)
     totalReq.input('staffKw', sql.NVarChar(200), staffPat)
+    totalReq.input('mStart', sql.DateTime, mStart)
+    totalReq.input('mEnd', sql.DateTime, mEnd)
     const totalRow = await totalReq.query(`
       SELECT COUNT(1) AS total
       FROM ${HR_ROOM_FROM} AS r
@@ -5486,6 +5994,8 @@ app.get('/api/hr/dormitory/lodging-overview', async (req, res) => {
     listReq.input('kw', sql.NVarChar(200), kwPat)
     listReq.input('hasStaff', sql.Bit, hasStaff ? 1 : 0)
     listReq.input('staffKw', sql.NVarChar(200), staffPat)
+    listReq.input('mStart', sql.DateTime, mStart)
+    listReq.input('mEnd', sql.DateTime, mEnd)
     // 电费表 tj_date 为 nvarchar（常见：'YYYY-M'），前端会传 tj_date；未传则按 year/month 兜底
     const tjDateRaw = String(req.query?.tj_date ?? '').trim()
     const tjDate = tjDateRaw || `${range.y}-${range.mo}`
@@ -5530,8 +6040,11 @@ app.get('/api/hr/dormitory/lodging-overview', async (req, res) => {
               FROM ${HR_ROOM_IN_FROM} AS x
               WHERE LTRIM(RTRIM(ISNULL(x.room_code, N''))) = LTRIM(RTRIM(ISNULL(i.room_code, N'')))
                 AND LTRIM(RTRIM(ISNULL(x.del, N'0'))) = N'0'
-                AND LTRIM(RTRIM(ISNULL(x.in_room, N'1'))) = N'1'
-                AND LTRIM(RTRIM(ISNULL(x.out_room, N'0'))) = N'0'
+                AND ${hrRoomDateTimeExprNullableSql('x.in_time')} < @mEnd
+                AND (
+                  ${hrRoomDateTimeExprNullableSql("COALESCE(x.out_time2, x.out_time)")} IS NULL
+                  OR ${hrRoomDateTimeExprNullableSql("COALESCE(x.out_time2, x.out_time)")} >= @mStart
+                )
                 AND (
                   LTRIM(RTRIM(ISNULL(x.staff_code, N''))) <> N''
                   OR LTRIM(RTRIM(CONVERT(nvarchar(400), ISNULL(x.staff_truename, N'')))) <> N''
@@ -5541,8 +6054,11 @@ app.get('/api/hr/dormitory/lodging-overview', async (req, res) => {
             ), 1, 2, N'') AS names
           FROM ${HR_ROOM_IN_FROM} AS i
           WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
-            AND LTRIM(RTRIM(ISNULL(i.in_room, N'1'))) = N'1'
-            AND LTRIM(RTRIM(ISNULL(i.out_room, N'0'))) = N'0'
+            AND ${hrRoomDateTimeExprNullableSql('i.in_time')} < @mEnd
+            AND (
+              ${hrRoomDateTimeExprNullableSql("COALESCE(i.out_time2, i.out_time)")} IS NULL
+              OR ${hrRoomDateTimeExprNullableSql("COALESCE(i.out_time2, i.out_time)")} >= @mStart
+            )
             AND LTRIM(RTRIM(ISNULL(i.room_code, N''))) <> N''
           GROUP BY LTRIM(RTRIM(ISNULL(i.room_code, N'')))
         ) AS occ ON occ.rc = LTRIM(RTRIM(ISNULL(r.s_code, N'')))
@@ -6250,6 +6766,13 @@ app.listen(port, () => {
   const bootAt = new Date().toISOString()
   console.log(`API 服务已启动：http://localhost:${port}`)
   console.log(`[启动指纹] bootAt=${bootAt}`)
+  console.log(`Dorm-Electric-FlatUI-v1.1.5-Active ${bootAt}`)
+  console.log(`Electric-History-Linkage-v1.1.5-Active ${bootAt}`)
+  console.log(`Electric-MeterChange-Logic-v1.1.5-Active ${bootAt}`)
+  console.log(`Electric-Split-Logic-Fixed-v1.1.5-Active ${bootAt}`)
+  console.log(`Dorm-TimeFilter-Fixed-v1.1.7 ${bootAt}`)
+  console.log(`Dorm-Electric-Context-MonthFilter-Fixed-v1.1.7 ${bootAt}`)
+  console.log(`Electric-Days-Weight-v1.1.9-Active ${bootAt}`)
   console.log(`[启动指纹] v1.1.3-ElectricFee-Fix bootAt=${bootAt}`)
   console.log(`Dorm-Module-Query-Trigger-Active ${bootAt}`)
   console.log(`Dorm-CheckIn-SmartLogic-v1.1.3-Active ${bootAt}`)
