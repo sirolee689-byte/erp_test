@@ -211,10 +211,25 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'GET' && path === '/api/hr/dormitory/lodging-history') {
     return { menuPath: 'hr/dormitory/lodging-records', action: 'view' }
   }
+  /* v1.1.4：入住审批 Tab 并入「住宿管理」；列表/审核走 lodging-records 权限 */
+  if (m === 'GET' && path === '/api/hr/dormitory/lodging-in/audit-center-list') {
+    return { menuPath: 'hr/dormitory/lodging-records', action: 'view' }
+  }
   if (m === 'PUT' && path === '/api/hr/dormitory/lodging-in/audit') {
     return { menuPath: 'hr/dormitory/lodging-records', action: 'audit' }
   }
+  if (m === 'PUT' && path === '/api/hr/dormitory/lodging-in/reject') {
+    return { menuPath: 'hr/dormitory/lodging-records', action: 'audit' }
+  }
   if (m === 'PUT' && path === '/api/hr/dormitory/lodging-in/audit-batch') {
+    return { menuPath: 'hr/dormitory/lodging-records', action: 'audit' }
+  }
+  /* 入住单反审核（独立路径，权限与 lodging-in/audit 一致） */
+  if (m === 'PUT' && path === '/api/dorm/un-audit') {
+    return { menuPath: 'hr/dormitory/lodging-records', action: 'audit' }
+  }
+  /* 未审核入住申请物理删除（与审核/反审核同级敏感操作） */
+  if (m === 'DELETE' && path === '/api/dorm/delete-checkin') {
     return { menuPath: 'hr/dormitory/lodging-records', action: 'audit' }
   }
 

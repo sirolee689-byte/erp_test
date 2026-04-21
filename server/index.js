@@ -2820,6 +2820,22 @@ function hrRoomDateTimeExprNullableSql(colExpr) {
 }
 
 /**
+ * 办理入住：将前端/旧库习惯的入住日期字符串解析为 JS Date，供与历史区间做 SQL 参数比较
+ * @param {string} inTimeTrim
+ * @param {string} fallbackNowStr
+ */
+function parseCheckInInTimeToDateOrNow(inTimeTrim, fallbackNowStr) {
+  const s = String(inTimeTrim ?? '').trim() || String(fallbackNowStr ?? '').trim()
+  if (!s) return new Date()
+  const normalized = s.replace(/\//g, '-').replace(/\./g, '-')
+  const d = new Date(normalized)
+  if (!Number.isNaN(d.getTime())) return d
+  const d2 = new Date(s)
+  if (!Number.isNaN(d2.getTime())) return d2
+  return new Date()
+}
+
+/**
  * 是否在 API JSON 中附带 SQL 调试信息（含 precedingErrors）。
  * - 设置 DEBUG_API=true 时始终附带
  * - 或未设置 NODE_ENV=production 时附带（本地 node server 常见未设 NODE_ENV，便于排错）
@@ -4831,9 +4847,10 @@ app.get('/api/hr/dormitory/check-in/staff-options', async (req, res) => {
  * v1.1.3：办理入住（写入 Hr_room_in）
  * POST /api/hr/dormitory/check-in
  * body: { staff_code, room_code, pass? } — pass 与房间列表一致，用于定位「已审/未审」房间资料，默认 '1'
+ * v1.1.4+：INSERT 前校验在住（out_room=0）与历史已退宿区间（out_room=1）时间重叠
  */
 app.post('/api/hr/dormitory/check-in', async (req, res) => {
-  res.setHeader('X-ERP-Dormitory-CheckIn', 'v1.1.3-final')
+  res.setHeader('X-ERP-Dormitory-CheckIn', 'v1.1.4-overlap')
   try {
     const body = req.body ?? {}
     const staffCode = String(body.staff_code ?? '').trim()
@@ -4953,22 +4970,6 @@ app.post('/api/hr/dormitory/check-in', async (req, res) => {
         return
       }
 
-      const dupReq = new sql.Request(tx)
-      dupReq.input('staffCode', sql.NVarChar(50), staffCode)
-      const dupRs = await dupReq.query(`
-        SELECT COUNT(1) AS cnt
-        FROM ${HR_ROOM_IN_FROM} AS i
-        WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
-          AND LTRIM(RTRIM(ISNULL(i.out_room, N'0'))) = N'0'
-          AND LTRIM(RTRIM(i.staff_code)) = @staffCode
-      `)
-      const dup = Number(dupRs.recordset?.[0]?.cnt ?? 0)
-      if (dup > 0) {
-        await tx.rollback()
-        res.status(400).json({ code: 400, msg: '该员工已在宿', data: null })
-        return
-      }
-
       const staffReq = new sql.Request(tx)
       staffReq.input('staffCode', sql.NVarChar(50), staffCode)
       // 口径锁定：Hr_staff.new_code = Hr_room_in.staff_code
@@ -5018,6 +5019,59 @@ app.post('/api/hr/dormitory/check-in', async (req, res) => {
       // 兼容：new_code 可能为空；此时用 code 作为宿舍关联员工编码
       const staffLinkCode = staffNewCode || staffDbCode || staffCode
 
+      // 第一步：在住拦截（须用 staffLinkCode，与即将写入 Hr_room_in.staff_code 一致）
+      const stayReq = new sql.Request(tx)
+      stayReq.input('staffLinkCode', sql.NVarChar(50), staffLinkCode)
+      const stayRs = await stayReq.query(`
+        SELECT TOP 1 i.id
+        FROM ${HR_ROOM_IN_FROM} AS i
+        WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+          AND LTRIM(RTRIM(ISNULL(i.out_room, N'0'))) = N'0'
+          AND LTRIM(RTRIM(ISNULL(i.staff_code, N''))) = LTRIM(RTRIM(@staffLinkCode))
+      `)
+      if (stayRs.recordset?.[0]) {
+        await tx.rollback()
+        res.status(400).json({
+          code: 400,
+          msg: '该员工当前处于在住状态，请先办理退宿后再重新申请',
+          data: null,
+        })
+        return
+      }
+
+      // 第二步：历史闭区间重叠（已退宿 out_room=1；端点用 datetime 表达式兼容 nvarchar/datetime 列，SQL2008）
+      const newInDt = parseCheckInInTimeToDateOrNow(inTime, nowStr)
+      const outEndDtExpr = `COALESCE(${hrRoomDateTimeExprNullableSql('i.out_time')}, ${hrRoomDateTimeExprNullableSql('i.out_time2')})`
+      const ovReq = new sql.Request(tx)
+      ovReq.input('staffLinkCode', sql.NVarChar(50), staffLinkCode)
+      ovReq.input('newInDt', sql.DateTime, newInDt)
+      const ovRs = await ovReq.query(`
+        SELECT TOP 1
+          i.id,
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(i.in_time, N'')))) AS disp_in,
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(i.out_time, ISNULL(i.out_time2, N''))))) AS disp_out
+        FROM ${HR_ROOM_IN_FROM} AS i
+        WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+          AND LTRIM(RTRIM(ISNULL(i.out_room, N'0'))) = N'1'
+          AND LTRIM(RTRIM(ISNULL(i.staff_code, N''))) = LTRIM(RTRIM(@staffLinkCode))
+          AND ${hrRoomDateTimeExprNullableSql('i.in_time')} IS NOT NULL
+          AND ${outEndDtExpr} IS NOT NULL
+          AND @newInDt >= ${hrRoomDateTimeExprNullableSql('i.in_time')}
+          AND @newInDt <= ${outEndDtExpr}
+      `)
+      const overlapHit = ovRs.recordset?.[0]
+      if (overlapHit) {
+        await tx.rollback()
+        const di = String(overlapHit?.disp_in ?? '').trim() || '未知'
+        const dout = String(overlapHit?.disp_out ?? '').trim() || '未知'
+        res.status(400).json({
+          code: 400,
+          msg: `时间冲突：该员工在 [${di}] 至 [${dout}] 已有住宿记录，请核实后再试`,
+          data: null,
+        })
+        return
+      }
+
       // 旧库字段自检：不存在就提示（便于你回到 Navicat/旧系统核对字段）
       /** @type {string[]} */
       const missing = []
@@ -5027,6 +5081,7 @@ app.post('/api/hr/dormitory/check-in', async (req, res) => {
       if (!inColset.has('room_code')) missing.push('Hr_room_in.room_code')
       if (!inColset.has('staff_code')) missing.push('Hr_room_in.staff_code')
       if (!inColset.has('out_room')) missing.push('Hr_room_in.out_room')
+      if (!inColset.has('pass')) missing.push('Hr_room_in.pass')
       if (missing.length > 0) {
         await tx.rollback()
         res.status(400).json({ code: 400, msg: `旧表字段缺失，无法办理入住：${missing.join('、')}`, data: null })
@@ -5085,7 +5140,7 @@ app.post('/api/hr/dormitory/check-in', async (req, res) => {
         )
         VALUES (
           @uid, @uname, @utruename, @addtime, @ip,
-          N'0', N'0',
+          N'0', N'1',
           @systemcode,
           @name, @code, @s_code, @s_code1, @zt, @intime,
           @staff_code, @staff_truename, @staff_systemcode, @staff_bm_name, @staff_bm_systemcode,
@@ -5526,21 +5581,13 @@ app.get('/api/hr/dormitory/lodging-overview', async (req, res) => {
 
 /**
  * 住宿历史列表（住/退宿）：GET /api/hr/dormitory/lodging-history
- * - year、month：按 Hr_room_in.in_time 落入该自然月
+ * - v1.1.4：不再按 year/month 过滤，默认全量（仅 del=0）；排序 `in_time DESC, id DESC`；分页仍为 ROW_NUMBER（SQL2008）
  * - pass：'1'|'0'|不传=全部；del 固定 0
  * - keyword：员工工号/姓名/宿舍编码模糊
  */
 app.get('/api/hr/dormitory/lodging-history', async (req, res) => {
-  res.setHeader('X-ERP-Dormitory-Lodging-History', 'v1.1.3')
+  res.setHeader('X-ERP-Dormitory-Lodging-History', 'v1.1.4')
   try {
-    let range
-    try {
-      range = lodgingMonthRangeOrThrow(req.query?.year, req.query?.month)
-    } catch (e) {
-      res.status(400).json({ code: 400, msg: String(e?.message ?? '年月参数错误'), data: null })
-      return
-    }
-
     const pageRaw = req.query?.page
     const pageSizeRaw = req.query?.pageSize
     const page = Number(pageRaw ?? 1)
@@ -5567,8 +5614,6 @@ app.get('/api/hr/dormitory/lodging-history', async (req, res) => {
     const endRow = offset + safePageSize
 
     const totalReq = pool.request()
-    totalReq.input('mStart', sql.DateTime2, range.mStart)
-    totalReq.input('mEnd', sql.DateTime2, range.mEnd)
     totalReq.input('hasKw', sql.Bit, hasKw ? 1 : 0)
     totalReq.input('kw', sql.NVarChar(200), kwPat)
     if (passRaw === '0' || passRaw === '1') {
@@ -5579,7 +5624,6 @@ app.get('/api/hr/dormitory/lodging-history', async (req, res) => {
       FROM ${HR_ROOM_IN_FROM} AS i
       LEFT JOIN ${HR_ROOM_FROM} AS r ON r.systemcode = i.room_systemcode
       WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
-        AND ${hrRoomInTimeBetweenMonthSql('i.in_time')}
         ${passWhere}
         AND (
           @hasKw = 0
@@ -5591,8 +5635,6 @@ app.get('/api/hr/dormitory/lodging-history', async (req, res) => {
     const total = Number(totalRow.recordset?.[0]?.total ?? 0)
 
     const listReq = pool.request()
-    listReq.input('mStart', sql.DateTime2, range.mStart)
-    listReq.input('mEnd', sql.DateTime2, range.mEnd)
     listReq.input('hasKw', sql.Bit, hasKw ? 1 : 0)
     listReq.input('kw', sql.NVarChar(200), kwPat)
     listReq.input('startRow', sql.Int, offsetRows + 1)
@@ -5662,7 +5704,6 @@ app.get('/api/hr/dormitory/lodging-history', async (req, res) => {
         FROM ${HR_ROOM_IN_FROM} AS i
         LEFT JOIN ${HR_ROOM_FROM} AS r ON r.systemcode = i.room_systemcode
         WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
-          AND ${hrRoomInTimeBetweenMonthSql('i.in_time')}
           ${passWhere}
           AND (
             @hasKw = 0
@@ -5678,7 +5719,7 @@ app.get('/api/hr/dormitory/lodging-history', async (req, res) => {
     res.json({
       code: 200,
       msg: 'success',
-      data: { total, list: listResult.recordset ?? [], year: range.y, month: range.mo },
+      data: { total, list: listResult.recordset ?? [] },
     })
   } catch (err) {
     console.error('GET /api/hr/dormitory/lodging-history 失败：', err)
@@ -5692,16 +5733,164 @@ app.get('/api/hr/dormitory/lodging-history', async (req, res) => {
 })
 
 /**
+ * v1.1.4：入住审批管理中心列表（Hr_room_in + Hr_staff + HR_Departments 三表；SQL2008 用 ROW_NUMBER 分页）
+ * GET /api/hr/dormitory/lodging-in/audit-center-list
+ * query: page, pageSize, pass（'0'=待审核，'1'=已审核；须与 WHERE del/pass 对齐）
+ * keyword：工号/姓名/房号/备注/部门名 模糊
+ */
+app.get('/api/hr/dormitory/lodging-in/audit-center-list', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-Lodging-Audit-Center', 'v1.1.4')
+  try {
+    const pageRaw = req.query?.page
+    const pageSizeRaw = req.query?.pageSize
+    const page = Number(pageRaw ?? 1)
+    const pageSize = Number(pageSizeRaw ?? 20)
+    const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1
+    const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.floor(pageSize), 200) : 20
+    const offset = (safePage - 1) * safePageSize
+    const offsetRows = offset
+    const endRow = offset + safePageSize
+
+    const passRaw = String(req.query?.pass ?? '0').trim()
+    const passFilter = passRaw === '1' ? '1' : '0'
+
+    const keywordRaw = String(req.query?.keyword ?? '').trim()
+    const hasKw = keywordRaw.length > 0
+    const kwPat = hasKw ? `%${keywordRaw}%` : ''
+
+    const pool = await getPool()
+    const inColset = await getHrRoomInColumnSet(pool)
+    if (!inColset.has('pass')) {
+      res.status(500).json({
+        code: 500,
+        msg: '物理表 Hr_room_in 缺少 pass 字段：请在 Navicat 中新增 nvarchar 类型的 pass 列后再使用本模块',
+        data: null,
+      })
+      return
+    }
+    if (!inColset.has('in_time')) {
+      res.status(500).json({
+        code: 500,
+        msg: '物理表 Hr_room_in 缺少 in_time 字段：请在 Navicat 补列后再使用审核列表',
+        data: null,
+      })
+      return
+    }
+    if (!inColset.has('staff_truename')) {
+      res.status(500).json({
+        code: 500,
+        msg: '物理表 Hr_room_in 缺少 staff_truename 字段：请在 Navicat 补列后再使用审核列表',
+        data: null,
+      })
+      return
+    }
+    const hasRoomInfoCol = inColset.has('room_info')
+    const roomInfoSelect = hasRoomInfoCol
+      ? 'LTRIM(RTRIM(ISNULL(i.room_info, N\'\'))) AS room_info,'
+      : "CAST(N'' AS nvarchar(500)) AS room_info,"
+
+    const totalReq = pool.request()
+    totalReq.input('pass', sql.NVarChar(10), passFilter)
+    totalReq.input('hasKw', sql.Bit, hasKw ? 1 : 0)
+    totalReq.input('kw', sql.NVarChar(200), kwPat)
+    const totalRow = await totalReq.query(`
+      SELECT COUNT(1) AS total
+      FROM ${HR_ROOM_IN_FROM} AS i
+      LEFT JOIN ${HR_STAFF_FROM} AS s
+        ON LTRIM(RTRIM(ISNULL(s.new_code, N''))) = LTRIM(RTRIM(ISNULL(i.staff_code, N'')))
+      LEFT JOIN ${HR_LEGACY_DEPT_FROM} AS d
+        ON LTRIM(RTRIM(ISNULL(d.code, N''))) = LTRIM(RTRIM(ISNULL(s.join_department, N'')))
+      WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(i.pass, N'0'))) = @pass
+        AND (
+          @hasKw = 0
+          OR i.staff_code LIKE @kw
+          OR i.staff_truename LIKE @kw
+          OR i.room_code LIKE @kw
+          OR ISNULL(s.name, N'') LIKE @kw
+          OR ISNULL(d.name, N'') LIKE @kw
+          ${hasRoomInfoCol ? 'OR LTRIM(RTRIM(ISNULL(i.room_info, N\'\'))) LIKE @kw' : ''}
+        )
+    `)
+    const total = Number(totalRow.recordset?.[0]?.total ?? 0)
+
+    const listReq = pool.request()
+    listReq.input('pass', sql.NVarChar(10), passFilter)
+    listReq.input('hasKw', sql.Bit, hasKw ? 1 : 0)
+    listReq.input('kw', sql.NVarChar(200), kwPat)
+    listReq.input('startRow', sql.Int, offsetRows + 1)
+    listReq.input('endRow', sql.Int, endRow)
+
+    const listResult = await listReq.query(`
+      SELECT
+        t.id,
+        t.apply_date,
+        t.in_time,
+        t.staff_code,
+        t.staff_truename,
+        t.emp_name,
+        t.dept_name,
+        t.room_code,
+        t.room_info,
+        t.pass
+      FROM (
+        SELECT
+          i.id,
+          LTRIM(RTRIM(ISNULL(i.in_time, N''))) AS apply_date,
+          LTRIM(RTRIM(ISNULL(i.in_time, N''))) AS in_time,
+          LTRIM(RTRIM(ISNULL(i.staff_code, N''))) AS staff_code,
+          LTRIM(RTRIM(ISNULL(i.staff_truename, N''))) AS staff_truename,
+          LTRIM(RTRIM(ISNULL(s.name, ISNULL(i.staff_truename, N'')))) AS emp_name,
+          LTRIM(RTRIM(ISNULL(d.name, N''))) AS dept_name,
+          LTRIM(RTRIM(ISNULL(i.room_code, N''))) AS room_code,
+          ${roomInfoSelect}
+          LTRIM(RTRIM(ISNULL(i.pass, N'0'))) AS pass,
+          ROW_NUMBER() OVER (ORDER BY i.id DESC) AS rn
+        FROM ${HR_ROOM_IN_FROM} AS i
+        LEFT JOIN ${HR_STAFF_FROM} AS s
+          ON LTRIM(RTRIM(ISNULL(s.new_code, N''))) = LTRIM(RTRIM(ISNULL(i.staff_code, N'')))
+        LEFT JOIN ${HR_LEGACY_DEPT_FROM} AS d
+          ON LTRIM(RTRIM(ISNULL(d.code, N''))) = LTRIM(RTRIM(ISNULL(s.join_department, N'')))
+        WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+          AND LTRIM(RTRIM(ISNULL(i.pass, N'0'))) = @pass
+          AND (
+            @hasKw = 0
+            OR i.staff_code LIKE @kw
+            OR i.staff_truename LIKE @kw
+            OR i.room_code LIKE @kw
+            OR ISNULL(s.name, N'') LIKE @kw
+            OR ISNULL(d.name, N'') LIKE @kw
+            ${hasRoomInfoCol ? 'OR LTRIM(RTRIM(ISNULL(i.room_info, N\'\'))) LIKE @kw' : ''}
+          )
+      ) AS t
+      WHERE t.rn BETWEEN @startRow AND @endRow
+      ORDER BY t.rn
+    `)
+
+    res.json({
+      code: 200,
+      msg: 'success',
+      data: { total, list: listResult.recordset ?? [] },
+    })
+  } catch (err) {
+    console.error('GET /api/hr/dormitory/lodging-in/audit-center-list 失败：', err)
+    const detail = String(err?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `加载审批列表失败：${detail}`, data: null })
+  }
+})
+
+/**
  * 审核入住单：PUT /api/hr/dormitory/lodging-in/audit
  * body: { id } — Hr_room_in.id
  */
 app.put('/api/hr/dormitory/lodging-in/audit', async (req, res) => {
-  res.setHeader('X-ERP-Dormitory-Lodging-In-Audit', 'v1.1.3')
+  res.setHeader('X-ERP-Dormitory-Lodging-In-Audit', 'v1.1.4')
   try {
     const me = getCurrentUserFromReq(req)
-    const auditorName = String(me?.userName ?? me?.userCode ?? '').trim() || '未知'
-    const userCode = String(me?.userCode ?? '').trim()
-    const uidStr = me?.userId != null ? String(me.userId) : ''
+    const { UID, uname: auditUname } = getActorAuditFromReq(req)
+    const auditorName = String(me?.userName ?? me?.userCode ?? auditUname ?? '').trim() || '未知'
+    const userCode = String(me?.userCode ?? auditUname ?? '').trim()
+    const uidStr = UID != null && String(UID).trim() !== '' ? String(UID) : me?.userId != null ? String(me.userId) : ''
 
     const body = req.body ?? {}
     const id = Number(body.id)
@@ -5757,6 +5946,9 @@ app.put('/api/hr/dormitory/lodging-in/audit', async (req, res) => {
         AND LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
         AND LTRIM(RTRIM(ISNULL(i.pass, N'0'))) = N'0'
     `)
+
+    // 入住审批页专用：操作审计中间件写入 Sys_OperationLogs 的可读摘要
+    req.__auditDormLodgingInAuditContent = `管理员[${auditorName}]在「审核入住申请」通过审核：记录 id=${id}，工号[${String(existing?.staff_code ?? '').trim()}]，房号[${String(existing?.room_code ?? '').trim()}]`
 
     res.json({ code: 200, msg: 'success', data: { id } })
   } catch (err) {
@@ -5830,6 +6022,220 @@ app.put('/api/hr/dormitory/lodging-in/audit-batch', async (req, res) => {
   }
 })
 
+/**
+ * v1.1.4：驳回入住申请（逻辑删除）：仅允许 pass='0' 且 del='0'
+ * PUT /api/hr/dormitory/lodging-in/reject
+ * body: { id } — Hr_room_in.id
+ */
+app.put('/api/hr/dormitory/lodging-in/reject', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-Lodging-In-Reject', 'v1.1.4')
+  try {
+    const me = getCurrentUserFromReq(req)
+    const { uname: auditUname } = getActorAuditFromReq(req)
+    const opName = String(me?.userName ?? me?.userCode ?? auditUname ?? '').trim() || '未知'
+
+    const body = req.body ?? {}
+    const id = Number(body.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const inColset = await getHrRoomInColumnSet(pool)
+    const exReq = pool.request()
+    exReq.input('id', sql.Int, id)
+    const exRs = await exReq.query(`
+      SELECT TOP 1 i.id, i.pass, i.del, i.staff_code, i.room_code
+      FROM ${HR_ROOM_IN_FROM} AS i
+      WHERE i.id = @id
+    `)
+    const existing = exRs.recordset?.[0]
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该入住记录', data: null })
+      return
+    }
+    if (String(existing?.del ?? '').trim() === '1') {
+      res.status(400).json({ code: 400, msg: '该记录已删除', data: null })
+      return
+    }
+    if (String(existing?.pass ?? '').trim() === '1') {
+      res.status(400).json({ code: 400, msg: '已审核记录不可驳回删除，请仅在待审核列表操作', data: null })
+      return
+    }
+
+    const now = legacyDeptNowString()
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    q.input('now', sql.NVarChar(50), now)
+    const setEdit = inColset.has('edittime') ? ', i.edittime = @now' : ''
+    await q.query(`
+      UPDATE i
+      SET i.del = N'1'${setEdit}
+      FROM ${HR_ROOM_IN_FROM} AS i
+      WHERE i.id = @id
+        AND LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(i.pass, N'0'))) = N'0'
+    `)
+
+    req.__auditDormLodgingInRejectContent = `管理员[${opName}]在「审核入住申请」驳回并逻辑删除：记录 id=${id}，工号[${String(existing?.staff_code ?? '').trim()}]，房号[${String(existing?.room_code ?? '').trim()}]`
+
+    res.json({ code: 200, msg: 'success', data: { id } })
+  } catch (err) {
+    console.error('PUT /api/hr/dormitory/lodging-in/reject 失败：', err)
+    const detail = String(err?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `驳回失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 入住单反审核：PUT /api/dorm/un-audit（按需求独立路径）
+ * body: { id } — 仅允许 del=0 且 pass=1 的记录改回 pass=0
+ */
+app.put('/api/dorm/un-audit', async (req, res) => {
+  res.setHeader('X-ERP-Dorm-UnAudit', 'v1.1.4')
+  try {
+    const me = getCurrentUserFromReq(req)
+    const { uname: auditUname } = getActorAuditFromReq(req)
+    const opName = String(me?.userName ?? me?.userCode ?? auditUname ?? '').trim() || '未知'
+
+    const body = req.body ?? {}
+    const id = Number(body.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const inColset = await getHrRoomInColumnSet(pool)
+    const exReq = pool.request()
+    exReq.input('id', sql.Int, id)
+    const exRs = await exReq.query(`
+      SELECT TOP 1
+        i.id,
+        i.pass,
+        i.del,
+        LTRIM(RTRIM(ISNULL(i.staff_code, N''))) AS staff_code,
+        LTRIM(RTRIM(ISNULL(i.staff_truename, N''))) AS staff_truename,
+        LTRIM(RTRIM(ISNULL(s.name, N''))) AS staff_name_join
+      FROM ${HR_ROOM_IN_FROM} AS i
+      LEFT JOIN ${HR_STAFF_FROM} AS s
+        ON LTRIM(RTRIM(ISNULL(s.new_code, N''))) = LTRIM(RTRIM(ISNULL(i.staff_code, N'')))
+      WHERE i.id = @id
+    `)
+    const existing = exRs.recordset?.[0]
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该入住记录', data: null })
+      return
+    }
+    if (String(existing?.del ?? '').trim() === '1') {
+      res.status(400).json({ code: 400, msg: '该记录已删除，不能反审核', data: null })
+      return
+    }
+    if (String(existing?.pass ?? '').trim() !== '1') {
+      res.status(400).json({ code: 400, msg: '仅已审核（pass=1）的记录可执行反审核', data: null })
+      return
+    }
+
+    const nameJoin = String(existing?.staff_name_join ?? '').trim()
+    const nameTrue = String(existing?.staff_truename ?? '').trim()
+    const staffDisplay = nameJoin || nameTrue || String(existing?.staff_code ?? '').trim() || '未知'
+
+    const now = legacyDeptNowString()
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    q.input('now', sql.NVarChar(50), now)
+    const setEdit = inColset.has('edittime') ? ', i.edittime = @now' : ''
+    await q.query(`
+      UPDATE i
+      SET i.pass = N'0'${setEdit}
+      FROM ${HR_ROOM_IN_FROM} AS i
+      WHERE i.id = @id
+        AND LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(i.pass, N'0'))) = N'1'
+    `)
+
+    req.__auditDormUnAuditContent = `管理员[${opName}]对员工[${staffDisplay}]的入住申请执行了【反审核】操作`
+
+    res.json({ code: 200, msg: 'success', data: { id } })
+  } catch (err) {
+    console.error('PUT /api/dorm/un-audit 失败：', err)
+    const detail = String(err?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `反审核失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 未审核入住申请物理删除：DELETE /api/dorm/delete-checkin
+ * body: { id } — SQL 必须带 pass='0' 条件，禁止删除已审核（pass=1）的正式记录
+ */
+app.delete('/api/dorm/delete-checkin', async (req, res) => {
+  res.setHeader('X-ERP-Dorm-Delete-Checkin', 'v1.1.4')
+  try {
+    const me = getCurrentUserFromReq(req)
+    const { uname: auditUname } = getActorAuditFromReq(req)
+    const opName = String(me?.userName ?? me?.userCode ?? auditUname ?? '').trim() || '未知'
+
+    const body = req.body ?? {}
+    const id = Number(body.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const exReq = pool.request()
+    exReq.input('id', sql.Int, id)
+    const exRs = await exReq.query(`
+      SELECT TOP 1
+        i.id,
+        i.pass,
+        LTRIM(RTRIM(ISNULL(i.staff_code, N''))) AS staff_code,
+        LTRIM(RTRIM(ISNULL(i.staff_truename, N''))) AS staff_truename,
+        LTRIM(RTRIM(ISNULL(s.name, N''))) AS staff_name_join
+      FROM ${HR_ROOM_IN_FROM} AS i
+      LEFT JOIN ${HR_STAFF_FROM} AS s
+        ON LTRIM(RTRIM(ISNULL(s.new_code, N''))) = LTRIM(RTRIM(ISNULL(i.staff_code, N'')))
+      WHERE i.id = @id
+    `)
+    const existing = exRs.recordset?.[0]
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该入住记录', data: null })
+      return
+    }
+    if (String(existing?.pass ?? '').trim() === '1') {
+      res.status(400).json({ code: 400, msg: '已审核记录禁止物理删除', data: null })
+      return
+    }
+
+    const nameJoin = String(existing?.staff_name_join ?? '').trim()
+    const nameTrue = String(existing?.staff_truename ?? '').trim()
+    const staffDisplay = nameJoin || nameTrue || String(existing?.staff_code ?? '').trim() || '未知'
+
+    const delReq = pool.request()
+    delReq.input('id', sql.Int, id)
+    // 与业务强制一致：仅当 pass 归一为未审核 '0' 时删除（严禁去掉 AND pass 条件）
+    const delRs = await delReq.query(`
+      DELETE FROM ${HR_ROOM_IN_FROM}
+      WHERE id = @id
+        AND LTRIM(RTRIM(ISNULL(pass, N'0'))) = N'0'
+    `)
+    const affected = Array.isArray(delRs.rowsAffected) ? Number(delRs.rowsAffected[0] ?? 0) : 0
+    if (affected <= 0) {
+      res.status(400).json({ code: 400, msg: '删除失败：记录不存在或已不是未审核状态', data: null })
+      return
+    }
+
+    req.__auditDormDeleteCheckinContent = `管理员 [${opName}] 彻底删除了员工 [${staffDisplay}] 的未审核入住申请`
+
+    res.json({ code: 200, msg: 'success', data: { id } })
+  } catch (err) {
+    console.error('DELETE /api/dorm/delete-checkin 失败：', err)
+    const detail = String(err?.message ?? '数据库删除失败')
+    res.status(500).json({ code: 500, msg: `删除失败：${detail}`, data: null })
+  }
+})
+
 // 可选：优雅关闭（例如 Ctrl+C）
 process.on('SIGINT', async () => {
   try {
@@ -5848,9 +6254,13 @@ app.listen(port, () => {
   console.log(`Dorm-Module-Query-Trigger-Active ${bootAt}`)
   console.log(`Dorm-CheckIn-SmartLogic-v1.1.3-Active ${bootAt}`)
   console.log(`Dorm-CheckIn-Final-v1.1.3-Active ${bootAt}`)
+  console.log(`Dorm-CheckIn-Overlap-Validation-Active ${bootAt}`)
   console.log(`Dorm-CheckOut-OutRoomLogic-Active ${bootAt}`)
   console.log(`Dorm-Manage-Popup-Optimized-Active ${bootAt}`)
   console.log(`Dorm-CheckIn-NullBug-Fixed-${bootAt}`)
+  console.log(`Dorm-Audit-ReverseLogic-v1.1.4-Active ${bootAt}`)
+  console.log(`Dorm-Audit-HardDelete-Logic-v1.1.4-Active ${bootAt}`)
+  console.log(`Dorm-History-NoDateFilter-v1.1.4-Active ${bootAt}`)
   console.log('[部门资料] POST /api/hr/departments：code 由服务端自增，不要求 body.code（若仍提示 code 必填，多为未重启后端或 3001 被其它程序占用）')
   console.log(
     '[宿舍管理] v1.1.10 电费：tj_date=yyyy-m/yy-mm 字符串匹配 + MAX(c_sum_money) 防重复累加；含 lodging-overview/history、入住单 audit*',

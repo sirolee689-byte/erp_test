@@ -435,6 +435,14 @@ export function createOperationAuditMiddleware(deps) {
         } else if (method === 'PUT' && path === '/api/hr/dormitory/check-out' && String(req.__auditDormCheckOutContent ?? '').trim()) {
           // 宿舍：办理退宿专用可读日志
           content = String(req.__auditDormCheckOutContent).trim()
+        } else if (method === 'PUT' && path === '/api/hr/dormitory/lodging-in/audit' && String(req.__auditDormLodgingInAuditContent ?? '').trim()) {
+          content = String(req.__auditDormLodgingInAuditContent).trim()
+        } else if (method === 'PUT' && path === '/api/hr/dormitory/lodging-in/reject' && String(req.__auditDormLodgingInRejectContent ?? '').trim()) {
+          content = String(req.__auditDormLodgingInRejectContent).trim()
+        } else if (method === 'PUT' && path === '/api/dorm/un-audit' && String(req.__auditDormUnAuditContent ?? '').trim()) {
+          content = String(req.__auditDormUnAuditContent).trim()
+        } else if (method === 'DELETE' && path === '/api/dorm/delete-checkin' && String(req.__auditDormDeleteCheckinContent ?? '').trim()) {
+          content = String(req.__auditDormDeleteCheckinContent).trim()
         } else if (method === 'PUT' && path === '/api/hr/departments/audit-batch') {
           const op = operatorDisplayName(user)
           const n = Array.isArray(req.__auditDeptBatchCodes) ? req.__auditDeptBatchCodes.length : 0

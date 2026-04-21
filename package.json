@@ -21,7 +21,12 @@
     "e2e:dept-batch-audit": "node scripts/e2e-dept-batch-audit.mjs",
     "e2e:staff-form-ui": "node scripts/e2e-staff-form-ui.mjs",
     "e2e:staff-leave": "node scripts/e2e-staff-leave.mjs",
-    "e2e:operation-logs": "node scripts/e2e-operation-logs.mjs"
+    "e2e:operation-logs": "node scripts/e2e-operation-logs.mjs",
+    "e2e:dormitory-audit-v114": "node scripts/e2e-dormitory-audit-center-v1.1.4.mjs",
+    "e2e:dormitory-audit-reverse": "node scripts/e2e-dormitory-audit-reverse-toggle.mjs",
+    "e2e:dormitory-audit-hard-delete": "node scripts/e2e-dormitory-audit-hard-delete.mjs",
+    "e2e:dormitory-history-no-date": "node scripts/e2e-dormitory-history-no-date-filter.mjs",
+    "e2e:dormitory-checkin-overlap": "node scripts/e2e-dormitory-checkin-overlap-validation.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",

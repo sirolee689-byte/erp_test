@@ -146,19 +146,20 @@
 
 - **Schema**：`dbo`
 - **模块/页面**
-  - 前端：`src/views/hr/dormitory/room-management/index.vue`、`src/views/hr/dormitory/lodging-records/index.vue`
-  - 说明：`src/views/hr/dormitory/README.md`
+  - 前端：`src/views/hr/dormitory/room-management/index.vue`、`src/views/hr/dormitory/lodging-records/index.vue`（封装 `src/views/dormitory/index.vue` + `RoomList.vue` / `AuditList.vue` / `HistoryList.vue`）
+  - 说明：`src/views/hr/dormitory/README.md`、`src/views/dormitory/README.md`
 - **接口（后端：`server/index.js`）**
   - `GET /api/hr/dormitory/rooms`：房间分页列表；`WHERE del='0' AND pass=@pass`；在住人数子查询统计 `Hr_room_in` 中 `del=0` 且 `in_room='1'` 且 `out_room='0'`（按 `room_systemcode` 汇总）
   - `GET /api/hr/dormitory/rooms/:id`：单条详情（`del=0`，不按 `pass` 限制）；含在住人数与创建/审核辅助字段
   - `POST /api/hr/dormitory/rooms`：新增房间（在册 `s_code` 不可重复）；写入 `s_code`、`s_code1`（使用/闲置）、`code`（普通房/空调房/大房）、`in_bad`、`info`，`name` 固定「宿舍」，默认 `pass='0'`
   - `PUT /api/hr/dormitory/rooms/audit`：按 `id` 审核房间（`pass='1'`，写入 `passuid`/`passuname`/`passutruename`/`passip`/`edittime` 等）
   - `PUT /api/hr/dormitory/rooms/unaudit`：按 `id` 反审（`pass='0'`，清空 `pass*` 审核人字段）
-  - `POST /api/hr/dormitory/check-in`（v1.1.3-final）：办理入住（写入旧表 `Hr_room_in`）
+  - `POST /api/hr/dormitory/check-in`（v1.1.4+ 重叠校验）：办理入住（写入旧表 `Hr_room_in`）
     - **入参**：`staff_code`（员工工号）、`room_code`（房号= `Hr_room.s_code`）、`in_time`（入住日期，建议 `YYYY-MM-DD`）、`electric`（优惠电量，数字）、`room_info`（备注）、`pass`（匹配已审/未审房间资料）
-    - **排他性**：员工若存在在宿记录则拦截（优先 `status=1`；否则按 `in_room=1 AND out_room=0`）
+    - **在住拦截（INSERT 前）**：解析出与写入一致的 `staff_link_code` 后，查 `Hr_room_in` 中 `del='0' AND out_room='0' AND staff_code` 匹配 → 返回「该员工当前处于在住状态，请先办理退宿后再重新申请」
+    - **历史时间重叠（INSERT 前）**：对已退宿行 `out_room='1'`，用 `hrRoomDateTimeExprNullableSql` 将 `in_time` 与 `COALESCE(out_time, out_time2)` 转为 `datetime`，若 `@newInDt` 落在闭区间 `[in, out]` 内则 400，文案含「时间冲突…[disp_in] 至 [disp_out]…」
     - **满员拦截**：按 `Hr_room.BedCount`（若存在）或 `Hr_room.in_bad` 作为床位数，与当前在宿人数对比；满员提示固定为「该房间已满员，无法办理入住」
-    - **写入字段**：默认 `pass='0'`、`del='0'`、`in_room='1'`、`out_room='0'`；若旧库存在 `status` 列则同时写入 `status=1`；若存在 `electric/room_info` 列则写入对应值
+    - **写入字段**（v1.1.4+）：入住行 **`pass='1'`**（办理即自动过审）、`del='0'`、`in_room='1'`、`out_room='0'`；若旧库存在 `status` 列则同时写入 `status=1`；若存在 `electric/room_info` 列则写入对应值；**若表缺少 `pass` 列则接口会报错提示在 Navicat 补列**
     - **审计日志**：`Sys_OperationLogs.Content` 记录「管理员[uname]办理入住：房间[room_code], 员工[姓名], 优惠电量[electric]」
   - `GET /api/hr/dormitory/check-in/staff-options`（v1.1.3+）：办理入住员工下拉；只返回 `Hr_staff` 中 `del=0 AND status='在职' AND is_blacklist=0` 且当前不在住（`Hr_room_in` 里 `in_room=1 AND out_room=0`）的员工
   - `GET /api/hr/dormitory/room-occupants`（v1.1.3+）：入住管理-当前在住人员（`del=0 AND out_room=0`），按 `room_code` 查询；部门取 `Hr_staff.join_department`（`Hr_staff.new_code = Hr_room_in.staff_code`）
@@ -166,7 +167,11 @@
   - `PUT /api/hr/dormitory/check-out`（v1.1.3+）：办理退宿：仅更新当前行 `id`，设置 `out_room='1'` + `out_time='YYYY-MM-DD HH:mm'`，并写入操作审计（Action：办理了退宿）
   - `PUT /api/hr/dormitory/room-in/room-info`（v1.1.3+）：入住管理-备注编辑：仅更新 `Hr_room_in.room_info`，并写入操作审计（Action：修改入住备注）
   - `GET /api/hr/dormitory/lodging-overview`（v1.1.10+）：房间总览分页；**入住人数/名单**显示“当前在住”（不按月份，按 `del=0`、`in_room=1`、`out_room=0` 汇总）；**电费**按参数 `tj_date`（格式 `YYYY-M`，如 `2026-3`）精确匹配 `Hr_room_use.tj_date`（该列为 `nvarchar(50)`）；同房同月取 **`MAX(c_sum_money)`** 防止重复累加（并过滤 `del=0`）；`c_sum_money` 为 nvarchar 时先清洗再转 decimal；入住名单优先 `staff_truename`，空则回退 `staff_code`
-  - `GET /api/hr/dormitory/lodging-history`：住宿历史（按 `in_time` 所在月）；`PUT /api/hr/dormitory/lodging-in/audit*`：入住单审核
+  - `GET /api/hr/dormitory/lodging-history`（**v1.1.4**）：住宿历史**全量**（`WHERE del='0'`，不再按 year/month 过滤 `in_time`）；`ROW_NUMBER() OVER (ORDER BY i.in_time DESC, i.id DESC)` 分页；`PUT /api/hr/dormitory/lodging-in/audit*`：入住单审核
+  - `GET /api/hr/dormitory/lodging-in/audit-center-list`（**v1.1.4**）：审核入住申请分页列表；`WHERE del='0' AND pass=@pass`；三表联查同上；分页 **`ROW_NUMBER()`**；入参 `page`、`pageSize`、`pass`（0/1）、可选 `keyword`
+  - `PUT /api/hr/dormitory/lodging-in/reject`（**v1.1.4**）：驳回入住申请（**逻辑删除** `del='1'`）；仅允许 `pass='0'` 且 `del='0'`；可选更新 `edittime`（列存在时）；操作审计见 `req.__auditDormLodgingInRejectContent`
+  - `PUT /api/dorm/un-audit`（**v1.1.4**）：入住单反审核（`pass` 从 `'1'` 改回 `'0'`）；仅 `del='0'` 且 `pass='1'`；`Sys_OperationLogs` 可读文案见 `req.__auditDormUnAuditContent`（含管理员与员工展示名）
+  - `DELETE /api/dorm/delete-checkin`（**v1.1.4**）：**物理删除**未审核入住行；SQL 为 `DELETE FROM dbo.[Hr_room_in] WHERE id=@id AND … pass … = N'0'`（与代码一致，禁止删已审）；成功时 `Sys_OperationLogs.Content` 见 `req.__auditDormDeleteCheckinContent`（「管理员 [uname] 彻底删除了员工 [姓名] 的未审核入住申请」）
 - **关键字段（与当前代码一致）**
   - **房间**：`s_code`（房号，与办理入住时 `room_code` 一致）、`s_code1`（使用/闲置）、`in_bad`（床位数）、`systemcode`（房间稳定关联键，写入入住行的 `room_systemcode`）
   - **入住行**：`staff_code`、`staff_truename`、`room_code`、`room_systemcode`、`in_room` / `out_room`（在住：`1`/`0`）、`in_time`、`pass` / `del`（沿用项目审核与逻辑删除约定）
@@ -174,7 +179,7 @@
   - **员工**：`Hr_staff.code`（工号）、`Hr_staff.name`（姓名）、`status`（在职/离职）、`is_blacklist`（黑名单 0/1）
   - **电费表 `Hr_room_use`**：`room_code`、`tj_date`（与总览「设定日期」年月对齐）、`c_sum_money`（同月多条则后端 `SUM`）
 - **权限（按钮级）**
-  - 菜单 path：`hr/dormitory/room-management`（`view` / `add` 添加房间 / **`audit` 审核房间**）、`hr/dormitory/lodging-records`（`add` 办理入住）
+  - 菜单 path：`hr/dormitory/room-management`（`view` / `add` / **`audit` 审核房间**）、`hr/dormitory/lodging-records`（**Tab**：房间总览 + **审核入住申请** + 住宿历史；`view`/`add`/`audit`/`edit` 见 `apiPermissionGate.js`）
 
 ### 3.6 `Sys_Users`（用户 / 操作员）
 

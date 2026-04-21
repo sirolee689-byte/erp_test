@@ -11,15 +11,12 @@
   - 展示 `Hr_room` 楼栋、房号（`s_code`）、房型、名称、**房间使用状态**（`s_code1`：使用/闲置）、床位数（`in_bad`）、**在住人数**（关联 `Hr_room_in`，条件：`del=0` 且 `in_room=1` 且 `out_room=0`）
   - 「显示未审核」开关：切换查询 `pass=0` / `pass=1` 的房间主数据
   - 搜索：房号、楼栋、名称、房型（keyword 模糊）
-- **住宿办理**（`hr/dormitory/lodging-records`）
-  - `POST /api/hr/dormitory/check-in`（v1.1.3-final）：弹窗办理入住
-    - **入住人员**：远程搜索下拉（仅显示 `Hr_staff.status='在职'` 且 `is_blacklist=0` 且当前未在宿的员工；服务端仍会二次拦截）
-    - **入住日期**：默认当天（写入 `Hr_room_in.in_time`）
-    - **优惠电量**：默认 0（写入 `Hr_room_in.electric`，用于月底电费扣除）
-    - **备注**：写入 `Hr_room_in.room_info`
-  - 校验：房间存在且唯一、`s_code1` 为「使用」、在宿人数未满（按 `Hr_room.BedCount` 或 `in_bad`）、员工为在职且非黑名单、员工无重复在宿（`status=1` 或 `in_room=1/out_room=0`）
-  - 写入 `Hr_room_in`：默认 `pass=0`、`del=0`，并保持兼容字段 `in_room=1`、`out_room=0`；若旧库存在 `status` 列则同时写入 `status=1`
-  - 操作审计：`Sys_OperationLogs` 中 Action 为「办理了入住」（见 `server/action_map.js`）
+- **住宿管理 / Tab 工作台**（`hr/dormitory/lodging-records`，实现目录 `src/views/dormitory/`）
+  - **Tab1 房间列表**（`RoomList.vue`）：总览、办理入住、入住管理（在住/退宿）；`GET /api/hr/dormitory/lodging-overview` 等
+  - **Tab2 审核入住申请**（`AuditList.vue`）：「显示已审核」联动 `pass`；列表 `GET /api/hr/dormitory/lodging-in/audit-center-list`；部门列仅展示 `HR_Departments.name`；**通过审核** `PUT /api/hr/dormitory/lodging-in/audit`；**反审核** `PUT /api/dorm/un-audit`；**彻底删除（仅未审核）** `DELETE /api/dorm/delete-checkin`（SQL 带 `pass='0'`）；驳回接口仍保留 `PUT /api/hr/dormitory/lodging-in/reject`（当前 Tab 未挂按钮）
+  - **Tab3 住宿历史列表**（`HistoryList.vue`）：只读流水，**无**「仅未审核」开关、**无**审核状态列与审核按钮；**无设定日期（年/月）**，列表为全量（`del=0`），按入住时间倒序分页（默认 `pageSize=20`）
+  - `POST /api/hr/dormitory/check-in`：弹窗办理入住；**写入 `Hr_room_in` 默认 `pass=1`（自动过审）**；**INSERT 前**校验在住与历史区间时间重叠（与 `staff_code` 写入口径一致）；操作审计见 `Sys_OperationLogs`
+  - 说明文档：`src/views/dormitory/README.md`
 
 - **入住管理 & 退宿**（v1.1.3+）
   - 在房间列表点击【入住管理】，仅展示当前在住人员：`Hr_room_in.del=0 AND out_room=0 AND room_code=房号`
@@ -39,7 +36,7 @@
 ## 权限（RBAC）
 
 - 房间列表：`hr/dormitory/room-management` → `view`
-- 办理入住：`hr/dormitory/lodging-records` → `add`
+- 住宿管理（含 Tab 内审批）：`hr/dormitory/lodging-records` → `view`（总览/历史/待审列表）、`add`（办理入住/退宿）、`audit`（通过审核 / 反审核 / 彻底删除未审核申请）、`edit`（备注）
 
 ## 已知问题 / 下一步
 
