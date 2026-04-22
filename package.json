@@ -26,7 +26,11 @@
     "e2e:dormitory-audit-reverse": "node scripts/e2e-dormitory-audit-reverse-toggle.mjs",
     "e2e:dormitory-audit-hard-delete": "node scripts/e2e-dormitory-audit-hard-delete.mjs",
     "e2e:dormitory-history-no-date": "node scripts/e2e-dormitory-history-no-date-filter.mjs",
-    "e2e:dormitory-checkin-overlap": "node scripts/e2e-dormitory-checkin-overlap-validation.mjs"
+    "e2e:dormitory-checkin-overlap": "node scripts/e2e-dormitory-checkin-overlap-validation.mjs",
+    "e2e:dormitory-electric-report-v116": "node scripts/e2e-dormitory-electric-report-v1.1.6.mjs",
+    "e2e:dormitory-electric-allocation-tabs-v116": "node scripts/e2e-dormitory-electric-allocation-tabs-v1.1.6.mjs",
+    "e2e:dormitory-electric-allocation-dept-cn-v116": "node scripts/e2e-dormitory-electric-allocation-dept-cn-v1.1.6.mjs",
+    "e2e:dormitory-electric-allocation-pass-display-v116": "node scripts/e2e-dormitory-electric-allocation-pass-display-v1.1.6.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
@@ -35,6 +39,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "element-plus": "^2.8.8",
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "mssql": "^12.2.1",
     "vue": "^3.5.13",

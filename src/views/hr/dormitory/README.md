@@ -1,4 +1,4 @@
-# 宿舍管理（v1.1.9）
+# 宿舍管理（v1.1.10）
 
 ## 已完成功能
 
@@ -23,6 +23,8 @@
   - 部门展示：`Hr_staff.join_department`，关联键：`Hr_staff.new_code = Hr_room_in.staff_code`
   - 退宿：点击人员旁【退宿】→ 更新当前行 `out_room=1` 且写入 `out_time=YYYY-MM-DD HH:mm`（只更新该 id，不覆盖历史）
   - 审计：`Sys_OperationLogs.Action=办理了退宿`，Content 含「管理员[uname]办理了员工[姓名]的退宿，日期：[退宿时间]」
+- **宿舍电费情况统计报表**（`hr/dormitory/electric-report`，v1.1.6）
+  - Tabs：宿舍维度报表 + **宿舍费用分摊**（人员维度，`GET /api/dorm/electric-allocation-report`，与电费弹窗 v1.1.9 按天权重一致）；导出 XLS / 打印；说明见 `electric-report/README.md`
 - **住宿总览**（`GET /api/hr/dormitory/lodging-overview`，与页面「房间列表」Tab 对应）
   - **设定日期（年/月）**：与后端 `@mStart/@mEnd` 自然月一致。
   - **入住人数 / 入住人员**：显示“**当前在住**”（不按月份），统计 `Hr_room_in` 中 `del=0`、`in_room=1`、`out_room=0`；名单为 **`staff_truename`**，若为空则显示 **`staff_code`**（逗号分隔）。
@@ -37,6 +39,7 @@
 
 - 房间列表：`hr/dormitory/room-management` → `view`
 - 住宿管理（含 Tab 内审批）：`hr/dormitory/lodging-records` → `view`（总览/历史/待审列表）、`add`（办理入住/退宿）、`audit`（通过审核 / 反审核 / 彻底删除未审核申请）、`edit`（备注）
+- 电费统计报表：`hr/dormitory/electric-report` → `view`
 
 ## 已知问题 / 下一步
 

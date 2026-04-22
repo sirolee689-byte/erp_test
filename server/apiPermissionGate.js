@@ -215,6 +215,13 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'GET' && path === '/api/dorm/get-electric-history') {
     return { menuPath: 'hr/dormitory/lodging-records', action: 'view' }
   }
+  /* v1.1.6：宿舍电费情况统计报表（独立菜单页） */
+  if (m === 'GET' && path === '/api/dorm/electric-report-data') {
+    return { menuPath: 'hr/dormitory/electric-report', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/dorm/electric-allocation-report') {
+    return { menuPath: 'hr/dormitory/electric-report', action: 'view' }
+  }
   /* v1.1.5：电费管理中心（挂在房间总览操作列） */
   if (m === 'GET' && path === '/api/hr/dormitory/electric/context') {
     return { menuPath: 'hr/dormitory/lodging-records', action: 'view' }

@@ -2892,6 +2892,249 @@ function lodgingMonthRangeOrThrow(yearRaw, monthRaw) {
   return { y, mo, mStart, mEnd }
 }
 
+/**
+ * v1.1.9：与 `src/views/dormitory/ElectricManage.vue` 的 shareRows 计算保持一致（按住宿天数权重分摊总用电量，再扣个人优惠电量，再乘 0.93；金额向下取到分）
+ * @param {number} usedElectric 宿舍总用电量（与弹窗一致：取 Hr_room_use.c_electric 数值）
+ * @param {any[]} occupantsRaw 已含 stay_days、electric 等字段的行
+ */
+function computeDormElectricSharesByDayWeight(usedElectric, occupantsRaw) {
+  const list = Array.isArray(occupantsRaw) ? occupantsRaw : []
+  const cnt = list.length
+  if (cnt <= 0) return []
+  const totalDays = list.reduce((sum, r) => sum + Number(r?.stay_days ?? 0), 0)
+  const denomDays = Number.isFinite(totalDays) && totalDays > 0 ? totalDays : 0
+  const ele = Number(usedElectric ?? 0)
+  const totalEle = Number.isFinite(ele) && ele > 0 ? ele : 0
+  return list.map((r) => {
+    const disc = Number(r?.electric_discount ?? 0)
+    const discount = Number.isFinite(disc) && disc >= 0 ? disc : 0
+    const days = Number(r?.stay_days ?? 0)
+    const stayDays = Number.isFinite(days) && days > 0 ? days : 0
+    const shareEle = denomDays > 0 ? (totalEle / denomDays) * stayDays : 0
+    const billedEle = Math.max(0, shareEle - discount)
+    const money = billedEle * 0.93
+    const safe = Number.isFinite(money) && money >= 0 ? money : 0
+    const floored = Math.floor(safe * 100) / 100
+    return { ...r, share_money: floored, share_electric: shareEle }
+  })
+}
+
+/**
+ * 分摊报表财务口径（规则 18）：仅「已匹配有效档案行」且 pass=1 的人员参与用电量分母与金额；其余人员仍列出，电量与金额均为 0，避免未审档案从报表消失。
+ */
+function isDormElectricFeeEligibleForAllocationShare(row) {
+  const pass = String(row?.staff_pass ?? '').trim()
+  const archive = String(row?.staff_archive_code ?? '').trim()
+  return archive.length > 0 && pass === '1'
+}
+
+/** 不参与电费分摊池（未审/无档案/住宿天数无效）——用于异常说明计数 */
+function isDormElectricExcludedFromFeeSharePool(row) {
+  if (!isDormElectricFeeEligibleForAllocationShare(row)) return true
+  const days = Number(row?.stay_days ?? 0)
+  return !Number.isFinite(days) || days <= 0
+}
+
+/**
+ * v1.1.6+：在 `computeDormElectricSharesByDayWeight` 基础上增加「仅已审人员进分母」；未审或无档案行 share_money/share_electric 固定为 0。
+ * @param {number} usedElectric
+ * @param {any[]} occupantsMapped 已通过 `mapDormElectricOccupantsWithDiscountForAllocation` 的行（须含 staff_pass、staff_archive_code）
+ */
+function computeDormElectricSharesByDayWeightWithFeeEligibility(usedElectric, occupantsMapped) {
+  const list = Array.isArray(occupantsMapped) ? occupantsMapped : []
+  const cnt = list.length
+  if (cnt <= 0) return []
+  const eligibleDays = list.reduce((sum, r) => {
+    if (!isDormElectricFeeEligibleForAllocationShare(r)) return sum
+    const d = Number(r?.stay_days ?? 0)
+    const stayDays = Number.isFinite(d) && d > 0 ? d : 0
+    return sum + stayDays
+  }, 0)
+  const denomDays = Number.isFinite(eligibleDays) && eligibleDays > 0 ? eligibleDays : 0
+  const ele = Number(usedElectric ?? 0)
+  const totalEle = Number.isFinite(ele) && ele > 0 ? ele : 0
+  return list.map((r) => {
+    const eligible = isDormElectricFeeEligibleForAllocationShare(r)
+    if (!eligible) {
+      return { ...r, share_money: 0, share_electric: 0, fee_eligible: false, fee_share_applied: false }
+    }
+    const disc = Number(r?.electric_discount ?? 0)
+    const discount = Number.isFinite(disc) && disc >= 0 ? disc : 0
+    const days = Number(r?.stay_days ?? 0)
+    const stayDays = Number.isFinite(days) && days > 0 ? days : 0
+    if (stayDays <= 0) {
+      return { ...r, share_money: 0, share_electric: 0, fee_eligible: true, fee_share_applied: false }
+    }
+    const shareEle = denomDays > 0 ? (totalEle / denomDays) * stayDays : 0
+    const billedEle = Math.max(0, shareEle - discount)
+    const money = billedEle * 0.93
+    const safe = Number.isFinite(money) && money >= 0 ? money : 0
+    const floored = Math.floor(safe * 100) / 100
+    return {
+      ...r,
+      share_money: floored,
+      share_electric: shareEle,
+      fee_eligible: true,
+      fee_share_applied: true,
+    }
+  })
+}
+
+/** 姓名展示：未审或无匹配档案标「(档案未审)」；已审但住宿天数为 0 标「(住宿天数异常)」 */
+function buildDormElectricStaffDisplayName(row) {
+  const eligible = isDormElectricFeeEligibleForAllocationShare(row)
+  const name = String(row?.staff_truename ?? '').trim()
+  const code = String(row?.staff_code ?? '').trim()
+  const base = name || code || '（无名）'
+  if (!eligible) return `${base}(档案未审)`
+  const days = Number(row?.stay_days ?? 0)
+  if (!Number.isFinite(days) || days <= 0) return `${base}(住宿天数异常)`
+  return name || code || '（无名）'
+}
+
+/** 与电费弹窗 context 一致：优惠电量仅统计 >0；住宿天数取整且非负 */
+function mapDormElectricOccupantsWithDiscountForAllocation(rows) {
+  return (rows ?? []).map((r) => {
+    const disc = Number(String(r?.electric ?? '').trim() || '0')
+    const daysNum = Number(r?.stay_days)
+    const stayDays = Number.isFinite(daysNum) && daysNum > 0 ? Math.floor(daysNum) : 0
+    return {
+      ...r,
+      electric_discount: Number.isFinite(disc) && disc > 0 ? disc : 0,
+      stay_days: stayDays,
+    }
+  })
+}
+
+/**
+ * 指定自然月与房号：分摊报表专用；v1.1.7 时间窗与 electric/context 一致（in_time < 次月初 且 未退或退宿 >= 月初）
+ * - **Hr_staff 使用 LEFT JOIN**：只要入住表有行就必须出现在报表；未匹配档案或 pass≠1 时由 Node 侧标「(档案未审)」且金额按规则置 0（规则 18）
+ * - **ON 条件**：仅 `new_code=staff_code` 且 `del=0`；**不在 WHERE 中按 pass 剔除**
+ * - **部门/职务**：LEFT JOIN HR_Departments；若未匹配到员工档案（s 为空）或部门名为空，显示「未设定」
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {string} roomCode
+ * @param {string} mStartStr YYYY-MM-DD HH:mm:ss
+ * @param {string} mEndStr 次月一日 00:00:00
+ */
+async function fetchDormElectricOccupantsMonthForAllocation(pool, roomCode, mStartStr, mEndStr) {
+  const occReq = pool.request().input('roomCode', sql.NVarChar(50), roomCode)
+  occReq.input('hasMonth', sql.Bit, 1)
+  occReq.input('mStartStr', sql.NVarChar(19), mStartStr)
+  occReq.input('mEndStr', sql.NVarChar(19), mEndStr)
+  const occRs = await occReq.query(`
+      DECLARE @mStart datetime = CASE WHEN @hasMonth = 1 THEN CONVERT(datetime, @mStartStr, 120) ELSE NULL END;
+      DECLARE @mEnd datetime = CASE WHEN @hasMonth = 1 THEN CONVERT(datetime, @mEndStr, 120) ELSE NULL END;
+
+      SELECT
+        i.id,
+        LTRIM(RTRIM(ISNULL(i.staff_code, N''))) AS staff_code,
+        LTRIM(RTRIM(ISNULL(s.code, N''))) AS staff_archive_code,
+        LTRIM(RTRIM(ISNULL(s.pass, N'0'))) AS staff_pass,
+        LTRIM(RTRIM(ISNULL(i.staff_truename, N''))) AS staff_truename,
+        CASE
+          WHEN s.new_code IS NULL THEN N'未设定'
+          WHEN NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(400), ISNULL(dept.name, N'')))), N'') IS NOT NULL
+            THEN LTRIM(RTRIM(CONVERT(nvarchar(400), ISNULL(dept.name, N''))))
+          ELSE N'未设定'
+        END AS dept_name,
+        CASE
+          WHEN s.new_code IS NULL THEN N'未设定'
+          WHEN NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(400), ISNULL(pos.name, N'')))), N'') IS NOT NULL
+            THEN LTRIM(RTRIM(CONVERT(nvarchar(400), ISNULL(pos.name, N''))))
+          ELSE N'未设定'
+        END AS position_name,
+        LTRIM(RTRIM(ISNULL(i.in_time, N''))) AS in_time,
+        LTRIM(RTRIM(ISNULL(i.electric, N''))) AS electric,
+        CASE
+          WHEN @hasMonth = 0 THEN NULL
+          ELSE
+            CASE
+              WHEN ${hrRoomDateTimeExprNullableSql('i.in_time')} IS NULL THEN NULL
+              ELSE
+                (
+                  (
+                    (
+                      CASE
+                        WHEN ${hrRoomDateTimeExprNullableSql("COALESCE(i.out_time2, i.out_time)")} IS NULL THEN DATEDIFF(day, 0, DATEADD(day, -1, @mEnd))
+                        WHEN DATEDIFF(day, 0, ${hrRoomDateTimeExprNullableSql("COALESCE(i.out_time2, i.out_time)")}) < DATEDIFF(day, 0, DATEADD(day, -1, @mEnd))
+                          THEN DATEDIFF(day, 0, ${hrRoomDateTimeExprNullableSql("COALESCE(i.out_time2, i.out_time)")})
+                        ELSE DATEDIFF(day, 0, DATEADD(day, -1, @mEnd))
+                      END
+                    )
+                    -
+                    (
+                      CASE
+                        WHEN DATEDIFF(day, 0, ${hrRoomDateTimeExprNullableSql('i.in_time')}) > DATEDIFF(day, 0, @mStart)
+                          THEN DATEDIFF(day, 0, ${hrRoomDateTimeExprNullableSql('i.in_time')})
+                        ELSE DATEDIFF(day, 0, @mStart)
+                      END
+                    )
+                  ) + 1
+                )
+            END
+        END AS stay_days
+      FROM ${HR_ROOM_IN_FROM} AS i
+      LEFT JOIN ${HR_STAFF_FROM} AS s
+        ON LTRIM(RTRIM(ISNULL(s.new_code, N''))) = LTRIM(RTRIM(ISNULL(i.staff_code, N'')))
+        AND LTRIM(RTRIM(ISNULL(s.del, N'0'))) = N'0'
+      LEFT JOIN ${HR_LEGACY_DEPT_FROM} AS dept
+        ON LTRIM(RTRIM(ISNULL(dept.code, N''))) = LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(s.join_department, N''))))
+      LEFT JOIN ${HR_LEGACY_DEPT_FROM} AS pos
+        ON LTRIM(RTRIM(ISNULL(pos.code, N''))) = LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(s.position, N''))))
+      WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+        AND (
+          @hasMonth = 0
+          OR (
+            ${hrRoomDateTimeExprNullableSql('i.in_time')} < @mEnd
+            AND (
+              ${hrRoomDateTimeExprNullableSql("COALESCE(i.out_time2, i.out_time)")} IS NULL
+              OR ${hrRoomDateTimeExprNullableSql("COALESCE(i.out_time2, i.out_time)")} >= @mStart
+            )
+          )
+        )
+        AND (
+          @hasMonth = 1
+          OR LTRIM(RTRIM(ISNULL(i.out_room, N'0'))) = N'0'
+        )
+        AND LTRIM(RTRIM(ISNULL(i.room_code, N''))) = @roomCode
+      ORDER BY i.id DESC
+    `)
+  return occRs.recordset ?? []
+}
+
+/** 与 `fetchDormElectricOccupantsMonthForAllocation` 同一 v1.1.7 在住窗，仅统计 Hr_room_in 行数（不联 staff），用于异常说明与明细行数对账 */
+async function fetchDormElectricRoomInMonthOverlapCount(pool, roomCode, mStartStr, mEndStr) {
+  const occReq = pool.request().input('roomCode', sql.NVarChar(50), roomCode)
+  occReq.input('hasMonth', sql.Bit, 1)
+  occReq.input('mStartStr', sql.NVarChar(19), mStartStr)
+  occReq.input('mEndStr', sql.NVarChar(19), mEndStr)
+  const occRs = await occReq.query(`
+      DECLARE @mStart datetime = CASE WHEN @hasMonth = 1 THEN CONVERT(datetime, @mStartStr, 120) ELSE NULL END;
+      DECLARE @mEnd datetime = CASE WHEN @hasMonth = 1 THEN CONVERT(datetime, @mEndStr, 120) ELSE NULL END;
+
+      SELECT COUNT(1) AS cnt
+      FROM ${HR_ROOM_IN_FROM} AS i
+      WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+        AND (
+          @hasMonth = 0
+          OR (
+            ${hrRoomDateTimeExprNullableSql('i.in_time')} < @mEnd
+            AND (
+              ${hrRoomDateTimeExprNullableSql("COALESCE(i.out_time2, i.out_time)")} IS NULL
+              OR ${hrRoomDateTimeExprNullableSql("COALESCE(i.out_time2, i.out_time)")} >= @mStart
+            )
+          )
+        )
+        AND (
+          @hasMonth = 1
+          OR LTRIM(RTRIM(ISNULL(i.out_room, N'0'))) = N'0'
+        )
+        AND LTRIM(RTRIM(ISNULL(i.room_code, N''))) = @roomCode
+    `)
+  const n = Number(occRs.recordset?.[0]?.cnt ?? 0)
+  return Number.isFinite(n) && n >= 0 ? n : 0
+}
+
 /** v1.1.1：缓存员工档案表列清单（避免不同库缺列导致 SQL 报错） */
 let HR_STAFF_COLSET_PROMISE = null
 let HR_ROOM_IN_COLSET_PROMISE = null
@@ -5326,8 +5569,10 @@ app.get('/api/hr/dormitory/electric/context', async (req, res) => {
             END
         END AS stay_days
       FROM ${HR_ROOM_IN_FROM} AS i
-      LEFT JOIN ${HR_STAFF_FROM} AS s
+      INNER JOIN ${HR_STAFF_FROM} AS s
         ON LTRIM(RTRIM(ISNULL(s.new_code, N''))) = LTRIM(RTRIM(ISNULL(i.staff_code, N'')))
+        AND LTRIM(RTRIM(ISNULL(s.del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(s.pass, N'0'))) = N'1'
       LEFT JOIN ${HR_LEGACY_DEPT_FROM} AS d
         ON LTRIM(RTRIM(ISNULL(d.code, N''))) = LTRIM(RTRIM(ISNULL(s.join_department, N'')))
       WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
@@ -5485,6 +5730,382 @@ app.get('/api/dorm/get-electric-history', async (req, res) => {
 })
 
 /**
+ * v1.1.6：宿舍电费情况统计报表（列表 + 汇总）
+ * GET /api/dorm/electric-report-data
+ * - year/month：统计月份；tj_date 可选（与 lodging-overview 一致，默认 `YYYY-M`）
+ * - 主表 Hr_room（已审 pass=1）；左连当月 Hr_room_use（tj_date 主/备选格式，同房同月多条取 id 最大一条，与历史回填一致）
+ * - 入住人数、优惠电量合计：Hr_room_in 按 v1.1.7 与 lodging-overview 相同的「跨月重叠」窗口（mStart/mEnd 由字符串 CONVERT，避免 JS 时区偏移）
+ * - 用电量/单价/合计金额：直接取 Hr_room_use 落库字段（与 /api/hr/dormitory/electric/settle 写入一致）
+ */
+app.get('/api/dorm/electric-report-data', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-Electric-Report', 'v1.1.6')
+  try {
+    let range
+    try {
+      range = lodgingMonthRangeOrThrow(req.query?.year, req.query?.month)
+    } catch (e) {
+      res.status(400).json({ code: 400, msg: String(e?.message ?? '年月参数错误'), data: null })
+      return
+    }
+
+    const y = range.y
+    const mo = range.mo
+    const pad2 = (n) => String(n).padStart(2, '0')
+    const nextMo = mo === 12 ? 1 : mo + 1
+    const nextY = mo === 12 ? y + 1 : y
+    const mStartStr = `${y}-${pad2(mo)}-01 00:00:00`
+    const mEndStr = `${nextY}-${pad2(nextMo)}-01 00:00:00`
+
+    const tjDateRaw = String(req.query?.tj_date ?? '').trim()
+    const tjDateTrim = tjDateRaw || `${y}-${mo}`
+
+    let tjDateAlt = null
+    const mm = /^(\d{4})-(\d{1,2})$/.exec(tjDateTrim) || /^(\d{4})-(\d{2})$/.exec(tjDateTrim)
+    if (mm) {
+      const yy = Number(mm[1])
+      const mmo = Number(mm[2])
+      if (Number.isFinite(yy) && Number.isFinite(mmo) && mmo >= 1 && mmo <= 12) {
+        const moPad = String(mmo).padStart(2, '0')
+        const a = `${yy}-${mmo}`
+        const b = `${yy}-${moPad}`
+        tjDateAlt = a === tjDateTrim ? b : a
+      }
+    }
+
+    const pool = await getPool()
+
+    const electricNorm = (col) => {
+      const c = String(col ?? '').trim()
+      return `REPLACE(REPLACE(LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(${c}, N'')))), N' ', N''), N',', N'.')`
+    }
+
+    // 2008 R2 无聚合类 OVER()，汇总单独查一轮，避免语法不兼容
+    const statReq = pool.request()
+    statReq.input('mStartStr', sql.NVarChar(19), mStartStr)
+    statReq.input('mEndStr', sql.NVarChar(19), mEndStr)
+    const statRs = await statReq.query(`
+      DECLARE @mStart datetime = CONVERT(datetime, @mStartStr, 120);
+      DECLARE @mEnd datetime = CONVERT(datetime, @mEndStr, 120);
+
+      SELECT
+        COUNT(1) AS stat_room_count,
+        SUM(ISNULL(mo.occupant_cnt, 0)) AS stat_people_sum
+      FROM ${HR_ROOM_FROM} AS r
+      LEFT JOIN (
+        SELECT
+          LTRIM(RTRIM(ISNULL(i.room_code, N''))) AS rc,
+          COUNT(1) AS occupant_cnt
+        FROM ${HR_ROOM_IN_FROM} AS i
+        WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+          AND ${hrRoomDateTimeExprNullableSql('i.in_time')} < @mEnd
+          AND (
+            ${hrRoomDateTimeExprNullableSql("COALESCE(i.out_time2, i.out_time)")} IS NULL
+            OR ${hrRoomDateTimeExprNullableSql("COALESCE(i.out_time2, i.out_time)")} >= @mStart
+          )
+          AND LTRIM(RTRIM(ISNULL(i.room_code, N''))) <> N''
+        GROUP BY LTRIM(RTRIM(ISNULL(i.room_code, N'')))
+      ) AS mo ON mo.rc = LTRIM(RTRIM(ISNULL(r.s_code, N'')))
+      WHERE LTRIM(RTRIM(ISNULL(r.pass, N'0'))) = N'1'
+        AND LTRIM(RTRIM(ISNULL(r.del, N'0'))) = N'0'
+    `)
+    const statRow = statRs.recordset?.[0] ?? null
+    const statRoomCount = Number(statRow?.stat_room_count ?? 0)
+    const statPeopleSum = Number(statRow?.stat_people_sum ?? 0)
+
+    const listReq = pool.request()
+    listReq.input('mStartStr', sql.NVarChar(19), mStartStr)
+    listReq.input('mEndStr', sql.NVarChar(19), mEndStr)
+    listReq.input('tj_date', sql.NVarChar(50), tjDateTrim)
+    listReq.input('tj_date_alt', sql.NVarChar(50), tjDateAlt || null)
+    const rs = await listReq.query(`
+      DECLARE @mStart datetime = CONVERT(datetime, @mStartStr, 120);
+      DECLARE @mEnd datetime = CONVERT(datetime, @mEndStr, 120);
+
+      SELECT
+        r.id AS room_id,
+        LTRIM(RTRIM(ISNULL(r.s_code, N''))) AS room_code,
+        LTRIM(RTRIM(ISNULL(r.code, N''))) AS room_type_code,
+        LTRIM(RTRIM(ISNULL(r.name, N''))) AS room_name,
+        ISNULL(mo.occupant_cnt, 0) AS occupant_count_month,
+        ISNULL(mo.discount_kwh_sum, 0) AS discount_kwh_month,
+        LTRIM(RTRIM(ISNULL(u.tj_date, N''))) AS tj_date,
+        LTRIM(RTRIM(ISNULL(u.c_date, N''))) AS meter_read_date,
+        LTRIM(RTRIM(ISNULL(u.uname, N''))) AS meter_reader,
+        LTRIM(RTRIM(ISNULL(u.c_star, N''))) AS c_star,
+        LTRIM(RTRIM(ISNULL(u.c_this, N''))) AS c_this,
+        LTRIM(RTRIM(ISNULL(u.c_old_end, N''))) AS c_old_end,
+        LTRIM(RTRIM(ISNULL(u.c_new_star, N''))) AS c_new_star,
+        LTRIM(RTRIM(ISNULL(u.c_change, N''))) AS c_change,
+        LTRIM(RTRIM(ISNULL(u.c_electric, N''))) AS used_electric,
+        LTRIM(RTRIM(ISNULL(u.c_money, N''))) AS unit_price,
+        CAST(${hrRoomUseCsumMoneyAsDecimalSql('u.c_sum_money')} AS decimal(18, 2)) AS total_money,
+        CAST(N'' AS nvarchar(500)) AS remark
+      FROM ${HR_ROOM_FROM} AS r
+      LEFT JOIN (
+        SELECT
+          LTRIM(RTRIM(ISNULL(i.room_code, N''))) AS rc,
+          COUNT(1) AS occupant_cnt,
+          SUM(
+            CASE
+              WHEN ISNUMERIC(${electricNorm('i.electric')}) = 1 AND CAST(${electricNorm('i.electric')} AS decimal(18, 4)) > 0
+                THEN CAST(${electricNorm('i.electric')} AS decimal(18, 4))
+              ELSE CAST(0 AS decimal(18, 4))
+            END
+          ) AS discount_kwh_sum
+        FROM ${HR_ROOM_IN_FROM} AS i
+        WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+          AND ${hrRoomDateTimeExprNullableSql('i.in_time')} < @mEnd
+          AND (
+            ${hrRoomDateTimeExprNullableSql("COALESCE(i.out_time2, i.out_time)")} IS NULL
+            OR ${hrRoomDateTimeExprNullableSql("COALESCE(i.out_time2, i.out_time)")} >= @mStart
+          )
+          AND LTRIM(RTRIM(ISNULL(i.room_code, N''))) <> N''
+        GROUP BY LTRIM(RTRIM(ISNULL(i.room_code, N'')))
+      ) AS mo ON mo.rc = LTRIM(RTRIM(ISNULL(r.s_code, N'')))
+      OUTER APPLY (
+        SELECT TOP 1
+          uu.tj_date,
+          uu.c_date,
+          uu.uname,
+          uu.c_star,
+          uu.c_this,
+          uu.c_old_end,
+          uu.c_new_star,
+          uu.c_change,
+          uu.c_electric,
+          uu.c_money,
+          uu.c_sum_money
+        FROM ${HR_ROOM_USE_FROM} AS uu
+        WHERE LTRIM(RTRIM(ISNULL(uu.del, N'0'))) = N'0'
+          AND LTRIM(RTRIM(ISNULL(uu.room_code, N''))) = LTRIM(RTRIM(ISNULL(r.s_code, N'')))
+          AND (
+            LTRIM(RTRIM(ISNULL(uu.tj_date, N''))) = @tj_date
+            OR (@tj_date_alt IS NOT NULL AND LTRIM(RTRIM(ISNULL(uu.tj_date, N''))) = @tj_date_alt)
+          )
+        ORDER BY uu.id DESC
+      ) AS u
+      WHERE LTRIM(RTRIM(ISNULL(r.pass, N'0'))) = N'1'
+        AND LTRIM(RTRIM(ISNULL(r.del, N'0'))) = N'0'
+      ORDER BY r.in_lou ASC, r.s_code ASC, r.id ASC
+    `)
+
+    const rows = rs.recordset ?? []
+
+    const list = rows.map((row) => ({
+      room_id: row.room_id,
+      room_code: row.room_code,
+      room_type_code: row.room_type_code,
+      room_name: row.room_name,
+      occupant_count_month: Number(row.occupant_count_month ?? 0),
+      discount_kwh_month: Number(row.discount_kwh_month ?? 0),
+      tj_date: row.tj_date,
+      meter_read_date: row.meter_read_date,
+      meter_reader: row.meter_reader,
+      c_star: row.c_star,
+      c_this: row.c_this,
+      c_old_end: row.c_old_end,
+      c_new_star: row.c_new_star,
+      c_change: row.c_change,
+      used_electric: row.used_electric,
+      unit_price: row.unit_price,
+      total_money: row.total_money,
+      remark: row.remark,
+    }))
+
+    res.json({
+      code: 200,
+      msg: 'success',
+      data: {
+        year: y,
+        month: mo,
+        tj_date: tjDateTrim,
+        stat_room_count: statRoomCount,
+        stat_people_sum: statPeopleSum,
+        list,
+      },
+    })
+  } catch (err) {
+    console.error('GET /api/dorm/electric-report-data 失败：', err)
+    const detail = String(err?.message ?? '数据库查询失败')
+    res.status(500).json({
+      code: 500,
+      msg: `加载电费统计报表失败：${detail}`,
+      data: shouldAttachSqlDebugToApiResponse() ? { sqlDebug: serializeMssqlRequestErrorForClient(err) } : null,
+    })
+  }
+})
+
+/**
+ * v1.1.6+：宿舍费用分摊情况（人员维度；以当月 Hr_room_use 为入口，按 v1.1.9 住宿天数权重与电费弹窗公式一致）
+ * GET /api/dorm/electric-allocation-report
+ * - 仅包含有电费记录且该月存在 overlap 入住人员的房间；无在住人员的房间不产生行（Tab1 仍保留能耗行）
+ */
+app.get('/api/dorm/electric-allocation-report', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-Electric-Allocation-Report', 'v1.1.7')
+  try {
+    let range
+    try {
+      range = lodgingMonthRangeOrThrow(req.query?.year, req.query?.month)
+    } catch (e) {
+      res.status(400).json({ code: 400, msg: String(e?.message ?? '年月参数错误'), data: null })
+      return
+    }
+
+    const y = range.y
+    const mo = range.mo
+    const pad2 = (n) => String(n).padStart(2, '0')
+    const nextMo = mo === 12 ? 1 : mo + 1
+    const nextY = mo === 12 ? y + 1 : y
+    const mStartStr = `${y}-${pad2(mo)}-01 00:00:00`
+    const mEndStr = `${nextY}-${pad2(nextMo)}-01 00:00:00`
+
+    const tjDateRaw = String(req.query?.tj_date ?? '').trim()
+    const tjDateTrim = tjDateRaw || `${y}-${mo}`
+
+    let tjDateAlt = null
+    const mm = /^(\d{4})-(\d{1,2})$/.exec(tjDateTrim) || /^(\d{4})-(\d{2})$/.exec(tjDateTrim)
+    if (mm) {
+      const yy = Number(mm[1])
+      const mmo = Number(mm[2])
+      if (Number.isFinite(yy) && Number.isFinite(mmo) && mmo >= 1 && mmo <= 12) {
+        const moPad = String(mmo).padStart(2, '0')
+        const a = `${yy}-${mmo}`
+        const b = `${yy}-${moPad}`
+        tjDateAlt = a === tjDateTrim ? b : a
+      }
+    }
+
+    const pool = await getPool()
+    const useReq = pool.request()
+    useReq.input('tj_date', sql.NVarChar(50), tjDateTrim)
+    useReq.input('tj_date_alt', sql.NVarChar(50), tjDateAlt || null)
+    const useRs = await useReq.query(`
+      SELECT
+        LTRIM(RTRIM(ISNULL(u.room_code, N''))) AS room_code,
+        LTRIM(RTRIM(ISNULL(u.c_star, N''))) AS c_star,
+        LTRIM(RTRIM(ISNULL(u.c_this, N''))) AS c_this,
+        LTRIM(RTRIM(ISNULL(u.c_electric, N''))) AS c_electric,
+        LTRIM(RTRIM(ISNULL(u.c_money, N''))) AS c_money
+      FROM (
+        SELECT
+          uu.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY LTRIM(RTRIM(ISNULL(uu.room_code, N'')))
+            ORDER BY uu.id DESC
+          ) AS rn
+        FROM ${HR_ROOM_USE_FROM} AS uu
+        INNER JOIN ${HR_ROOM_FROM} AS r
+          ON LTRIM(RTRIM(ISNULL(r.s_code, N''))) = LTRIM(RTRIM(ISNULL(uu.room_code, N'')))
+        WHERE LTRIM(RTRIM(ISNULL(uu.del, N'0'))) = N'0'
+          AND LTRIM(RTRIM(ISNULL(r.pass, N'0'))) = N'1'
+          AND LTRIM(RTRIM(ISNULL(r.del, N'0'))) = N'0'
+          AND (
+            LTRIM(RTRIM(ISNULL(uu.tj_date, N''))) = @tj_date
+            OR (@tj_date_alt IS NOT NULL AND LTRIM(RTRIM(ISNULL(uu.tj_date, N''))) = @tj_date_alt)
+          )
+      ) AS u
+      WHERE u.rn = 1
+      ORDER BY u.room_code ASC
+    `)
+
+    const useRows = useRs.recordset ?? []
+    const list = []
+    let excludedFromFeePoolCount = 0
+    const roomCountMismatches = []
+    for (const ur of useRows) {
+      const roomCode = String(ur?.room_code ?? '').trim()
+      if (!roomCode) continue
+      const usedParsed = Number(String(ur?.c_electric ?? '').trim() || '0')
+      const usedSafe = Number.isFinite(usedParsed) && usedParsed >= 0 ? usedParsed : 0
+      const overlapCnt = await fetchDormElectricRoomInMonthOverlapCount(pool, roomCode, mStartStr, mEndStr)
+      const rawOcc = await fetchDormElectricOccupantsMonthForAllocation(pool, roomCode, mStartStr, mEndStr)
+      const occupants = mapDormElectricOccupantsWithDiscountForAllocation(rawOcc)
+      if (occupants.length === 0) {
+        if (overlapCnt > 0) {
+          roomCountMismatches.push({
+            room_code: roomCode,
+            hr_room_in_overlap_count: overlapCnt,
+            report_row_count: 0,
+          })
+        }
+        continue
+      }
+      if (overlapCnt !== occupants.length) {
+        roomCountMismatches.push({
+          room_code: roomCode,
+          hr_room_in_overlap_count: overlapCnt,
+          report_row_count: occupants.length,
+        })
+      }
+      const shares = computeDormElectricSharesByDayWeightWithFeeEligibility(usedSafe, occupants)
+      for (const row of shares) {
+        if (isDormElectricExcludedFromFeeSharePool(row)) excludedFromFeePoolCount += 1
+        list.push({
+          month_label: `${y}-${mo}`,
+          tj_date: tjDateTrim,
+          room_code: roomCode,
+          staff_code: String(row.staff_code ?? '').trim(),
+          staff_archive_code: String(row.staff_archive_code ?? '').trim(),
+          staff_pass: String(row.staff_pass ?? '').trim(),
+          staff_truename: String(row.staff_truename ?? '').trim(),
+          staff_display_name: buildDormElectricStaffDisplayName(row),
+          dept_name: String(row.dept_name ?? '').trim(),
+          position_name: String(row.position_name ?? '').trim(),
+          c_star: String(ur.c_star ?? '').trim(),
+          c_this: String(ur.c_this ?? '').trim(),
+          dorm_used_electric: usedSafe,
+          share_electric: row.share_electric,
+          personal_discount_electric: row.electric_discount,
+          unit_price: String(ur.c_money ?? '').trim() || '0.93',
+          stay_days: row.stay_days,
+          share_money: row.share_money,
+          fee_eligible: row.fee_eligible === true,
+          fee_share_applied: row.fee_share_applied === true,
+        })
+      }
+    }
+
+    const anomalyParts = []
+    if (excludedFromFeePoolCount > 0) {
+      anomalyParts.push(
+        `检测到有 ${excludedFromFeePoolCount} 名在住人员因档案状态未通过(pass!=1)或入职日期异常未计入费用分摊；对应行分摊电费已按 0 元显示，请管理员核对后再执行财务扣款。`,
+      )
+    }
+    if (roomCountMismatches.length > 0) {
+      const detail = roomCountMismatches
+        .map((m) => `${m.room_code}（入住表=${m.hr_room_in_overlap_count}，报表=${m.report_row_count}）`)
+        .join('；')
+      anomalyParts.push(`以下房间在住人数与报表行数不一致，请排查数据：${detail}`)
+    }
+    const allocation_anomaly_hint = anomalyParts.length ? anomalyParts.join(' ') : ''
+
+    res.json({
+      code: 200,
+      msg: 'success',
+      data: {
+        year: y,
+        month: mo,
+        tj_date: tjDateTrim,
+        list,
+        allocation_anomaly_hint,
+        allocation_anomaly: {
+          excluded_from_fee_pool_count: excludedFromFeePoolCount,
+          room_count_mismatches: roomCountMismatches,
+        },
+      },
+    })
+  } catch (err) {
+    console.error('GET /api/dorm/electric-allocation-report 失败：', err)
+    const detail = String(err?.message ?? '数据库查询失败')
+    res.status(500).json({
+      code: 500,
+      msg: `加载费用分摊报表失败：${detail}`,
+      data: shouldAttachSqlDebugToApiResponse() ? { sqlDebug: serializeMssqlRequestErrorForClient(err) } : null,
+    })
+  }
+})
+
+/**
  * v1.1.6：电费数据回滚（删除）
  * POST /api/dorm/delete-electric
  * body: { room_code, tj_date }
@@ -5620,8 +6241,10 @@ app.post('/api/hr/dormitory/electric/settle', async (req, res) => {
         LTRIM(RTRIM(ISNULL(d.name, ISNULL(s.join_department, i.staff_bm_name)))) AS dept_name,
         LTRIM(RTRIM(ISNULL(i.electric, N''))) AS electric
       FROM ${HR_ROOM_IN_FROM} AS i
-      LEFT JOIN ${HR_STAFF_FROM} AS s
+      INNER JOIN ${HR_STAFF_FROM} AS s
         ON LTRIM(RTRIM(ISNULL(s.new_code, N''))) = LTRIM(RTRIM(ISNULL(i.staff_code, N'')))
+        AND LTRIM(RTRIM(ISNULL(s.del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(s.pass, N'0'))) = N'1'
       LEFT JOIN ${HR_LEGACY_DEPT_FROM} AS d
         ON LTRIM(RTRIM(ISNULL(d.code, N''))) = LTRIM(RTRIM(ISNULL(s.join_department, N'')))
       WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
@@ -6771,8 +7394,12 @@ app.listen(port, () => {
   console.log(`Electric-MeterChange-Logic-v1.1.5-Active ${bootAt}`)
   console.log(`Electric-Split-Logic-Fixed-v1.1.5-Active ${bootAt}`)
   console.log(`Dorm-TimeFilter-Fixed-v1.1.7 ${bootAt}`)
+  console.log(`Electric-Report-Module-v1.1.6-Active ${bootAt}`)
+  console.log(`Electric-Report-Tabs-v1.1.6-Ready ${bootAt}`)
+  console.log(`Report-Dept-Name-Mapping-v1.1.6 ${bootAt}`)
   console.log(`Dorm-Electric-Context-MonthFilter-Fixed-v1.1.7 ${bootAt}`)
   console.log(`Electric-Days-Weight-v1.1.9-Active ${bootAt}`)
+  console.log(`Electric-Report-Force-Display-Fixed-v1.1.6 ${bootAt}`)
   console.log(`[启动指纹] v1.1.3-ElectricFee-Fix bootAt=${bootAt}`)
   console.log(`Dorm-Module-Query-Trigger-Active ${bootAt}`)
   console.log(`Dorm-CheckIn-SmartLogic-v1.1.3-Active ${bootAt}`)

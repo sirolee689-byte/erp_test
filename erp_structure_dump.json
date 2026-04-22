@@ -139,7 +139,8 @@
         "title": "宿舍管理",
         "children": [
           { "name": "room-management", "title": "房间管理" },
-          { "name": "lodging-records", "title": "住宿管理" }
+          { "name": "lodging-records", "title": "住宿管理" },
+          { "name": "electric-report", "title": "宿舍电费情况统计报表" }
         ]
       },
       {
