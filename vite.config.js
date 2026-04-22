@@ -10,6 +10,10 @@ export default defineConfig({
     },
   },
   server: {
+    // 允许局域网其他设备通过 http://<内网IP>:5173 访问
+    host: true,
+    port: 5173,
+    strictPort: true,
     proxy: {
       // 将前端的 /api 请求代理到本地后端，避免开发环境跨域问题
       '/api': {

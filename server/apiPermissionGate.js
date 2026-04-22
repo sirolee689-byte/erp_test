@@ -255,6 +255,16 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'hr/dormitory/lodging-records', action: 'audit' }
   }
 
+  /* v1.1.7：BOM 列表（菜单在「存货 inv/bom」与「库存管理 inventory/basic/bom-data」两处均可调） */
+  if (m === 'GET' && path === '/api/inv/bom/list') {
+    return {
+      anyOf: [
+        { menuPath: 'inv/bom', action: 'view' },
+        { menuPath: 'inventory/basic/bom-data', action: 'view' },
+      ],
+    }
+  }
+
   return null
 }
 

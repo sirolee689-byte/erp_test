@@ -4,7 +4,7 @@
 
 > 约定：本文只维护“项目当前明确使用到”的表与字段；如需扩展，请同时补充迁移脚本（见 `docs/sql/` 与 `scripts/migrations/`）和相关设计文档。
 
-## 1. 全局概览（当前确认：8 张表）
+## 1. 全局概览（当前确认：9 张表）
 
 - **HR_Departments**：部门 / 岗位（旧系统表接管）
 - **Hr_staff**：人事档案资料（精简字段查询）
@@ -14,6 +14,7 @@
 - **Sys_OperationLogs**：全局操作审计日志（新增）
 - **Sys_Roles**：角色管理（含菜单权限 `Permissions`）
 - **Sys_Users**：用户/操作员（通过 `RoleID` 关联角色）
+- **bom_000**：BOM 主档 / 物料清单头（v1.1.7 列表查询；约 6.8W 行量级，**必须分页**）
 
 ## 2. 表关系（ER 摘要）
 
@@ -183,7 +184,26 @@
 - **权限（按钮级）**
   - 菜单 path：`hr/dormitory/room-management`（`view` / `add` / **`audit` 审核房间**）、`hr/dormitory/lodging-records`（**Tab**：房间总览 + **审核入住申请** + 住宿历史；`view`/`add`/`audit`/`edit` 见 `apiPermissionGate.js`）
 
-### 3.6 `Sys_Users`（用户 / 操作员）
+### 3.6 `bom_000`（BOM 主档，v1.1.7）
+
+- **Schema**：`dbo`（实际由数据库决定）
+- **表名来源**：环境变量 `INV_BOM_MASTER_TABLE`，默认 `bom_000`
+- **模块/页面**
+  - 前端：`src/views/inv/bom/index.vue`（菜单 path：`inv/bom`）；**同一列表**亦由 `src/views/inventory/basic/bom-data/index.vue`（菜单 path：`inventory/basic/bom-data`，侧栏「BOM资料」）内嵌复用
+- **接口（后端：`server/index.js`）**
+  - `GET /api/inv/bom/list`：分页列表；`WHERE` 含在册 `del` 与 `pass=@pass`；排序 `kcaa01 ASC`、`[version] DESC`；分页 **仅** `ROW_NUMBER()`（SQL Server 2008 R2）；编码/名称搜索为参数化 `LIKE`，且 **输入满 3 字符** 才生效以降低慢查询风险
+    - 用量运算规则：**不允许硬编码前缀**；由配置表 `Bom_code` 中 `copen=1` 的 `flag5` 动态生成匹配规则，并在后端做 TTL 缓存
+    - 规则含义：`flag5='OUT'` → 编码包含 `-OUT`；`flag5='RP'` → 编码以 `RP-PQ` 开头；其它 → 编码以 `${flag5}-` 开头
+    - 列表返回：`calcStatus`（`done/not_done/not_needed`）+ 成本/成品用量四个汇总值（仅 `done/not_done` 行展示）
+- **关键字段（接口 JSON 映射）**
+  - `kcaa01` → `code`，`kcaa02` → `name`，`kcaa03` → `spec`，`kcaa04` → `unit`
+  - `kcaa12` → `isPurchase`，`kcaa13` → `isSubcontract`，`kcaa14` → `isSelfProduced`
+  - `sign` → `status`（接口字段名 `status`，避免与前端「状态」文案混淆时在列表列标题标注 `sign`）
+  - `version`：版本号（排序降序）；`pass` / `del`：沿用项目「审核 / 逻辑删除」约定
+- **权限（按钮级）**
+  - 菜单 path：`inv/bom` 或 `inventory/basic/bom-data`；`GET /api/inv/bom/list` 在 `apiPermissionGate.js` 中满足任一路径的 `view` 即可；复制/详情依赖同页 `view`，编辑按钮预留 `edit`（后续保存接口落地后再审）
+
+### 3.7 `Sys_Users`（用户 / 操作员）
 
 - **Schema**：通常为 `dbo`（实际由数据库决定）
 - **模块/页面**
@@ -200,6 +220,7 @@
 
 - `HR_LEGACY_DEPT_TABLE`：部门/岗位表名，默认 `HR_Departments`
 - `HR_STAFF_TABLE`：员工档案表名，默认 `Hr_staff`
+- `INV_BOM_MASTER_TABLE`：BOM 主档表名，默认 `bom_000`（仅字母数字下划线）
 
 ## 5. 维护指引（建议）
 
@@ -228,4 +249,8 @@
   - 说明：通过 `HR_STAFF_FROM = \`dbo.[${HR_STAFF_TABLE}]\`` 统一引用；员工档案 CRUD/审核均走该表。
 - **`dbo.[Hr_room]` / `dbo.[Hr_room_in]` / `dbo.[Hr_room_use]`**
   - 来源：`server/index.js`（宿舍列表、办理入住、住宿总览/历史/入住单审核）
+- **`dbo.[bom_000]`（表名可由环境变量 `INV_BOM_MASTER_TABLE` 覆盖）**
+  - 来源：`server/index.js`（`GET /api/inv/bom/list`）
+- **`dbo.[Bom_code]`**
+  - 来源：`server/index.js`（BOM 用量运算规则：`copen=1`、`flag5` 动态匹配）
 

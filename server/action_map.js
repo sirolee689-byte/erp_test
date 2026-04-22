@@ -66,6 +66,8 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
 
   { method: 'DELETE', path: '/api/sys/logs/clear', action: '清空操作日志', targetTable: 'Sys_OperationLogs' },
 
+  { method: 'GET', path: '/api/inv/bom/list', action: '查询BOM资料列表', targetTable: 'bom_000' },
+
   // 示例：仓储入库（路由落地后无需改中间件，只需保留/调整本行映射）
   { method: 'POST', path: '/api/warehouse/stock-in', action: '入库单新增', targetTable: 'Inv_StockIn' },
   { method: 'DELETE', path: /^\/api\/warehouse\/stock-in\/[^/]+$/, action: '入库单作废', targetTable: 'Inv_StockIn' },

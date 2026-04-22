@@ -2736,6 +2736,123 @@ const HR_ROOM_IN_FROM = 'dbo.[Hr_room_in]'
 /** 宿舍电费汇总等：room_code 与 Hr_room.s_code / Hr_room_in.room_code 对应 */
 const HR_ROOM_USE_FROM = 'dbo.[Hr_room_use]'
 
+/** BOM 主档物理表（默认 bom_000）；表名仅允许字母数字下划线，防注入拼接 */
+const INV_BOM_MASTER_TABLE = (() => {
+  const raw = String(process.env.INV_BOM_MASTER_TABLE ?? 'bom_000').trim()
+  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'bom_000'
+})()
+const INV_BOM_MASTER_FROM = `dbo.[${INV_BOM_MASTER_TABLE}]`
+
+/** BOM 运算规则配置表（固定物理表名） */
+const BOM_CODE_FROM = 'dbo.[Bom_code]'
+
+/**
+ * Bom_code 规则缓存（配置表：变更频率低；避免在每次分页查询中反复 JOIN/扫描）
+ * - warmup：第一次请求时加载
+ * - ttl：默认 60 秒自动刷新（足够应对配置变更；同时避免每次请求打配置表）
+ */
+const bomCalcRuleCache = {
+  loadedAt: 0,
+  ttlMs: 60 * 1000,
+  /** @type {{ flag5: string }[]} */
+  rules: [],
+}
+
+/**
+ * 读取 Bom_code 中启用规则（copen=1），只取 flag5 字段
+ * @param {import('mssql').ConnectionPool} pool
+ */
+async function loadBomCalcRulesFromDb(pool) {
+  const q = pool.request()
+  const r = await q.query(`
+    SELECT LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(flag5, N'')))) AS flag5
+    FROM ${BOM_CODE_FROM}
+    WHERE ISNULL(copen, 0) = 1
+      AND LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(flag5, N'')))) <> N''
+  `)
+  const out = []
+  for (const row of r.recordset ?? []) {
+    const flag5 = String(row?.flag5 ?? '').trim()
+    if (!flag5) continue
+    out.push({ flag5 })
+  }
+  return out
+}
+
+/**
+ * 获取 Bom_code 规则（带 TTL 缓存）
+ * @param {import('mssql').ConnectionPool} pool
+ */
+async function getBomCalcRules(pool) {
+  const now = Date.now()
+  const expired = now - bomCalcRuleCache.loadedAt > bomCalcRuleCache.ttlMs
+  if (!bomCalcRuleCache.loadedAt || expired) {
+    try {
+      bomCalcRuleCache.rules = await loadBomCalcRulesFromDb(pool)
+      bomCalcRuleCache.loadedAt = now
+    } catch (e) {
+      // 关键：配置表异常时，不要阻塞主业务；沿用旧缓存（若无缓存则为空，等同“全部不需运算”）
+      console.error('[BOM规则] 读取 Bom_code 失败：', e)
+      bomCalcRuleCache.loadedAt = now
+    }
+  }
+  return bomCalcRuleCache.rules
+}
+
+/**
+ * 根据 Bom_code.flag5 规则生成「物料编码是否需要运算」的 SQL 条件（仅用于当前页匹配）
+ * - OUT：编码包含 '-OUT'
+ * - RP：编码以 'RP-PQ' 开头
+ * - 其它：编码以 `${flag5}-` 开头（如 PQ-）
+ *
+ * 说明：此处会将 flag5 做白名单过滤（仅字母数字下划线），避免规则值被注入到 SQL 字符串中。
+ * @param {{ flag5: string }[]} rules
+ * @param {string} codeExpr SQL 里的编码表达式，如 p.code
+ */
+function buildBomNeedCalcSqlCondition(rules, codeExpr) {
+  const c = String(codeExpr ?? 'p.code').trim() || 'p.code'
+  /** @type {string[]} */
+  const parts = []
+
+  // 特殊规则：只要 Bom_code 启用包含 OUT/RP，就允许匹配；其余规则走 prefix
+  let enableOut = false
+  let enableRp = false
+  /** @type {string[]} */
+  const prefixes = []
+
+  for (const r of rules ?? []) {
+    const f = String(r?.flag5 ?? '').trim()
+    if (!f) continue
+    if (f.toUpperCase() === 'OUT') {
+      enableOut = true
+      continue
+    }
+    if (f.toUpperCase() === 'RP') {
+      enableRp = true
+      continue
+    }
+    // 仅允许安全字符
+    if (!/^[A-Za-z0-9_]+$/.test(f)) continue
+    prefixes.push(`${f}-`)
+  }
+
+  if (enableOut) {
+    parts.push(`CHARINDEX(N'-OUT', ${c}) > 0`)
+  }
+  if (enableRp) {
+    parts.push(`${c} LIKE N'RP-PQ%'`)
+  }
+  for (const p of prefixes) {
+    const lit = `N'${String(p).replace(/'/g, "''")}%'`
+    parts.push(`${c} LIKE ${lit}`)
+  }
+
+  if (!parts.length) {
+    return '1=0'
+  }
+  return `(${parts.join(' OR ')})`
+}
+
 /**
  * 日期/时间列落在 [@mStart, @mEnd) 自然月半开区间；兼容 SQL Server 2008 R2（无 TRY_CONVERT）。
  * 要点：若列已是 datetime，不能再「先转 nvarchar 再 CONVERT 回 datetime」，否则受会话语言/格式影响易报 241。
@@ -2793,6 +2910,17 @@ function hrRoomUseCsumMoneyAsDecimalSql(colExpr) {
   const c = String(colExpr ?? 'u.c_sum_money').trim()
   const norm = `REPLACE(REPLACE(LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(${c}, N'')))), N' ', N''), N',', N'')`
   return `CASE WHEN ${norm} = N'' THEN CAST(0 AS decimal(18,2)) WHEN ISNUMERIC(${norm}) = 1 THEN CAST(${norm} AS decimal(18,2)) ELSE CAST(0 AS decimal(18,2)) END`
+}
+
+/**
+ * Bom_cost / Bom_consumption 的 kcac04/kcac06 可能为 nvarchar：SUM 前转为 decimal；空或非数字视为 0。
+ * SQL Server 2008 R2：无 TRY_CONVERT，使用 ISNUMERIC 兜底。
+ * @param {string} colExpr 列引用，如 c.kcac04
+ */
+function bomKcacAsDecimalSql(colExpr) {
+  const c = String(colExpr ?? '').trim()
+  const norm = `REPLACE(REPLACE(LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(${c}, N'')))), N' ', N''), N',', N'')`
+  return `CASE WHEN ${norm} = N'' THEN CAST(0 AS decimal(18,4)) WHEN ISNUMERIC(${norm}) = 1 THEN CAST(${norm} AS decimal(18,4)) ELSE CAST(0 AS decimal(18,4)) END`
 }
 
 /**
@@ -6106,6 +6234,189 @@ app.get('/api/dorm/electric-allocation-report', async (req, res) => {
 })
 
 /**
+ * LIKE 通配符转义（SQL Server 2008 R2：用方括号包裹 % _ [）
+ * @param {string} s
+ */
+function escapeSqlLikePattern(s) {
+  return String(s ?? '')
+    .replace(/\[/g, '[[]')
+    .replace(/%/g, '[%]')
+    .replace(/_/g, '[_]')
+}
+
+/**
+ * v1.1.7：BOM 主档分页列表（SQL Server 2008 R2：仅 ROW_NUMBER 分页，禁用 OFFSET-FETCH）
+ * GET /api/inv/bom/list
+ * - 默认排序：优先按 edittime DESC；edittime 为空则按 addtime DESC（保证打开页面先看到最近更新/新增）
+ * - 搜索：kcaa01 / kcaa02 独立参数化 LIKE；前后端约定「不足 3 字不筛」以降低大表模糊扫描风险
+ * - 过滤：del 在册 + pass（与项目列表页「显示未审核」一致）
+ */
+app.get('/api/inv/bom/list', async (req, res) => {
+  try {
+    const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
+    const pageSizeRaw = Number(req.query?.pageSize ?? 50) || 50
+    const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+
+    const passRaw = String(req.query?.pass ?? '1').trim()
+    const pass = passRaw === '0' ? '0' : '1'
+
+    const codeRaw = String(req.query?.code ?? '').trim()
+    const nameRaw = String(req.query?.name ?? '').trim()
+    const codeOk = codeRaw.length >= 3
+    const nameOk = nameRaw.length >= 3
+    const codeLike = codeOk ? `%${escapeSqlLikePattern(codeRaw)}%` : ''
+    const nameLike = nameOk ? `%${escapeSqlLikePattern(nameRaw)}%` : ''
+
+    const pool = await getPool()
+    const bomRules = await getBomCalcRules(pool)
+    const needCalcCondSql = buildBomNeedCalcSqlCondition(bomRules, 'p.code')
+    const whereBase = `
+      WHERE (ISNULL(b.del, N'') = N'' OR b.del = N'0')
+        AND LTRIM(RTRIM(ISNULL(b.pass, N''))) = @pass
+      ${codeOk ? ' AND b.kcaa01 LIKE @codeLike ' : ''}
+      ${nameOk ? ' AND b.kcaa02 LIKE @nameLike ' : ''}
+    `
+
+    const countReq = pool.request()
+    countReq.input('pass', sql.NVarChar(10), pass)
+    if (codeOk) countReq.input('codeLike', sql.NVarChar(300), codeLike)
+    if (nameOk) countReq.input('nameLike', sql.NVarChar(300), nameLike)
+
+    const totalRow = await countReq.query(`
+      SELECT COUNT(1) AS total
+      FROM ${INV_BOM_MASTER_FROM} AS b
+      ${whereBase}
+    `)
+    const total = Number(totalRow.recordset?.[0]?.total ?? 0)
+
+    const safeOffset = (page - 1) * pageSize
+    const startRow = safeOffset + 1
+    const endRow = safeOffset + pageSize
+
+    const listReq = pool.request()
+    listReq.input('pass', sql.NVarChar(10), pass)
+    listReq.input('startRow', sql.Int, startRow)
+    listReq.input('endRow', sql.Int, endRow)
+    if (codeOk) listReq.input('codeLike', sql.NVarChar(300), codeLike)
+    if (nameOk) listReq.input('nameLike', sql.NVarChar(300), nameLike)
+
+    const listResult = await listReq.query(`
+      ;WITH base AS (
+        SELECT
+          b.kcaa01 AS code,
+          b.kcaa02 AS product_name,
+          b.kcaa03 AS spec,
+          b.kcaa04 AS unit,
+          CONVERT(nvarchar(100), ISNULL(b.addtime, N'')) AS addtime,
+          CONVERT(nvarchar(100), ISNULL(b.edittime, N'')) AS edittime,
+          CONVERT(nvarchar(500), ISNULL(b.remark, N'')) AS remark,
+          b.kcaa12 AS isPurchase,
+          b.kcaa13 AS isSubcontract,
+          b.kcaa14 AS isSelfProduced,
+          b.sign AS status,
+          b.[version] AS version,
+          b.pass AS pass,
+          ROW_NUMBER() OVER (
+            ORDER BY
+              CASE
+                WHEN LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.edittime, N'')))) = N''
+                THEN LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.addtime, N''))))
+                ELSE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.edittime, N''))))
+              END DESC,
+              b.kcaa01 ASC
+          ) AS rn
+        FROM ${INV_BOM_MASTER_FROM} AS b
+        ${whereBase}
+      ),
+      page AS (
+        SELECT *
+        FROM base
+        WHERE rn BETWEEN @startRow AND @endRow
+      ),
+      agg_cost AS (
+        SELECT
+          c.pq AS pq,
+          COUNT(1) AS cost_count,
+          SUM(${bomKcacAsDecimalSql('c.kcac04')}) AS sum_cost_04,
+          SUM(${bomKcacAsDecimalSql('c.kcac06')}) AS sum_cost_06
+        FROM dbo.[Bom_cost] AS c
+        WHERE c.pq IN (SELECT p.code FROM page AS p WHERE ${needCalcCondSql})
+        GROUP BY c.pq
+      ),
+      agg_cons AS (
+        SELECT
+          d.pq AS pq,
+          COUNT(1) AS cons_count,
+          SUM(${bomKcacAsDecimalSql('d.kcac04')}) AS sum_cons_04,
+          SUM(${bomKcacAsDecimalSql('d.kcac06')}) AS sum_cons_06
+        FROM dbo.[Bom_consumption] AS d
+        WHERE d.pq IN (SELECT p.code FROM page AS p WHERE ${needCalcCondSql})
+        GROUP BY d.pq
+      )
+      SELECT
+        p.code,
+        p.product_name,
+        p.spec,
+        p.unit,
+        p.addtime,
+        p.edittime,
+        p.remark,
+        p.isPurchase,
+        p.isSubcontract,
+        p.isSelfProduced,
+        p.status,
+        p.version,
+        p.pass,
+        CASE WHEN ${needCalcCondSql} THEN 1 ELSE 0 END AS need_calc,
+        COALESCE(ac.cost_count, 0) AS cost_count,
+        COALESCE(an.cons_count, 0) AS cons_count,
+        COALESCE(ac.sum_cost_04, CAST(0 AS decimal(18,4))) AS sum_cost_04,
+        COALESCE(ac.sum_cost_06, CAST(0 AS decimal(18,4))) AS sum_cost_06,
+        COALESCE(an.sum_cons_04, CAST(0 AS decimal(18,4))) AS sum_cons_04,
+        COALESCE(an.sum_cons_06, CAST(0 AS decimal(18,4))) AS sum_cons_06
+      FROM page AS p
+      LEFT JOIN agg_cost AS ac ON ac.pq = p.code
+      LEFT JOIN agg_cons AS an ON an.pq = p.code
+      ORDER BY p.rn
+    `)
+
+    const list = (listResult.recordset ?? []).map((row) => ({
+      code: row.code != null ? String(row.code) : '',
+      name: row.product_name != null ? String(row.product_name) : '',
+      spec: row.spec != null ? String(row.spec) : '',
+      unit: row.unit != null ? String(row.unit) : '',
+      addtime: row.addtime != null ? String(row.addtime) : '',
+      edittime: row.edittime != null ? String(row.edittime) : '',
+      remark: row.remark != null ? String(row.remark) : '',
+      isPurchase: row.isPurchase != null ? String(row.isPurchase) : '',
+      isSubcontract: row.isSubcontract != null ? String(row.isSubcontract) : '',
+      isSelfProduced: row.isSelfProduced != null ? String(row.isSelfProduced) : '',
+      status: row.status != null ? String(row.status) : '',
+      version: row.version != null ? String(row.version) : '',
+      pass: row.pass != null ? String(row.pass) : '',
+      needCalc: Number(row.need_calc ?? 0) === 1,
+      calcStatus: (() => {
+        const need = Number(row.need_calc ?? 0) === 1
+        if (!need) return 'not_needed'
+        const c1 = Number(row.cost_count ?? 0)
+        // v1.1.7：按需求「已/未运算」只看 Bom_cost 是否有记录（Bom_consumption 仍参与汇总展示）
+        return c1 > 0 ? 'done' : 'not_done'
+      })(),
+      sumCost04: Number(row.sum_cost_04 ?? 0).toFixed(4),
+      sumCost06: Number(row.sum_cost_06 ?? 0).toFixed(4),
+      sumCons04: Number(row.sum_cons_04 ?? 0).toFixed(4),
+      sumCons06: Number(row.sum_cons_06 ?? 0).toFixed(4),
+    }))
+
+    res.json({ code: 200, msg: 'success', data: { total, list } })
+  } catch (err) {
+    console.error('GET /api/inv/bom/list 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取 BOM 列表失败：${detail}`, data: null })
+  }
+})
+
+/**
  * v1.1.6：电费数据回滚（删除）
  * POST /api/dorm/delete-electric
  * body: { room_code, tj_date }
@@ -7398,6 +7709,10 @@ app.listen(port, () => {
   console.log(`Electric-Report-Tabs-v1.1.6-Ready ${bootAt}`)
   console.log(`Report-Dept-Name-Mapping-v1.1.6 ${bootAt}`)
   console.log(`Dorm-Electric-Context-MonthFilter-Fixed-v1.1.7 ${bootAt}`)
+  console.log(`BOM-List-Initial-v1.1.7 ${bootAt} table=${INV_BOM_MASTER_TABLE}`)
+  console.log(`BOM-SUM-Statistical-Column-v1.1.7 ${bootAt}`)
+  console.log(`BOM-Dynamic-Rules-From-BomCode-v1.1.7 ${bootAt}`)
+  console.log(`BOM-UI-Optimization-v1.1.7-Final ${bootAt}`)
   console.log(`Electric-Days-Weight-v1.1.9-Active ${bootAt}`)
   console.log(`Electric-Report-Force-Display-Fixed-v1.1.6 ${bootAt}`)
   console.log(`[启动指纹] v1.1.3-ElectricFee-Fix bootAt=${bootAt}`)
