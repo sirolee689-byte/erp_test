@@ -265,6 +265,131 @@ export function matchApiPermissionRule(method, path, body, params) {
     }
   }
 
+  if (m === 'GET' && path === '/api/inventory/color-code/list') {
+    return { menuPath: 'inventory/basic/color-code', action: 'view' }
+  }
+  if (m === 'POST' && path === '/api/inventory/color-code') {
+    return { menuPath: 'inventory/basic/color-code', action: 'add' }
+  }
+  /* 颜色编码：未审在册保存（须与 /audit 等子路径区分：仅精确匹配根路径） */
+  if (m === 'PUT' && path === '/api/inventory/color-code') {
+    return { menuPath: 'inventory/basic/color-code', action: 'edit' }
+  }
+  /* 颜色编码：审核 / 反审（须先于其它 inventory 泛化规则） */
+  if (m === 'PUT' && path === '/api/inventory/color-code/audit') {
+    return { menuPath: 'inventory/basic/color-code', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/inventory/color-code/unaudit') {
+    return { menuPath: 'inventory/basic/color-code', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/inventory/color-code/restore') {
+    return { menuPath: 'inventory/basic/color-code', action: 'edit' }
+  }
+  /* 回收站彻底删除：须先于泛化 DELETE /:code 匹配（路径以 /permanent 结尾） */
+  if (m === 'DELETE' && /^\/api\/inventory\/color-code\/.+\/permanent$/.test(path)) {
+    return { menuPath: 'inventory/basic/color-code', action: 'delete' }
+  }
+  /* 逻辑删除：DELETE /api/inventory/color-code/:code（业务上禁止主键为 list，见后端校验） */
+  if (m === 'DELETE' && /^\/api\/inventory\/color-code\/.+$/.test(path)) {
+    return { menuPath: 'inventory/basic/color-code', action: 'delete' }
+  }
+
+  /* 使用单位 Bom_unit（须先于其它 inventory 泛化规则） */
+  if (m === 'GET' && path === '/api/inventory/units/list') {
+    return { menuPath: 'inventory/basic/units', action: 'view' }
+  }
+  if (m === 'POST' && path === '/api/inventory/units') {
+    return { menuPath: 'inventory/basic/units', action: 'add' }
+  }
+  if (m === 'PUT' && path === '/api/inventory/units/audit') {
+    return { menuPath: 'inventory/basic/units', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/inventory/units/unaudit') {
+    return { menuPath: 'inventory/basic/units', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/inventory/units/restore') {
+    return { menuPath: 'inventory/basic/units', action: 'edit' }
+  }
+  /* 回收站彻底删除：须先于泛化 DELETE /:id 匹配（路径以 /permanent 结尾） */
+  if (m === 'DELETE' && /^\/api\/inventory\/units\/\d+\/permanent$/.test(path)) {
+    return { menuPath: 'inventory/basic/units', action: 'delete' }
+  }
+  if (m === 'DELETE' && /^\/api\/inventory\/units\/\d+$/.test(path)) {
+    return { menuPath: 'inventory/basic/units', action: 'delete' }
+  }
+
+  /* 单位转换率 Bom_unit_change（须先于其它 inventory 泛化规则） */
+  if (m === 'GET' && path === '/api/inventory/unit-conversion/list') {
+    return { menuPath: 'inventory/basic/unit-conversion', action: 'view' }
+  }
+  if (m === 'POST' && path === '/api/inventory/unit-conversion') {
+    return { menuPath: 'inventory/basic/unit-conversion', action: 'add' }
+  }
+  if (m === 'PUT' && path === '/api/inventory/unit-conversion/audit') {
+    return { menuPath: 'inventory/basic/unit-conversion', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/inventory/unit-conversion/unaudit') {
+    return { menuPath: 'inventory/basic/unit-conversion', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/inventory/unit-conversion/restore') {
+    return { menuPath: 'inventory/basic/unit-conversion', action: 'edit' }
+  }
+  /* 回收站彻底删除：须先于泛化 DELETE /:id 匹配（路径以 /permanent 结尾） */
+  if (m === 'DELETE' && /^\/api\/inventory\/unit-conversion\/\d+\/permanent$/.test(path)) {
+    return { menuPath: 'inventory/basic/unit-conversion', action: 'delete' }
+  }
+  if (m === 'DELETE' && /^\/api\/inventory\/unit-conversion\/\d+$/.test(path)) {
+    return { menuPath: 'inventory/basic/unit-conversion', action: 'delete' }
+  }
+
+  /* 材料分类 Bom_material（须先于其它 inventory 泛化规则） */
+  if (m === 'GET' && path === '/api/inventory/material-category/list') {
+    return { menuPath: 'inventory/basic/material-category', action: 'view' }
+  }
+  if (m === 'POST' && path === '/api/inventory/material-category') {
+    return { menuPath: 'inventory/basic/material-category', action: 'add' }
+  }
+  if (m === 'PUT' && path === '/api/inventory/material-category/audit') {
+    return { menuPath: 'inventory/basic/material-category', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/inventory/material-category/unaudit') {
+    return { menuPath: 'inventory/basic/material-category', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/inventory/material-category/restore') {
+    return { menuPath: 'inventory/basic/material-category', action: 'edit' }
+  }
+  /* 回收站彻底删除：须先于泛化 DELETE /:id 匹配（路径以 /permanent 结尾） */
+  if (m === 'DELETE' && /^\/api\/inventory\/material-category\/\d+\/permanent$/.test(path)) {
+    return { menuPath: 'inventory/basic/material-category', action: 'delete' }
+  }
+  if (m === 'DELETE' && /^\/api\/inventory\/material-category\/\d+$/.test(path)) {
+    return { menuPath: 'inventory/basic/material-category', action: 'delete' }
+  }
+
+  /* 车间与部门编码 Bom_Stocks_workshop（须先于其它 inventory 泛化规则） */
+  if (m === 'GET' && path === '/api/inventory/workshop-dept/list') {
+    return { menuPath: 'inventory/basic/workshop-dept', action: 'view' }
+  }
+  if (m === 'POST' && path === '/api/inventory/workshop-dept') {
+    return { menuPath: 'inventory/basic/workshop-dept', action: 'add' }
+  }
+  if (m === 'PUT' && path === '/api/inventory/workshop-dept/audit') {
+    return { menuPath: 'inventory/basic/workshop-dept', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/inventory/workshop-dept/unaudit') {
+    return { menuPath: 'inventory/basic/workshop-dept', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/inventory/workshop-dept/restore') {
+    return { menuPath: 'inventory/basic/workshop-dept', action: 'edit' }
+  }
+  /* 回收站彻底删除：须先于泛化 DELETE /:id 匹配（路径以 /permanent 结尾） */
+  if (m === 'DELETE' && /^\/api\/inventory\/workshop-dept\/\d+\/permanent$/.test(path)) {
+    return { menuPath: 'inventory/basic/workshop-dept', action: 'delete' }
+  }
+  if (m === 'DELETE' && /^\/api\/inventory\/workshop-dept\/\d+$/.test(path)) {
+    return { menuPath: 'inventory/basic/workshop-dept', action: 'delete' }
+  }
+
   return null
 }
 

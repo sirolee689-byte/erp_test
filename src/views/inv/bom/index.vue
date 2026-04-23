@@ -27,6 +27,15 @@
           style="max-width: 260px"
           @keyup.enter="onSearch"
         />
+        <el-select
+          v-model="searchQuery.bom_cut"
+          placeholder="裁片过滤"
+          style="width: 200px"
+          @change="onSearch"
+        >
+          <el-option label="不搜索包含裁片" :value="0" />
+          <el-option label="搜索包含裁片" :value="1" />
+        </el-select>
         <div class="audit-switch">
           <span class="switch-label">显示未审核</span>
           <el-switch v-model="showUnAudited" @change="onSearch" />
@@ -152,7 +161,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
@@ -179,6 +188,10 @@ const pageSize = ref(10)
 
 const code = ref('')
 const name = ref('')
+/** 裁片过滤：0 默认排除 kcaa01 以 CUT- 开头的行；1 包含裁片（刷新后仍为 0，除非用户改） */
+const searchQuery = reactive({
+  bom_cut: 0,
+})
 const showUnAudited = ref(false)
 
 const detailVisible = ref(false)
@@ -234,6 +247,7 @@ async function loadData() {
       page: page.value,
       pageSize: pageSize.value,
       pass,
+      bom_cut: searchQuery.bom_cut === 1 ? 1 : 0,
       ...(c.length >= 3 ? { code: c } : {}),
       ...(n.length >= 3 ? { name: n } : {}),
     }
@@ -266,6 +280,7 @@ function onSearch() {
 function onReset() {
   code.value = ''
   name.value = ''
+  searchQuery.bom_cut = 0
   showUnAudited.value = false
   page.value = 1
   loadData()

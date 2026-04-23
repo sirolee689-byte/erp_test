@@ -87,7 +87,8 @@
           { "name": "unit-conversion", "title": "单位转换率" },
           { "name": "bom-data", "title": "BOM资料" },
           { "name": "material-category", "title": "材料分类" },
-          { "name": "warehouse", "title": "仓库编码" }
+          { "name": "warehouse", "title": "仓库编码" },
+          { "name": "workshop-dept", "title": "车间与部门编码" }
         ]
       },
       {

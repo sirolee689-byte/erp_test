@@ -4,7 +4,7 @@
 
 > 约定：本文只维护“项目当前明确使用到”的表与字段；如需扩展，请同时补充迁移脚本（见 `docs/sql/` 与 `scripts/migrations/`）和相关设计文档。
 
-## 1. 全局概览（当前确认：9 张表）
+## 1. 全局概览（当前确认：14 张表）
 
 - **HR_Departments**：部门 / 岗位（旧系统表接管）
 - **Hr_staff**：人事档案资料（精简字段查询）
@@ -15,6 +15,11 @@
 - **Sys_Roles**：角色管理（含菜单权限 `Permissions`）
 - **Sys_Users**：用户/操作员（通过 `RoleID` 关联角色）
 - **bom_000**：BOM 主档 / 物料清单头（v1.1.7 列表查询；约 6.8W 行量级，**必须分页**）
+- **Bom_colorcode**：库存基本资料 — 颜色编码（v1.0.0 列表分页）
+- **Bom_unit**：库存基本资料 — 使用单位（列表分页；审核/软删/恢复）
+- **Bom_unit_change**：库存基本资料 — 单位转换率（列表分页；审核/软删/恢复）
+- **Bom_material**：库存基本资料 — 材料分类（列表分页；审核/软删/恢复）
+- **Bom_Stocks_workshop**：库存基本资料 — 车间与部门编码（列表分页；审核/软删/恢复）
 
 ## 2. 表关系（ER 摘要）
 
@@ -191,7 +196,7 @@
 - **模块/页面**
   - 前端：`src/views/inv/bom/index.vue`（菜单 path：`inv/bom`）；**同一列表**亦由 `src/views/inventory/basic/bom-data/index.vue`（菜单 path：`inventory/basic/bom-data`，侧栏「BOM资料」）内嵌复用
 - **接口（后端：`server/index.js`）**
-  - `GET /api/inv/bom/list`：分页列表；`WHERE` 含在册 `del` 与 `pass=@pass`；排序 `kcaa01 ASC`、`[version] DESC`；分页 **仅** `ROW_NUMBER()`（SQL Server 2008 R2）；编码/名称搜索为参数化 `LIKE`，且 **输入满 3 字符** 才生效以降低慢查询风险
+  - `GET /api/inv/bom/list`：分页列表；`WHERE` 含在册 `del` 与 `pass=@pass`；默认排序 **edittime DESC**，`edittime` 空则 **addtime DESC**，次级 `kcaa01 ASC`；分页 **仅** `ROW_NUMBER()`（SQL Server 2008 R2）；名称搜索为参数化 `LIKE`，且 **输入满 3 字符** 才生效；**物料编码 `code`（kcaa01）**：若以 **`CUT-`** 开头且不含 `<`，用右模糊 `LIKE '关键词%'`；若含 `<` 用 `%关键词%`；其它情况先按 `Bom_code.flag5` 剥离前缀得核心款号，核心长度≥3 时用 `LIKE '%核心'`，否则 `%关键字%`；入参 **`bom_cut`**：默认 `0` 时强制执行 `kcaa01 NOT LIKE N'CUT-%'`，`bom_cut=1` 时取消；**显式以 `CUT-` 搜索时临时取消该排除**以便命中裁片
     - 用量运算规则：**不允许硬编码前缀**；由配置表 `Bom_code` 中 `copen=1` 的 `flag5` 动态生成匹配规则，并在后端做 TTL 缓存
     - 规则含义：`flag5='OUT'` → 编码包含 `-OUT`；`flag5='RP'` → 编码以 `RP-PQ` 开头；其它 → 编码以 `${flag5}-` 开头
     - 列表返回：`calcStatus`（`done/not_done/not_needed`）+ 成本/成品用量四个汇总值（仅 `done/not_done` 行展示）
@@ -203,7 +208,98 @@
 - **权限（按钮级）**
   - 菜单 path：`inv/bom` 或 `inventory/basic/bom-data`；`GET /api/inv/bom/list` 在 `apiPermissionGate.js` 中满足任一路径的 `view` 即可；复制/详情依赖同页 `view`，编辑按钮预留 `edit`（后续保存接口落地后再审）
 
-### 3.7 `Sys_Users`（用户 / 操作员）
+### 3.7 `Bom_colorcode`（颜色编码，v1.0.0+）
+
+- **Schema**：`dbo`
+- **模块/页面**
+  - 前端：`src/views/inventory/basic/color-code/index.vue`（菜单 path：`inventory/basic/color-code`）
+- **接口（后端：`server/index.js`）**
+  - `GET /api/inventory/color-code/list`：分页（默认 `pageSize=20`）；在册时 `WHERE` 含 `del` 在册与 `pass=@pass`；**`recycled=1`** 时仅 `del=1`（不按 `pass` 过滤）；排序 **`intime DESC`**；`in_time` 展示为 **`yyyy/M/d`**（如 `2017/9/1`）；`keyword` 对 **`code`/`name`** 参数化 `LIKE`；分页 **`ROW_NUMBER()`**（SQL Server 2008 R2）；返回 `data.list[].del` 与 `data.recycled`
+  - `POST /api/inventory/color-code`：body `{ code, name, ename?, info? }`；**`intime`** 为当天 **00:00:00**（`datetime`）；`pass='0'`，`del='0'`；**`addtime`** 业务时间串（示例 `2026-4-23 11:44:51`）；**`uid`/`uname`/`utruename`** 由 `getActorAuditTripletFromReq` 写入；在册 **`code` 唯一**校验
+  - `PUT /api/inventory/color-code`：body `{ code, name, ename?, info? }`；仅 **在册且 `pass=0`** 可更新名称类字段并写 **`edittime`**（同上格式）
+  - `PUT /api/inventory/color-code/audit`：body `{ code }`，在册且未审 → `pass='1'` 且 **`edittime`**
+  - `PUT /api/inventory/color-code/unaudit`：body `{ code }`，在册且已审 → `pass='0'` 且 **`edittime`**
+  - `DELETE /api/inventory/color-code/:code`：在册且**未审**可软删 → `del='1'` 且 **`deltime`** 业务时间串（已审拒绝）；路径主键 **`list` 为保留字**，后端拒绝
+  - `DELETE /api/inventory/color-code/:code/permanent`：**仅 `del='1'`（回收站）** 时物理删除该行；在册则 400
+  - `PUT /api/inventory/color-code/restore`：body `{ code }`，`del='1'` → `del='0'` 且 **`edittime`**
+- **关键字段**
+  - `code`：颜色编码；`name`：名称(中文)；`ename`：名称(英文，可空)；`info`：备注（可空）；`pass`：审核（`'1'` 已审 / `'0'` 未审）；`intime`：**datetime**（新增为当天零点）；接口 **`in_time`** 为 **`yyyy/M/d`**（如 `2017/9/1`）
+  - `uid` / `uname` / `utruename`：录入人审计（分别对应 `Sys_Users.UserID`(int)、`UserCode`、`UserName`；新增接口自动填充）
+  - `addtime` / `edittime` / `deltime`：业务时间串（`NVARCHAR` 建议 50；格式示例 `2026-4-23 11:44:51`）
+  - `del`：逻辑删除（与项目约定一致）
+- **权限（按钮级）**
+  - 菜单 path：`inventory/basic/color-code`：`view`（列表）、`add`（新增）、`edit`（未审保存、恢复）、`audit`（审核/反审）、`delete`（软删/彻底删）
+
+### 3.8 `Bom_unit`（使用单位）
+
+- **Schema**：`dbo`
+- **模块/页面**
+  - 前端：`src/views/inventory/basic/units/index.vue`（菜单 path：`inventory/basic/units`）
+- **接口（后端：`server/index.js`）**
+  - `GET /api/inventory/units/list`：分页（默认 `pageSize=20`）；在册 `del`+`pass`；**`recycled=1`** 仅 `del=1`；`keyword` 对 **`name`/`info`** 参数化 `LIKE`；排序 **`id DESC`**；`ROW_NUMBER()`（SQL Server 2008 R2）
+  - `POST /api/inventory/units`：body `{ name, info? }`；**`uid`/`uname`/`utruename`** 与 **`addtime`**（`getActorAuditTripletFromReq` + 时间串）；`pass='0'`，`del='0'`；**`id` 自增**
+  - `PUT /api/inventory/units/audit` / **`unaudit`**：body `{ id }`；更新 **`pass`** 并写 **`edittime`**
+  - `DELETE /api/inventory/units/:id`：在册且**未审** → **`del='1'`** 且 **`deltime`**
+  - `PUT /api/inventory/units/restore`：body `{ id }`；**`del='0'`** 并写 **`edittime`**
+- **关键字段**
+  - `id`：主键（整型，建议 `IDENTITY`）；`name`；`info`（可空）；`pass` / `del`
+  - `uid` / `uname` / `utruename`；`addtime` / `edittime` / `deltime`（业务时间串，规则 16）
+- **权限（按钮级）**
+  - 菜单 path：`inventory/basic/units`：`view`、`add`、`audit`、`delete`、`edit`（恢复）
+
+### 3.9 `Bom_unit_change`（单位转换率）
+
+- **Schema**：`dbo`
+- **模块/页面**
+  - 前端：`src/views/inventory/basic/unit-conversion/index.vue`（菜单 path：`inventory/basic/unit-conversion`）
+- **接口（后端：`server/index.js`）**
+  - `GET /api/inventory/unit-conversion/list`：分页（默认 `pageSize=20`）；在册 `del`+`pass`；**`recycled=1`** 仅 `del=1`；`keyword` 对 **`unit_name`/`unit_name_tow`** 参数化 `LIKE`；排序 **`id DESC`**；`ROW_NUMBER()`（SQL Server 2008 R2）
+  - `POST /api/inventory/unit-conversion`：body `{ unit_name, unit_name_tow, change_bl }`；**`uid`/`uname`/`utruename`** 与 **`addtime`**（规则 16）；`pass='0'`，`del='0'`；**`id` 自增**
+  - `PUT /api/inventory/unit-conversion/audit` / `unaudit`：body `{ id }`；更新 `pass` 并写 **`edittime`**
+  - `DELETE /api/inventory/unit-conversion/:id`：在册且**未审** → `del='1'` 且 **`deltime`**（已审拒绝）
+  - `PUT /api/inventory/unit-conversion/restore`：body `{ id }`；`del='0'` 且 **`edittime`**
+- **关键字段**
+  - `id`：主键（整型 `IDENTITY`）；`unit_name`：使用单位；`unit_name_tow`：转换单位；`change_bl`：转换率；`pass`/`del`：项目约定
+  - `uid` / `uname` / `utruename`；`addtime` / `edittime` / `deltime`（业务时间串，规则 16）
+- **权限（按钮级）**
+  - 菜单 path：`inventory/basic/unit-conversion`：`view`、`add`、`audit`、`delete`、`edit`（恢复）
+
+### 3.10 `Bom_material`（材料分类）
+
+- **Schema**：`dbo`
+- **模块/页面**
+  - 前端：`src/views/inventory/basic/material-category/index.vue`（菜单 path：`inventory/basic/material-category`）
+- **接口（后端：`server/index.js`）**
+  - `GET /api/inventory/material-category/list`：分页（默认 `pageSize=20`）；在册 `del`+`pass`；**`recycled=1`** 仅 `del=1`；`keyword` 对 **`code`/`name`/`customs_code`** 参数化 `LIKE`；排序 **`id DESC`**；`ROW_NUMBER()`（SQL Server 2008 R2）
+  - `POST /api/inventory/material-category`：body `{ code, name, customs_code?, stocks_in?, stocks_out? }`；**`uid`/`uname`/`utruename`** 与 **`addtime`**（规则 16）；`pass='0'`，`del='0'`；**`id` 自增**
+  - `PUT /api/inventory/material-category/audit` / `unaudit`：body `{ id }`；更新 `pass` 并写 **`edittime`**
+  - `DELETE /api/inventory/material-category/:id`：在册且**未审** → `del='1'` 且 **`deltime`**（已审拒绝）
+  - `PUT /api/inventory/material-category/restore`：body `{ id }`；`del='0'` 且 **`edittime`**
+- **关键字段**
+  - `id`：主键（整型 `IDENTITY`）；`code`：分类编码；`name`：分类名称；`customs_code`：海关商品编码；`stocks_in`：入库浮动率；`stocks_out`：出库浮动率；`pass`/`del`：项目约定
+  - `uid` / `uname` / `utruename`；`addtime` / `edittime` / `deltime`（业务时间串，规则 16）
+- **权限（按钮级）**
+  - 菜单 path：`inventory/basic/material-category`：`view`、`add`、`audit`、`delete`、`edit`（恢复）
+
+### 3.11 `Bom_Stocks_workshop`（车间与部门编码）
+
+- **Schema**：`dbo`
+- **模块/页面**
+  - 前端：`src/views/inventory/basic/workshop-dept/index.vue`（菜单 path：`inventory/basic/workshop-dept`）
+- **接口（后端：`server/index.js`）**
+  - `GET /api/inventory/workshop-dept/list`：分页（默认 `pageSize=20`）；在册 `del`+`pass`；**`recycled=1`** 仅 `del=1`；`keyword` 对 **`code`/`name`/`info`** 参数化 `LIKE`；排序 **`id DESC`**；`ROW_NUMBER()`（SQL Server 2008 R2）
+  - `POST /api/inventory/workshop-dept`：body `{ code, name, info? }`；**`uid`/`uname`/`utruename`** 与 **`addtime`**（规则 16）；`pass='0'`，`del='0'`；**`id` 自增**
+  - `PUT /api/inventory/workshop-dept/audit` / `unaudit`：body `{ id }`；更新 `pass` 并写 **`edittime`**
+  - `DELETE /api/inventory/workshop-dept/:id`：在册且**未审** → `del='1'` 且 **`deltime`**（已审拒绝）
+  - `DELETE /api/inventory/workshop-dept/:id/permanent`：回收站（`del='1'`）物理删除（不可恢复）
+  - `PUT /api/inventory/workshop-dept/restore`：body `{ id }`；`del='0'` 且 **`edittime`**
+- **关键字段**
+  - `id`：主键（整型 `IDENTITY`）；`code`：车间与部门编码；`name`：车间/部门名称；`info`：备注；`pass`/`del`：项目约定
+  - `uid` / `uname` / `utruename`；`addtime` / `edittime` / `deltime`（业务时间串，规则 16）
+- **权限（按钮级）**
+  - 菜单 path：`inventory/basic/workshop-dept`：`view`、`add`、`audit`、`delete`、`edit`（恢复）
+
+### 3.12 `Sys_Users`（用户 / 操作员）
 
 - **Schema**：通常为 `dbo`（实际由数据库决定）
 - **模块/页面**
@@ -253,4 +349,17 @@
   - 来源：`server/index.js`（`GET /api/inv/bom/list`）
 - **`dbo.[Bom_code]`**
   - 来源：`server/index.js`（BOM 用量运算规则：`copen=1`、`flag5` 动态匹配）
+- **`dbo.[Bom_colorcode]`**
+  - 来源：`server/index.js`（颜色编码列表、新增、审核、反审、软删、回收站彻底删、恢复）
+- **`dbo.[Bom_unit]`**
+  - 来源：`server/index.js`（使用单位列表、新增、审核、反审、软删、恢复）
+
+- **`dbo.[Bom_unit_change]`**
+  - 来源：`server/index.js`（单位转换率列表、新增、审核、反审、软删、恢复）
+
+- **`dbo.[Bom_material]`**
+  - 来源：`server/index.js`（材料分类列表、新增、审核、反审、软删、恢复）
+
+- **`dbo.[Bom_Stocks_workshop]`**
+  - 来源：`server/index.js`（车间与部门编码列表、新增、审核、反审、软删、恢复）
 

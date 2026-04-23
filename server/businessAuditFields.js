@@ -17,3 +17,21 @@ export function getActorAuditFromReq(req) {
   const uname = String(unameRaw).trim() || null
   return { UID, uname }
 }
+
+/**
+ * 规则 16 三字段：uid（Sys_Users.UserID）、uname（UserCode）、utruename（UserName）
+ * 仅从 req.user 取值，禁止信任前端 body 传入。
+ * @param {import('express').Request} req
+ * @returns {{ uidInt: number | null, uname: string | null, utruename: string | null }}
+ */
+export function getActorAuditTripletFromReq(req) {
+  const u = req?.user
+  if (!u || typeof u !== 'object') {
+    return { uidInt: null, uname: null, utruename: null }
+  }
+  const uidInt = Number(u.userId)
+  const uidOk = Number.isFinite(uidInt) && uidInt > 0 ? uidInt : null
+  const uname = String(u.userCode ?? '').trim() || null
+  const utruename = String(u.userName ?? '').trim() || null
+  return { uidInt: uidOk, uname, utruename }
+}

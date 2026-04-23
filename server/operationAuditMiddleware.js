@@ -33,6 +33,13 @@ const HR_LEGACY_DEPT_TABLE = (() => {
 })()
 const HR_LEGACY_DEPT_FROM = `dbo.[${HR_LEGACY_DEPT_TABLE}]`
 
+/** 库存基本资料：颜色编码 / 使用单位（固定物理表名） */
+const BOM_COLORCODE_FROM = 'dbo.[Bom_colorcode]'
+const BOM_UNIT_FROM = 'dbo.[Bom_unit]'
+const BOM_UNIT_CHANGE_FROM = 'dbo.[Bom_unit_change]'
+const BOM_MATERIAL_FROM = 'dbo.[Bom_material]'
+const BOM_STOCKS_WORKSHOP_FROM = 'dbo.[Bom_Stocks_workshop]'
+
 const SENSITIVE_KEY_HINTS = ['password', 'token', 'authorization', 'secret', 'credential']
 
 /**
@@ -113,7 +120,7 @@ function meaningfulStr(v) {
 }
 
 /**
- * 当前登录人展示名（用于详情句首「操作人某某」）
+ * 当前登录人展示名（用于详情句首直接显示姓名/工号）
  * @param {any} user
  */
 function operatorDisplayName(user) {
@@ -175,13 +182,13 @@ export function buildPostDepartmentChineseContent(user, body) {
   if (!body || typeof body !== 'object') return ''
   const op = operatorDisplayName(user)
   const name = meaningfulStr(body.name)
-  if (!name) return `操作人${op}提交了新增部门/岗位请求（名称为空，异常请求）`
+  if (!name) return `${op}提交了新增部门/岗位请求（名称为空，异常请求）`
   const parentId = meaningfulStr(body.ParentID)
   const remark = meaningfulStr(body.remark)
   const isPost = parentId != null
   let s = isPost
-    ? `操作人${op}新增了岗位「${name}」，所属部门编码[${parentId}]`
-    : `操作人${op}新增了部门「${name}」`
+    ? `${op}新增了岗位「${name}」，所属部门编码[${parentId}]`
+    : `${op}新增了部门「${name}」`
   if (remark) s += `，备注「${remark}」`
   return s
 }
@@ -213,6 +220,105 @@ async function fetchStaffSnapshotForAudit(pool, code) {
       s.intime AS intime
     FROM ${HR_STAFF_FROM} AS s
     WHERE s.code = @code
+  `)
+  return r.recordset?.[0] ?? null
+}
+
+/**
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {string} codeRaw
+ */
+async function fetchColorCodeSnapshotForAudit(pool, codeRaw) {
+  const code = String(codeRaw ?? '').trim()
+  if (!code) return null
+  const r = await pool.request().input('code', sql.NVarChar(100), code).query(`
+    SELECT TOP (1)
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.code, N'')))) AS code,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.name, N'')))) AS name,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.ename, N'')))) AS ename,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.info, N'')))) AS info,
+      LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(b.del, N'')))) AS del
+    FROM ${BOM_COLORCODE_FROM} AS b
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.code, N'')))) = @code
+  `)
+  return r.recordset?.[0] ?? null
+}
+
+/**
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {number} id
+ */
+async function fetchUnitSnapshotForAudit(pool, id) {
+  const n = Number(id)
+  if (!Number.isFinite(n) || n <= 0) return null
+  const r = await pool.request().input('id', sql.Int, n).query(`
+    SELECT TOP (1)
+      u.id AS id,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(u.name, N'')))) AS name,
+      LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(u.del, N'')))) AS del
+    FROM ${BOM_UNIT_FROM} AS u
+    WHERE u.id = @id
+  `)
+  return r.recordset?.[0] ?? null
+}
+
+/**
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {number} id
+ */
+async function fetchUnitChangeSnapshotForAudit(pool, id) {
+  const n = Number(id)
+  if (!Number.isFinite(n) || n <= 0) return null
+  const r = await pool.request().input('id', sql.Int, n).query(`
+    SELECT TOP (1)
+      c.id AS id,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name, N'')))) AS unit_name,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name_tow, N'')))) AS unit_name_tow,
+      LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(c.change_bl, N'')))) AS change_bl,
+      LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(c.del, N'')))) AS del
+    FROM ${BOM_UNIT_CHANGE_FROM} AS c
+    WHERE c.id = @id
+  `)
+  return r.recordset?.[0] ?? null
+}
+
+/**
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {number} id
+ */
+async function fetchMaterialSnapshotForAudit(pool, id) {
+  const n = Number(id)
+  if (!Number.isFinite(n) || n <= 0) return null
+  const r = await pool.request().input('id', sql.Int, n).query(`
+    SELECT TOP (1)
+      m.id AS id,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(m.code, N'')))) AS code,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(m.name, N'')))) AS name,
+      LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(m.del, N'')))) AS del
+    FROM ${BOM_MATERIAL_FROM} AS m
+    WHERE m.id = @id
+  `)
+  return r.recordset?.[0] ?? null
+}
+
+/**
+ * 车间与部门编码快照（用于可读操作日志）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {number} id
+ */
+async function fetchStocksWorkshopSnapshotForAudit(pool, id) {
+  const rid = Number(id)
+  if (!Number.isFinite(rid) || rid <= 0) return null
+  const r = await pool.request().input('id', sql.Int, rid).query(`
+    SELECT TOP (1)
+      w.id AS id,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(w.code, N'')))) AS code,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(w.name, N'')))) AS name,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(w.info, N'')))) AS info,
+      LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(w.pass, N'')))) AS pass,
+      LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(w.del, N'')))) AS del
+    FROM ${BOM_STOCKS_WORKSHOP_FROM} AS w
+    WHERE w.id = @id
   `)
   return r.recordset?.[0] ?? null
 }
@@ -252,7 +358,7 @@ export function buildPostStaffChineseSummary(user, body) {
   const card = displayCell(body.card_number ?? body.card_no)
   const dept = displayCell(body.join_department ?? body.dept_name)
   const rm = displayCell(body.remark)
-  const bits = [`操作人${op}新增了员工档案，姓名[${name}]，卡号[${card}]`]
+  const bits = [`${op}新增了员工档案，姓名[${name}]，卡号[${card}]`]
   if (dept !== '空') bits.push(`入职部门[${dept}]`)
   if (rm !== '空') bits.push(`备注[${rm}]`)
   return `${bits.join('，')}（工号由服务端自动生成）`
@@ -271,6 +377,157 @@ export function createOperationAuditPrepareMiddleware() {
 
     try {
       const pool = await getPool()
+
+      // === 库存基本资料：颜色编码 / 使用单位（用于软删/审核等可读日志） ===
+      if (method === 'DELETE' && /^\/api\/inventory\/color-code\/.+$/.test(path)) {
+        // /api/inventory/color-code/:code 或 /api/inventory/color-code/:code/permanent
+        const rest = path.slice('/api/inventory/color-code/'.length)
+        const codeEnc = rest.replace(/\/permanent$/, '')
+        const code = decodeURIComponent(codeEnc).trim()
+        if (code) {
+          const row = await fetchColorCodeSnapshotForAudit(pool, code)
+          if (row) {
+            req.__auditDeleteColorCode = { code: String(row.code ?? code), name: String(row.name ?? '') }
+          }
+        }
+      }
+
+      if (method === 'PUT' && (path === '/api/inventory/color-code/audit' || path === '/api/inventory/color-code/unaudit' || path === '/api/inventory/color-code/restore')) {
+        const code = String(req.body?.code ?? '').trim()
+        if (code) {
+          const row = await fetchColorCodeSnapshotForAudit(pool, code)
+          if (row) {
+            req.__auditColorCodeCodeName = { code: String(row.code ?? code), name: String(row.name ?? '') }
+          }
+        }
+      }
+
+      if (method === 'PUT' && path === '/api/inventory/color-code') {
+        const body = req.body ?? {}
+        const code = String(body.code ?? '').trim()
+        if (code) {
+          const oldRow = await fetchColorCodeSnapshotForAudit(pool, code)
+          if (oldRow) {
+            const parts = []
+            if ('name' in body) parts.push(`名称[${displayCell(oldRow.name)}→${displayCell(body.name)}]`)
+            if ('ename' in body) parts.push(`英文名[${displayCell(oldRow.ename)}→${displayCell(body.ename)}]`)
+            if ('info' in body) parts.push(`备注[${displayCell(oldRow.info)}→${displayCell(body.info)}]`)
+            req.__auditPutColorCodeDiff = parts.filter(Boolean).join('，')
+          }
+        }
+      }
+
+      if (method === 'DELETE' && /^\/api\/inventory\/units\/\d+(\/permanent)?$/.test(path)) {
+        const idStr = path.slice('/api/inventory/units/'.length).replace(/\/permanent$/, '')
+        const id = Number(idStr)
+        if (Number.isFinite(id) && id > 0) {
+          const row = await fetchUnitSnapshotForAudit(pool, id)
+          if (row) {
+            req.__auditDeleteUnit = { id: Number(row.id ?? id), name: String(row.name ?? '') }
+          }
+        }
+      }
+
+      if (method === 'PUT' && (path === '/api/inventory/units/audit' || path === '/api/inventory/units/unaudit' || path === '/api/inventory/units/restore')) {
+        const id = Number(req.body?.id)
+        if (Number.isFinite(id) && id > 0) {
+          const row = await fetchUnitSnapshotForAudit(pool, id)
+          if (row) {
+            req.__auditUnitIdName = { id: Number(row.id ?? id), name: String(row.name ?? '') }
+          }
+        }
+      }
+
+      // 单位转换率 Bom_unit_change
+      if (method === 'DELETE' && /^\/api\/inventory\/unit-conversion\/\d+(\/permanent)?$/.test(path)) {
+        const idStr = path.slice('/api/inventory/unit-conversion/'.length).replace(/\/permanent$/, '')
+        const id = Number(idStr)
+        if (Number.isFinite(id) && id > 0) {
+          const row = await fetchUnitChangeSnapshotForAudit(pool, id)
+          if (row) {
+            req.__auditDeleteUnitChange = {
+              id: Number(row.id ?? id),
+              unit_name: String(row.unit_name ?? ''),
+              unit_name_tow: String(row.unit_name_tow ?? ''),
+              change_bl: String(row.change_bl ?? ''),
+            }
+          }
+        }
+      }
+
+      if (
+        method === 'PUT' &&
+        (path === '/api/inventory/unit-conversion/audit' ||
+          path === '/api/inventory/unit-conversion/unaudit' ||
+          path === '/api/inventory/unit-conversion/restore')
+      ) {
+        const id = Number(req.body?.id)
+        if (Number.isFinite(id) && id > 0) {
+          const row = await fetchUnitChangeSnapshotForAudit(pool, id)
+          if (row) {
+            req.__auditUnitChangeSnapshot = {
+              id: Number(row.id ?? id),
+              unit_name: String(row.unit_name ?? ''),
+              unit_name_tow: String(row.unit_name_tow ?? ''),
+              change_bl: String(row.change_bl ?? ''),
+            }
+          }
+        }
+      }
+
+      // 材料分类 Bom_material
+      if (method === 'DELETE' && /^\/api\/inventory\/material-category\/\d+(\/permanent)?$/.test(path)) {
+        const idStr = path.slice('/api/inventory/material-category/'.length).replace(/\/permanent$/, '')
+        const id = Number(idStr)
+        if (Number.isFinite(id) && id > 0) {
+          const row = await fetchMaterialSnapshotForAudit(pool, id)
+          if (row) {
+            req.__auditDeleteMaterial = { id: Number(row.id ?? id), code: String(row.code ?? ''), name: String(row.name ?? '') }
+          }
+        }
+      }
+
+      if (
+        method === 'PUT' &&
+        (path === '/api/inventory/material-category/audit' ||
+          path === '/api/inventory/material-category/unaudit' ||
+          path === '/api/inventory/material-category/restore')
+      ) {
+        const id = Number(req.body?.id)
+        if (Number.isFinite(id) && id > 0) {
+          const row = await fetchMaterialSnapshotForAudit(pool, id)
+          if (row) {
+            req.__auditMaterialSnapshot = { id: Number(row.id ?? id), code: String(row.code ?? ''), name: String(row.name ?? '') }
+          }
+        }
+      }
+
+      // 车间与部门编码 Bom_Stocks_workshop
+      if (method === 'DELETE' && /^\/api\/inventory\/workshop-dept\/\d+(\/permanent)?$/.test(path)) {
+        const idStr = path.slice('/api/inventory/workshop-dept/'.length).replace(/\/permanent$/, '')
+        const id = Number(idStr)
+        if (Number.isFinite(id) && id > 0) {
+          const row = await fetchStocksWorkshopSnapshotForAudit(pool, id)
+          if (row) {
+            req.__auditDeleteStocksWorkshop = { id: Number(row.id ?? id), code: String(row.code ?? ''), name: String(row.name ?? '') }
+          }
+        }
+      }
+
+      if (
+        method === 'PUT' &&
+        (path === '/api/inventory/workshop-dept/audit' ||
+          path === '/api/inventory/workshop-dept/unaudit' ||
+          path === '/api/inventory/workshop-dept/restore')
+      ) {
+        const id = Number(req.body?.id)
+        if (Number.isFinite(id) && id > 0) {
+          const row = await fetchStocksWorkshopSnapshotForAudit(pool, id)
+          if (row) {
+            req.__auditStocksWorkshopSnapshot = { id: Number(row.id ?? id), code: String(row.code ?? ''), name: String(row.name ?? '') }
+          }
+        }
+      }
 
       if (method === 'DELETE' && /^\/api\/hr\/staff\/[^/]+$/.test(path)) {
         const codeEnc = path.slice('/api/hr/staff/'.length)
@@ -401,13 +658,138 @@ export function createOperationAuditMiddleware(deps) {
         const { action, targetTable } = resolveAuditActionAndTable(method, path)
 
         let content = ''
-        if (method === 'DELETE' && /^\/api\/hr\/staff\/.+/.test(path) && req.__auditDeleteStaff) {
+        if (method === 'DELETE' && /^\/api\/inventory\/color-code\/.+\/permanent$/.test(path) && req.__auditDeleteColorCode) {
+          const op = operatorDisplayName(user)
+          const { code, name } = req.__auditDeleteColorCode
+          content = `${op}彻底删除了颜色编码「${displayCell(name)}」（编码：${displayCell(code)}）`
+        } else if (method === 'DELETE' && /^\/api\/inventory\/color-code\/.+$/.test(path) && req.__auditDeleteColorCode) {
+          const op = operatorDisplayName(user)
+          const { code, name } = req.__auditDeleteColorCode
+          content = `${op}删除了颜色编码「${displayCell(name)}」（编码：${displayCell(code)}，已移入回收站）`
+        } else if (method === 'PUT' && path === '/api/inventory/color-code/audit' && req.__auditColorCodeCodeName) {
+          const op = operatorDisplayName(user)
+          const { code, name } = req.__auditColorCodeCodeName
+          content = `${op}审核了颜色编码「${displayCell(name)}」（编码：${displayCell(code)}）`
+        } else if (method === 'PUT' && path === '/api/inventory/color-code/unaudit' && req.__auditColorCodeCodeName) {
+          const op = operatorDisplayName(user)
+          const { code, name } = req.__auditColorCodeCodeName
+          content = `${op}反审了颜色编码「${displayCell(name)}」（编码：${displayCell(code)}）`
+        } else if (method === 'PUT' && path === '/api/inventory/color-code/restore' && req.__auditColorCodeCodeName) {
+          const op = operatorDisplayName(user)
+          const { code, name } = req.__auditColorCodeCodeName
+          content = `${op}恢复了颜色编码「${displayCell(name)}」（编码：${displayCell(code)}）`
+        } else if (method === 'POST' && path === '/api/inventory/color-code') {
+          const op = operatorDisplayName(user)
+          const code = displayCell(req.body?.code)
+          const name = displayCell(req.body?.name)
+          content = `${op}新增了颜色编码「${name}」（编码：${code}）`
+        } else if (method === 'PUT' && path === '/api/inventory/color-code') {
+          const op = operatorDisplayName(user)
+          const code = displayCell(req.body?.code)
+          const diff = String(req.__auditPutColorCodeDiff ?? '').trim()
+          content = diff ? `${op}修改了颜色编码[${code}]：${diff}` : `${op}修改了颜色编码[${code}]`
+        } else if (method === 'DELETE' && /^\/api\/inventory\/units\/\d+\/permanent$/.test(path) && req.__auditDeleteUnit) {
+          const op = operatorDisplayName(user)
+          const { id, name } = req.__auditDeleteUnit
+          content = `${op}彻底删除了使用单位「${displayCell(name)}」（ID：${displayCell(id)}）`
+        } else if (method === 'DELETE' && /^\/api\/inventory\/units\/\d+$/.test(path) && req.__auditDeleteUnit) {
+          const op = operatorDisplayName(user)
+          const { id, name } = req.__auditDeleteUnit
+          content = `${op}删除了使用单位「${displayCell(name)}」（ID：${displayCell(id)}，已移入回收站）`
+        } else if (method === 'PUT' && path === '/api/inventory/units/audit' && req.__auditUnitIdName) {
+          const op = operatorDisplayName(user)
+          const { id, name } = req.__auditUnitIdName
+          content = `${op}审核了使用单位「${displayCell(name)}」（ID：${displayCell(id)}）`
+        } else if (method === 'PUT' && path === '/api/inventory/units/unaudit' && req.__auditUnitIdName) {
+          const op = operatorDisplayName(user)
+          const { id, name } = req.__auditUnitIdName
+          content = `${op}反审了使用单位「${displayCell(name)}」（ID：${displayCell(id)}）`
+        } else if (method === 'PUT' && path === '/api/inventory/units/restore' && req.__auditUnitIdName) {
+          const op = operatorDisplayName(user)
+          const { id, name } = req.__auditUnitIdName
+          content = `${op}恢复了使用单位「${displayCell(name)}」（ID：${displayCell(id)}）`
+        } else if (method === 'POST' && path === '/api/inventory/unit-conversion') {
+          const op = operatorDisplayName(user)
+          const unitName = displayCell(req.body?.unit_name)
+          const unitNameTow = displayCell(req.body?.unit_name_tow)
+          const changeBl = displayCell(req.body?.change_bl)
+          content = `${op}新增了单位转换率：${unitName}→${unitNameTow}（转换率：${changeBl}）`
+        } else if (method === 'PUT' && path === '/api/inventory/unit-conversion/audit' && req.__auditUnitChangeSnapshot) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditUnitChangeSnapshot
+          content = `${op}审核了单位转换率[ID：${displayCell(s.id)}]：${displayCell(s.unit_name)}→${displayCell(s.unit_name_tow)}（转换率：${displayCell(s.change_bl)}）`
+        } else if (method === 'PUT' && path === '/api/inventory/unit-conversion/unaudit' && req.__auditUnitChangeSnapshot) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditUnitChangeSnapshot
+          content = `${op}反审了单位转换率[ID：${displayCell(s.id)}]：${displayCell(s.unit_name)}→${displayCell(s.unit_name_tow)}（转换率：${displayCell(s.change_bl)}）`
+        } else if (method === 'PUT' && path === '/api/inventory/unit-conversion/restore' && req.__auditUnitChangeSnapshot) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditUnitChangeSnapshot
+          content = `${op}恢复了单位转换率[ID：${displayCell(s.id)}]：${displayCell(s.unit_name)}→${displayCell(s.unit_name_tow)}（转换率：${displayCell(s.change_bl)}）`
+        } else if (method === 'DELETE' && /^\/api\/inventory\/unit-conversion\/\d+\/permanent$/.test(path) && req.__auditDeleteUnitChange) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditDeleteUnitChange
+          content = `${op}彻底删除了单位转换率[ID：${displayCell(s.id)}]：${displayCell(s.unit_name)}→${displayCell(s.unit_name_tow)}（转换率：${displayCell(s.change_bl)}）`
+        } else if (method === 'DELETE' && /^\/api\/inventory\/unit-conversion\/\d+$/.test(path) && req.__auditDeleteUnitChange) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditDeleteUnitChange
+          content = `${op}删除了单位转换率[ID：${displayCell(s.id)}]：${displayCell(s.unit_name)}→${displayCell(s.unit_name_tow)}（转换率：${displayCell(s.change_bl)}，已移入回收站）`
+        } else if (method === 'POST' && path === '/api/inventory/material-category') {
+          const op = operatorDisplayName(user)
+          const code = displayCell(req.body?.code)
+          const name = displayCell(req.body?.name)
+          content = `${op}新增了材料分类「${name}」（编码：${code}）`
+        } else if (method === 'PUT' && path === '/api/inventory/material-category/audit' && req.__auditMaterialSnapshot) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditMaterialSnapshot
+          content = `${op}审核了材料分类「${displayCell(s.name)}」（编码：${displayCell(s.code)}，ID：${displayCell(s.id)}）`
+        } else if (method === 'PUT' && path === '/api/inventory/material-category/unaudit' && req.__auditMaterialSnapshot) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditMaterialSnapshot
+          content = `${op}反审了材料分类「${displayCell(s.name)}」（编码：${displayCell(s.code)}，ID：${displayCell(s.id)}）`
+        } else if (method === 'PUT' && path === '/api/inventory/material-category/restore' && req.__auditMaterialSnapshot) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditMaterialSnapshot
+          content = `${op}恢复了材料分类「${displayCell(s.name)}」（编码：${displayCell(s.code)}，ID：${displayCell(s.id)}）`
+        } else if (method === 'DELETE' && /^\/api\/inventory\/material-category\/\d+\/permanent$/.test(path) && req.__auditDeleteMaterial) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditDeleteMaterial
+          content = `${op}彻底删除了材料分类「${displayCell(s.name)}」（编码：${displayCell(s.code)}，ID：${displayCell(s.id)}）`
+        } else if (method === 'DELETE' && /^\/api\/inventory\/material-category\/\d+$/.test(path) && req.__auditDeleteMaterial) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditDeleteMaterial
+          content = `${op}删除了材料分类「${displayCell(s.name)}」（编码：${displayCell(s.code)}，ID：${displayCell(s.id)}，已移入回收站）`
+        } else if (method === 'POST' && path === '/api/inventory/workshop-dept') {
+          // 规则 16：新增日志模板（强制中文可读）
+          const code = displayCell(req.body?.code)
+          const name = displayCell(req.body?.name)
+          content = `录入成功,等待审核！车间与部门编码：${code}，车间/部门名称：${name}`
+        } else if (method === 'PUT' && path === '/api/inventory/workshop-dept/audit' && req.__auditStocksWorkshopSnapshot) {
+          const s = req.__auditStocksWorkshopSnapshot
+          content = `申请通过审核！车间与部门编码：${displayCell(s.code)}，车间/部门名称：${displayCell(s.name)}`
+        } else if (method === 'PUT' && path === '/api/inventory/workshop-dept/unaudit' && req.__auditStocksWorkshopSnapshot) {
+          const s = req.__auditStocksWorkshopSnapshot
+          content = `反审核操作！车间与部门编码：${displayCell(s.code)}，车间/部门名称：${displayCell(s.name)}`
+        } else if (method === 'PUT' && path === '/api/inventory/workshop-dept/restore' && req.__auditStocksWorkshopSnapshot) {
+          const s = req.__auditStocksWorkshopSnapshot
+          content = `恢复操作！车间与部门编码：${displayCell(s.code)}，车间/部门名称：${displayCell(s.name)}`
+        } else if (method === 'DELETE' && /^\/api\/inventory\/workshop-dept\/\d+\/permanent$/.test(path) && req.__auditDeleteStocksWorkshop) {
+          const s = req.__auditDeleteStocksWorkshop
+          content = `彻底删除操作！车间与部门编码：${displayCell(s.code)}，车间/部门名称：${displayCell(s.name)}`
+        } else if (method === 'DELETE' && /^\/api\/inventory\/workshop-dept\/\d+$/.test(path) && req.__auditDeleteStocksWorkshop) {
+          const s = req.__auditDeleteStocksWorkshop
+          content = `编码删除！车间与部门编码：${displayCell(s.code)}，车间/部门名称：${displayCell(s.name)}`
+        } else if (method === 'POST' && path === '/api/inventory/units') {
+          const op = operatorDisplayName(user)
+          const name = displayCell(req.body?.name)
+          content = `${op}新增了使用单位「${name}」`
+        } else if (method === 'DELETE' && /^\/api\/hr\/staff\/.+/.test(path) && req.__auditDeleteStaff) {
           const { name, code } = req.__auditDeleteStaff
           const op = operatorDisplayName(user)
-          content = `操作人${op}删除了员工档案：姓名[${displayCell(name)}]，工号[${displayCell(code)}]`
+          content = `${op}删除了员工档案：姓名[${displayCell(name)}]，工号[${displayCell(code)}]`
         } else if (method === 'PUT' && path === '/api/hr/staff' && req.__auditPutStaffDiff) {
           const op = operatorDisplayName(user)
-          content = `操作人${op}修改了员工档案：${String(req.__auditPutStaffDiff).trim()}`
+          content = `${op}修改了员工档案：${String(req.__auditPutStaffDiff).trim()}`
         } else if (method === 'PUT' && /^\/api\/hr\/staff\/leave\/.+/.test(path) && String(req.__auditLeaveContent ?? '').trim()) {
           // v1.1.1：员工离职专用语义化日志（由路由写入 req.__auditLeaveContent）
           content = String(req.__auditLeaveContent).trim()
@@ -417,15 +799,15 @@ export function createOperationAuditMiddleware(deps) {
           content = buildPostDepartmentChineseContent(user, req.body ?? {})
         } else if (method === 'PUT' && path === '/api/hr/departments' && req.__auditPutDeptDiff) {
           const op = operatorDisplayName(user)
-          content = `操作人${op}修改了部门/岗位资料：${String(req.__auditPutDeptDiff).trim()}`
+          content = `${op}修改了部门/岗位资料：${String(req.__auditPutDeptDiff).trim()}`
         } else if (method === 'PUT' && path === '/api/hr/departments/audit' && req.__auditDeptCodeName) {
           const op = operatorDisplayName(user)
           const { name, code } = req.__auditDeptCodeName
-          content = `操作人${op}审核了部门/岗位「${displayCell(name)}」（编码：${displayCell(code)}）`
+          content = `${op}审核了部门/岗位「${displayCell(name)}」（编码：${displayCell(code)}）`
         } else if (method === 'PUT' && path === '/api/hr/departments/unaudit' && req.__auditDeptCodeName) {
           const op = operatorDisplayName(user)
           const { name, code } = req.__auditDeptCodeName
-          content = `操作人${op}反审了部门/岗位「${displayCell(name)}」（编码：${displayCell(code)}）`
+          content = `${op}反审了部门/岗位「${displayCell(name)}」（编码：${displayCell(code)}）`
         } else if (method === 'POST' && path === '/api/hr/dormitory/check-in' && String(req.__auditDormCheckInContent ?? '').trim()) {
           // 宿舍：办理入住专用可读日志（由路由写入 req.__auditDormCheckInContent）
           content = String(req.__auditDormCheckInContent).trim()
@@ -448,12 +830,12 @@ export function createOperationAuditMiddleware(deps) {
           const n = Array.isArray(req.__auditDeptBatchCodes) ? req.__auditDeptBatchCodes.length : 0
           const labels = String(req.__auditDeptBatchLabels ?? '').trim()
           content = labels
-            ? `操作人${op}批量审核部门/岗位，共 ${n} 条：${labels}${n > 15 ? '…' : ''}`
-            : `操作人${op}批量审核部门/岗位，共 ${n} 条`
+            ? `${op}批量审核部门/岗位，共 ${n} 条：${labels}${n > 15 ? '…' : ''}`
+            : `${op}批量审核部门/岗位，共 ${n} 条`
         } else if (method === 'DELETE' && /^\/api\/hr\/departments\/.+/.test(path) && req.__auditDeleteDept) {
           const op = operatorDisplayName(user)
           const { name, code } = req.__auditDeleteDept
-          content = `操作人${op}删除了部门/岗位「${displayCell(name)}」（编码：${displayCell(code)}）`
+          content = `${op}删除了部门/岗位「${displayCell(name)}」（编码：${displayCell(code)}）`
         } else {
           const snap = redactBodyForOperationAudit(req.body)
           try {

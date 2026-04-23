@@ -18,7 +18,7 @@ import {
   createOperationAuditPrepareMiddleware,
   getRequestIp,
 } from './operationAuditMiddleware.js'
-import { getActorAuditFromReq } from './businessAuditFields.js'
+import { getActorAuditFromReq, getActorAuditTripletFromReq } from './businessAuditFields.js'
 import { configureOperationLogWriter, writeLog, writeOperationLog, SYS_OPERATION_LOGS_FROM } from './operationLogWriter.js'
 
 dotenv.config()
@@ -2743,6 +2743,167 @@ const INV_BOM_MASTER_TABLE = (() => {
 })()
 const INV_BOM_MASTER_FROM = `dbo.[${INV_BOM_MASTER_TABLE}]`
 
+/** 库存基本资料：颜色编码（物理表 Bom_colorcode） */
+const BOM_COLORCODE_FROM = 'dbo.[Bom_colorcode]'
+
+/**
+ * Bom_colorcode 业务时间串：年-月-日 时:分:秒（月、日不补零；时分秒两位），示例 2026-4-23 11:44:51
+ * @param {Date} [date]
+ */
+function formatBomColorcodeTimestamp(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date)
+  const pad2 = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
+}
+
+/** 新增写入 intime：当天本地日历日的 00:00:00（datetime）；列表格式化为 yyyy/M/d，如 2017/9/1 */
+function bomColorcodeIntimeEntryDateTime() {
+  const d = new Date()
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate())
+}
+
+/**
+ * 按主键 code 读取颜色编码一行（不区分在册/删除，供审核/删除校验）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {string} codeRaw
+ */
+async function fetchBomColorcodeByCode(pool, codeRaw) {
+  const code = String(codeRaw ?? '').trim()
+  if (!code) return null
+  const req = pool.request()
+  req.input('code', sql.NVarChar(100), code)
+  const r = await req.query(`
+    SELECT TOP (1)
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.code, N'')))) AS code,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.name, N'')))) AS name,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.ename, N'')))) AS ename,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.info, N'')))) AS info,
+      LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(b.pass, N'')))) AS pass,
+      LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(b.del, N'')))) AS del
+    FROM ${BOM_COLORCODE_FROM} AS b
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.code, N'')))) = @code
+  `)
+  return r.recordset?.[0] ?? null
+}
+
+/** 库存基本资料：使用单位（物理表 Bom_unit；主键 id） */
+const BOM_UNIT_FROM = 'dbo.[Bom_unit]'
+
+/**
+ * 按主键 id 读取使用单位一行（不区分在册/删除，供审核/删除校验）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {number|string} idRaw
+ */
+async function fetchBomUnitById(pool, idRaw) {
+  const id = Number(idRaw)
+  if (!Number.isFinite(id) || id <= 0) return null
+  const req = pool.request()
+  req.input('id', sql.Int, id)
+  const r = await req.query(`
+    SELECT TOP (1)
+      u.id,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(u.name, N'')))) AS name,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(u.info, N'')))) AS info,
+      LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(u.pass, N'')))) AS pass,
+      LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(u.del, N'')))) AS del
+    FROM ${BOM_UNIT_FROM} AS u
+    WHERE u.id = @id
+  `)
+  return r.recordset?.[0] ?? null
+}
+
+/** 库存基本资料：单位转换率（物理表 Bom_unit_change；主键 id） */
+const BOM_UNIT_CHANGE_FROM = 'dbo.[Bom_unit_change]'
+
+/**
+ * 按主键 id 读取单位转换率一行（不区分在册/删除，供审核/删除校验）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {number|string} idRaw
+ */
+async function fetchBomUnitChangeById(pool, idRaw) {
+  const id = Number(idRaw)
+  if (!Number.isFinite(id) || id <= 0) return null
+  const req = pool.request()
+  req.input('id', sql.Int, id)
+  const r = await req.query(`
+    SELECT TOP (1)
+      c.id,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name, N'')))) AS unit_name,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name_tow, N'')))) AS unit_name_tow,
+      LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(c.change_bl, N'')))) AS change_bl,
+      LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(c.pass, N'')))) AS pass,
+      LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(c.del, N'')))) AS del
+    FROM ${BOM_UNIT_CHANGE_FROM} AS c
+    WHERE c.id = @id
+  `)
+  return r.recordset?.[0] ?? null
+}
+
+/** 库存基本资料：材料分类（物理表 Bom_material；主键 id） */
+const BOM_MATERIAL_FROM = 'dbo.[Bom_material]'
+
+/**
+ * 按主键 id 读取材料分类一行（不区分在册/删除，供审核/删除校验）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {number|string} idRaw
+ */
+async function fetchBomMaterialById(pool, idRaw) {
+  const id = Number(idRaw)
+  if (!Number.isFinite(id) || id <= 0) return null
+  const req = pool.request()
+  req.input('id', sql.Int, id)
+  const r = await req.query(`
+    SELECT TOP (1)
+      m.id,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(CONVERT(nvarchar(100), m.code), N'')))) AS code,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(CONVERT(nvarchar(200), m.name), N'')))) AS name,
+      CASE
+        WHEN m.customs_code IS NULL THEN N''
+        ELSE LTRIM(RTRIM(CONVERT(nvarchar(100), m.customs_code)))
+      END AS customs_code,
+      CASE
+        WHEN m.stocks_in IS NULL THEN N''
+        ELSE LTRIM(RTRIM(CONVERT(nvarchar(50), m.stocks_in)))
+      END AS stocks_in,
+      CASE
+        WHEN m.stocks_out IS NULL THEN N''
+        ELSE LTRIM(RTRIM(CONVERT(nvarchar(50), m.stocks_out)))
+      END AS stocks_out,
+      LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(m.pass, N'')))) AS pass,
+      LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(m.del, N'')))) AS del
+    FROM ${BOM_MATERIAL_FROM} AS m
+    WHERE m.id = @id
+  `)
+  return r.recordset?.[0] ?? null
+}
+
+/** 库存基本资料：车间与部门编码（物理表 Bom_Stocks_workshop；主键 id） */
+const BOM_STOCKS_WORKSHOP_FROM = 'dbo.[Bom_Stocks_workshop]'
+
+/**
+ * 按主键 id 读取车间与部门编码一行（不区分在册/删除，供审核/删除校验）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {number|string} idRaw
+ */
+async function fetchBomStocksWorkshopById(pool, idRaw) {
+  const id = Number(idRaw)
+  if (!Number.isFinite(id) || id <= 0) return null
+  const req = pool.request()
+  req.input('id', sql.Int, id)
+  const r = await req.query(`
+    SELECT TOP (1)
+      w.id,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(w.code, N'')))) AS code,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(w.name, N'')))) AS name,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(w.info, N'')))) AS info,
+      LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(w.pass, N'')))) AS pass,
+      LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(w.del, N'')))) AS del
+    FROM ${BOM_STOCKS_WORKSHOP_FROM} AS w
+    WHERE w.id = @id
+  `)
+  return r.recordset?.[0] ?? null
+}
+
 /** BOM 运算规则配置表（固定物理表名） */
 const BOM_CODE_FROM = 'dbo.[Bom_code]'
 
@@ -2851,6 +3012,62 @@ function buildBomNeedCalcSqlCondition(rules, codeExpr) {
     return '1=0'
   }
   return `(${parts.join(' OR ')})`
+}
+
+/**
+ * 物料编码搜索：从 Bom_code.flag5 推导可剥离的前缀（与 buildBomNeedCalcSqlCondition 语义对齐）
+ * - OUT：不是前缀，不参与剥离
+ * - RP：额外加入 `RP-PQ-`（与运算规则一致）
+ * - 其它安全 flag5：加入 `${flag5}-`
+ * 返回按长度降序，保证先剥最长前缀（如 RP-PQ- 先于 PQ-）
+ * @param {{ flag5: string }[]} rules
+ */
+function buildBomCodeSearchStripPrefixes(rules) {
+  /** @type {string[]} */
+  const out = []
+  let hasRp = false
+  for (const r of rules ?? []) {
+    const f = String(r?.flag5 ?? '').trim()
+    if (!f) continue
+    const u = f.toUpperCase()
+    if (u === 'OUT') continue
+    if (u === 'RP') {
+      hasRp = true
+      continue
+    }
+    if (!/^[A-Za-z0-9_]+$/.test(f)) continue
+    out.push(`${f}-`)
+  }
+  if (hasRp) out.push('RP-PQ-')
+  const uniq = [...new Set(out)]
+  uniq.sort((a, b) => b.length - a.length)
+  return uniq
+}
+
+/**
+ * 成品关联附件搜索：按配置前缀反复剥离，得到「核心款号」片段（用于 kcaa01 后缀模糊）
+ * @param {string} raw
+ * @param {{ flag5: string }[]} rules
+ */
+function extractKcaa01CoreKeywordFromSearch(raw, rules) {
+  let s = String(raw ?? '').trim()
+  if (!s) return ''
+  const prefixes = buildBomCodeSearchStripPrefixes(rules)
+  let guard = 0
+  while (guard < 20) {
+    guard += 1
+    let hit = ''
+    const su = s.toUpperCase()
+    for (const p of prefixes) {
+      if (su.startsWith(p.toUpperCase())) {
+        hit = p
+        break
+      }
+    }
+    if (!hit) break
+    s = s.slice(hit.length)
+  }
+  return s.trim()
 }
 
 /**
@@ -6249,44 +6466,105 @@ function escapeSqlLikePattern(s) {
  * GET /api/inv/bom/list
  * - 默认排序：优先按 edittime DESC；edittime 为空则按 addtime DESC（保证打开页面先看到最近更新/新增）
  * - 搜索：kcaa01 / kcaa02 独立参数化 LIKE；前后端约定「不足 3 字不筛」以降低大表模糊扫描风险
+ * - 成品关联附件搜索（kcaa01）：按 Bom_code.flag5 剥离已知前缀后取「核心款号」，若核心长度≥3 则使用 `kcaa01 LIKE @codeSuffixLike`（参数值形如 `%核心`）；否则回退为 `%关键字%` 包含匹配
+ * - 裁片深度匹配：若物料编码搜索以 `CUT-` 开头且不含 `<`，使用右模糊 `kcaa01 LIKE @cutRightFuzzy`（`keyword%`，利于索引）；含 `<` 时回退 `%keyword%` 包含匹配。用户显式搜 CUT- 时，即使 `bom_cut=0` 也会临时取消全局 `NOT LIKE CUT-%` 排除，否则无法命中裁片行。
  * - 过滤：del 在册 + pass（与项目列表页「显示未审核」一致）
+ * - 裁片：默认 bom_cut=0 时强制 `kcaa01 NOT LIKE N'CUT-%'`；bom_cut=1 时取消该条件（与前端默认一致，刷新即生效）
  */
 app.get('/api/inv/bom/list', async (req, res) => {
   try {
     const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
-    const pageSizeRaw = Number(req.query?.pageSize ?? 50) || 50
+    const pageSizeRaw = Number(req.query?.pageSize ?? 10) || 10
     const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
 
     const passRaw = String(req.query?.pass ?? '1').trim()
     const pass = passRaw === '0' ? '0' : '1'
 
+    /** 0=默认排除裁片编码（CUT- 前缀）；1=包含裁片 */
+    const bomCutRaw = String(req.query?.bom_cut ?? '0').trim()
+    const bomCutInclude = bomCutRaw === '1' || bomCutRaw.toLowerCase() === 'true'
+
     const codeRaw = String(req.query?.code ?? '').trim()
     const nameRaw = String(req.query?.name ?? '').trim()
     const codeOk = codeRaw.length >= 3
     const nameOk = nameRaw.length >= 3
-    const codeLike = codeOk ? `%${escapeSqlLikePattern(codeRaw)}%` : ''
     const nameLike = nameOk ? `%${escapeSqlLikePattern(nameRaw)}%` : ''
 
     const pool = await getPool()
     const bomRules = await getBomCalcRules(pool)
     const needCalcCondSql = buildBomNeedCalcSqlCondition(bomRules, 'p.code')
+
+    /** 用户显式按裁片编码搜索（以 CUT- 开头） */
+    const isExplicitCutCodeSearch = codeOk && codeRaw.toUpperCase().startsWith('CUT-')
+
+    let codeCondSql = ''
+    /** @type {'cut_right'|'cut_contains'|'core_suffix'|'contains'|''} */
+    let codeSearchMode = ''
+    let cutRightFuzzy = ''
+    let cutContainsLike = ''
+    let coreKeyword = ''
+    let codeSuffixLike = ''
+    let codeLikeContains = ''
+
+    if (codeOk) {
+      if (isExplicitCutCodeSearch) {
+        if (!codeRaw.includes('<')) {
+          codeSearchMode = 'cut_right'
+          cutRightFuzzy = `${escapeSqlLikePattern(codeRaw)}%`
+          codeCondSql = ' AND b.kcaa01 LIKE @cutRightFuzzy '
+        } else {
+          codeSearchMode = 'cut_contains'
+          cutContainsLike = `%${escapeSqlLikePattern(codeRaw)}%`
+          codeCondSql = ' AND b.kcaa01 LIKE @cutContainsLike '
+        }
+      } else {
+        coreKeyword = extractKcaa01CoreKeywordFromSearch(codeRaw, bomRules)
+        const codeUseSuffixCore = coreKeyword.length >= 3
+        if (codeUseSuffixCore) {
+          codeSearchMode = 'core_suffix'
+          codeSuffixLike = `%${escapeSqlLikePattern(coreKeyword)}`
+          codeCondSql = ' AND b.kcaa01 LIKE @codeSuffixLike '
+        } else {
+          codeSearchMode = 'contains'
+          codeLikeContains = `%${escapeSqlLikePattern(codeRaw)}%`
+          codeCondSql = ' AND b.kcaa01 LIKE @codeLikeContains '
+        }
+      }
+    }
+
+    // 显式搜 CUT- 时必须允许命中裁片行：否则与 bom_cut=0 的全局 CUT 排除互相矛盾
+    const whereExcludeCut =
+      bomCutInclude || isExplicitCutCodeSearch ? '' : ` AND b.kcaa01 NOT LIKE N'CUT-%' `
     const whereBase = `
       WHERE (ISNULL(b.del, N'') = N'' OR b.del = N'0')
         AND LTRIM(RTRIM(ISNULL(b.pass, N''))) = @pass
-      ${codeOk ? ' AND b.kcaa01 LIKE @codeLike ' : ''}
+      ${whereExcludeCut}
+      ${codeCondSql}
       ${nameOk ? ' AND b.kcaa02 LIKE @nameLike ' : ''}
     `
 
     const countReq = pool.request()
     countReq.input('pass', sql.NVarChar(10), pass)
-    if (codeOk) countReq.input('codeLike', sql.NVarChar(300), codeLike)
+    if (codeSearchMode === 'cut_right') countReq.input('cutRightFuzzy', sql.NVarChar(300), cutRightFuzzy)
+    if (codeSearchMode === 'cut_contains') countReq.input('cutContainsLike', sql.NVarChar(300), cutContainsLike)
+    if (codeSearchMode === 'core_suffix') countReq.input('codeSuffixLike', sql.NVarChar(300), codeSuffixLike)
+    if (codeSearchMode === 'contains') countReq.input('codeLikeContains', sql.NVarChar(300), codeLikeContains)
     if (nameOk) countReq.input('nameLike', sql.NVarChar(300), nameLike)
 
+    const tCount0 = Date.now()
     const totalRow = await countReq.query(`
       SELECT COUNT(1) AS total
       FROM ${INV_BOM_MASTER_FROM} AS b
       ${whereBase}
     `)
+    const tCount1 = Date.now()
+    if (tCount1 - tCount0 > 500) {
+      const hint =
+        codeSearchMode === 'cut_right'
+          ? '当前为裁片右模糊（keyword%），理论上可走 kcaa01 前缀索引；若仍慢请让 DBA 看实际执行计划'
+          : 'kcaa01 含前导 % 的模糊可能无法命中前缀索引，建议在库端评估 kcaa01 索引或全文检索 CONTAINS'
+      console.warn(`[BOM列表] COUNT 查询耗时 ${tCount1 - tCount0}ms（>500ms）：${hint}`)
+    }
     const total = Number(totalRow.recordset?.[0]?.total ?? 0)
 
     const safeOffset = (page - 1) * pageSize
@@ -6297,9 +6575,13 @@ app.get('/api/inv/bom/list', async (req, res) => {
     listReq.input('pass', sql.NVarChar(10), pass)
     listReq.input('startRow', sql.Int, startRow)
     listReq.input('endRow', sql.Int, endRow)
-    if (codeOk) listReq.input('codeLike', sql.NVarChar(300), codeLike)
+    if (codeSearchMode === 'cut_right') listReq.input('cutRightFuzzy', sql.NVarChar(300), cutRightFuzzy)
+    if (codeSearchMode === 'cut_contains') listReq.input('cutContainsLike', sql.NVarChar(300), cutContainsLike)
+    if (codeSearchMode === 'core_suffix') listReq.input('codeSuffixLike', sql.NVarChar(300), codeSuffixLike)
+    if (codeSearchMode === 'contains') listReq.input('codeLikeContains', sql.NVarChar(300), codeLikeContains)
     if (nameOk) listReq.input('nameLike', sql.NVarChar(300), nameLike)
 
+    const tList0 = Date.now()
     const listResult = await listReq.query(`
       ;WITH base AS (
         SELECT
@@ -6379,6 +6661,14 @@ app.get('/api/inv/bom/list', async (req, res) => {
       LEFT JOIN agg_cons AS an ON an.pq = p.code
       ORDER BY p.rn
     `)
+    const tList1 = Date.now()
+    if (tList1 - tList0 > 500) {
+      const hint =
+        codeSearchMode === 'cut_right'
+          ? '当前为裁片右模糊（keyword%），理论上可走 kcaa01 前缀索引；若仍慢请让 DBA 看实际执行计划'
+          : '建议 DBA 检查执行计划；大表可考虑反向索引/全文检索优化含 % 前缀的模糊条件'
+      console.warn(`[BOM列表] LIST 查询耗时 ${tList1 - tList0}ms（>500ms）：${hint}`)
+    }
 
     const list = (listResult.recordset ?? []).map((row) => ({
       code: row.code != null ? String(row.code) : '',
@@ -6413,6 +6703,2023 @@ app.get('/api/inv/bom/list', async (req, res) => {
     console.error('GET /api/inv/bom/list 失败：', err)
     const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
     res.status(500).json({ code: 500, msg: `读取 BOM 列表失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 库存基本资料：颜色编码分页列表（物理表 Bom_colorcode；SQL Server 2008 R2：ROW_NUMBER 分页）
+ * GET /api/inventory/color-code/list
+ * - 默认排序：物理列 `intime` DESC；列表 `in_time` 为 yyyy/M/d（月日不补零，如 2017/9/1）；keyword 对 code/name 参数化模糊（防注入）
+ * - 过滤：在册 del + pass（与项目列表约定一致；若旧表无列需在库端补齐）
+ * - 回收站：`recycled=1` 时仅查 `del=1`，不按 pass 过滤（仍支持 keyword）
+ */
+app.get('/api/inventory/color-code/list', async (req, res) => {
+  try {
+    const pool = await getPool()
+    const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
+    const pageSizeRaw = Number(req.query?.pageSize ?? 20) || 20
+    const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+
+    const recycledRaw = String(req.query?.recycled ?? '').trim().toLowerCase()
+    const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
+
+    const passRaw = String(req.query?.pass ?? '1').trim()
+    const pass = passRaw === '0' ? '0' : '1'
+
+    const keywordRaw = String(req.query?.keyword ?? '').trim()
+    const hasKeyword = keywordRaw.length > 0
+    const kwPat = hasKeyword ? `%${escapeSqlLikePattern(keywordRaw)}%` : ''
+
+    const whereBase = recycled
+      ? `
+      WHERE LTRIM(RTRIM(ISNULL(b.del, N''))) = N'1'
+      ${hasKeyword ? ' AND (b.code LIKE @kw OR b.name LIKE @kw) ' : ''}
+    `
+      : `
+      WHERE (ISNULL(b.del, N'') = N'' OR b.del = N'0')
+        AND LTRIM(RTRIM(ISNULL(b.pass, N''))) = @pass
+      ${hasKeyword ? ' AND (b.code LIKE @kw OR b.name LIKE @kw) ' : ''}
+    `
+
+    const countReq = pool.request()
+    if (!recycled) countReq.input('pass', sql.NVarChar(10), pass)
+    if (hasKeyword) countReq.input('kw', sql.NVarChar(200), kwPat)
+    const totalRow = await countReq.query(`
+      SELECT COUNT(1) AS total
+      FROM ${BOM_COLORCODE_FROM} AS b
+      ${whereBase}
+    `)
+    const total = Number(totalRow.recordset?.[0]?.total ?? 0)
+
+    const safeOffset = (page - 1) * pageSize
+    const startRow = safeOffset + 1
+    const endRow = safeOffset + pageSize
+
+    const listReq = pool.request()
+    if (!recycled) listReq.input('pass', sql.NVarChar(10), pass)
+    listReq.input('startRow', sql.Int, startRow)
+    listReq.input('endRow', sql.Int, endRow)
+    if (hasKeyword) listReq.input('kw', sql.NVarChar(200), kwPat)
+
+    const listResult = await listReq.query(`
+      SELECT
+        x.code,
+        x.name,
+        x.ename,
+        x.info,
+        x.pass,
+        x.del,
+        x.in_time
+      FROM (
+        SELECT
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.code, N'')))) AS code,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.name, N'')))) AS name,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.ename, N'')))) AS ename,
+          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.info, N'')))) AS info,
+          LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(b.pass, N'')))) AS pass,
+          LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(b.del, N'')))) AS del,
+          CASE
+            WHEN b.intime IS NULL THEN N''
+            ELSE
+              CAST(YEAR(b.intime) AS nvarchar(4)) + N'/'
+              + CAST(MONTH(b.intime) AS nvarchar(2)) + N'/'
+              + CAST(DAY(b.intime) AS nvarchar(2))
+          END AS in_time,
+          ROW_NUMBER() OVER (ORDER BY b.intime DESC, b.code ASC) AS rn
+        FROM ${BOM_COLORCODE_FROM} AS b
+        ${whereBase}
+      ) AS x
+      WHERE x.rn BETWEEN @startRow AND @endRow
+    `)
+
+    const list = (listResult.recordset ?? []).map((row) => ({
+      code: row.code != null ? String(row.code) : '',
+      name: row.name != null ? String(row.name) : '',
+      ename: row.ename != null ? String(row.ename) : '',
+      info: row.info != null ? String(row.info) : '',
+      pass: row.pass != null ? String(row.pass) : '',
+      del: row.del != null ? String(row.del) : '',
+      in_time: row.in_time != null ? String(row.in_time) : '',
+    }))
+
+    res.json({ code: 200, msg: 'success', data: { total, list, recycled } })
+  } catch (err) {
+    console.error('GET /api/inventory/color-code/list 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取颜色编码列表失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 颜色编码新增：POST /api/inventory/color-code
+ * body: { code, name, ename?, info? } — intime 为当天 00:00:00（datetime），与展示格式 yyyy/M/d（如 2017/9/1）一致；pass=0、del=0；在册唯一 code 校验
+ * 审计字段 uid/uname/utruename 从登录态（req.user / token）自动填充，禁止前端传参覆盖（规则 16）
+ */
+app.post('/api/inventory/color-code', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const code = String(body.code ?? '').trim()
+    const name = String(body.name ?? '').trim()
+    const ename = String(body.ename ?? '').trim()
+    const info = String(body.info ?? '').trim()
+
+    if (!code) {
+      res.status(400).json({ code: 400, msg: '颜色编码不能为空', data: null })
+      return
+    }
+    if (!name) {
+      res.status(400).json({ code: 400, msg: '编码名称（中文）不能为空', data: null })
+      return
+    }
+
+    // 规则 16：uid/uname/utruename 由 businessAuditFields 从 req.user 统一取，禁止前端传参
+    const { uidInt, uname: unameVal, utruename: utruenameVal } = getActorAuditTripletFromReq(req)
+    if (uidInt == null) {
+      res.status(401).json({ code: 401, msg: '无法识别当前操作员，请重新登录后再试', data: null })
+      return
+    }
+
+    const pool = await getPool()
+
+    const dupReq = pool.request()
+    dupReq.input('code', sql.NVarChar(100), code)
+    const dupRow = await dupReq.query(`
+      SELECT COUNT(1) AS n
+      FROM ${BOM_COLORCODE_FROM} AS b
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.code, N'')))) = @code
+        AND (ISNULL(b.del, N'') = N'' OR b.del = N'0')
+    `)
+    const dupN = Number(dupRow.recordset?.[0]?.n ?? 0)
+    if (dupN > 0) {
+      res.status(400).json({ code: 400, msg: '颜色编码已存在，请勿重复添加', data: null })
+      return
+    }
+
+    const ins = pool.request()
+    ins.input('code', sql.NVarChar(100), code)
+    ins.input('name', sql.NVarChar(200), name)
+    ins.input('ename', sql.NVarChar(200), ename || null)
+    ins.input('info', sql.NVarChar(500), info || null)
+    ins.input('uid', sql.Int, uidInt)
+    ins.input('uname', sql.NVarChar(50), unameVal)
+    ins.input('utruename', sql.NVarChar(50), utruenameVal)
+    const addtimeStr = formatBomColorcodeTimestamp()
+    ins.input('addtime', sql.NVarChar(50), addtimeStr)
+    ins.input('intime', sql.DateTime, bomColorcodeIntimeEntryDateTime())
+
+    await ins.query(`
+      INSERT INTO ${BOM_COLORCODE_FROM} (code, name, ename, info, intime, pass, del, uid, uname, utruename, addtime)
+      VALUES (@code, @name, @ename, @info, @intime, N'0', N'0', @uid, @uname, @utruename, @addtime)
+    `)
+
+    const row = await fetchBomColorcodeByCode(pool, code)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('POST /api/inventory/color-code 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库写入失败')
+    res.status(500).json({ code: 500, msg: `新增颜色编码失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 颜色编码保存（未审在册可改）：PUT /api/inventory/color-code
+ * body: { code, name, ename?, info? } — 写入 edittime（格式同 addtime）；已审或已删禁止
+ */
+app.put('/api/inventory/color-code', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const code = String(body.code ?? '').trim()
+    const name = String(body.name ?? '').trim()
+    const ename = String(body.ename ?? '').trim()
+    const info = String(body.info ?? '').trim()
+
+    if (!code) {
+      res.status(400).json({ code: 400, msg: '颜色编码不能为空', data: null })
+      return
+    }
+    if (!name) {
+      res.status(400).json({ code: 400, msg: '编码名称（中文）不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomColorcodeByCode(pool, code)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该颜色编码或已删除', data: null })
+      return
+    }
+    if (legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: '已审核记录不可编辑，请先反审', data: null })
+      return
+    }
+
+    const edittimeStr = formatBomColorcodeTimestamp()
+    const q = pool.request()
+    q.input('code', sql.NVarChar(100), code)
+    q.input('name', sql.NVarChar(200), name)
+    q.input('ename', sql.NVarChar(200), ename || null)
+    q.input('info', sql.NVarChar(500), info || null)
+    q.input('edittime', sql.NVarChar(50), edittimeStr)
+    await q.query(`
+      UPDATE b
+      SET
+        b.name = @name,
+        b.ename = @ename,
+        b.info = @info,
+        b.edittime = @edittime
+      FROM ${BOM_COLORCODE_FROM} AS b
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.code, N'')))) = @code
+        AND (ISNULL(b.del, N'') = N'' OR b.del = N'0')
+        AND LTRIM(RTRIM(ISNULL(b.pass, N''))) = N'0'
+    `)
+
+    const row = await fetchBomColorcodeByCode(pool, code)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/inventory/color-code 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `保存颜色编码失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 颜色编码审核：PUT /api/inventory/color-code/audit
+ * body: { code } — 仅未审且在册可审；更新 pass + edittime（规则 16）
+ */
+app.put('/api/inventory/color-code/audit', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const code = String(body.code ?? '').trim()
+    if (!code) {
+      res.status(400).json({ code: 400, msg: 'code 不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomColorcodeByCode(pool, code)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该颜色编码或已删除', data: null })
+      return
+    }
+    if (legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: '当前已是已审核状态', data: null })
+      return
+    }
+
+    const edittimeStr = formatBomColorcodeTimestamp()
+    const q = pool.request()
+    q.input('code', sql.NVarChar(100), code)
+    q.input('edittime', sql.NVarChar(50), edittimeStr)
+    await q.query(`
+      UPDATE b
+      SET b.pass = N'1', b.edittime = @edittime
+      FROM ${BOM_COLORCODE_FROM} AS b
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.code, N'')))) = @code
+        AND (ISNULL(b.del, N'') = N'' OR b.del = N'0')
+    `)
+
+    const row = await fetchBomColorcodeByCode(pool, code)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/inventory/color-code/audit 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `审核失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 颜色编码反审：PUT /api/inventory/color-code/unaudit
+ * body: { code }
+ */
+app.put('/api/inventory/color-code/unaudit', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const code = String(body.code ?? '').trim()
+    if (!code) {
+      res.status(400).json({ code: 400, msg: 'code 不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomColorcodeByCode(pool, code)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该颜色编码或已删除', data: null })
+      return
+    }
+    if (!legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: '当前为未审核状态，无需反审', data: null })
+      return
+    }
+
+    const edittimeStr = formatBomColorcodeTimestamp()
+    const q = pool.request()
+    q.input('code', sql.NVarChar(100), code)
+    q.input('edittime', sql.NVarChar(50), edittimeStr)
+    await q.query(`
+      UPDATE b
+      SET b.pass = N'0', b.edittime = @edittime
+      FROM ${BOM_COLORCODE_FROM} AS b
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.code, N'')))) = @code
+        AND (ISNULL(b.del, N'') = N'' OR b.del = N'0')
+    `)
+
+    const row = await fetchBomColorcodeByCode(pool, code)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/inventory/color-code/unaudit 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `反审失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 颜色编码恢复（取消逻辑删除）：PUT /api/inventory/color-code/restore
+ * body: { code }
+ */
+app.put('/api/inventory/color-code/restore', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const code = String(body.code ?? '').trim()
+    if (!code) {
+      res.status(400).json({ code: 400, msg: 'code 不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomColorcodeByCode(pool, code)
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该颜色编码', data: null })
+      return
+    }
+    const delTrim = String(existing.del ?? '').trim()
+    if (delTrim !== '1') {
+      res.status(400).json({ code: 400, msg: '当前记录未处于已删除状态，无需恢复', data: null })
+      return
+    }
+
+    const edittimeStr = formatBomColorcodeTimestamp()
+    const q = pool.request()
+    q.input('code', sql.NVarChar(100), code)
+    q.input('edittime', sql.NVarChar(50), edittimeStr)
+    await q.query(`
+      UPDATE b
+      SET b.del = N'0', b.edittime = @edittime
+      FROM ${BOM_COLORCODE_FROM} AS b
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.code, N'')))) = @code
+        AND LTRIM(RTRIM(ISNULL(b.del, N''))) = N'1'
+    `)
+
+    const row = await fetchBomColorcodeByCode(pool, code)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/inventory/color-code/restore 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `恢复失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 颜色编码彻底删除（物理删除，仅回收站 del=1）：DELETE /api/inventory/color-code/:code/permanent
+ * - 必须晚于逻辑删除：仅当记录已在回收站方可执行，防止误删在册数据
+ */
+app.delete('/api/inventory/color-code/:code/permanent', async (req, res) => {
+  try {
+    const code = String(req.params.code ?? '').trim()
+    if (!code) {
+      res.status(400).json({ code: 400, msg: 'code 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomColorcodeByCode(pool, code)
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该颜色编码', data: null })
+      return
+    }
+    const delTrim = String(existing.del ?? '').trim()
+    if (delTrim !== '1') {
+      res.status(400).json({ code: 400, msg: '仅回收站中的记录可彻底删除，请先将记录移入回收站', data: null })
+      return
+    }
+
+    const q = pool.request()
+    q.input('code', sql.NVarChar(100), code)
+    const delResult = await q.query(`
+      DELETE FROM b
+      FROM ${BOM_COLORCODE_FROM} AS b
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.code, N'')))) = @code
+        AND LTRIM(RTRIM(ISNULL(b.del, N''))) = N'1'
+    `)
+
+    const affected = Array.isArray(delResult.rowsAffected)
+      ? Number(delResult.rowsAffected[0] ?? 0)
+      : Number(delResult.rowsAffected ?? 0)
+    if (!Number.isFinite(affected) || affected < 1) {
+      res.status(404).json({ code: 404, msg: '未找到可彻底删除的回收站记录', data: null })
+      return
+    }
+
+    res.json({ code: 200, msg: 'success', data: { code } })
+  } catch (err) {
+    console.error('DELETE /api/inventory/color-code/:code/permanent 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库删除失败')
+    res.status(500).json({ code: 500, msg: `彻底删除失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 颜色编码逻辑删除：DELETE /api/inventory/color-code/:code
+ * - 已审核禁止（与部门资料一致）
+ */
+app.delete('/api/inventory/color-code/:code', async (req, res) => {
+  try {
+    const code = String(req.params.code ?? '').trim()
+    if (!code) {
+      res.status(400).json({ code: 400, msg: 'code 不合法', data: null })
+      return
+    }
+    if (code.toLowerCase() === 'list') {
+      res.status(400).json({ code: 400, msg: '非法的颜色编码（保留字 list）', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomColorcodeByCode(pool, code)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该颜色编码或已删除', data: null })
+      return
+    }
+    if (legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: HR_STAFF_AUDIT_LOCK_MSG, data: null })
+      return
+    }
+
+    const deltimeStr = formatBomColorcodeTimestamp()
+    const q = pool.request()
+    q.input('code', sql.NVarChar(100), code)
+    q.input('deltime', sql.NVarChar(50), deltimeStr)
+    await q.query(`
+      UPDATE b
+      SET b.del = N'1', b.deltime = @deltime
+      FROM ${BOM_COLORCODE_FROM} AS b
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.code, N'')))) = @code
+        AND (ISNULL(b.del, N'') = N'' OR b.del = N'0')
+    `)
+
+    res.json({ code: 200, msg: 'success', data: { code } })
+  } catch (err) {
+    console.error('DELETE /api/inventory/color-code/:code 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `删除失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 库存基本资料：使用单位分页列表（物理表 Bom_unit；SQL Server 2008 R2：ROW_NUMBER）
+ * GET /api/inventory/units/list
+ * - 在册：`del` 在册 + `pass`；回收站 `recycled=1` 仅 `del=1`；keyword 对 name/info 参数化 LIKE
+ * - 排序：`id DESC`
+ */
+app.get('/api/inventory/units/list', async (req, res) => {
+  try {
+    const pool = await getPool()
+    const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
+    const pageSizeRaw = Number(req.query?.pageSize ?? 20) || 20
+    const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+
+    const recycledRaw = String(req.query?.recycled ?? '').trim().toLowerCase()
+    const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
+
+    const passRaw = String(req.query?.pass ?? '1').trim()
+    const pass = passRaw === '0' ? '0' : '1'
+
+    const keywordRaw = String(req.query?.keyword ?? '').trim()
+    const hasKeyword = keywordRaw.length > 0
+    const kwPat = hasKeyword ? `%${escapeSqlLikePattern(keywordRaw)}%` : ''
+
+    const whereBase = recycled
+      ? `
+      WHERE LTRIM(RTRIM(ISNULL(u.del, N''))) = N'1'
+      ${hasKeyword ? ' AND (u.name LIKE @kw OR u.info LIKE @kw) ' : ''}
+    `
+      : `
+      WHERE (ISNULL(u.del, N'') = N'' OR u.del = N'0')
+        AND LTRIM(RTRIM(ISNULL(u.pass, N''))) = @pass
+      ${hasKeyword ? ' AND (u.name LIKE @kw OR u.info LIKE @kw) ' : ''}
+    `
+
+    const countReq = pool.request()
+    if (!recycled) countReq.input('pass', sql.NVarChar(10), pass)
+    if (hasKeyword) countReq.input('kw', sql.NVarChar(200), kwPat)
+    const totalRow = await countReq.query(`
+      SELECT COUNT(1) AS total
+      FROM ${BOM_UNIT_FROM} AS u
+      ${whereBase}
+    `)
+    const total = Number(totalRow.recordset?.[0]?.total ?? 0)
+
+    const safeOffset = (page - 1) * pageSize
+    const startRow = safeOffset + 1
+    const endRow = safeOffset + pageSize
+
+    const listReq = pool.request()
+    if (!recycled) listReq.input('pass', sql.NVarChar(10), pass)
+    listReq.input('startRow', sql.Int, startRow)
+    listReq.input('endRow', sql.Int, endRow)
+    if (hasKeyword) listReq.input('kw', sql.NVarChar(200), kwPat)
+
+    const listResult = await listReq.query(`
+      SELECT x.id, x.name, x.info, x.pass, x.del
+      FROM (
+        SELECT
+          u.id,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(u.name, N'')))) AS name,
+          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(u.info, N'')))) AS info,
+          LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(u.pass, N'')))) AS pass,
+          LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(u.del, N'')))) AS del,
+          ROW_NUMBER() OVER (ORDER BY u.id DESC) AS rn
+        FROM ${BOM_UNIT_FROM} AS u
+        ${whereBase}
+      ) AS x
+      WHERE x.rn BETWEEN @startRow AND @endRow
+    `)
+
+    const list = (listResult.recordset ?? []).map((row) => ({
+      id: row.id != null ? Number(row.id) : 0,
+      name: row.name != null ? String(row.name) : '',
+      info: row.info != null ? String(row.info) : '',
+      pass: row.pass != null ? String(row.pass) : '',
+      del: row.del != null ? String(row.del) : '',
+    }))
+
+    res.json({ code: 200, msg: 'success', data: { total, list, recycled } })
+  } catch (err) {
+    console.error('GET /api/inventory/units/list 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取使用单位列表失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 使用单位新增：POST /api/inventory/units
+ * body: { name, info? } — pass=0、del=0（id 由库端自增）；规则 16：uid/uname/utruename、addtime
+ */
+app.post('/api/inventory/units', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const name = String(body.name ?? '').trim()
+    const info = String(body.info ?? '').trim()
+
+    if (!name) {
+      res.status(400).json({ code: 400, msg: '名称不能为空', data: null })
+      return
+    }
+
+    const { uidInt, uname, utruename } = getActorAuditTripletFromReq(req)
+    if (uidInt == null) {
+      res.status(401).json({ code: 401, msg: '无法识别当前操作员，请重新登录后再试', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const ins = pool.request()
+    ins.input('name', sql.NVarChar(200), name)
+    ins.input('info', sql.NVarChar(500), info || null)
+    ins.input('uid', sql.Int, uidInt)
+    ins.input('uname', sql.NVarChar(50), uname)
+    ins.input('utruename', sql.NVarChar(50), utruename)
+    const addtimeStr = formatBomColorcodeTimestamp()
+    ins.input('addtime', sql.NVarChar(50), addtimeStr)
+
+    const out = await ins.query(`
+      INSERT INTO ${BOM_UNIT_FROM} (name, info, pass, del, uid, uname, utruename, addtime)
+      OUTPUT INSERTED.id AS id
+      VALUES (@name, @info, N'0', N'0', @uid, @uname, @utruename, @addtime)
+    `)
+
+    const newId = Number(out.recordset?.[0]?.id ?? 0)
+    if (!Number.isFinite(newId) || newId <= 0) {
+      res.status(500).json({ code: 500, msg: '新增成功但未返回主键 id', data: null })
+      return
+    }
+
+    const row = await fetchBomUnitById(pool, newId)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('POST /api/inventory/units 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库写入失败')
+    res.status(500).json({ code: 500, msg: `新增使用单位失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 使用单位审核：PUT /api/inventory/units/audit
+ * body: { id }
+ */
+app.put('/api/inventory/units/audit', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const id = Number(body.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomUnitById(pool, id)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该使用单位或已删除', data: null })
+      return
+    }
+    if (legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: '当前已是已审核状态', data: null })
+      return
+    }
+
+    const edittimeStr = formatBomColorcodeTimestamp()
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    q.input('edittime', sql.NVarChar(50), edittimeStr)
+    await q.query(`
+      UPDATE u
+      SET u.pass = N'1', u.edittime = @edittime
+      FROM ${BOM_UNIT_FROM} AS u
+      WHERE u.id = @id
+        AND (ISNULL(u.del, N'') = N'' OR u.del = N'0')
+    `)
+
+    const row = await fetchBomUnitById(pool, id)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/inventory/units/audit 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `审核失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 使用单位反审：PUT /api/inventory/units/unaudit
+ * body: { id }
+ */
+app.put('/api/inventory/units/unaudit', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const id = Number(body.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomUnitById(pool, id)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该使用单位或已删除', data: null })
+      return
+    }
+    if (!legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: '当前为未审核状态，无需反审', data: null })
+      return
+    }
+
+    const edittimeStr = formatBomColorcodeTimestamp()
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    q.input('edittime', sql.NVarChar(50), edittimeStr)
+    await q.query(`
+      UPDATE u
+      SET u.pass = N'0', u.edittime = @edittime
+      FROM ${BOM_UNIT_FROM} AS u
+      WHERE u.id = @id
+        AND (ISNULL(u.del, N'') = N'' OR u.del = N'0')
+    `)
+
+    const row = await fetchBomUnitById(pool, id)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/inventory/units/unaudit 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `反审失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 使用单位恢复：PUT /api/inventory/units/restore
+ * body: { id }
+ */
+app.put('/api/inventory/units/restore', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const id = Number(body.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomUnitById(pool, id)
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该使用单位', data: null })
+      return
+    }
+    const delTrim = String(existing.del ?? '').trim()
+    if (delTrim !== '1') {
+      res.status(400).json({ code: 400, msg: '当前记录未处于已删除状态，无需恢复', data: null })
+      return
+    }
+
+    const edittimeStr = formatBomColorcodeTimestamp()
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    q.input('edittime', sql.NVarChar(50), edittimeStr)
+    await q.query(`
+      UPDATE u
+      SET u.del = N'0', u.edittime = @edittime
+      FROM ${BOM_UNIT_FROM} AS u
+      WHERE u.id = @id
+        AND LTRIM(RTRIM(ISNULL(u.del, N''))) = N'1'
+    `)
+
+    const row = await fetchBomUnitById(pool, id)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/inventory/units/restore 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `恢复失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 使用单位逻辑删除：DELETE /api/inventory/units/:id
+ * - 已审核禁止（与颜色编码一致）
+ */
+app.delete('/api/inventory/units/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomUnitById(pool, id)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该使用单位或已删除', data: null })
+      return
+    }
+    if (legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: HR_STAFF_AUDIT_LOCK_MSG, data: null })
+      return
+    }
+
+    const deltimeStr = formatBomColorcodeTimestamp()
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    q.input('deltime', sql.NVarChar(50), deltimeStr)
+    await q.query(`
+      UPDATE u
+      SET u.del = N'1', u.deltime = @deltime
+      FROM ${BOM_UNIT_FROM} AS u
+      WHERE u.id = @id
+        AND (ISNULL(u.del, N'') = N'' OR u.del = N'0')
+    `)
+
+    res.json({ code: 200, msg: 'success', data: { id } })
+  } catch (err) {
+    console.error('DELETE /api/inventory/units/:id 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `删除失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 使用单位彻底删除（物理删除，仅回收站 del=1）：DELETE /api/inventory/units/:id/permanent
+ */
+app.delete('/api/inventory/units/:id/permanent', async (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomUnitById(pool, id)
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该使用单位', data: null })
+      return
+    }
+    const delTrim = String(existing.del ?? '').trim()
+    if (delTrim !== '1') {
+      res.status(400).json({ code: 400, msg: '仅回收站中的记录可彻底删除，请先将记录移入回收站', data: null })
+      return
+    }
+
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    const r = await q.query(`
+      DELETE FROM u
+      FROM ${BOM_UNIT_FROM} AS u
+      WHERE u.id = @id
+        AND LTRIM(RTRIM(ISNULL(u.del, N''))) = N'1'
+    `)
+    const affected = Array.isArray(r.rowsAffected) ? Number(r.rowsAffected[0] ?? 0) : 0
+    if (!Number.isFinite(affected) || affected < 1) {
+      res.status(404).json({ code: 404, msg: '未找到可彻底删除的回收站记录', data: null })
+      return
+    }
+
+    res.json({ code: 200, msg: 'success', data: { id } })
+  } catch (err) {
+    console.error('DELETE /api/inventory/units/:id/permanent 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库删除失败')
+    res.status(500).json({ code: 500, msg: `彻底删除失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 库存基本资料：单位转换率分页列表（物理表 Bom_unit_change；SQL Server 2008 R2：ROW_NUMBER）
+ * GET /api/inventory/unit-conversion/list
+ * - 在册：`del` 在册 + `pass`；回收站 `recycled=1` 仅 `del=1`；keyword 对 unit_name/unit_name_tow 参数化 LIKE
+ * - 排序：`id DESC`
+ */
+app.get('/api/inventory/unit-conversion/list', async (req, res) => {
+  try {
+    const pool = await getPool()
+    const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
+    const pageSizeRaw = Number(req.query?.pageSize ?? 20) || 20
+    const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+
+    const recycledRaw = String(req.query?.recycled ?? '').trim().toLowerCase()
+    const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
+
+    const passRaw = String(req.query?.pass ?? '1').trim()
+    const pass = passRaw === '0' ? '0' : '1'
+
+    const keywordRaw = String(req.query?.keyword ?? '').trim()
+    const hasKeyword = keywordRaw.length > 0
+    const kwPat = hasKeyword ? `%${escapeSqlLikePattern(keywordRaw)}%` : ''
+
+    const whereBase = recycled
+      ? `
+      WHERE LTRIM(RTRIM(ISNULL(c.del, N''))) = N'1'
+      ${hasKeyword ? ' AND (c.unit_name LIKE @kw OR c.unit_name_tow LIKE @kw) ' : ''}
+    `
+      : `
+      WHERE (ISNULL(c.del, N'') = N'' OR c.del = N'0')
+        AND LTRIM(RTRIM(ISNULL(c.pass, N''))) = @pass
+      ${hasKeyword ? ' AND (c.unit_name LIKE @kw OR c.unit_name_tow LIKE @kw) ' : ''}
+    `
+
+    const countReq = pool.request()
+    if (!recycled) countReq.input('pass', sql.NVarChar(10), pass)
+    if (hasKeyword) countReq.input('kw', sql.NVarChar(200), kwPat)
+    const totalRow = await countReq.query(`
+      SELECT COUNT(1) AS total
+      FROM ${BOM_UNIT_CHANGE_FROM} AS c
+      ${whereBase}
+    `)
+    const total = Number(totalRow.recordset?.[0]?.total ?? 0)
+
+    const safeOffset = (page - 1) * pageSize
+    const startRow = safeOffset + 1
+    const endRow = safeOffset + pageSize
+
+    const listReq = pool.request()
+    if (!recycled) listReq.input('pass', sql.NVarChar(10), pass)
+    listReq.input('startRow', sql.Int, startRow)
+    listReq.input('endRow', sql.Int, endRow)
+    if (hasKeyword) listReq.input('kw', sql.NVarChar(200), kwPat)
+
+    const listResult = await listReq.query(`
+      SELECT
+        x.id,
+        x.unit_name,
+        x.unit_name_tow,
+        x.change_bl,
+        x.pass,
+        x.del
+      FROM (
+        SELECT
+          c.id,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name, N'')))) AS unit_name,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name_tow, N'')))) AS unit_name_tow,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(c.change_bl, N'')))) AS change_bl,
+          LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(c.pass, N'')))) AS pass,
+          LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(c.del, N'')))) AS del,
+          ROW_NUMBER() OVER (ORDER BY c.id DESC) AS rn
+        FROM ${BOM_UNIT_CHANGE_FROM} AS c
+        ${whereBase}
+      ) AS x
+      WHERE x.rn BETWEEN @startRow AND @endRow
+    `)
+
+    const list = (listResult.recordset ?? []).map((row) => ({
+      id: row.id != null ? Number(row.id) : 0,
+      unit_name: row.unit_name != null ? String(row.unit_name) : '',
+      unit_name_tow: row.unit_name_tow != null ? String(row.unit_name_tow) : '',
+      change_bl: row.change_bl != null ? String(row.change_bl) : '',
+      pass: row.pass != null ? String(row.pass) : '',
+      del: row.del != null ? String(row.del) : '',
+    }))
+
+    res.json({ code: 200, msg: 'success', data: { total, list, recycled } })
+  } catch (err) {
+    console.error('GET /api/inventory/unit-conversion/list 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取单位转换率列表失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 单位转换率新增：POST /api/inventory/unit-conversion
+ * body: { unit_name, unit_name_tow, change_bl } — pass=0、del=0（id 由库端自增）；规则 16：uid/uname/utruename、addtime
+ */
+app.post('/api/inventory/unit-conversion', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const unitName = String(body.unit_name ?? '').trim()
+    const unitNameTow = String(body.unit_name_tow ?? '').trim()
+    const changeBl = String(body.change_bl ?? '').trim()
+
+    if (!unitName) {
+      res.status(400).json({ code: 400, msg: '使用单位不能为空', data: null })
+      return
+    }
+    if (!unitNameTow) {
+      res.status(400).json({ code: 400, msg: '转换单位不能为空', data: null })
+      return
+    }
+    if (!changeBl) {
+      res.status(400).json({ code: 400, msg: '转换率不能为空', data: null })
+      return
+    }
+    const changeBlNum = Number(changeBl)
+    if (!Number.isFinite(changeBlNum) || changeBlNum <= 0) {
+      res.status(400).json({ code: 400, msg: '转换率必须是大于 0 的数字（例如 0.99 / 1.25）', data: null })
+      return
+    }
+
+    const { uidInt, uname, utruename } = getActorAuditTripletFromReq(req)
+    if (uidInt == null) {
+      res.status(401).json({ code: 401, msg: '无法识别当前操作员，请重新登录后再试', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const ins = pool.request()
+    ins.input('unit_name', sql.NVarChar(200), unitName)
+    ins.input('unit_name_tow', sql.NVarChar(200), unitNameTow)
+    // 若库列为 numeric/decimal，必须用数值参数避免 nvarchar→numeric 转换报错
+    ins.input('change_bl', sql.Decimal(18, 6), changeBlNum)
+    ins.input('uid', sql.Int, uidInt)
+    ins.input('uname', sql.NVarChar(50), uname)
+    ins.input('utruename', sql.NVarChar(50), utruename)
+    const addtimeStr = formatBomColorcodeTimestamp()
+    ins.input('addtime', sql.NVarChar(50), addtimeStr)
+
+    const out = await ins.query(`
+      INSERT INTO ${BOM_UNIT_CHANGE_FROM} (
+        unit_name, unit_name_tow, change_bl,
+        pass, del,
+        uid, uname, utruename, addtime
+      )
+      OUTPUT INSERTED.id AS id
+      VALUES (
+        @unit_name, @unit_name_tow, @change_bl,
+        N'0', N'0',
+        @uid, @uname, @utruename, @addtime
+      )
+    `)
+
+    const newId = Number(out.recordset?.[0]?.id ?? 0)
+    if (!Number.isFinite(newId) || newId <= 0) {
+      res.status(500).json({ code: 500, msg: '新增成功但未返回主键 id', data: null })
+      return
+    }
+
+    const row = await fetchBomUnitChangeById(pool, newId)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('POST /api/inventory/unit-conversion 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库写入失败')
+    res.status(500).json({ code: 500, msg: `新增单位转换率失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 单位转换率审核：PUT /api/inventory/unit-conversion/audit
+ * body: { id } — 更新 pass + edittime（规则 16）
+ */
+app.put('/api/inventory/unit-conversion/audit', async (req, res) => {
+  try {
+    const id = Number(req.body?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomUnitChangeById(pool, id)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该转换率或已删除', data: null })
+      return
+    }
+    if (legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: '当前已是已审核状态', data: null })
+      return
+    }
+
+    const edittimeStr = formatBomColorcodeTimestamp()
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    q.input('edittime', sql.NVarChar(50), edittimeStr)
+    await q.query(`
+      UPDATE c
+      SET c.pass = N'1', c.edittime = @edittime
+      FROM ${BOM_UNIT_CHANGE_FROM} AS c
+      WHERE c.id = @id
+        AND (ISNULL(c.del, N'') = N'' OR c.del = N'0')
+    `)
+
+    const row = await fetchBomUnitChangeById(pool, id)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/inventory/unit-conversion/audit 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `审核失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 单位转换率反审：PUT /api/inventory/unit-conversion/unaudit
+ * body: { id } — 更新 pass + edittime（规则 16）
+ */
+app.put('/api/inventory/unit-conversion/unaudit', async (req, res) => {
+  try {
+    const id = Number(req.body?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomUnitChangeById(pool, id)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该转换率或已删除', data: null })
+      return
+    }
+    if (!legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: '当前为未审核状态，无需反审', data: null })
+      return
+    }
+
+    const edittimeStr = formatBomColorcodeTimestamp()
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    q.input('edittime', sql.NVarChar(50), edittimeStr)
+    await q.query(`
+      UPDATE c
+      SET c.pass = N'0', c.edittime = @edittime
+      FROM ${BOM_UNIT_CHANGE_FROM} AS c
+      WHERE c.id = @id
+        AND (ISNULL(c.del, N'') = N'' OR c.del = N'0')
+    `)
+
+    const row = await fetchBomUnitChangeById(pool, id)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/inventory/unit-conversion/unaudit 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `反审失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 单位转换率恢复：PUT /api/inventory/unit-conversion/restore
+ * body: { id } — del=0 + edittime（规则 16）
+ */
+app.put('/api/inventory/unit-conversion/restore', async (req, res) => {
+  try {
+    const id = Number(req.body?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomUnitChangeById(pool, id)
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该转换率', data: null })
+      return
+    }
+    const delTrim = String(existing.del ?? '').trim()
+    if (delTrim !== '1') {
+      res.status(400).json({ code: 400, msg: '当前记录未处于已删除状态，无需恢复', data: null })
+      return
+    }
+
+    const edittimeStr = formatBomColorcodeTimestamp()
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    q.input('edittime', sql.NVarChar(50), edittimeStr)
+    await q.query(`
+      UPDATE c
+      SET c.del = N'0', c.edittime = @edittime
+      FROM ${BOM_UNIT_CHANGE_FROM} AS c
+      WHERE c.id = @id
+        AND LTRIM(RTRIM(ISNULL(c.del, N''))) = N'1'
+    `)
+
+    const row = await fetchBomUnitChangeById(pool, id)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/inventory/unit-conversion/restore 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `恢复失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 单位转换率逻辑删除：DELETE /api/inventory/unit-conversion/:id
+ * - 已审核禁止（文案同员工档案锁定）；规则 16：deltime
+ */
+app.delete('/api/inventory/unit-conversion/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomUnitChangeById(pool, id)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该转换率或已删除', data: null })
+      return
+    }
+    if (legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: HR_STAFF_AUDIT_LOCK_MSG, data: null })
+      return
+    }
+
+    const deltimeStr = formatBomColorcodeTimestamp()
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    q.input('deltime', sql.NVarChar(50), deltimeStr)
+    await q.query(`
+      UPDATE c
+      SET c.del = N'1', c.deltime = @deltime
+      FROM ${BOM_UNIT_CHANGE_FROM} AS c
+      WHERE c.id = @id
+        AND (ISNULL(c.del, N'') = N'' OR c.del = N'0')
+    `)
+
+    res.json({ code: 200, msg: 'success', data: { id } })
+  } catch (err) {
+    console.error('DELETE /api/inventory/unit-conversion/:id 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `删除失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 单位转换率彻底删除（物理删除，仅回收站 del=1）：DELETE /api/inventory/unit-conversion/:id/permanent
+ */
+app.delete('/api/inventory/unit-conversion/:id/permanent', async (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomUnitChangeById(pool, id)
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该单位转换率', data: null })
+      return
+    }
+    const delTrim = String(existing.del ?? '').trim()
+    if (delTrim !== '1') {
+      res.status(400).json({ code: 400, msg: '仅回收站中的记录可彻底删除，请先将记录移入回收站', data: null })
+      return
+    }
+
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    const r = await q.query(`
+      DELETE FROM c
+      FROM ${BOM_UNIT_CHANGE_FROM} AS c
+      WHERE c.id = @id
+        AND LTRIM(RTRIM(ISNULL(c.del, N''))) = N'1'
+    `)
+    const affected = Array.isArray(r.rowsAffected) ? Number(r.rowsAffected[0] ?? 0) : 0
+    if (!Number.isFinite(affected) || affected < 1) {
+      res.status(404).json({ code: 404, msg: '未找到可彻底删除的回收站记录', data: null })
+      return
+    }
+
+    res.json({ code: 200, msg: 'success', data: { id } })
+  } catch (err) {
+    console.error('DELETE /api/inventory/unit-conversion/:id/permanent 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库删除失败')
+    res.status(500).json({ code: 500, msg: `彻底删除失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 库存基本资料：材料分类分页列表（物理表 Bom_material；SQL Server 2008 R2：ROW_NUMBER）
+ * GET /api/inventory/material-category/list
+ * - 在册：`del` 在册 + `pass`；回收站 `recycled=1` 仅 `del=1`；keyword 对 code/name/customs_code 参数化 LIKE
+ * - 排序：`id DESC`
+ */
+app.get('/api/inventory/material-category/list', async (req, res) => {
+  try {
+    const pool = await getPool()
+    const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
+    const pageSizeRaw = Number(req.query?.pageSize ?? 20) || 20
+    const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+
+    const recycledRaw = String(req.query?.recycled ?? '').trim().toLowerCase()
+    const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
+
+    const passRaw = String(req.query?.pass ?? '1').trim()
+    const pass = passRaw === '0' ? '0' : '1'
+
+    const keywordRaw = String(req.query?.keyword ?? '').trim()
+    const hasKeyword = keywordRaw.length > 0
+    const kwPat = hasKeyword ? `%${escapeSqlLikePattern(keywordRaw)}%` : ''
+
+    // 注意：customs_code 可能是 numeric（老库常见），直接 LIKE 会触发 nvarchar→numeric 隐式转换并报错
+    const whereBase = recycled
+      ? `
+      WHERE LTRIM(RTRIM(ISNULL(m.del, N''))) = N'1'
+      ${
+        hasKeyword
+          ? " AND (CONVERT(nvarchar(100), m.code) LIKE @kw OR CONVERT(nvarchar(200), m.name) LIKE @kw OR CONVERT(nvarchar(100), m.customs_code) LIKE @kw) "
+          : ''
+      }
+    `
+      : `
+      WHERE (ISNULL(m.del, N'') = N'' OR m.del = N'0')
+        AND LTRIM(RTRIM(ISNULL(m.pass, N''))) = @pass
+      ${
+        hasKeyword
+          ? " AND (CONVERT(nvarchar(100), m.code) LIKE @kw OR CONVERT(nvarchar(200), m.name) LIKE @kw OR CONVERT(nvarchar(100), m.customs_code) LIKE @kw) "
+          : ''
+      }
+    `
+
+    const countReq = pool.request()
+    if (!recycled) countReq.input('pass', sql.NVarChar(10), pass)
+    if (hasKeyword) countReq.input('kw', sql.NVarChar(200), kwPat)
+    const totalRow = await countReq.query(`
+      SELECT COUNT(1) AS total
+      FROM ${BOM_MATERIAL_FROM} AS m
+      ${whereBase}
+    `)
+    const total = Number(totalRow.recordset?.[0]?.total ?? 0)
+
+    const safeOffset = (page - 1) * pageSize
+    const startRow = safeOffset + 1
+    const endRow = safeOffset + pageSize
+
+    const listReq = pool.request()
+    if (!recycled) listReq.input('pass', sql.NVarChar(10), pass)
+    listReq.input('startRow', sql.Int, startRow)
+    listReq.input('endRow', sql.Int, endRow)
+    if (hasKeyword) listReq.input('kw', sql.NVarChar(200), kwPat)
+
+    const listResult = await listReq.query(`
+      SELECT
+        x.id,
+        x.code,
+        x.name,
+        x.customs_code,
+        x.stocks_in,
+        x.stocks_out,
+        x.pass,
+        x.del
+      FROM (
+        SELECT
+          m.id,
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(CONVERT(nvarchar(100), m.code), N'')))) AS code,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(CONVERT(nvarchar(200), m.name), N'')))) AS name,
+          CASE
+            WHEN m.customs_code IS NULL THEN N''
+            ELSE LTRIM(RTRIM(CONVERT(nvarchar(100), m.customs_code)))
+          END AS customs_code,
+          CASE
+            WHEN m.stocks_in IS NULL THEN N''
+            ELSE LTRIM(RTRIM(CONVERT(nvarchar(50), m.stocks_in)))
+          END AS stocks_in,
+          CASE
+            WHEN m.stocks_out IS NULL THEN N''
+            ELSE LTRIM(RTRIM(CONVERT(nvarchar(50), m.stocks_out)))
+          END AS stocks_out,
+          LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(m.pass, N'')))) AS pass,
+          LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(m.del, N'')))) AS del,
+          ROW_NUMBER() OVER (ORDER BY m.id DESC) AS rn
+        FROM ${BOM_MATERIAL_FROM} AS m
+        ${whereBase}
+      ) AS x
+      WHERE x.rn BETWEEN @startRow AND @endRow
+    `)
+
+    const list = (listResult.recordset ?? []).map((row) => ({
+      id: row.id != null ? Number(row.id) : 0,
+      code: row.code != null ? String(row.code) : '',
+      name: row.name != null ? String(row.name) : '',
+      customs_code: row.customs_code != null ? String(row.customs_code) : '',
+      stocks_in: row.stocks_in != null ? String(row.stocks_in) : '',
+      stocks_out: row.stocks_out != null ? String(row.stocks_out) : '',
+      pass: row.pass != null ? String(row.pass) : '',
+      del: row.del != null ? String(row.del) : '',
+    }))
+
+    res.json({ code: 200, msg: 'success', data: { total, list, recycled } })
+  } catch (err) {
+    console.error('GET /api/inventory/material-category/list 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取材料分类列表失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 材料分类新增：POST /api/inventory/material-category
+ * body: { code, name, customs_code?, stocks_in?, stocks_out? } — pass=0、del=0（id 由库端自增）；规则 16：uid/uname/utruename、addtime
+ */
+app.post('/api/inventory/material-category', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const code = String(body.code ?? '').trim()
+    const name = String(body.name ?? '').trim()
+    const customsCode = String(body.customs_code ?? '').trim()
+    const stocksIn = String(body.stocks_in ?? '').trim()
+    const stocksOut = String(body.stocks_out ?? '').trim()
+
+    if (!code) {
+      res.status(400).json({ code: 400, msg: '分类编码不能为空', data: null })
+      return
+    }
+    if (!name) {
+      res.status(400).json({ code: 400, msg: '分类名称不能为空', data: null })
+      return
+    }
+
+    const stocksInNum = stocksIn ? Number(stocksIn) : null
+    if (stocksIn && (!Number.isFinite(stocksInNum) || stocksInNum < 0)) {
+      res.status(400).json({ code: 400, msg: '入库浮动率必须是数字（例如 0.05），且不能为负数', data: null })
+      return
+    }
+    const stocksOutNum = stocksOut ? Number(stocksOut) : null
+    if (stocksOut && (!Number.isFinite(stocksOutNum) || stocksOutNum < 0)) {
+      res.status(400).json({ code: 400, msg: '出库浮动率必须是数字（例如 0.05），且不能为负数', data: null })
+      return
+    }
+
+    const { uidInt, uname, utruename } = getActorAuditTripletFromReq(req)
+    if (uidInt == null) {
+      res.status(401).json({ code: 401, msg: '无法识别当前操作员，请重新登录后再试', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const ins = pool.request()
+    ins.input('code', sql.NVarChar(100), code)
+    ins.input('name', sql.NVarChar(200), name)
+    ins.input('customs_code', sql.NVarChar(100), customsCode || null)
+    // 若库列为 numeric/decimal，这里用数值参数避免 nvarchar→numeric 转换报错；若库列为 nvarchar 也可正常写入
+    ins.input('stocks_in', sql.Decimal(18, 6), stocksInNum)
+    ins.input('stocks_out', sql.Decimal(18, 6), stocksOutNum)
+    ins.input('uid', sql.Int, uidInt)
+    ins.input('uname', sql.NVarChar(50), uname)
+    ins.input('utruename', sql.NVarChar(50), utruename)
+    const addtimeStr = formatBomColorcodeTimestamp()
+    ins.input('addtime', sql.NVarChar(50), addtimeStr)
+
+    const out = await ins.query(`
+      INSERT INTO ${BOM_MATERIAL_FROM} (
+        code, name, customs_code, stocks_in, stocks_out,
+        pass, del,
+        uid, uname, utruename, addtime
+      )
+      OUTPUT INSERTED.id AS id
+      VALUES (
+        @code, @name, @customs_code, @stocks_in, @stocks_out,
+        N'0', N'0',
+        @uid, @uname, @utruename, @addtime
+      )
+    `)
+
+    const newId = Number(out.recordset?.[0]?.id ?? 0)
+    if (!Number.isFinite(newId) || newId <= 0) {
+      res.status(500).json({ code: 500, msg: '新增成功但未返回主键 id', data: null })
+      return
+    }
+
+    const row = await fetchBomMaterialById(pool, newId)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('POST /api/inventory/material-category 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库写入失败')
+    res.status(500).json({ code: 500, msg: `新增材料分类失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 材料分类审核：PUT /api/inventory/material-category/audit
+ * body: { id } — pass + edittime（规则 16）
+ */
+app.put('/api/inventory/material-category/audit', async (req, res) => {
+  try {
+    const id = Number(req.body?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomMaterialById(pool, id)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该材料分类或已删除', data: null })
+      return
+    }
+    if (legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: '当前已是已审核状态', data: null })
+      return
+    }
+
+    const edittimeStr = formatBomColorcodeTimestamp()
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    q.input('edittime', sql.NVarChar(50), edittimeStr)
+    await q.query(`
+      UPDATE m
+      SET m.pass = N'1', m.edittime = @edittime
+      FROM ${BOM_MATERIAL_FROM} AS m
+      WHERE m.id = @id
+        AND (ISNULL(m.del, N'') = N'' OR m.del = N'0')
+    `)
+
+    const row = await fetchBomMaterialById(pool, id)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/inventory/material-category/audit 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `审核失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 材料分类反审：PUT /api/inventory/material-category/unaudit
+ * body: { id } — pass + edittime（规则 16）
+ */
+app.put('/api/inventory/material-category/unaudit', async (req, res) => {
+  try {
+    const id = Number(req.body?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomMaterialById(pool, id)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该材料分类或已删除', data: null })
+      return
+    }
+    if (!legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: '当前为未审核状态，无需反审', data: null })
+      return
+    }
+
+    const edittimeStr = formatBomColorcodeTimestamp()
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    q.input('edittime', sql.NVarChar(50), edittimeStr)
+    await q.query(`
+      UPDATE m
+      SET m.pass = N'0', m.edittime = @edittime
+      FROM ${BOM_MATERIAL_FROM} AS m
+      WHERE m.id = @id
+        AND (ISNULL(m.del, N'') = N'' OR m.del = N'0')
+    `)
+
+    const row = await fetchBomMaterialById(pool, id)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/inventory/material-category/unaudit 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `反审失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 材料分类恢复：PUT /api/inventory/material-category/restore
+ * body: { id } — del=0 + edittime（规则 16）
+ */
+app.put('/api/inventory/material-category/restore', async (req, res) => {
+  try {
+    const id = Number(req.body?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomMaterialById(pool, id)
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该材料分类', data: null })
+      return
+    }
+    const delTrim = String(existing.del ?? '').trim()
+    if (delTrim !== '1') {
+      res.status(400).json({ code: 400, msg: '当前记录未处于已删除状态，无需恢复', data: null })
+      return
+    }
+
+    const edittimeStr = formatBomColorcodeTimestamp()
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    q.input('edittime', sql.NVarChar(50), edittimeStr)
+    await q.query(`
+      UPDATE m
+      SET m.del = N'0', m.edittime = @edittime
+      FROM ${BOM_MATERIAL_FROM} AS m
+      WHERE m.id = @id
+        AND LTRIM(RTRIM(ISNULL(m.del, N''))) = N'1'
+    `)
+
+    const row = await fetchBomMaterialById(pool, id)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/inventory/material-category/restore 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `恢复失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 材料分类逻辑删除：DELETE /api/inventory/material-category/:id
+ * - 已审核禁止；规则 16：deltime
+ */
+app.delete('/api/inventory/material-category/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomMaterialById(pool, id)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该材料分类或已删除', data: null })
+      return
+    }
+    if (legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: HR_STAFF_AUDIT_LOCK_MSG, data: null })
+      return
+    }
+
+    const deltimeStr = formatBomColorcodeTimestamp()
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    q.input('deltime', sql.NVarChar(50), deltimeStr)
+    await q.query(`
+      UPDATE m
+      SET m.del = N'1', m.deltime = @deltime
+      FROM ${BOM_MATERIAL_FROM} AS m
+      WHERE m.id = @id
+        AND (ISNULL(m.del, N'') = N'' OR m.del = N'0')
+    `)
+
+    res.json({ code: 200, msg: 'success', data: { id } })
+  } catch (err) {
+    console.error('DELETE /api/inventory/material-category/:id 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `删除失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 材料分类彻底删除（物理删除，仅回收站 del=1）：DELETE /api/inventory/material-category/:id/permanent
+ */
+app.delete('/api/inventory/material-category/:id/permanent', async (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomMaterialById(pool, id)
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该材料分类', data: null })
+      return
+    }
+    const delTrim = String(existing.del ?? '').trim()
+    if (delTrim !== '1') {
+      res.status(400).json({ code: 400, msg: '仅回收站中的记录可彻底删除，请先将记录移入回收站', data: null })
+      return
+    }
+
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    const r = await q.query(`
+      DELETE FROM m
+      FROM ${BOM_MATERIAL_FROM} AS m
+      WHERE m.id = @id
+        AND LTRIM(RTRIM(ISNULL(m.del, N''))) = N'1'
+    `)
+    const affected = Array.isArray(r.rowsAffected) ? Number(r.rowsAffected[0] ?? 0) : 0
+    if (!Number.isFinite(affected) || affected < 1) {
+      res.status(404).json({ code: 404, msg: '未找到可彻底删除的回收站记录', data: null })
+      return
+    }
+
+    res.json({ code: 200, msg: 'success', data: { id } })
+  } catch (err) {
+    console.error('DELETE /api/inventory/material-category/:id/permanent 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库删除失败')
+    res.status(500).json({ code: 500, msg: `彻底删除失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 库存基本资料：车间与部门编码分页列表（物理表 Bom_Stocks_workshop；SQL Server 2008 R2：ROW_NUMBER）
+ * GET /api/inventory/workshop-dept/list
+ * - 在册：`del` 在册 + `pass`；回收站 `recycled=1` 仅 `del=1`；keyword 对 code/name/info 参数化 LIKE
+ * - 排序：`id DESC`
+ */
+app.get('/api/inventory/workshop-dept/list', async (req, res) => {
+  try {
+    const pool = await getPool()
+    const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
+    const pageSizeRaw = Number(req.query?.pageSize ?? 20) || 20
+    const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+
+    const recycledRaw = String(req.query?.recycled ?? '').trim().toLowerCase()
+    const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
+
+    const passRaw = String(req.query?.pass ?? '1').trim()
+    const pass = passRaw === '0' ? '0' : '1'
+
+    const keywordRaw = String(req.query?.keyword ?? '').trim()
+    const hasKeyword = keywordRaw.length > 0
+    const kwPat = hasKeyword ? `%${escapeSqlLikePattern(keywordRaw)}%` : ''
+
+    const whereBase = recycled
+      ? `
+      WHERE LTRIM(RTRIM(ISNULL(w.del, N''))) = N'1'
+      ${hasKeyword ? ' AND (w.code LIKE @kw OR w.name LIKE @kw OR w.info LIKE @kw) ' : ''}
+    `
+      : `
+      WHERE (ISNULL(w.del, N'') = N'' OR w.del = N'0')
+        AND LTRIM(RTRIM(ISNULL(w.pass, N''))) = @pass
+      ${hasKeyword ? ' AND (w.code LIKE @kw OR w.name LIKE @kw OR w.info LIKE @kw) ' : ''}
+    `
+
+    const countReq = pool.request()
+    if (!recycled) countReq.input('pass', sql.NVarChar(10), pass)
+    if (hasKeyword) countReq.input('kw', sql.NVarChar(200), kwPat)
+    const totalRow = await countReq.query(`
+      SELECT COUNT(1) AS total
+      FROM ${BOM_STOCKS_WORKSHOP_FROM} AS w
+      ${whereBase}
+    `)
+    const total = Number(totalRow.recordset?.[0]?.total ?? 0)
+
+    const safeOffset = (page - 1) * pageSize
+    const startRow = safeOffset + 1
+    const endRow = safeOffset + pageSize
+
+    const listReq = pool.request()
+    if (!recycled) listReq.input('pass', sql.NVarChar(10), pass)
+    listReq.input('startRow', sql.Int, startRow)
+    listReq.input('endRow', sql.Int, endRow)
+    if (hasKeyword) listReq.input('kw', sql.NVarChar(200), kwPat)
+
+    const listResult = await listReq.query(`
+      SELECT
+        x.id,
+        x.code,
+        x.name,
+        x.info,
+        x.pass,
+        x.del
+      FROM (
+        SELECT
+          w.id,
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(w.code, N'')))) AS code,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(w.name, N'')))) AS name,
+          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(w.info, N'')))) AS info,
+          LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(w.pass, N'')))) AS pass,
+          LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(w.del, N'')))) AS del,
+          ROW_NUMBER() OVER (ORDER BY w.id DESC) AS rn
+        FROM ${BOM_STOCKS_WORKSHOP_FROM} AS w
+        ${whereBase}
+      ) AS x
+      WHERE x.rn BETWEEN @startRow AND @endRow
+    `)
+
+    const list = (listResult.recordset ?? []).map((row) => ({
+      id: row.id != null ? Number(row.id) : 0,
+      code: row.code != null ? String(row.code) : '',
+      name: row.name != null ? String(row.name) : '',
+      info: row.info != null ? String(row.info) : '',
+      pass: row.pass != null ? String(row.pass) : '',
+      del: row.del != null ? String(row.del) : '',
+    }))
+
+    res.json({ code: 200, msg: 'success', data: { total, list, recycled } })
+  } catch (err) {
+    console.error('GET /api/inventory/workshop-dept/list 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取车间与部门编码列表失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 车间与部门编码新增：POST /api/inventory/workshop-dept
+ * body: { code, name, info } — pass=0、del=0；规则 16：uid/uname/utruename、addtime
+ */
+app.post('/api/inventory/workshop-dept', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const code = String(body.code ?? '').trim()
+    const name = String(body.name ?? '').trim()
+    const info = String(body.info ?? '').trim()
+
+    if (!code) {
+      res.status(400).json({ code: 400, msg: '编码不能为空', data: null })
+      return
+    }
+    if (!name) {
+      res.status(400).json({ code: 400, msg: '名称不能为空', data: null })
+      return
+    }
+
+    const { uidInt, uname, utruename } = getActorAuditTripletFromReq(req)
+    if (uidInt == null) {
+      res.status(401).json({ code: 401, msg: '无法识别当前操作员，请重新登录后再试', data: null })
+      return
+    }
+
+    const pool = await getPool()
+
+    // 唯一性校验：code 在 del=0 下不允许重复
+    const ck = pool.request()
+    ck.input('code', sql.NVarChar(100), code)
+    const ex = await ck.query(`
+      SELECT TOP (1) w.id
+      FROM ${BOM_STOCKS_WORKSHOP_FROM} AS w
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(w.code, N'')))) = @code
+        AND (ISNULL(w.del, N'') = N'' OR w.del = N'0')
+    `)
+    if (ex.recordset?.length) {
+      res.status(400).json({ code: 400, msg: '车间与部门编码已存在，请勿重复添加', data: null })
+      return
+    }
+
+    const ins = pool.request()
+    ins.input('code', sql.NVarChar(100), code)
+    ins.input('name', sql.NVarChar(200), name)
+    ins.input('info', sql.NVarChar(500), info)
+    ins.input('uid', sql.Int, uidInt)
+    ins.input('uname', sql.NVarChar(50), uname)
+    ins.input('utruename', sql.NVarChar(50), utruename)
+    const addtimeStr = formatBomColorcodeTimestamp()
+    ins.input('addtime', sql.NVarChar(50), addtimeStr)
+
+    const out = await ins.query(`
+      INSERT INTO ${BOM_STOCKS_WORKSHOP_FROM} (code, name, info, pass, del, uid, uname, utruename, addtime)
+      OUTPUT INSERTED.id AS id
+      VALUES (@code, @name, @info, N'0', N'0', @uid, @uname, @utruename, @addtime)
+    `)
+    const id = Number(out.recordset?.[0]?.id ?? 0) || 0
+    const row = id ? await fetchBomStocksWorkshopById(pool, id) : null
+    res.json({ code: 200, msg: 'success', data: row ?? { id } })
+  } catch (err) {
+    console.error('POST /api/inventory/workshop-dept 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库写入失败')
+    res.status(500).json({ code: 500, msg: `新增失败：${detail}`, data: null })
+  }
+})
+
+/** 车间与部门编码审核：PUT /api/inventory/workshop-dept/audit body:{id} — pass=1 + edittime */
+app.put('/api/inventory/workshop-dept/audit', async (req, res) => {
+  try {
+    const id = Number(req.body?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomStocksWorkshopById(pool, id)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该记录或已删除', data: null })
+      return
+    }
+    if (legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: '当前记录已审核，无需重复审核', data: null })
+      return
+    }
+
+    const edittimeStr = formatBomColorcodeTimestamp()
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    q.input('edittime', sql.NVarChar(50), edittimeStr)
+    await q.query(`
+      UPDATE w
+      SET w.pass = N'1', w.edittime = @edittime
+      FROM ${BOM_STOCKS_WORKSHOP_FROM} AS w
+      WHERE w.id = @id
+        AND (ISNULL(w.del, N'') = N'' OR w.del = N'0')
+        AND LTRIM(RTRIM(ISNULL(w.pass, N''))) = N'0'
+    `)
+
+    const row = await fetchBomStocksWorkshopById(pool, id)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/inventory/workshop-dept/audit 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `审核失败：${detail}`, data: null })
+  }
+})
+
+/** 车间与部门编码反审：PUT /api/inventory/workshop-dept/unaudit body:{id} — pass=0 + edittime */
+app.put('/api/inventory/workshop-dept/unaudit', async (req, res) => {
+  try {
+    const id = Number(req.body?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomStocksWorkshopById(pool, id)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该记录或已删除', data: null })
+      return
+    }
+    if (!legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: '当前记录未审核，无需反审', data: null })
+      return
+    }
+
+    const edittimeStr = formatBomColorcodeTimestamp()
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    q.input('edittime', sql.NVarChar(50), edittimeStr)
+    await q.query(`
+      UPDATE w
+      SET w.pass = N'0', w.edittime = @edittime
+      FROM ${BOM_STOCKS_WORKSHOP_FROM} AS w
+      WHERE w.id = @id
+        AND (ISNULL(w.del, N'') = N'' OR w.del = N'0')
+        AND LTRIM(RTRIM(ISNULL(w.pass, N''))) = N'1'
+    `)
+
+    const row = await fetchBomStocksWorkshopById(pool, id)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/inventory/workshop-dept/unaudit 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `反审失败：${detail}`, data: null })
+  }
+})
+
+/** 车间与部门编码恢复：PUT /api/inventory/workshop-dept/restore body:{id} — del=0 + edittime */
+app.put('/api/inventory/workshop-dept/restore', async (req, res) => {
+  try {
+    const id = Number(req.body?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomStocksWorkshopById(pool, id)
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该记录', data: null })
+      return
+    }
+    const delTrim = String(existing.del ?? '').trim()
+    if (delTrim !== '1') {
+      res.status(400).json({ code: 400, msg: '当前记录未处于已删除状态，无需恢复', data: null })
+      return
+    }
+
+    const edittimeStr = formatBomColorcodeTimestamp()
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    q.input('edittime', sql.NVarChar(50), edittimeStr)
+    await q.query(`
+      UPDATE w
+      SET w.del = N'0', w.edittime = @edittime
+      FROM ${BOM_STOCKS_WORKSHOP_FROM} AS w
+      WHERE w.id = @id
+        AND LTRIM(RTRIM(ISNULL(w.del, N''))) = N'1'
+    `)
+
+    const row = await fetchBomStocksWorkshopById(pool, id)
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('PUT /api/inventory/workshop-dept/restore 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `恢复失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 车间与部门编码逻辑删除：DELETE /api/inventory/workshop-dept/:id
+ * - 已审核禁止；规则 16：deltime
+ */
+app.delete('/api/inventory/workshop-dept/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomStocksWorkshopById(pool, id)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该记录或已删除', data: null })
+      return
+    }
+    if (legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: HR_STAFF_AUDIT_LOCK_MSG, data: null })
+      return
+    }
+
+    const deltimeStr = formatBomColorcodeTimestamp()
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    q.input('deltime', sql.NVarChar(50), deltimeStr)
+    await q.query(`
+      UPDATE w
+      SET w.del = N'1', w.deltime = @deltime
+      FROM ${BOM_STOCKS_WORKSHOP_FROM} AS w
+      WHERE w.id = @id
+        AND (ISNULL(w.del, N'') = N'' OR w.del = N'0')
+    `)
+
+    res.json({ code: 200, msg: 'success', data: { id } })
+  } catch (err) {
+    console.error('DELETE /api/inventory/workshop-dept/:id 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `删除失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 车间与部门编码彻底删除（物理删除，仅回收站 del=1）：DELETE /api/inventory/workshop-dept/:id/permanent
+ */
+app.delete('/api/inventory/workshop-dept/:id/permanent', async (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const existing = await fetchBomStocksWorkshopById(pool, id)
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该记录', data: null })
+      return
+    }
+    const delTrim = String(existing.del ?? '').trim()
+    if (delTrim !== '1') {
+      res.status(400).json({ code: 400, msg: '仅回收站中的记录可彻底删除，请先将记录移入回收站', data: null })
+      return
+    }
+
+    const q = pool.request()
+    q.input('id', sql.Int, id)
+    const r = await q.query(`
+      DELETE FROM w
+      FROM ${BOM_STOCKS_WORKSHOP_FROM} AS w
+      WHERE w.id = @id
+        AND LTRIM(RTRIM(ISNULL(w.del, N''))) = N'1'
+    `)
+    const affected = Array.isArray(r.rowsAffected) ? Number(r.rowsAffected[0] ?? 0) : 0
+    if (!Number.isFinite(affected) || affected < 1) {
+      res.status(404).json({ code: 404, msg: '未找到可彻底删除的回收站记录', data: null })
+      return
+    }
+
+    res.json({ code: 200, msg: 'success', data: { id } })
+  } catch (err) {
+    console.error('DELETE /api/inventory/workshop-dept/:id/permanent 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库删除失败')
+    res.status(500).json({ code: 500, msg: `彻底删除失败：${detail}`, data: null })
   }
 })
 
@@ -7713,6 +10020,13 @@ app.listen(port, () => {
   console.log(`BOM-SUM-Statistical-Column-v1.1.7 ${bootAt}`)
   console.log(`BOM-Dynamic-Rules-From-BomCode-v1.1.7 ${bootAt}`)
   console.log(`BOM-UI-Optimization-v1.1.7-Final ${bootAt}`)
+  console.log(`BOM-Search-Filter-DefaultExcludeCUT-v1.1.7 ${bootAt}`)
+  console.log(`BOM-Search-Core-Link-v1.1.7 ${bootAt}`)
+  console.log(`BOM-Search-CUT-Suffix-Link-v1.1.7 ${bootAt}`)
+  console.log(`ColorCode-Module-Initial-v1.0.0 ${bootAt}`)
+  console.log(`ColorCode-Add-DirectMode-v1.1.0 ${bootAt}`)
+  console.log(`ColorCode-Audit-Fields-Correction-v1.1.1 ${bootAt}`)
+  console.log(`WorkshopDept-Module-v1.2.0 ${bootAt}`)
   console.log(`Electric-Days-Weight-v1.1.9-Active ${bootAt}`)
   console.log(`Electric-Report-Force-Display-Fixed-v1.1.6 ${bootAt}`)
   console.log(`[启动指纹] v1.1.3-ElectricFee-Fix bootAt=${bootAt}`)

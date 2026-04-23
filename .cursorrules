@@ -126,10 +126,10 @@
 - 新增接口：`/api/xxx/add`
 - 编辑接口：`/api/xxx/update`
 - 删除接口：逻辑删除 `del='1'`（并且 `pass='1'` 的数据禁止删）
-- 权限 Gate：每个接口/按钮对应的权限码（你提供或让我给建议）
+- 权限 Gate:每个接口/按钮对应的权限码（你提供或让我给建议）
 
 ### 数据库（SQL Server）
-- 版本假设：**2008 R2**（禁止默认可用 `TRY_CONVERT` / `OFFSET-FETCH` 等 2012+ 独占写法）
+- 版本假设:**2008 R2**（禁止默认可用 `TRY_CONVERT` / `OFFSET-FETCH` 等 2012+ 独占写法）
 - 表：`xxx`
 - 字段清单：只允许新增字段，禁止改/删旧字段；字段类型优先 `nvarchar`
 - 迁移脚本：需要/不需要（你选）
@@ -162,28 +162,35 @@
 - **缺失处理** ：如果映射表里没找到，助手必须先提示“映射缺失”，并给出建议把这一行补到 docs/sql/database_map.md（然后再继续）
 
 ## 16. 全局操作审计规范 (Global Audit Trail)
-- **表结构强制要求**：
-    1. **用户信息关联**：今后新建业务表（例如入库单 `Inv_StockIn`）必须默认包含：
-        - `UID`: 对应 `Sys_Users.UserId`。
-        - `uname`: 对应 `Sys_Users` 展示名（与登录态 `UserName`/`UserCode` 一致）。
-    2. **时间戳**：必须包含 `create_time`（默认 `GETDATE()`）或 `update_time`。
-    3. **存量表**：已存在的物理表（如 `HR_staff`）仍遵守「禁止私自改字段名」；仅在新增表时强制 UID/uname。
-- **INSERT/UPDATE 写入操作者**：
-    - `apiPermissionGate` 校验通过后会挂载 `req.user`（与 Bearer Token 解析结果一致）。
-    - 执行 `INSERT`（及需要记录最后修改人时的 `UPDATE`）时，必须调用 `server/businessAuditFields.js` 的 `getActorAuditFromReq(req)` 得到 `{ UID, uname }` 并写入 SQL 参数，禁止在业务代码里手写重复取用户逻辑。
-- **操作日志（Sys_OperationLogs）**：
-    - **自动审计**：`POST`/`PUT`/`DELETE` 且 HTTP 200 时由 `operationAuditMiddleware` 按 `server/action_map.js` 映射写入；路径未在映射表命中时，`Action` 兜底为「系统操作」。
-    - **手工补记**：关键分支或异步后续处理需额外落一条日志时，调用 `server/operationLogWriter.js` 的 `writeLog(req, action, details)`（自动带出 `UserId`/`UserName`/`IPAddress`；`CreateTime` 由表默认值填充）；`details` 可为字符串或可 JSON 的对象（对象会脱敏）。
-    - 新业务接口上线前必须在 `action_map.js` 的 `OPERATION_AUDIT_ROUTE_RULES` 中补充 Method+Path 映射，避免长期落在「系统操作」。
-- **日志表结构参考**：
-    - `LogID`, `UserId`, `UserName`, `Action` (操作类型), `TargetTable` (目标表), `Content` (操作详情/SQL快照), `IPAddress`, `CreateTime`。
-- **Playwright 自检**：自动化测试时，必须验证提交后 `Sys_OperationLogs` 是否生成了对应的审计记录。
+16. 全局操作审计规范 (Global Audit Trail - 日志强化版)
+操作日志标准模版 (Mandatory Templates)：
+所有模块在执行 INSERT、UPDATE、DELETE 后，必须将详细的业务内容存入日志表，格式要求如下：
+新增 (Insert)：
+模版：录入成功,等待审核！[模块名]编码：[编码]，[模块名]名称：[名称]
+示例：录入成功,等待审核！BOM资料编码：WH-PQ3764A1/WX<1-7>，名称：袋底(裱50G过胶棉纸） 
+审核 (Pass/Audit)：
+模版：申请通过审核！[模块名]编码：[编码]，[模块名]名称：[名称]
+示例：申请通过审核！颜色编码：扫金色，颜色名称:05V 
+反审核 (Un-pass)：
+模版：反审核操作！[模块名]编码：[编码]，[模块名]名称：[名称]
+示例：反审核操作！BOM资料编码：MH-0214/-，BOM资料名称:防丢器(客人编号:SMARTTAGNEW) 
+软删除 (Delete)：
+模版：编码删除！[模块名]编码：[编码]，[模块名]名称：[名称]
+示例：编码删除！颜色编码：黑色，颜色名称:黑色 
+审计字段强制补齐：
+用户信息三剑客：业务表必须包含 uid (UserID)、uname (UserCode)、utruename (UserName) 。
+动作时间戳：
+增：addtime 
+改：edittime 
+删：deltime 
+后端自动记录：
+严禁让用户手动填写日志内容，必须由后端 Service 层根据操作类型、模块名、及当前处理的数据行自动拼接字符串并存入日志表 。
 
 ## 17. 端口占用与进程清理硬约束 (Zombie Process Mitigation)
-- **先破后立**：修改后端接口、SQL 或配置后，禁止直接重启。
+- **先破后立**:修改后端接口、SQL 或配置后，禁止直接重启。
 - **端口自检**：必须先执行 `netstat -ano | findstr :3001` 查出 PID。
 - **暴力清理**：发现占用必须执行 `taskkill /F /PID [PID]` 强制结束，确保旧进程彻底消失，防止“改了代码不生效”。
-- **指纹验证**：重启后，后端日志必须打印包含“当前时间戳”或“版本号”的指纹信息（如：Server Reloaded at [Time]）。
+- **指纹验证**:重启后，后端日志必须打印包含“当前时间戳”或“版本号”的指纹信息（如：Server Reloaded at [Time]）。
 - **失职判定**：若用户反馈改动无效且 AI 未执行 taskkill，视为 AI 失职。
 
 ### 18. 决策思考与逻辑确认协议 (Socratic Thinking Protocol)
