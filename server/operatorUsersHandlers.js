@@ -1,0 +1,501 @@
+/**
+ * 操作员管理（旧版 Sys_Users + del/pass）：姓名取本表 truename；JOIN Sys_Roles；编辑/反审/软删与规则 16 日志
+ */
+import { sql } from './db.js'
+import { getActorAuditTripletFromReq } from './businessAuditFields.js'
+import { writeLog } from './operationLogWriter.js'
+import { getSysUsersAuditUidQb, getSysUsersEntityPkQb } from './sysUsersDb.js'
+
+/** 旧版 uid+username+usercode 且同时具备 del、pass 时走本模块 v2 */
+export function isOperatorUsersV2(meta) {
+  if (!meta?.legacyLayout) return false
+  return meta.set.has('del') && meta.set.has('pass')
+}
+
+function nowAuditString() {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
+function passAsIntExpr(qPass) {
+  return `CASE
+    WHEN LTRIM(RTRIM(CAST(ISNULL(u.${qPass}, N'') AS NVARCHAR(20)))) IN (N'1', N'true', N'True') THEN 1
+    WHEN CAST(ISNULL(u.${qPass}, 0) AS INT) = 1 THEN 1
+    ELSE 0
+  END`
+}
+
+/** 列表/日志展示用姓名：Sys_Users.truename（列不存在时为空串） */
+function truenameSelectExpr(qTruename) {
+  return qTruename
+    ? `CAST(ISNULL(u.${qTruename}, N'') AS NVARCHAR(100)) AS truename`
+    : `CAST(N'' AS NVARCHAR(100)) AS truename`
+}
+
+/**
+ * 读取一行用于日志与回显：登录账号、员工编码、truename（姓名）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {import('./sysUsersDb.js').SysUsersColumnsMeta} meta
+ * @param {number} userId
+ */
+export async function fetchOperatorRowContext(pool, meta, userId) {
+  const qPk = getSysUsersEntityPkQb(meta)
+  const qUsercode = meta.qb('usercode')
+  const qUsername = meta.qb('username')
+  const qTruename = meta.qb('truename')
+  if (!qPk || !qUsercode || !qUsername) return null
+  const r = await pool
+    .request()
+    .input('id', sql.Int, userId)
+    .query(`
+      SELECT TOP (1)
+        u.${qUsername} AS LoginName,
+        u.${qUsercode} AS UsercodeVal,
+        ${truenameSelectExpr(qTruename)}
+      FROM Sys_Users AS u
+      WHERE u.${qPk} = @id
+    `)
+  const row = r.recordset?.[0]
+  if (!row) return null
+  const tn = row.truename ?? row.Truename ?? ''
+  return {
+    loginName: String(row.LoginName ?? '').trim(),
+    usercodeVal: String(row.UsercodeVal ?? '').trim(),
+    truename: String(tn ?? '').trim(),
+  }
+}
+
+function buildOperatorSelectCols(meta, qPk, qUsercode, qUsername, qPass, qRoleId, qTruename) {
+  const roleNameExpr = qRoleId ? `CAST(ISNULL(r.RoleName, N'') AS NVARCHAR(100))` : `CAST(N'' AS NVARCHAR(100))`
+  const roleIdExpr = qRoleId ? `u.${qRoleId}` : `CAST(NULL AS INT)`
+  const passExpr = passAsIntExpr(qPass)
+  return `
+    u.${qPk} AS UserID,
+    u.${qUsercode} AS Usercode,
+    u.${qUsername} AS Username,
+    ${truenameSelectExpr(qTruename)},
+    ${roleNameExpr} AS RoleName,
+    ${roleIdExpr} AS RoleID,
+    CAST(${passExpr} AS INT) AS Pass
+  `
+}
+
+function buildOperatorFromJoin(meta, qRoleId) {
+  return qRoleId
+    ? `
+    FROM Sys_Users AS u
+    LEFT JOIN Sys_Roles AS r ON u.${qRoleId} = r.RoleID
+  `
+    : `
+    FROM Sys_Users AS u
+    LEFT JOIN Sys_Roles AS r ON 1=0
+  `
+}
+
+/**
+ * 分页列表（仅 ROW_NUMBER，兼容 SQL Server 2008 R2）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {import('./sysUsersDb.js').SysUsersColumnsMeta} meta
+ * @param {{ offset: number, safePageSize: number, safeStatus: 0|1, keywordRaw: string }} opts
+ */
+export async function queryOperatorUsersPage(pool, meta, opts) {
+  const { offset, safePageSize, safeStatus, keywordRaw } = opts
+  const qPk = getSysUsersEntityPkQb(meta)
+  const qUsercode = meta.qb('usercode')
+  const qUsername = meta.qb('username')
+  const qDel = meta.qb('del')
+  const qPass = meta.qb('pass')
+  const qRoleId = meta.qb('roleid')
+  const qTruename = meta.qb('truename')
+  if (!qPk || !qUsercode || !qUsername || !qDel || !qPass) {
+    throw new Error('operatorUsersV2: 缺少必要列（UserID 或 uid 主键 / usercode / username / del / pass）')
+  }
+
+  const delActive = `(LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'' OR LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'0')`
+  const delRecycle = `(LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'1')`
+  const delPart = safeStatus === 1 ? delActive : delRecycle
+
+  const keywordRawTrim = String(keywordRaw ?? '').trim()
+  const hasKeyword = keywordRawTrim.length > 0
+  const likeKey = `%${keywordRawTrim.replace(/%/g, '[%]').replace(/_/g, '[_]')}%`
+  const kwTruename = qTruename ? ` OR u.${qTruename} LIKE @key ESCAPE N'\\'` : ''
+  const kwSql = hasKeyword
+    ? ` AND (u.${qUsercode} LIKE @key ESCAPE N'\\' OR u.${qUsername} LIKE @key ESCAPE N'\\'${kwTruename})`
+    : ''
+
+  const whereSql = `WHERE ${delPart}${kwSql}`
+  const fromJoin = buildOperatorFromJoin(meta, qRoleId)
+  const selCols = buildOperatorSelectCols(meta, qPk, qUsercode, qUsername, qPass, qRoleId, qTruename)
+  const orderExpr = `u.${qPk} DESC`
+
+  const totalReq = pool.request()
+  if (hasKeyword) totalReq.input('key', sql.NVarChar(120), likeKey)
+  const totalR = await totalReq.query(`
+    SELECT COUNT(1) AS total
+    ${fromJoin}
+    ${whereSql}
+  `)
+  const total = Number(totalR.recordset?.[0]?.total ?? 0)
+
+  const startRow = offset + 1
+  const endRow = offset + safePageSize
+  const listReq = pool.request()
+  listReq.input('startRow', sql.Int, startRow)
+  listReq.input('endRow', sql.Int, endRow)
+  if (hasKeyword) listReq.input('key', sql.NVarChar(120), likeKey)
+
+  const result = await listReq.query(`
+    SELECT UserID, Usercode, Username, truename, RoleName, RoleID, Pass
+    FROM (
+      SELECT
+        ${selCols},
+        ROW_NUMBER() OVER (ORDER BY ${orderExpr}) AS rn
+      ${fromJoin}
+      ${whereSql}
+    ) t
+    WHERE t.rn BETWEEN @startRow AND @endRow
+    ORDER BY t.rn
+  `)
+
+  return { list: result.recordset ?? [], total }
+}
+
+/**
+ * 单条详情（查看）
+ */
+export async function getOperatorUserDetail(pool, meta, userId) {
+  const qPk = getSysUsersEntityPkQb(meta)
+  const qUsercode = meta.qb('usercode')
+  const qUsername = meta.qb('username')
+  const qDel = meta.qb('del')
+  const qPass = meta.qb('pass')
+  const qRoleId = meta.qb('roleid')
+  const qTruename = meta.qb('truename')
+  if (!qPk || !qUsercode || !qUsername || !qDel || !qPass) return null
+
+  const fromJoin = buildOperatorFromJoin(meta, qRoleId)
+  const selCols = buildOperatorSelectCols(meta, qPk, qUsercode, qUsername, qPass, qRoleId, qTruename)
+
+  const r = await pool.request().input('id', sql.Int, userId).query(`
+    SELECT TOP (1) ${selCols}
+    ${fromJoin}
+    WHERE u.${qPk} = @id
+  `)
+  return r.recordset?.[0] ?? null
+}
+
+async function assertWritableRoleIdLocal(pool, roleIdRaw) {
+  const roleId = Number(roleIdRaw)
+  if (!Number.isFinite(roleId) || roleId <= 0) {
+    return { ok: false, msg: 'RoleID 不合法（必须是正整数）' }
+  }
+  const chk = await pool.request().input('RoleID', sql.Int, roleId).query(`
+    SELECT TOP (1) RoleID FROM Sys_Roles WHERE RoleID = @RoleID AND Status = 1
+  `)
+  if (!chk.recordset?.[0]) return { ok: false, msg: '角色不存在或已禁用' }
+  return { ok: true, roleId }
+}
+
+function bareIdent(qbCol) {
+  return String(qbCol ?? '').trim()
+}
+
+/**
+ * 新增（旧版 Sys_Users 动态列）
+ */
+export async function insertOperatorUserLegacy(pool, meta, req, body, hashPassword) {
+  const qPk = getSysUsersEntityPkQb(meta)
+  const qAuditUid = getSysUsersAuditUidQb(meta)
+  const qUsercode = meta.qb('usercode')
+  const qUsername = meta.qb('username')
+  const qPwd = meta.qb('password')
+  const qDel = meta.qb('del')
+  const qPass = meta.qb('pass')
+  const qRoleId = meta.qb('roleid')
+  const qTruename = meta.qb('truename')
+  const qFirstLogin = meta.qb('is_first_login')
+  if (!qPk || !qUsercode || !qUsername || !qPwd || !qDel || !qPass) {
+    return { error: { status: 500, json: { code: 500, msg: '表结构缺少主键(UserID/uid)/usercode/username/password/del/pass', data: null } } }
+  }
+
+  // 新增操作员：前端只需传 UserName/Truename/RoleID；UserCode 自动取 UserName；密码固定为 123（加密）
+  const username = String(body.UserName ?? body.Username ?? '').trim()
+  const usercode = String(body.UserCode ?? body.Usercode ?? '').trim() || username
+  const truenameRaw = String(body.Truename ?? body.truename ?? '').trim()
+  if (!username) return { error: { status: 400, json: { code: 400, msg: '登录账号不能为空', data: null } } }
+  if (!usercode) return { error: { status: 400, json: { code: 400, msg: 'UserCode 不能为空（系统将其自动设置为登录账号）', data: null } } }
+  if (qTruename && !truenameRaw) {
+    return { error: { status: 400, json: { code: 400, msg: '姓名（truename）不能为空', data: null } } }
+  }
+
+  let roleIdVal = null
+  if (qRoleId) {
+    const roleCheck = await assertWritableRoleIdLocal(pool, body.RoleID)
+    if (!roleCheck.ok) return { error: { status: 400, json: { code: 400, msg: roleCheck.msg, data: null } } }
+    roleIdVal = roleCheck.roleId
+  }
+
+  const tri = getActorAuditTripletFromReq(req)
+  const pwdHash = await hashPassword('123')
+  const now = nowAuditString()
+
+  const insertColList = [bareIdent(qUsercode), bareIdent(qUsername), bareIdent(qPwd), bareIdent(qDel), bareIdent(qPass)]
+  // del=0 正常；pass=1 已审核（按需求）
+  const insertValList = ['@usercode', '@username', '@pwd', "N'0'", "N'1'"]
+  if (qTruename) {
+    insertColList.push(bareIdent(qTruename))
+    insertValList.push('@truename')
+  }
+  if (qFirstLogin) {
+    insertColList.push(bareIdent(qFirstLogin))
+    insertValList.push('@isFirstLogin')
+  }
+  if (qRoleId) {
+    insertColList.push(bareIdent(qRoleId))
+    insertValList.push('@roleId')
+  }
+  if (meta.set.has('addtime')) {
+    insertColList.push(bareIdent(meta.qb('addtime')))
+    insertValList.push('@addtime')
+  }
+  if (qAuditUid && tri.uidInt != null) {
+    insertColList.push(bareIdent(qAuditUid))
+    insertValList.push('@actorUid')
+  }
+  if (meta.set.has('uname') && tri.uname) {
+    insertColList.push(bareIdent(meta.qb('uname')))
+    insertValList.push('@actorUname')
+  }
+  if (meta.set.has('utruename') && tri.utruename) {
+    insertColList.push(bareIdent(meta.qb('utruename')))
+    insertValList.push('@actorUtruename')
+  }
+
+  const sqlText = `
+    INSERT INTO Sys_Users (${insertColList.join(', ')})
+    OUTPUT INSERTED.${bareIdent(qPk)} AS UserID
+    VALUES (${insertValList.join(', ')})
+  `
+
+  try {
+    const ins = pool.request()
+    ins.input('usercode', sql.NVarChar(80), usercode)
+    ins.input('username', sql.NVarChar(80), username)
+    ins.input('pwd', sql.NVarChar(200), pwdHash)
+    if (qTruename) ins.input('truename', sql.NVarChar(100), truenameRaw)
+    if (qFirstLogin) ins.input('isFirstLogin', sql.Int, 1)
+    if (qRoleId) ins.input('roleId', sql.Int, roleIdVal)
+    if (meta.set.has('addtime')) ins.input('addtime', sql.NVarChar(50), now)
+    if (qAuditUid && tri.uidInt != null) ins.input('actorUid', sql.Int, tri.uidInt)
+    if (meta.set.has('uname') && tri.uname) ins.input('actorUname', sql.NVarChar(80), tri.uname)
+    if (meta.set.has('utruename') && tri.utruename) ins.input('actorUtruename', sql.NVarChar(80), tri.utruename)
+    const result = await ins.query(sqlText)
+    const newId = result.recordset?.[0]?.UserID
+    const ctx = await fetchOperatorRowContext(pool, meta, Number(newId))
+    const displayName = ctx?.truename ?? truenameRaw
+    const content = `录入成功,等待审核！操作员账号：${username}，姓名：${displayName}`
+    await writeLog(req, '新增操作员', content, { targetTable: 'Sys_Users' })
+    return { data: { UserID: newId, Usercode: usercode, Username: username } }
+  } catch (dbErr) {
+    const errNumber = dbErr?.number ?? dbErr?.originalError?.number
+    const errMessage = String(dbErr?.message ?? '')
+    if (Number(errNumber) === 2627 || errMessage.includes('Violation of UNIQUE KEY')) {
+      return { error: { status: 400, json: { code: 400, msg: '工号或登录账号已存在，请勿重复添加', data: null } } }
+    }
+    throw dbErr
+  }
+}
+
+function stateChangeLogContent(ctx) {
+  return `操作员状态变更！账号：${ctx?.loginName ?? ''}，姓名：${ctx?.truename ?? ''}`
+}
+
+/**
+ * PUT：编辑 / op=unpass / op=soft_delete
+ */
+export async function putOperatorUser(pool, meta, req, body, hashPassword) {
+  const qPk = getSysUsersEntityPkQb(meta)
+  const qAuditUid = getSysUsersAuditUidQb(meta)
+  const qUsercode = meta.qb('usercode')
+  const qUsername = meta.qb('username')
+  const qPwd = meta.qb('password')
+  const qDel = meta.qb('del')
+  const qPass = meta.qb('pass')
+  const qRoleId = meta.qb('roleid')
+  const qTruename = meta.qb('truename')
+  if (!qPk || !qUsercode || !qUsername || !qDel || !qPass) {
+    return { error: { status: 500, json: { code: 500, msg: '表结构不完整', data: null } } }
+  }
+
+  const userId = Number(body.UserID)
+  if (!Number.isFinite(userId) || userId <= 0) {
+    return { error: { status: 400, json: { code: 400, msg: 'UserID 不合法', data: null } } }
+  }
+
+  const ctx0 = await fetchOperatorRowContext(pool, meta, userId)
+  if (!ctx0) return { error: { status: 404, json: { code: 404, msg: '未找到该用户', data: null } } }
+
+  // 兼容旧前端：仅传 Status=0 时视为反审核
+  const op = body.op ?? (body.Status !== undefined && Number(body.Status) === 0 ? 'unpass' : undefined)
+
+  if (op === 'unpass') {
+    const tri = getActorAuditTripletFromReq(req)
+    const now = nowAuditString()
+    const sets = [`u.${qPass} = N'0'`]
+    if (meta.set.has('edittime')) sets.push(`u.${meta.qb('edittime')} = @now`)
+    if (qAuditUid && tri.uidInt != null) sets.push(`u.${qAuditUid} = @actorUid`)
+    if (meta.set.has('uname') && tri.uname) sets.push(`u.${meta.qb('uname')} = @actorUname`)
+    if (meta.set.has('utruename') && tri.utruename) sets.push(`u.${meta.qb('utruename')} = @actorUtruename`)
+    const upd = pool.request()
+    upd.input('id', sql.Int, userId)
+    upd.input('now', sql.NVarChar(50), now)
+    if (tri.uidInt != null) upd.input('actorUid', sql.Int, tri.uidInt)
+    if (tri.uname) upd.input('actorUname', sql.NVarChar(80), tri.uname)
+    if (tri.utruename) upd.input('actorUtruename', sql.NVarChar(80), tri.utruename)
+    const r = await upd.query(`
+      UPDATE u
+      SET ${sets.join(', ')}
+      FROM Sys_Users AS u
+      WHERE u.${qPk} = @id AND (LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'' OR LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'0')
+    `)
+    const n = Number(r.rowsAffected?.[0] ?? 0)
+    if (n === 0) return { error: { status: 400, json: { code: 400, msg: '未更新：记录已回收或不存在', data: null } } }
+    const ctx = await fetchOperatorRowContext(pool, meta, userId)
+    await writeLog(req, '修改操作员', stateChangeLogContent(ctx), { targetTable: 'Sys_Users' })
+    return { data: await getOperatorUserDetail(pool, meta, userId) }
+  }
+
+  if (op === 'soft_delete') {
+    const tri = getActorAuditTripletFromReq(req)
+    const now = nowAuditString()
+    const sets = [`u.${qDel} = N'1'`]
+    if (meta.set.has('deltime')) sets.push(`u.${meta.qb('deltime')} = @now`)
+    if (meta.set.has('edittime')) sets.push(`u.${meta.qb('edittime')} = @now`)
+    if (qAuditUid && tri.uidInt != null) sets.push(`u.${qAuditUid} = @actorUid`)
+    if (meta.set.has('uname') && tri.uname) sets.push(`u.${meta.qb('uname')} = @actorUname`)
+    if (meta.set.has('utruename') && tri.utruename) sets.push(`u.${meta.qb('utruename')} = @actorUtruename`)
+    const upd = pool.request()
+    upd.input('id', sql.Int, userId)
+    upd.input('now', sql.NVarChar(50), now)
+    if (tri.uidInt != null) upd.input('actorUid', sql.Int, tri.uidInt)
+    if (tri.uname) upd.input('actorUname', sql.NVarChar(80), tri.uname)
+    if (tri.utruename) upd.input('actorUtruename', sql.NVarChar(80), tri.utruename)
+    const r = await upd.query(`
+      UPDATE u
+      SET ${sets.join(', ')}
+      FROM Sys_Users AS u
+      WHERE u.${qPk} = @id AND (LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'' OR LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'0')
+    `)
+    const n = Number(r.rowsAffected?.[0] ?? 0)
+    if (n === 0) return { error: { status: 400, json: { code: 400, msg: '软删除失败：仅允许删除在册记录', data: null } } }
+    const nameForDel = ctx0.truename || ctx0.loginName
+    const delContent = `编码删除！操作员编码：${ctx0.usercodeVal}，操作员名称：${nameForDel}`
+    await writeLog(req, '删除操作员', delContent, { targetTable: 'Sys_Users' })
+    return { data: { UserID: userId } }
+  }
+
+  const usercode = String(body.UserCode ?? body.Usercode ?? '').trim()
+  const username = String(body.UserName ?? body.Username ?? '').trim()
+  const password = body.Password === undefined || body.Password === null ? '' : String(body.Password)
+  const truenameIn = String(body.Truename ?? body.truename ?? '').trim()
+  if (!usercode) return { error: { status: 400, json: { code: 400, msg: '员工编码不能为空', data: null } } }
+  if (!username) return { error: { status: 400, json: { code: 400, msg: '登录账号不能为空', data: null } } }
+  if (qTruename && !truenameIn) {
+    return { error: { status: 400, json: { code: 400, msg: '姓名（truename）不能为空', data: null } } }
+  }
+
+  let roleIdVal = null
+  if (qRoleId) {
+    const roleCheck = await assertWritableRoleIdLocal(pool, body.RoleID)
+    if (!roleCheck.ok) return { error: { status: 400, json: { code: 400, msg: roleCheck.msg, data: null } } }
+    roleIdVal = roleCheck.roleId
+  }
+
+  const tri = getActorAuditTripletFromReq(req)
+  const now = nowAuditString()
+  const shouldUpdatePassword = !!(qPwd && String(password).trim())
+
+  const sets2 = [`u.${qUsercode} = @usercode`, `u.${qUsername} = @username`]
+  if (qTruename) sets2.push(`u.${qTruename} = @truename`)
+  if (qRoleId) sets2.push(`u.${qRoleId} = @roleId`)
+  if (shouldUpdatePassword) sets2.push(`u.${qPwd} = @pwd`)
+  if (meta.set.has('edittime')) sets2.push(`u.${meta.qb('edittime')} = @now`)
+  if (qAuditUid && tri.uidInt != null) sets2.push(`u.${qAuditUid} = @actorUid`)
+  if (meta.set.has('uname') && tri.uname) sets2.push(`u.${meta.qb('uname')} = @actorUname`)
+  if (meta.set.has('utruename') && tri.utruename) sets2.push(`u.${meta.qb('utruename')} = @actorUtruename`)
+
+  const upd = pool.request()
+  upd.input('id', sql.Int, userId)
+  upd.input('usercode', sql.NVarChar(80), usercode)
+  upd.input('username', sql.NVarChar(80), username)
+  if (qTruename) upd.input('truename', sql.NVarChar(100), truenameIn)
+  if (qRoleId) upd.input('roleId', sql.Int, roleIdVal)
+  if (shouldUpdatePassword) upd.input('pwd', sql.NVarChar(200), await hashPassword(password))
+  upd.input('now', sql.NVarChar(50), now)
+  if (tri.uidInt != null) upd.input('actorUid', sql.Int, tri.uidInt)
+  if (tri.uname) upd.input('actorUname', sql.NVarChar(80), tri.uname)
+  if (tri.utruename) upd.input('actorUtruename', sql.NVarChar(80), tri.utruename)
+
+  try {
+    const r = await upd.query(`
+      UPDATE u
+      SET ${sets2.join(', ')}
+      FROM Sys_Users AS u
+      WHERE u.${qPk} = @id AND (LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'' OR LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'0')
+    `)
+    const n = Number(r.rowsAffected?.[0] ?? 0)
+    if (n === 0) return { error: { status: 404, json: { code: 404, msg: '未找到在册用户', data: null } } }
+    const ctx = await fetchOperatorRowContext(pool, meta, userId)
+    await writeLog(req, '修改操作员', stateChangeLogContent(ctx), { targetTable: 'Sys_Users' })
+    return { data: await getOperatorUserDetail(pool, meta, userId) }
+  } catch (dbErr) {
+    const errNumber = dbErr?.number ?? dbErr?.originalError?.number
+    const errMessage = String(dbErr?.message ?? '')
+    if (Number(errNumber) === 2627 || errMessage.includes('Violation of UNIQUE KEY')) {
+      return { error: { status: 400, json: { code: 400, msg: '工号或登录账号冲突', data: null } } }
+    }
+    throw dbErr
+  }
+}
+
+/**
+ * 从回收站恢复（del 置 0）
+ */
+export async function restoreOperatorUserDel(pool, meta, req, userId) {
+  const qPk = getSysUsersEntityPkQb(meta)
+  const qAuditUid = getSysUsersAuditUidQb(meta)
+  const qDel = meta.qb('del')
+  if (!qPk || !qDel) return { error: { status: 500, json: { code: 500, msg: '表结构缺少列', data: null } } }
+
+  const ctx0 = await fetchOperatorRowContext(pool, meta, userId)
+  if (!ctx0) return { error: { status: 404, json: { code: 404, msg: '未找到该用户', data: null } } }
+
+  const tri = getActorAuditTripletFromReq(req)
+  const now = nowAuditString()
+  const sets2 = [`u.${qDel} = N'0'`]
+  if (meta.set.has('deltime')) sets2.push(`u.${meta.qb('deltime')} = NULL`)
+  if (meta.set.has('edittime')) sets2.push(`u.${meta.qb('edittime')} = @now`)
+  if (qAuditUid && tri.uidInt != null) sets2.push(`u.${qAuditUid} = @actorUid`)
+  if (meta.set.has('uname') && tri.uname) sets2.push(`u.${meta.qb('uname')} = @actorUname`)
+  if (meta.set.has('utruename') && tri.utruename) sets2.push(`u.${meta.qb('utruename')} = @actorUtruename`)
+
+  const upd = pool.request()
+  upd.input('id', sql.Int, userId)
+  upd.input('now', sql.NVarChar(50), now)
+  if (tri.uidInt != null) upd.input('actorUid', sql.Int, tri.uidInt)
+  if (tri.uname) upd.input('actorUname', sql.NVarChar(80), tri.uname)
+  if (tri.utruename) upd.input('actorUtruename', sql.NVarChar(80), tri.utruename)
+
+  const r = await upd.query(`
+    UPDATE u
+    SET ${sets2.join(', ')}
+    FROM Sys_Users AS u
+    WHERE u.${qPk} = @id AND LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'1'
+  `)
+  const n = Number(r.rowsAffected?.[0] ?? 0)
+  if (n === 0) return { error: { status: 400, json: { code: 400, msg: '恢复失败：该记录不在回收站', data: null } } }
+
+  await writeLog(req, '恢复操作员', stateChangeLogContent(ctx0), { targetTable: 'Sys_Users' })
+  return { data: await getOperatorUserDetail(pool, meta, userId) }
+}

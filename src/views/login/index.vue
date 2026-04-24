@@ -44,7 +44,7 @@
           <el-form-item>
             <el-input
               v-model="form.account"
-              placeholder="请输入账号"
+              placeholder="请输入用户名或编码"
               clearable
               size="large"
               autocomplete="username"
@@ -105,7 +105,7 @@ const route = useRoute()
 // 2) 表单数据
 // =========================
 const form = reactive({
-  // 登录账号（对应数据库 Sys_Users.Account）
+  // 登录输入：旧表为 username（登录账号）或 usercode（账号编码）；ERP 表为 UserName
   account: '',
   // 密码（对应数据库 Sys_Users.Password）
   password: '',
@@ -130,7 +130,7 @@ async function onLogin() {
 
   // 关键：前端必填校验
   if (!account) {
-    ElMessage.error('请输入账号')
+    ElMessage.error('请输入用户名或编码')
     return
   }
   if (!password) {

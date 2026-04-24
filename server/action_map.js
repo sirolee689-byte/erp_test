@@ -58,6 +58,7 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   { method: 'PUT', path: '/api/roles', action: '修改角色', targetTable: 'Sys_Roles' },
   { method: 'DELETE', path: /^\/api\/roles\/\d+$/, action: '删除角色', targetTable: 'Sys_Roles' },
 
+  { method: 'GET', path: /^\/api\/users\/\d+$/, action: '查看操作员', targetTable: 'Sys_Users' },
   { method: 'PUT', path: '/api/users/resume', action: '恢复操作员', targetTable: 'Sys_Users' },
   { method: 'PUT', path: '/api/users/change-password', action: '修改密码', targetTable: 'Sys_Users' },
   { method: 'POST', path: '/api/users', action: '新增操作员', targetTable: 'Sys_Users' },

@@ -20,6 +20,25 @@ import {
 } from './operationAuditMiddleware.js'
 import { getActorAuditFromReq, getActorAuditTripletFromReq } from './businessAuditFields.js'
 import { configureOperationLogWriter, writeLog, writeOperationLog, SYS_OPERATION_LOGS_FROM } from './operationLogWriter.js'
+import {
+  getSysUsersColumnsMeta,
+  getSysUsersColumnSet,
+  getSysUsersEntityPkQb,
+  getSysUserRowFieldIgnoreCase,
+  invalidateSysUsersColumnsMeta,
+  isSysUserRowLoginDisabled,
+  rejectLegacySysUsersCrud,
+  sysUsersAccountCodeExpr,
+  sysUsersPasswordExpr,
+} from './sysUsersDb.js'
+import {
+  getOperatorUserDetail,
+  insertOperatorUserLegacy,
+  isOperatorUsersV2,
+  putOperatorUser,
+  queryOperatorUsersPage,
+  restoreOperatorUserDel,
+} from './operatorUsersHandlers.js'
 
 dotenv.config()
 
@@ -747,10 +766,14 @@ app.delete('/api/roles/:id', async (req, res) => {
       return
     }
 
-    const q2 = await pool.request().input('RoleID', sql.Int, roleId).query(`
-      SELECT COUNT(1) AS cnt FROM Sys_Users WHERE RoleID = @RoleID
-    `)
-    const cnt = Number(q2.recordset?.[0]?.cnt ?? 0)
+    const suMeta = await getSysUsersColumnsMeta(pool)
+    let cnt = 0
+    if (!suMeta.legacyLayout) {
+      const q2 = await pool.request().input('RoleID', sql.Int, roleId).query(`
+        SELECT COUNT(1) AS cnt FROM Sys_Users WHERE RoleID = @RoleID
+      `)
+      cnt = Number(q2.recordset?.[0]?.cnt ?? 0)
+    }
     if (cnt > 0) {
       res.status(400).json({ code: 400, msg: '仍有操作员绑定此角色，无法删除', data: null })
       return
@@ -778,8 +801,8 @@ app.delete('/api/roles/:id', async (req, res) => {
  * 路由：POST /api/login
  *
  * 校验顺序（按你的需求）：
- * 1) 校验工号是否存在
- * 2) 校验账号是否被禁用（Status=0）
+ * 1) 校验账号是否存在（ERP：UserName；旧表：username 登录账号列）
+ * 2) 校验账号是否被禁用（有 del 列：del='1'；否则 Status=0）
  * 3) 校验密码是否正确
  *
  * 返回格式（统一风格）：
@@ -788,18 +811,12 @@ app.delete('/api/roles/:id', async (req, res) => {
  */
 app.post('/api/login', async (req, res) => {
   try {
-    // 关键：从请求体读取用户输入
-    const account = String(req.body?.Account ?? '').trim()
-    const fallbackUserCode = String(req.body?.UserCode ?? '').trim()
+    // 关键：从请求体读取用户输入（Account 优先；兼容旧前端只传 UserCode）
+    let loginVal = String(req.body?.Account ?? '').trim()
+    if (!loginVal) loginVal = String(req.body?.UserCode ?? '').trim()
     const password = String(req.body?.Password ?? '')
 
-    // 关键：基础必填校验（避免空请求打到数据库）
-    if (!account) {
-      // 兼容旧前端：未升级时仍传 UserCode
-      if (fallbackUserCode) {
-        res.status(400).json({ code: 400, msg: '登录账号不能为空（请升级前端以使用 Account 登录）', data: null })
-        return
-      }
+    if (!loginVal) {
       res.status(400).json({ code: 400, msg: '登录账号不能为空', data: null })
       return
     }
@@ -810,46 +827,117 @@ app.post('/api/login', async (req, res) => {
 
     // 关键：获取数据库连接池
     const pool = await getPool()
-    const userColset = await getSysUsersColumnSet(pool)
+    // 每次登录重读 Sys_Users 列清单，避免 INFORMATION_SCHEMA 变更或缓存导致 del/Status 误判
+    invalidateSysUsersColumnsMeta()
+    const meta = await getSysUsersColumnsMeta(pool)
+    const userColset = meta.set
 
     // 关键：参数化查询（防 SQL 注入 + nvarchar 兼容中文）
     const request = pool.request()
-    request.input('Account', sql.NVarChar(50), account)
+    request.input('LoginId', sql.NVarChar(100), loginVal)
 
-    // 关键：查一条用户记录（按 Account 精确匹配）
-    const result = await request.query(`
-      SELECT TOP (1)
-        u.UserID,
-        u.UserCode,
-        ${userColset.has('account') ? 'u.Account AS Account,' : ''}
-        u.UserName,
-        u.Password,
-        u.Status,
-        ${userColset.has('is_active') ? 'u.is_active AS is_active,' : ''}
-        u.RoleID,
-        r.RoleName AS RoleName,
-        r.Permissions AS Permissions
-      FROM Sys_Users AS u
-      LEFT JOIN Sys_Roles AS r ON u.RoleID = r.RoleID
-      WHERE ${userColset.has('account') ? 'u.Account = @Account' : 'u.UserCode = @Account'}
-    `)
+    let result
+    if (meta.legacyLayout) {
+      // 业务主键：优先 UserID；人事姓名 JOIN 仍用 uid = Hr_staff.id（与主键分离）
+      const qUidForStaff = meta.qb('uid')
+      const qEntityPk = getSysUsersEntityPkQb(meta)
+      const qUsercode = meta.qb('usercode')
+      const qUsername = meta.qb('username')
+      const qPassword = meta.qb('password')
+      const qIsAdmin = meta.set.has('is_admin') ? meta.qb('is_admin') : null
+      const isActiveSel = userColset.has('is_active') ? `u.${meta.qb('is_active')} AS is_active,` : ''
+      const delSel = userColset.has('del') ? `u.${meta.qb('del')} AS del,` : ''
+      const roleNameSql = qIsAdmin
+        ? `CASE WHEN u.${qIsAdmin} = 1 THEN N'系统管理员' ELSE N'普通用户' END`
+        : `N'普通用户'`
+      const permSql = qIsAdmin ? `CASE WHEN u.${qIsAdmin} = 1 THEN N'{"*":["all"]}' ELSE N'[]' END` : `N'[]'`
+      if (!qEntityPk || !qUidForStaff || !qUsercode || !qUsername || !qPassword) {
+        res.status(500).json({
+          code: 500,
+          msg: '登录失败：Sys_Users 旧表缺少主键列（UserID/uid）、uid（人事关联）、usercode、username 或 password 列',
+          data: null,
+        })
+        return
+      }
+      result = await request.query(`
+        SELECT TOP (1)
+          u.${qEntityPk} AS UserID,
+          u.${qUsercode} AS UserCode,
+          u.${qUsername} AS UserName,
+          ${delSel}
+          u.${qPassword} AS Password,
+          CAST(1 AS INT) AS Status,
+          ${isActiveSel}
+          CAST(NULL AS INT) AS RoleID,
+          CAST(${roleNameSql} AS NVARCHAR(50)) AS RoleName,
+          CAST(${permSql} AS NVARCHAR(MAX)) AS Permissions,
+          s.[name] AS StaffDisplayName
+        FROM Sys_Users AS u
+        LEFT JOIN ${meta.hrStaffFrom} AS s ON s.[id] = u.${qUidForStaff}
+        WHERE u.${qUsername} = @LoginId OR u.${qUsercode} = @LoginId
+      `)
+    } else {
+      // ERP / 标准表：登录账号列 = UserName（库中实际大小写由 qb 解析），密码列 = password（同上）
+      const qLogin = meta.qb('username')
+      const qPwd = meta.qb('password')
+      if (!qLogin || !qPwd) {
+        res.status(500).json({
+          code: 500,
+          msg: '登录失败：Sys_Users 缺少登录账号列（UserName）或密码列（password），请检查表结构',
+          data: null,
+        })
+        return
+      }
+      const selUserId = userColset.has('userid') ? `u.${meta.qb('userid')} AS UserID` : 'CAST(NULL AS INT) AS UserID'
+      const selUserCode = userColset.has('usercode')
+        ? `u.${meta.qb('usercode')} AS UserCode`
+        : `CAST(N'' AS NVARCHAR(50)) AS UserCode`
+      const selDel = userColset.has('del') ? `u.${meta.qb('del')} AS del,` : ''
+      const selStatus = userColset.has('status')
+        ? `u.${meta.qb('status')} AS Status,`
+        : 'CAST(1 AS INT) AS Status,'
+      const selIsActive = userColset.has('is_active') ? `u.${meta.qb('is_active')} AS is_active,` : ''
+      const selRoleId = userColset.has('roleid')
+        ? `u.${meta.qb('roleid')} AS RoleID`
+        : 'CAST(NULL AS INT) AS RoleID'
+      const joinRoles = userColset.has('roleid')
+        ? `LEFT JOIN Sys_Roles AS r ON r.RoleID = u.${meta.qb('roleid')}`
+        : `LEFT JOIN Sys_Roles AS r ON 1 = 0`
+      result = await request.query(`
+        SELECT TOP (1)
+          ${selUserId},
+          ${selUserCode},
+          u.${qLogin} AS UserName,
+          ${selDel}
+          u.${qPwd} AS Password,
+          ${selStatus}
+          ${selIsActive}
+          ${selRoleId},
+          r.RoleName AS RoleName,
+          r.Permissions AS Permissions
+        FROM Sys_Users AS u
+        ${joinRoles}
+        WHERE u.${qLogin} = @LoginId
+      `)
+    }
 
     // 关键：拿到用户行
     const userRow = result.recordset?.[0]
 
-    // 1) 校验工号是否存在
+    // 1) 校验用户名是否存在
     if (!userRow) {
       res.status(400).json({ code: 400, msg: '账号不存在', data: null })
       return
     }
 
-    // 2) 校验账号是否被禁用（Status=0）
-    if (Number(userRow.Status) === 0) {
+    // 2) 校验账号是否被禁用：Sys_Users.del='1' 为禁用；无 del 列时用 Status=0（见 sysUsersDb.isSysUserRowLoginDisabled）
+    if (isSysUserRowLoginDisabled(userRow, userColset)) {
       res.status(403).json({ code: 403, msg: '账号已被禁用，请联系管理员', data: null })
       return
     }
-    // v1.1.2：账号是否可登录（is_active=0 则封禁）
-    if (userColset.has('is_active') && Number(userRow.is_active ?? 1) === 0) {
+    // v1.1.2：账号是否可登录（is_active=0 则封禁；列名大小写兼容）
+    const isActiveRaw = getSysUserRowFieldIgnoreCase(userRow, ['is_active', 'Is_Active', 'IS_ACTIVE'])
+    if (userColset.has('is_active') && Number(isActiveRaw ?? 1) === 0) {
       res.status(403).json({ code: 403, msg: '该账号已封禁或员工已离职', data: null })
       return
     }
@@ -873,10 +961,10 @@ app.post('/api/login', async (req, res) => {
     // 关键：保存到后端内存（可用于后续接口鉴权升级）
     tokenStore.set(token, {
       userId: Number(userRow.UserID),
-      // 约定：把登录账号写入 userCode，便于各处统一展示（旧字段名不改）
-      userCode: String(userRow.Account ?? userRow.UserCode ?? ''),
-      // v1.0.8：审核写入 Auditor 时用真实姓名（与 Sys_Users.UserName 一致）
-      userName: String(userRow.UserName ?? ''),
+      // 约定：审计/uname 用工号 UserCode（与 businessAuditFields 一致）
+      userCode: String(userRow.UserCode ?? ''),
+      // 优先人事档案姓名（旧表 uid=Hr_staff.id）；否则用库中登录账号列
+      userName: String(userRow.StaffDisplayName ?? userRow.UserName ?? ''),
       // v1.0.7：附带角色，便于后续把接口鉴权与角色打通（当前仍以 token 为主）
       roleId: userRow.RoleID != null ? Number(userRow.RoleID) : null,
       roleName: String(userRow.RoleName ?? ''),
@@ -893,7 +981,7 @@ app.post('/api/login', async (req, res) => {
         user: {
           UserID: userRow.UserID,
           UserCode: userRow.UserCode,
-          Account: userRow.Account ?? null,
+          Account: userRow.UserName != null ? String(userRow.UserName) : null,
           UserName: userRow.UserName,
           Status: userRow.Status,
           RoleID: userRow.RoleID != null ? Number(userRow.RoleID) : null,
@@ -922,6 +1010,34 @@ app.post('/api/login', async (req, res) => {
       return
     }
     res.status(500).json({ code: 500, msg: '登录失败：数据库读取异常，请联系管理员', data: null })
+  }
+})
+
+/**
+ * 查看单条操作员（v1.1.9：旧版 Sys_Users + del/pass 时 JOIN 人事/角色）
+ */
+app.get('/api/users/:id', async (req, res) => {
+  try {
+    const userId = Number(req.params?.id)
+    if (!Number.isFinite(userId) || userId <= 0) {
+      res.status(400).json({ code: 400, msg: 'id 不合法', data: null })
+      return
+    }
+    const pool = await getPool()
+    const meta = await getSysUsersColumnsMeta(pool)
+    if (!isOperatorUsersV2(meta)) {
+      res.status(400).json({ code: 400, msg: '当前库结构不支持该查看接口', data: null })
+      return
+    }
+    const row = await getOperatorUserDetail(pool, meta, userId)
+    if (!row) {
+      res.status(404).json({ code: 404, msg: '未找到该用户', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: row })
+  } catch (err) {
+    console.error('GET /api/users/:id 失败：', err)
+    res.status(500).json({ code: 500, msg: '查询失败', data: null })
   }
 })
 
@@ -1003,6 +1119,129 @@ app.get('/api/users', async (req, res) => {
     // - key = '%张%'：可以匹配 '张三' / '小张' / '老张三'
     const likeKey = `%${keywordRaw}%`
 
+    const pool = await getPool()
+    const meta = await getSysUsersColumnsMeta(pool)
+
+    // 旧系统 Sys_Users：uid/username/usercode 等，只读列表映射为前端字段
+    if (meta.legacyLayout) {
+      // v1.1.9：含 del+pass 时列表改为 Usercode→Hr_staff.code、RoleID→Sys_Roles，仅 ROW_NUMBER 分页
+      if (isOperatorUsersV2(meta)) {
+        try {
+          const r = await queryOperatorUsersPage(pool, meta, {
+            offset,
+            safePageSize,
+            safeStatus,
+            keywordRaw,
+          })
+          res.json({ code: 200, msg: 'success', list: r.list, total: r.total })
+          return
+        } catch (opErr) {
+          console.error('查询 /api/users（操作员 v2）失败：', opErr)
+          res.status(500).json({ code: 500, msg: String(opErr?.message ?? '列表查询失败'), list: [], total: 0 })
+          return
+        }
+      }
+      const qUidForStaff = meta.qb('uid')
+      const qEntityPk = getSysUsersEntityPkQb(meta)
+      const qUsercode = meta.qb('usercode')
+      const qUsername = meta.qb('username')
+      const qIsAdmin = meta.set.has('is_admin') ? meta.qb('is_admin') : null
+      if (!qEntityPk || !qUidForStaff || !qUsercode || !qUsername) {
+        res.status(500).json({ code: 500, msg: 'error', list: [], total: 0 })
+        return
+      }
+      // 有 del 时：列表双视图按逻辑删除位（与全库约定一致：'0'/空=正常，'1'=禁用）
+      let statusCond = '1=1'
+      if (meta.set.has('del')) {
+        const qd = meta.qb('del')
+        const delActive = `(LTRIM(RTRIM(ISNULL(u.${qd}, N''))) = N'' OR LTRIM(RTRIM(ISNULL(u.${qd}, N''))) = N'0')`
+        const delBanned = `(LTRIM(RTRIM(ISNULL(u.${qd}, N''))) = N'1')`
+        statusCond = safeStatus === 1 ? delActive : delBanned
+      } else if (meta.set.has('status')) {
+        statusCond = `u.${meta.qb('status')} = @status`
+      } else if (meta.set.has('is_active')) {
+        statusCond = `u.${meta.qb('is_active')} = @status`
+      }
+      const kwCond = hasKeyword
+        ? ` AND (u.${qUsercode} LIKE @key OR u.${qUsername} LIKE @key OR s.[name] LIKE @key)`
+        : ''
+      const baseFrom = `FROM Sys_Users AS u
+        LEFT JOIN ${meta.hrStaffFrom} AS s ON s.[id] = u.${qUidForStaff}`
+      const whereLegacy = `WHERE ${statusCond}${kwCond}`
+      const orderExpr = meta.set.has('createdat')
+        ? `u.${meta.qb('createdat')} DESC`
+        : `u.${qEntityPk} DESC`
+      const roleCase = qIsAdmin
+        ? `CASE WHEN u.${qIsAdmin} = 1 THEN N'超级管理员' ELSE N'普通用户' END`
+        : `N'普通用户'`
+      const selCols = `
+          u.${qEntityPk} AS UserID,
+          u.${qUsercode} AS UserCode,
+          u.${qUsername} AS UserName,
+          ${meta.set.has('status') ? `u.${meta.qb('status')} AS Status` : 'CAST(1 AS INT) AS Status'},
+          ${meta.set.has('createdat') ? `u.${meta.qb('createdat')} AS CreatedAt` : 'CAST(NULL AS DATETIME) AS CreatedAt'},
+          CAST(NULL AS INT) AS RoleID,
+          CAST(${roleCase} AS NVARCHAR(50)) AS RoleName`
+
+      const totalReq = pool.request()
+      totalReq.input('status', sql.Int, safeStatus)
+      if (hasKeyword) totalReq.input('key', sql.NVarChar(100), likeKey)
+      const totalR = await totalReq.query(`
+        SELECT COUNT(1) AS total
+        ${baseFrom}
+        ${whereLegacy}
+      `)
+      const totalLegacy = Number(totalR.recordset?.[0]?.total ?? 0)
+
+      const listReq = pool.request()
+      listReq.input('offset', sql.Int, offset)
+      listReq.input('pageSize', sql.Int, safePageSize)
+      listReq.input('status', sql.Int, safeStatus)
+      if (hasKeyword) listReq.input('key', sql.NVarChar(100), likeKey)
+
+      let resultLegacy
+      try {
+        resultLegacy = await listReq.query(`
+          SELECT ${selCols}
+          ${baseFrom}
+          ${whereLegacy}
+          ORDER BY ${orderExpr}
+          OFFSET @offset ROWS
+          FETCH NEXT @pageSize ROWS ONLY
+        `)
+      } catch (pageErr) {
+        const msg = String(pageErr?.message ?? pageErr?.originalError?.message ?? '')
+        const shouldFallback =
+          msg.includes("Incorrect syntax near 'OFFSET'") ||
+          msg.includes('Invalid usage of the option NEXT') ||
+          msg.toLowerCase().includes('offset') ||
+          msg.toLowerCase().includes('fetch')
+        if (!shouldFallback) throw pageErr
+        const startRow = offset + 1
+        const endRow = offset + safePageSize
+        const fb = pool.request()
+        fb.input('startRow', sql.Int, startRow)
+        fb.input('endRow', sql.Int, endRow)
+        fb.input('status', sql.Int, safeStatus)
+        if (hasKeyword) fb.input('key', sql.NVarChar(100), likeKey)
+        resultLegacy = await fb.query(`
+          SELECT UserID, UserCode, UserName, Status, CreatedAt, RoleID, RoleName
+          FROM (
+            SELECT
+              ${selCols},
+              ROW_NUMBER() OVER (ORDER BY ${orderExpr}) AS rn
+            ${baseFrom}
+            ${whereLegacy}
+          ) t
+          WHERE t.rn BETWEEN @startRow AND @endRow
+          ORDER BY t.rn
+        `)
+      }
+
+      res.json({ code: 200, msg: 'success', list: resultLegacy.recordset ?? [], total: totalLegacy })
+      return
+    }
+
     // 关键：把 WHERE 子句单独拼出来，便于在“总数查询”和“列表查询”里复用
     // 小白版解释（LIKE 模糊匹配怎么工作）：
     // - UserCode LIKE @key 表示“工号里包含关键字”
@@ -1013,14 +1252,20 @@ app.get('/api/users', async (req, res) => {
     // 组合规则：
     // - 永远带 Status 过滤（由前端 status 控制）
     // - 如果 keyword 不为空，再加 LIKE 条件
-    const whereSql = hasKeyword
-      ? 'WHERE u.Status = @status AND (u.UserCode LIKE @key OR u.UserName LIKE @key)'
-      : 'WHERE u.Status = @status'
-
-    // =========================
-    // 关键：从连接池获取可复用的数据库连接（避免每次请求都重新握手）
-    // =========================
-    const pool = await getPool()
+    let whereSql
+    if (meta.set.has('del')) {
+      const qd = meta.qb('del')
+      const delActive = `(LTRIM(RTRIM(ISNULL(u.${qd}, N''))) = N'' OR LTRIM(RTRIM(ISNULL(u.${qd}, N''))) = N'0')`
+      const delBanned = `(LTRIM(RTRIM(ISNULL(u.${qd}, N''))) = N'1')`
+      const delPart = safeStatus === 1 ? delActive : delBanned
+      whereSql = hasKeyword
+        ? `WHERE ${delPart} AND (u.UserCode LIKE @key OR u.UserName LIKE @key)`
+        : `WHERE ${delPart}`
+    } else {
+      whereSql = hasKeyword
+        ? 'WHERE u.Status = @status AND (u.UserCode LIKE @key OR u.UserName LIKE @key)'
+        : 'WHERE u.Status = @status'
+    }
 
     // =========================
     // 关键：先查询总条数 total（用于前端分页器显示“总条数”）
@@ -1206,6 +1451,17 @@ app.put('/api/users/resume', async (req, res) => {
 
     // 关键：获取数据库连接池
     const pool = await getPool()
+    const metaResume = await getSysUsersColumnsMeta(pool)
+    if (isOperatorUsersV2(metaResume)) {
+      const out = await restoreOperatorUserDel(pool, metaResume, req, userId)
+      if (out.error) {
+        res.status(out.error.status).json(out.error.json)
+        return
+      }
+      res.json({ code: 200, msg: 'success', data: out.data })
+      return
+    }
+    if (await rejectLegacySysUsersCrud(pool, res)) return
 
     // 关键：参数化更新（防注入）
     const request = pool.request()
@@ -1286,26 +1542,30 @@ app.put('/api/users/change-password', async (req, res) => {
 
     // 关键：获取数据库连接池
     const pool = await getPool()
+    const meta = await getSysUsersColumnsMeta(pool)
+    const acExpr = sysUsersAccountCodeExpr(meta)
+    const pwExpr = sysUsersPasswordExpr(meta)
+    const acColBare = String(acExpr).replace(/^u\./, '')
+    const pwColBare = String(pwExpr).replace(/^u\./, '')
 
     // =========================
     // 第 1 步：查出当前用户数据库里的旧密码
     // =========================
     // 小白版解释（最关键的安全点）：
     // - 我们不用 UserID，也不用前端传 UserCode
-    // - 只用后端根据 token 得到的 current.userCode
+    // - 只用后端根据 token 得到的 current.userCode（旧表为 usercode 账号编码）
     // - 然后在 SQL 里写：
-    //   WHERE UserCode = @UserCode
-    // - 这句的意思是：“只查（或只更新）工号等于这个工号的那一行”
+    //   WHERE 账号编码列 = @UserCode
     // - 因为 @UserCode 是参数，而且值来自当前登录人，所以能确保“只动当前用户自己的记录”
     const checkReq = pool.request()
     checkReq.input('UserCode', sql.NVarChar(50), String(current.userCode))
 
     const checkResult = await checkReq.query(`
       SELECT TOP (1)
-        UserCode,
-        Password
-      FROM Sys_Users
-      WHERE UserCode = @UserCode
+        ${acExpr} AS UserCode,
+        ${pwExpr} AS Password
+      FROM Sys_Users AS u
+      WHERE ${acExpr} = @UserCode
     `)
 
     const row = checkResult.recordset?.[0]
@@ -1338,8 +1598,8 @@ app.put('/api/users/change-password', async (req, res) => {
 
     const updateResult = await updateReq.query(`
       UPDATE Sys_Users
-      SET Password = @NewPassword
-      WHERE UserCode = @UserCode
+      SET ${pwColBare} = @NewPassword
+      WHERE ${acColBare} = @UserCode
     `)
 
     const affected = Number(updateResult.rowsAffected?.[0] ?? 0)
@@ -1377,6 +1637,16 @@ app.delete('/api/users/:id', async (req, res) => {
 
     // 关键：获取数据库连接池
     const pool = await getPool()
+    const metaDel = await getSysUsersColumnsMeta(pool)
+    if (isOperatorUsersV2(metaDel)) {
+      res.status(400).json({
+        code: 400,
+        msg: '本环境已启用逻辑删除：请使用「软删除」将 del 置为 1，勿使用物理 DELETE。',
+        data: null,
+      })
+      return
+    }
+    if (await rejectLegacySysUsersCrud(pool, res)) return
 
     // 关键：先查一次状态，确保“必须先禁用才能删除”
     const checkReq = pool.request()
@@ -1460,6 +1730,17 @@ app.post('/api/users', async (req, res) => {
 
     // 关键：获取数据库连接池
     const pool = await getPool()
+    const metaUsers = await getSysUsersColumnsMeta(pool)
+    if (isOperatorUsersV2(metaUsers)) {
+      const out = await insertOperatorUserLegacy(pool, metaUsers, req, req.body ?? {}, hashPassword)
+      if (out.error) {
+        res.status(out.error.status).json(out.error.json)
+        return
+      }
+      res.json({ code: 200, msg: 'success', data: out.data })
+      return
+    }
+    if (await rejectLegacySysUsersCrud(pool, res)) return
 
     const roleCheck = await assertWritableRoleId(pool, RoleID)
     if (!roleCheck.ok) {
@@ -1590,6 +1871,17 @@ app.put('/api/users', async (req, res) => {
 
     // 关键：获取数据库连接池（复用连接）
     const pool = await getPool()
+    const metaPut = await getSysUsersColumnsMeta(pool)
+    if (isOperatorUsersV2(metaPut)) {
+      const out = await putOperatorUser(pool, metaPut, req, body, hashPassword)
+      if (out.error) {
+        res.status(out.error.status).json(out.error.json)
+        return
+      }
+      res.json({ code: 200, msg: 'success', data: out.data })
+      return
+    }
+    if (await rejectLegacySysUsersCrud(pool, res)) return
 
     // 关键：创建 request 用于参数化查询（防 SQL 注入）
     const request = pool.request()
@@ -3485,37 +3777,6 @@ let HR_STAFF_COLSET_PROMISE = null
 let HR_ROOM_IN_COLSET_PROMISE = null
 let HR_ROOM_COLSET_PROMISE = null
 
-/** v1.1.2：缓存 Sys_Users 列清单（用于兼容 is_active 可能未迁移） */
-let SYS_USERS_COLSET_PROMISE = null
-
-/**
- * 读取 Sys_Users 的列名集合（小写），并缓存到进程内
- * @param {import('mssql').ConnectionPool} pool
- * @returns {Promise<Set<string>>}
- */
-async function getSysUsersColumnSet(pool) {
-  if (SYS_USERS_COLSET_PROMISE) return SYS_USERS_COLSET_PROMISE
-  SYS_USERS_COLSET_PROMISE = (async () => {
-    try {
-      const r = await pool.request().query(`
-        SELECT COLUMN_NAME AS name
-        FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'Sys_Users'
-      `)
-      const set = new Set()
-      for (const row of r.recordset ?? []) {
-        const n = String(row?.name ?? '').trim()
-        if (n) set.add(n.toLowerCase())
-      }
-      return set
-    } catch (err) {
-      console.warn('[Sys_Users] 读取列清单失败，已降级：', err?.message ?? err)
-      return new Set()
-    }
-  })()
-  return SYS_USERS_COLSET_PROMISE
-}
-
 /**
  * 读取 Hr_staff 的列名集合（小写），并缓存到进程内
  * @param {import('mssql').ConnectionPool} pool
@@ -4507,7 +4768,8 @@ app.put('/api/hr/staff/leave/:id', async (req, res) => {
 
     const pool = await getPool()
     const staffColset = await getHrStaffColumnSet(pool)
-    const userColset = await getSysUsersColumnSet(pool)
+    const userMeta = await getSysUsersColumnsMeta(pool)
+    const userColset = userMeta.set
     if (
       !staffColset.has('status') ||
       !staffColset.has('leave_date') ||
@@ -4523,7 +4785,8 @@ app.put('/api/hr/staff/leave/:id', async (req, res) => {
       })
       return
     }
-    if (!userColset.has('is_active')) {
+    // 旧版 Sys_Users 可能无 is_active：跳过账号封禁，不拦截离职主流程
+    if (!userColset.has('is_active') && !userMeta.legacyLayout) {
       res.status(400).json({
         code: 400,
         msg: 'Sys_Users 表缺少 is_active 字段，请先执行迁移：npm run migrate:hr-staff-leave-fields',
@@ -4556,18 +4819,35 @@ app.put('/api/hr/staff/leave/:id', async (req, res) => {
         return
       }
 
-      // 关联系统账号（可选）：并非每个员工都有 Sys_Users 记录
-      const userCheck = await tx
-        .request()
-        .input('v', sql.NVarChar(50), staffCode)
-        .query(`
-          SELECT TOP (1) u.UserID, u.UserCode, u.Account
-          FROM Sys_Users AS u
-          WHERE u.Account = @v OR u.UserCode = @v
-          ORDER BY u.UserID DESC
-        `)
-      const userRow = userCheck.recordset?.[0]
-      const account = userRow ? String(userRow?.Account ?? userRow?.UserCode ?? '').trim() || staffCode : ''
+      // 关联系统账号（可选）：旧表用 uid=Hr_staff.id；ERP 表用工号 UserCode 匹配
+      const staffId = Math.floor(Number(staffRow?.id ?? 0))
+      let userRow = null
+      if (userMeta.legacyLayout && staffId > 0) {
+        const qUid = userMeta.qb('uid')
+        const qUsername = userMeta.qb('username')
+        const qUsercode = userMeta.qb('usercode')
+        if (qUid && qUsername && qUsercode) {
+          const qEntity = getSysUsersEntityPkQb(userMeta)
+          const userCheck = await tx.request().input('sid', sql.Int, staffId).query(`
+            SELECT TOP (1) u.${qEntity} AS UserID, u.${qUsercode} AS UserCode, u.${qUsername} AS UserName
+            FROM Sys_Users AS u
+            WHERE u.${qUid} = @sid
+          `)
+          userRow = userCheck.recordset?.[0]
+        }
+      } else {
+        const userCheck = await tx
+          .request()
+          .input('v', sql.NVarChar(50), staffCode)
+          .query(`
+            SELECT TOP (1) u.UserID, u.UserCode, u.UserName
+            FROM Sys_Users AS u
+            WHERE u.UserCode = @v
+            ORDER BY u.UserID DESC
+          `)
+        userRow = userCheck.recordset?.[0]
+      }
+      const account = userRow ? String(userRow?.UserName ?? userRow?.UserCode ?? '').trim() || staffCode : ''
 
       await tx
         .request()
@@ -4587,17 +4867,29 @@ app.put('/api/hr/staff/leave/:id', async (req, res) => {
           WHERE s.id = @id
         `)
 
-      // 若存在关联账号，则封禁；不存在则跳过（不影响员工离职落库）
-      if (userRow) {
-        const updUser = await tx
-          .request()
-          .input('v', sql.NVarChar(50), staffCode)
-          .query(`
+      // 若存在关联账号且库中有 is_active，则封禁；否则跳过（不影响员工离职落库）
+      if (userRow && userColset.has('is_active')) {
+        const qIsActive = userMeta.qb('is_active')
+        let updUser
+        if (userMeta.legacyLayout && staffId > 0 && userMeta.qb('uid')) {
+          const qUid = userMeta.qb('uid')
+          updUser = await tx.request().input('sid', sql.Int, staffId).query(`
             UPDATE u
-            SET u.is_active = 0
+            SET u.${qIsActive} = 0
             FROM Sys_Users AS u
-            WHERE u.Account = @v OR u.UserCode = @v
+            WHERE u.${qUid} = @sid
           `)
+        } else {
+          updUser = await tx
+            .request()
+            .input('v', sql.NVarChar(50), staffCode)
+            .query(`
+              UPDATE u
+              SET u.is_active = 0
+              FROM Sys_Users AS u
+              WHERE u.UserCode = @v
+            `)
+        }
         const affected = Number(updUser?.rowsAffected?.[0] ?? 0)
         if (affected <= 0) {
           await tx.rollback()
@@ -10006,6 +10298,7 @@ const port = process.env.PORT ? Number(process.env.PORT) : 3001
 app.listen(port, () => {
   const bootAt = new Date().toISOString()
   console.log(`API 服务已启动：http://localhost:${port}`)
+  console.log(`User-Add-AuditStandard-v1.1.9 ${bootAt}`)
   console.log(`[启动指纹] bootAt=${bootAt}`)
   console.log(`Dorm-Electric-FlatUI-v1.1.5-Active ${bootAt}`)
   console.log(`Electric-History-Linkage-v1.1.5-Active ${bootAt}`)

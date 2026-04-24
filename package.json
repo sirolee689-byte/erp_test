@@ -30,7 +30,10 @@
     "e2e:dormitory-electric-report-v116": "node scripts/e2e-dormitory-electric-report-v1.1.6.mjs",
     "e2e:dormitory-electric-allocation-tabs-v116": "node scripts/e2e-dormitory-electric-allocation-tabs-v1.1.6.mjs",
     "e2e:dormitory-electric-allocation-dept-cn-v116": "node scripts/e2e-dormitory-electric-allocation-dept-cn-v1.1.6.mjs",
-    "e2e:dormitory-electric-allocation-pass-display-v116": "node scripts/e2e-dormitory-electric-allocation-pass-display-v1.1.6.mjs"
+    "e2e:dormitory-electric-allocation-pass-display-v116": "node scripts/e2e-dormitory-electric-allocation-pass-display-v1.1.6.mjs",
+    "smoke:login": "node scripts/login-smoke-with-fresh-server.mjs",
+    "smoke:login:pw": "node scripts/playwright-login-api-with-server.mjs",
+    "smoke:login:admin:shot": "node scripts/playwright-login-admin-screenshot.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",

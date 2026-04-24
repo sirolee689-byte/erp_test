@@ -64,7 +64,7 @@ async function main() {
   const page = await browser.newPage()
   try {
     await page.goto(`${baseUrl}/login`, { waitUntil: 'domcontentloaded' })
-    await page.getByPlaceholder('请输入账号').fill(String(userCode))
+    await page.getByPlaceholder('请输入用户名或编码').fill(String(userCode))
     await page.getByPlaceholder('请输入密码').fill(String(password))
     await page.getByRole('button', { name: '登录' }).click()
     await page.waitForLoadState('networkidle', { timeout: 30000 })
@@ -141,9 +141,16 @@ async function main() {
       const staff = await req.query(
         "SELECT TOP(1) id,code,UserCode,name,status,leave_date,leave_reason,is_blacklist,blacklist_reason,pass,del FROM dbo.Hr_staff WHERE code=@c OR UserCode=@c ORDER BY id DESC",
       )
-      const user = await req.query(
-        "SELECT TOP(1) UserID,UserCode,Account,is_active,Status FROM dbo.Sys_Users WHERE Account=@c OR UserCode=@c ORDER BY UserID DESC",
-      )
+      let user = { recordset: [] }
+      try {
+        user = await req.query(
+          'SELECT TOP (3) * FROM dbo.Sys_Users WHERE UserCode = @c OR UserName = @c ORDER BY UserID DESC',
+        )
+      } catch {
+        user = await req.query(
+          'SELECT TOP (3) * FROM dbo.Sys_Users WHERE usercode = @c OR username = @c ORDER BY uid DESC',
+        )
+      }
       const html = `
         <html><head><meta charset="utf-8" /><style>
           body{font-family:Consolas,monospace;padding:18px;}

@@ -305,12 +305,23 @@
 - **模块/页面**
   - 前端：`src/views/system/operator/index.vue`
   - 设计：`src/views/system/rbac_design.md`（含与角色表关系说明）
-- **接口（后端：`server/index.js`）**
-  - `GET /api/users`：列表（通过 `LEFT JOIN Sys_Roles` 返回 `RoleName` 等）
-  - `POST /api/users` / `PUT /api/users` / `DELETE /api/users/...`：以实际后端实现为准（本文仅记录已确认的表关系）
+- **接口（后端：`server/index.js` + `server/operatorUsersHandlers.js`）**
+  - **旧版表结构**（`INFORMATION_SCHEMA` 判定为 legacy：`uid` + `username` + `usercode`，且存在 `del`、`pass`）时由 **操作员管理**（`server/operatorUsersHandlers.js`）接管：
+    - `GET /api/users`：默认 `del=0`（`status=1`）或回收站 `del=1`（`status=0`）；**姓名列直接取 `Sys_Users.truename`**（不再 JOIN `Hr_staff`）；`LEFT JOIN Sys_Roles` 取 `RoleName`；`keyword` 可对 `usercode` / `username` / `truename` 模糊匹配；列表含 `Pass`；分页仅 `ROW_NUMBER()`（SQL Server 2008 R2）。
+    - `GET /api/users/:id`：单条只读详情（同上 JOIN）。
+    - `PUT /api/users`：`op=unpass` 将 `pass` 置 `0`（反审核）；`op=soft_delete` 将 `del` 置 `1` 并写 `deltime`；普通 body 为编辑（写 `edittime` 及存在的 `uid`/`uname`/`utruename` 审计列）；日志 Content 按规则 16 / 产品模版拼接。
+    - `PUT /api/users/resume`：回收站恢复为 `del=0`（并清 `deltime` 若存在列）。
+    - `POST /api/users`：动态 INSERT（`pass`/`del` 默认待审与在册等）。
+    - `DELETE /api/users/:id`：该结构下禁止物理删除，返回 400，请走软删除。
+  - **ERP 标准列**（非 legacy）时仍以 `server/index.js` 内原有 `UserID`/`Status` 等分支为准。
 - **关键字段（已确认）**
+  - `del`：**逻辑删除 / 账号禁用**（与全库约定一致）。`'0'` 或空为启用、可登录；`'1'` 为禁用、不可登录。`GET /api/users` 与 `POST /api/login` 在存在该列时**优先**按 `del` 判断；若无该列再使用 `Status`。
+  - `pass`：审核状态（与全库约定一致，`'1'`/`1` 已审核，`'0'`/`0` 未审核）；v1.1.9 列表「状态」列直接展示该字段。
+  - **`UserID`**：业务主键（自增）；列表/编辑/反审/软删的 `WHERE` 均以 **`UserID=@UserID`** 为准（`server/getSysUsersEntityPkQb`：有 `UserID` 列优先，否则退回仅 `uid` 的极旧库）。
+  - **`uid`**：与 `UserID` 并存时作**审计/人事关联**（`getSysUsersAuditUidQb`）；**禁止**再当作列表主键或 `WHERE` 定位行。
+  - `usercode` / `username` / **`truename`**：旧版中 `username` 为登录账号展示列；**`truename` 为姓名**；编辑/新增时由后端按列元数据拼 SQL。
   - `RoleID`：外键指向 `Sys_Roles.RoleID`（约束名：`FK_Sys_Users_Sys_Roles_RoleID`）
-  - `is_active`：账号可登录（1/0）；员工离职后置 0（用于封禁登录）
+  - `is_active`：账号可登录（1/0）；员工离职后置 0（用于封禁登录；与 `del` 并存时两者均会校验）
 
 ## 4. 环境变量清单（与表名相关）
 

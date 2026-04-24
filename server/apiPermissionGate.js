@@ -2,8 +2,9 @@
  * API 级权限闸门：根据 Method + Path + Body 匹配「菜单 path + 操作」
  * 未匹配的接口：仅校验已登录（避免一次性改全站）；匹配到的必须满足角色 Permissions
  */
-import { getPool, sql } from './db.js'
+import { getPool } from './db.js'
 import { parseRolePermissions, roleAllowsAction } from './permissions.js'
+import { fetchSysUserPermissionSource } from './sysUsersDb.js'
 
 /**
  * @param {import('mssql').ConnectionPool} pool
@@ -12,16 +13,8 @@ import { parseRolePermissions, roleAllowsAction } from './permissions.js'
  * @param {string} action
  */
 export async function assertUserHasAction(pool, userId, menuPath, action) {
-  const req = pool.request()
-  req.input('UserID', sql.Int, userId)
-  const result = await req.query(`
-    SELECT TOP (1) r.Permissions AS Permissions
-    FROM Sys_Users AS u
-    INNER JOIN Sys_Roles AS r ON r.RoleID = u.RoleID
-    WHERE u.UserID = @UserID AND u.Status = 1 AND r.Status = 1
-  `)
-  const row = result.recordset?.[0]
-  const parsed = parseRolePermissions(row?.Permissions)
+  const raw = await fetchSysUserPermissionSource(pool, userId)
+  const parsed = parseRolePermissions(raw)
   return roleAllowsAction(parsed, menuPath, action)
 }
 
@@ -49,10 +42,16 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'GET' && path === '/api/users') {
     return { menuPath: 'system/operator', action: 'view' }
   }
+  if (m === 'GET' && /^\/api\/users\/\d+$/.test(path)) {
+    return { menuPath: 'system/operator', action: 'view' }
+  }
   if (m === 'POST' && path === '/api/users') {
     return { menuPath: 'system/operator', action: 'add' }
   }
   if (m === 'PUT' && path === '/api/users') {
+    if (body && (body.op === 'unpass' || body.op === 'soft_delete')) {
+      return { menuPath: 'system/operator', action: 'delete' }
+    }
     if (body && Number(body.Status) === 0) {
       return { menuPath: 'system/operator', action: 'delete' }
     }
