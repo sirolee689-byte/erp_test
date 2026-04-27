@@ -143,8 +143,11 @@
   - `RoleID`（INT IDENTITY，主键）
   - `RoleName`（唯一；英文业务标识：`Admin`/`Onduty`/`Viewer` 等）
   - `Description`（中文说明）
-  - `Status`（1 启用 / 0 禁用）
+  - `pass`（审核状态：`'1'` 已审核/启用，`'0'` 未审核/禁用；统一约定字段名，避免使用 `Status`）
+  - `Status`（历史兼容列：1 启用 / 0 禁用；如存在则应映射到 `pass`，新逻辑优先按 `pass`）
   - `Permissions`（NVARCHAR(MAX)；JSON 数组字符串；`["*"]` 表示全部菜单）
+  - `uid` / `uname` / `utruename`（操作人审计：录入人 ID / 账号 / 真实姓名）
+  - `addtime` / `edittime` / `deltime`（业务时间串；全局审计 6 人组）
 - **迁移脚本**
   - 增加 `Permissions` 列：`docs/sql/erp_v1.0.7_permissions_column.txt`（或 `scripts/migrations/sqlserver_v1.0.7_permissions_column.txt`）
 

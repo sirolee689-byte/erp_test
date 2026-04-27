@@ -39,6 +39,7 @@ const BOM_UNIT_FROM = 'dbo.[Bom_unit]'
 const BOM_UNIT_CHANGE_FROM = 'dbo.[Bom_unit_change]'
 const BOM_MATERIAL_FROM = 'dbo.[Bom_material]'
 const BOM_STOCKS_WORKSHOP_FROM = 'dbo.[Bom_Stocks_workshop]'
+const SYS_ROLES_FROM = 'dbo.[Sys_Roles]'
 
 const SENSITIVE_KEY_HINTS = ['password', 'token', 'authorization', 'secret', 'credential']
 
@@ -324,6 +325,26 @@ async function fetchStocksWorkshopSnapshotForAudit(pool, id) {
 }
 
 /**
+ * 角色快照（用于可读操作日志）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {number} roleId
+ */
+async function fetchRoleSnapshotForAudit(pool, roleId) {
+  const id = Number(roleId)
+  if (!Number.isFinite(id) || id <= 0) return null
+  const r = await pool.request().input('RoleID', sql.Int, id).query(`
+    SELECT TOP (1)
+      r.RoleID AS RoleID,
+      LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(r.RoleName, N'')))) AS RoleName,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(r.Description, N'')))) AS Description,
+      LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(r.pass, N'')))) AS pass
+    FROM ${SYS_ROLES_FROM} AS r
+    WHERE r.RoleID = @RoleID
+  `)
+  return r.recordset?.[0] ?? null
+}
+
+/**
  * PUT 员工：对比旧库与请求体，生成中文变更句（仅列出有变化的字段）
  * @param {Record<string, any>} oldRow
  * @param {Record<string, any>} body
@@ -377,6 +398,34 @@ export function createOperationAuditPrepareMiddleware() {
 
     try {
       const pool = await getPool()
+
+      // === 角色管理：用于禁用/恢复/删/分配权限的可读日志 ===
+      if (method === 'PUT' && path === '/api/roles') {
+        const body = req.body ?? {}
+        const roleId = Number(body.RoleID)
+        // 仅当本次是“禁用分支”（body.pass/body.Status 存在）时才读库补全角色名
+        const hasPass = body.pass !== undefined && body.pass !== null
+        const hasStatus = body.Status !== undefined && body.Status !== null
+        if ((hasPass || hasStatus) && Number.isFinite(roleId) && roleId > 0) {
+          const row = await fetchRoleSnapshotForAudit(pool, roleId)
+          if (row) req.__auditRoleSnapshot = row
+        }
+      }
+      if (method === 'PUT' && (path === '/api/roles/resume' || path === '/api/roles/permissions')) {
+        const roleId = Number(req.body?.RoleID)
+        if (Number.isFinite(roleId) && roleId > 0) {
+          const row = await fetchRoleSnapshotForAudit(pool, roleId)
+          if (row) req.__auditRoleSnapshot = row
+        }
+      }
+      if (method === 'DELETE' && /^\/api\/roles\/\d+$/.test(path)) {
+        const idStr = path.slice('/api/roles/'.length)
+        const roleId = Number(idStr)
+        if (Number.isFinite(roleId) && roleId > 0) {
+          const row = await fetchRoleSnapshotForAudit(pool, roleId)
+          if (row) req.__auditRoleSnapshot = row
+        }
+      }
 
       // === 库存基本资料：颜色编码 / 使用单位（用于软删/审核等可读日志） ===
       if (method === 'DELETE' && /^\/api\/inventory\/color-code\/.+$/.test(path)) {
@@ -683,11 +732,42 @@ export function createOperationAuditMiddleware(deps) {
           const code = displayCell(req.body?.code)
           const name = displayCell(req.body?.name)
           content = `${op}新增了颜色编码「${name}」（编码：${code}）`
+        } else if (method === 'POST' && path === '/api/roles') {
+          // 角色管理：按你要求的固定中文模板（备注为空则不显示）
+          const roleName = meaningfulStr(req.body?.RoleName) ?? ''
+          const desc = meaningfulStr(req.body?.Description)
+          content = `新增角色成功！角色名称："${roleName}"`
+          if (desc) content += `，备注："${desc}"`
+        } else if (method === 'PUT' && path === '/api/roles/permissions') {
+          const snap = req.__auditRoleSnapshot
+          const roleName = meaningfulStr(snap?.RoleName) ?? meaningfulStr(req.body?.RoleName) ?? ''
+          content = `修改角色权限成功！角色名称："${roleName}"`
+        } else if (method === 'PUT' && path === '/api/roles/resume') {
+          const snap = req.__auditRoleSnapshot
+          const roleName = meaningfulStr(snap?.RoleName) ?? ''
+          content = `恢复角色成功！角色名称："${roleName}"`
+        } else if (method === 'PUT' && path === '/api/roles') {
+          const body = req.body ?? {}
+          const hasDisableFlag = body.pass !== undefined || body.Status !== undefined
+          if (hasDisableFlag) {
+            const snap = req.__auditRoleSnapshot
+            const roleName = meaningfulStr(snap?.RoleName) ?? ''
+            content = `禁用角色成功！角色名称："${roleName}"`
+          } else {
+            const roleName = meaningfulStr(body.RoleName) ?? ''
+            const desc = meaningfulStr(body.Description)
+            content = `修改角色成功！角色名称："${roleName}"`
+            if (desc) content += `，备注："${desc}"`
+          }
         } else if (method === 'PUT' && path === '/api/inventory/color-code') {
           const op = operatorDisplayName(user)
           const code = displayCell(req.body?.code)
           const diff = String(req.__auditPutColorCodeDiff ?? '').trim()
           content = diff ? `${op}修改了颜色编码[${code}]：${diff}` : `${op}修改了颜色编码[${code}]`
+        } else if (method === 'DELETE' && /^\/api\/roles\/\d+$/.test(path) && req.__auditRoleSnapshot) {
+          const snap = req.__auditRoleSnapshot
+          const roleName = meaningfulStr(snap?.RoleName) ?? ''
+          content = `删除角色成功！角色名称："${roleName}"`
         } else if (method === 'DELETE' && /^\/api\/inventory\/units\/\d+\/permanent$/.test(path) && req.__auditDeleteUnit) {
           const op = operatorDisplayName(user)
           const { id, name } = req.__auditDeleteUnit

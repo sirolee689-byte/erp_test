@@ -3,10 +3,10 @@
 ## 已完成功能（v1.0.7）
 
 - **查**：`Sys_Roles` 分页列表，`GET /api/roles`（支持 `status` 双视图、`keyword` 模糊搜角色名与描述；含 `Permissions` 列）。
-- **增**：弹窗新增角色，`POST /api/roles`，默认 `Status=1`。
+- **增**：弹窗新增角色，`POST /api/roles`，默认 `pass='1'`（同时兼容同步 `Status=1`）。
 - **改**：弹窗编辑角色名与描述，`PUT /api/roles`（带 `RoleID`）。
 - **分配权限**：`el-tree` 展示 `erp_structure_dump.json` 全树，勾选后 `PUT /api/roles/permissions` 写入 `Permissions`（JSON path 数组，或 `["*"]` 表示全部菜单）。
-- **禁用**：在职列表中「禁用」→ `Status=0`（软删除，进回收站视图）。
+- **禁用**：在职列表中「禁用」→ `pass='0'`（软删除，进回收站视图；同时兼容同步 `Status=0`）。
 - **恢复**：回收站中「恢复」→ `PUT /api/roles/resume`。
 - **删**：回收站中「删除」→ `DELETE /api/roles/:id`（要求已禁用且无操作员绑定该 `RoleID`）。
 

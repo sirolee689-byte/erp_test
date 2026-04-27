@@ -412,9 +412,10 @@ app.delete('/api/sys/logs/clear', async (req, res) => {
 /**
  * 角色分页列表（Sys_Roles）
  * v1.0.7：角色管理页 + 操作员下拉框共用本接口
- * - 查询参数：page、pageSize、status（1=启用视图 / 0=回收站）、keyword（模糊匹配 RoleName、Description）
+ * - 查询参数：page、pageSize、pass（1=启用视图 / 0=回收站）、keyword（模糊匹配 RoleName、Description）
+ *   - 兼容旧前端：仍接受 status 参数，并映射到 pass
  * - 返回：{ code, msg, list, total }
- * - 操作员弹窗拉启用角色：传 page=1&pageSize=500&status=1 即可（与模块分页标准一致）
+ * - 操作员弹窗拉启用角色：传 page=1&pageSize=500&pass=1 即可（与模块分页标准一致）
  */
 app.get('/api/roles', async (req, res) => {
   try {
@@ -427,22 +428,22 @@ app.get('/api/roles', async (req, res) => {
       Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.floor(pageSize), 200) : 10
     const offset = (safePage - 1) * safePageSize
 
-    const statusRaw = req.query?.status
-    const parsedStatus = Number(statusRaw)
-    const safeStatus = parsedStatus === 0 ? 0 : 1
+    const passRaw = req.query?.pass ?? req.query?.status
+    const parsedPass = Number(passRaw)
+    const safePass = parsedPass === 0 ? '0' : '1'
 
     const keywordRaw = String(req.query?.keyword ?? '').trim()
     const hasKeyword = keywordRaw.length > 0
     const likeKey = `%${keywordRaw}%`
 
     const whereSql = hasKeyword
-      ? 'WHERE r.Status = @status AND (r.RoleName LIKE @key OR r.Description LIKE @key)'
-      : 'WHERE r.Status = @status'
+      ? 'WHERE r.pass = @pass AND (r.RoleName LIKE @key OR r.Description LIKE @key)'
+      : 'WHERE r.pass = @pass'
 
     const pool = await getPool()
 
     const totalRequest = pool.request()
-    totalRequest.input('status', sql.Int, safeStatus)
+    totalRequest.input('pass', sql.NVarChar(1), safePass)
     if (hasKeyword) {
       totalRequest.input('key', sql.NVarChar(200), likeKey)
     }
@@ -457,7 +458,7 @@ app.get('/api/roles', async (req, res) => {
     const listRequest = pool.request()
     listRequest.input('offset', sql.Int, offset)
     listRequest.input('pageSize', sql.Int, safePageSize)
-    listRequest.input('status', sql.Int, safeStatus)
+    listRequest.input('pass', sql.NVarChar(1), safePass)
     if (hasKeyword) {
       listRequest.input('key', sql.NVarChar(200), likeKey)
     }
@@ -469,6 +470,7 @@ app.get('/api/roles', async (req, res) => {
           r.RoleID,
           r.RoleName,
           r.Description,
+          r.pass,
           r.Status,
           r.Permissions
         FROM Sys_Roles AS r
@@ -491,7 +493,7 @@ app.get('/api/roles', async (req, res) => {
       const fallbackRequest = pool.request()
       fallbackRequest.input('startRow', sql.Int, startRow)
       fallbackRequest.input('endRow', sql.Int, endRow)
-      fallbackRequest.input('status', sql.Int, safeStatus)
+      fallbackRequest.input('pass', sql.NVarChar(1), safePass)
       if (hasKeyword) {
         fallbackRequest.input('key', sql.NVarChar(200), likeKey)
       }
@@ -501,6 +503,7 @@ app.get('/api/roles', async (req, res) => {
           RoleID,
           RoleName,
           Description,
+          pass,
           Status,
           Permissions
         FROM (
@@ -508,6 +511,7 @@ app.get('/api/roles', async (req, res) => {
             r.RoleID,
             r.RoleName,
             r.Description,
+            r.pass,
             r.Status,
             r.Permissions,
             ROW_NUMBER() OVER (ORDER BY r.RoleID ASC) AS rn
@@ -541,17 +545,41 @@ app.post('/api/roles', async (req, res) => {
       return
     }
 
+    // 规则 16：uid/uname/utruename 仅从登录态取，禁止前端传参覆盖
+    const { uidInt, uname: unameVal, utruename: utruenameVal } = getActorAuditTripletFromReq(req)
+    if (uidInt == null) {
+      res.status(401).json({ code: 401, msg: '无法识别当前操作员，请重新登录后再试', data: null })
+      return
+    }
+
     const pool = await getPool()
     const request = pool.request()
     request.input('RoleName', sql.NVarChar(50), roleName)
     request.input('Description', sql.NVarChar(200), description)
+    request.input('uid', sql.Int, uidInt)
+    request.input('uname', sql.NVarChar(50), unameVal)
+    request.input('utruename', sql.NVarChar(50), utruenameVal)
+    const addtimeStr = formatBomColorcodeTimestamp()
+    request.input('addtime', sql.NVarChar(50), addtimeStr)
 
     let result
     try {
       result = await request.query(`
-        INSERT INTO Sys_Roles (RoleName, Description, Status, Permissions)
-        OUTPUT INSERTED.RoleID, INSERTED.RoleName, INSERTED.Description, INSERTED.Status, INSERTED.Permissions
-        VALUES (@RoleName, @Description, 1, NULL)
+        INSERT INTO Sys_Roles (RoleName, Description, pass, Status, Permissions, uid, uname, utruename, addtime)
+        OUTPUT
+          INSERTED.RoleID,
+          INSERTED.RoleName,
+          INSERTED.Description,
+          INSERTED.pass,
+          INSERTED.Status,
+          INSERTED.Permissions,
+          INSERTED.uid,
+          INSERTED.uname,
+          INSERTED.utruename,
+          INSERTED.addtime,
+          INSERTED.edittime,
+          INSERTED.deltime
+        VALUES (@RoleName, @Description, N'1', 1, NULL, @uid, @uname, @utruename, @addtime)
       `)
     } catch (dbErr) {
       const errNumber =
@@ -577,7 +605,8 @@ app.post('/api/roles', async (req, res) => {
 })
 
 /**
- * 修改角色：分支 A 禁用（Status=0）；分支 B 编辑 RoleName / Description
+ * 修改角色：分支 A 禁用（pass='0'，并同步 Status=0）；分支 B 编辑 RoleName / Description
+ * 兼容：仍接受 body.Status=0 的旧写法
  */
 app.put('/api/roles', async (req, res) => {
   try {
@@ -588,21 +617,57 @@ app.put('/api/roles', async (req, res) => {
       return
     }
 
+    // 规则 16：uid/uname/utruename 仅从登录态取，禁止前端传参覆盖
+    const { uidInt, uname: unameVal, utruename: utruenameVal } = getActorAuditTripletFromReq(req)
+    if (uidInt == null) {
+      res.status(401).json({ code: 401, msg: '无法识别当前操作员，请重新登录后再试', data: null })
+      return
+    }
+    const nowStr = formatBomColorcodeTimestamp()
+
     const pool = await getPool()
     const request = pool.request()
     request.input('RoleID', sql.Int, roleId)
+    request.input('uid', sql.Int, uidInt)
+    request.input('uname', sql.NVarChar(50), unameVal)
+    request.input('utruename', sql.NVarChar(50), utruenameVal)
+    request.input('now', sql.NVarChar(50), nowStr)
 
-    if (body.Status !== undefined && body.Status !== null) {
-      const status = Number(body.Status)
-      if (status !== 0) {
-        res.status(400).json({ code: 400, msg: '目前仅支持把 Status 更新为 0（禁用）', data: null })
+    const hasPassInBody = body.pass !== undefined && body.pass !== null
+    const hasStatusInBody = body.Status !== undefined && body.Status !== null
+    if (hasPassInBody || hasStatusInBody) {
+      const nextPass = String(hasPassInBody ? body.pass : Number(body.Status) === 0 ? '0' : '1').trim()
+      if (nextPass !== '0') {
+        res
+          .status(400)
+          .json({ code: 400, msg: "目前仅支持把 pass 更新为 '0'（禁用）", data: null })
         return
       }
+      request.input('pass', sql.NVarChar(1), '0')
       request.input('Status', sql.Int, 0)
       const result = await request.query(`
         UPDATE Sys_Roles
-        SET Status = @Status
-        OUTPUT INSERTED.RoleID, INSERTED.RoleName, INSERTED.Description, INSERTED.Status, INSERTED.Permissions
+        SET
+          pass = @pass,
+          Status = @Status,
+          uid = @uid,
+          uname = @uname,
+          utruename = @utruename,
+          deltime = @now,
+          edittime = @now
+        OUTPUT
+          INSERTED.RoleID,
+          INSERTED.RoleName,
+          INSERTED.Description,
+          INSERTED.pass,
+          INSERTED.Status,
+          INSERTED.Permissions,
+          INSERTED.uid,
+          INSERTED.uname,
+          INSERTED.utruename,
+          INSERTED.addtime,
+          INSERTED.edittime,
+          INSERTED.deltime
         WHERE RoleID = @RoleID
       `)
       const updated = result.recordset?.[0]
@@ -631,8 +696,26 @@ app.put('/api/roles', async (req, res) => {
     try {
       result = await request.query(`
         UPDATE Sys_Roles
-        SET RoleName = @RoleName, Description = @Description
-        OUTPUT INSERTED.RoleID, INSERTED.RoleName, INSERTED.Description, INSERTED.Status, INSERTED.Permissions
+        SET
+          RoleName = @RoleName,
+          Description = @Description,
+          uid = @uid,
+          uname = @uname,
+          utruename = @utruename,
+          edittime = @now
+        OUTPUT
+          INSERTED.RoleID,
+          INSERTED.RoleName,
+          INSERTED.Description,
+          INSERTED.pass,
+          INSERTED.Status,
+          INSERTED.Permissions,
+          INSERTED.uid,
+          INSERTED.uname,
+          INSERTED.utruename,
+          INSERTED.addtime,
+          INSERTED.edittime,
+          INSERTED.deltime
         WHERE RoleID = @RoleID
       `)
     } catch (dbErr) {
@@ -664,7 +747,7 @@ app.put('/api/roles', async (req, res) => {
 })
 
 /**
- * 恢复角色（Status 从 0 改回 1）
+ * 恢复角色（pass 从 '0' 改回 '1'，并同步 Status=1）
  */
 app.put('/api/roles/resume', async (req, res) => {
   try {
@@ -674,15 +757,47 @@ app.put('/api/roles/resume', async (req, res) => {
       return
     }
 
+    // 规则 16：uid/uname/utruename 仅从登录态取，禁止前端传参覆盖
+    const { uidInt, uname: unameVal, utruename: utruenameVal } = getActorAuditTripletFromReq(req)
+    if (uidInt == null) {
+      res.status(401).json({ code: 401, msg: '无法识别当前操作员，请重新登录后再试', data: null })
+      return
+    }
+    const nowStr = formatBomColorcodeTimestamp()
+
     const pool = await getPool()
     const request = pool.request()
     request.input('RoleID', sql.Int, roleId)
+    request.input('pass', sql.NVarChar(1), '1')
     request.input('Status', sql.Int, 1)
+    request.input('uid', sql.Int, uidInt)
+    request.input('uname', sql.NVarChar(50), unameVal)
+    request.input('utruename', sql.NVarChar(50), utruenameVal)
+    request.input('now', sql.NVarChar(50), nowStr)
 
     const result = await request.query(`
       UPDATE Sys_Roles
-      SET Status = @Status
-      OUTPUT INSERTED.RoleID, INSERTED.RoleName, INSERTED.Description, INSERTED.Status, INSERTED.Permissions
+      SET
+        pass = @pass,
+        Status = @Status,
+        uid = @uid,
+        uname = @uname,
+        utruename = @utruename,
+        deltime = NULL,
+        edittime = @now
+      OUTPUT
+        INSERTED.RoleID,
+        INSERTED.RoleName,
+        INSERTED.Description,
+        INSERTED.pass,
+        INSERTED.Status,
+        INSERTED.Permissions,
+        INSERTED.uid,
+        INSERTED.uname,
+        INSERTED.utruename,
+        INSERTED.addtime,
+        INSERTED.edittime,
+        INSERTED.deltime
       WHERE RoleID = @RoleID
     `)
 
@@ -716,15 +831,44 @@ app.put('/api/roles/permissions', async (req, res) => {
       return
     }
 
+    // 规则 16：uid/uname/utruename 仅从登录态取，禁止前端传参覆盖
+    const { uidInt, uname: unameVal, utruename: utruenameVal } = getActorAuditTripletFromReq(req)
+    if (uidInt == null) {
+      res.status(401).json({ code: 401, msg: '无法识别当前操作员，请重新登录后再试', data: null })
+      return
+    }
+    const nowStr = formatBomColorcodeTimestamp()
+
     const pool = await getPool()
     const request = pool.request()
     request.input('RoleID', sql.Int, roleId)
     request.input('Permissions', sql.NVarChar(sql.MAX), parsed.jsonStr)
+    request.input('uid', sql.Int, uidInt)
+    request.input('uname', sql.NVarChar(50), unameVal)
+    request.input('utruename', sql.NVarChar(50), utruenameVal)
+    request.input('now', sql.NVarChar(50), nowStr)
 
     const result = await request.query(`
       UPDATE Sys_Roles
-      SET Permissions = @Permissions
-      OUTPUT INSERTED.RoleID, INSERTED.RoleName, INSERTED.Description, INSERTED.Status, INSERTED.Permissions
+      SET
+        Permissions = @Permissions,
+        uid = @uid,
+        uname = @uname,
+        utruename = @utruename,
+        edittime = @now
+      OUTPUT
+        INSERTED.RoleID,
+        INSERTED.RoleName,
+        INSERTED.Description,
+        INSERTED.pass,
+        INSERTED.Status,
+        INSERTED.Permissions,
+        INSERTED.uid,
+        INSERTED.uname,
+        INSERTED.utruename,
+        INSERTED.addtime,
+        INSERTED.edittime,
+        INSERTED.deltime
       WHERE RoleID = @RoleID
     `)
 
@@ -754,14 +898,16 @@ app.delete('/api/roles/:id', async (req, res) => {
 
     const pool = await getPool()
     const q1 = await pool.request().input('RoleID', sql.Int, roleId).query(`
-      SELECT TOP (1) Status FROM Sys_Roles WHERE RoleID = @RoleID
+      SELECT TOP (1) pass, Status FROM Sys_Roles WHERE RoleID = @RoleID
     `)
     const row = q1.recordset?.[0]
     if (!row) {
       res.status(404).json({ code: 404, msg: '未找到该角色', data: null })
       return
     }
-    if (Number(row.Status) !== 0) {
+    const rowPass = String(row.pass ?? '').trim()
+    const isDisabled = rowPass === '0' || Number(row.Status) === 0
+    if (!isDisabled) {
       res.status(400).json({ code: 400, msg: '请先禁用角色并放入回收站后，再执行删除', data: null })
       return
     }

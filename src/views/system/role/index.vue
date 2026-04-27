@@ -80,10 +80,10 @@
             <el-table-column prop="RoleID" label="角色 ID" min-width="100" />
             <el-table-column prop="RoleName" label="角色名称" min-width="140" show-overflow-tooltip />
             <el-table-column prop="Description" label="描述" min-width="200" show-overflow-tooltip />
-            <el-table-column prop="Status" label="状态" min-width="100">
+            <el-table-column prop="pass" label="状态" min-width="100">
               <template #default="{ row }">
-                <el-tag :type="row?.Status === 1 ? 'success' : 'info'" effect="light">
-                  {{ row?.Status === 1 ? '启用' : '禁用' }}
+                <el-tag :type="String(row?.pass ?? '') === '1' ? 'success' : 'info'" effect="light">
+                  {{ String(row?.pass ?? '') === '1' ? '启用' : '禁用' }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -530,7 +530,7 @@ function collectCheckedPermPaths() {
 
 /**
  * 从后端拉取 Sys_Roles 分页数据
- * 请求：GET /api/roles?page=&pageSize=&status=&keyword=
+ * 请求：GET /api/roles?page=&pageSize=&pass=&keyword=
  */
 async function loadRoles() {
   loading.value = true
@@ -541,7 +541,7 @@ async function loadRoles() {
         page: page.value,
         pageSize: pageSize.value,
         keyword: String(keyword.value || '').trim() || undefined,
-        status: selectedStatus.value,
+        pass: selectedStatus.value,
       },
     })
     const json = res.data
@@ -635,7 +635,7 @@ async function confirmDisable(row) {
       '二次确认',
       { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' },
     )
-    const res = await axios.put('/api/roles', { RoleID: id, Status: 0 })
+    const res = await axios.put('/api/roles', { RoleID: id, pass: '0' })
     const json = res.data
     if (json?.code !== 200) {
       ElMessage.error(json?.msg || '禁用失败')
