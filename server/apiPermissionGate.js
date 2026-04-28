@@ -264,6 +264,96 @@ export function matchApiPermissionRule(method, path, body, params) {
     }
   }
 
+  /* 销售/采购/外协管理 — 基本资料：供应商资料（菜单 path 与 erp_structure_dump 一致） */
+  if (m === 'GET' && path === '/api/supply-chain/suppliers/list') {
+    return { menuPath: 'supply-chain/basic/suppliers', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/supply-chain/suppliers/suggest-code') {
+    return { menuPath: 'supply-chain/basic/suppliers', action: 'add' }
+  }
+  if (m === 'POST' && path === '/api/supply-chain/suppliers') {
+    return { menuPath: 'supply-chain/basic/suppliers', action: 'add' }
+  }
+  if (m === 'PUT' && path === '/api/supply-chain/suppliers') {
+    return { menuPath: 'supply-chain/basic/suppliers', action: 'edit' }
+  }
+  if (m === 'PUT' && path === '/api/supply-chain/suppliers/audit') {
+    return { menuPath: 'supply-chain/basic/suppliers', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/supply-chain/suppliers/unaudit') {
+    return { menuPath: 'supply-chain/basic/suppliers', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/supply-chain/suppliers/restore') {
+    return { menuPath: 'supply-chain/basic/suppliers', action: 'edit' }
+  }
+  /* 回收站彻底删除：须先于泛化 DELETE /:id 匹配（路径以 /permanent 结尾） */
+  if (m === 'DELETE' && /^\/api\/supply-chain\/suppliers\/\d+\/permanent$/.test(path)) {
+    return { menuPath: 'supply-chain/basic/suppliers', action: 'delete' }
+  }
+  if (m === 'DELETE' && /^\/api\/supply-chain\/suppliers\/\d+$/.test(path)) {
+    return { menuPath: 'supply-chain/basic/suppliers', action: 'delete' }
+  }
+
+  /* 销售/采购/外协管理 — 基本资料：销售客户（菜单 path 与前端一致） */
+  if (m === 'GET' && path === '/api/supply-chain/customers/list') {
+    return { menuPath: 'supply-chain/basic/customers', action: 'view' }
+  }
+  if (m === 'GET' && /^\/api\/supply-chain\/customers\/\d+$/.test(path)) {
+    return { menuPath: 'supply-chain/basic/customers', action: 'view' }
+  }
+  if (m === 'POST' && path === '/api/supply-chain/customers') {
+    return { menuPath: 'supply-chain/basic/customers', action: 'add' }
+  }
+  if (m === 'PUT' && path === '/api/supply-chain/customers') {
+    return { menuPath: 'supply-chain/basic/customers', action: 'edit' }
+  }
+  if (m === 'PUT' && path === '/api/supply-chain/customers/audit') {
+    return { menuPath: 'supply-chain/basic/customers', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/supply-chain/customers/unaudit') {
+    return { menuPath: 'supply-chain/basic/customers', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/supply-chain/customers/restore') {
+    return { menuPath: 'supply-chain/basic/customers', action: 'edit' }
+  }
+  /* 回收站彻底删除：须先于泛化 DELETE /:id 匹配（路径以 /permanent 结尾） */
+  if (m === 'DELETE' && /^\/api\/supply-chain\/customers\/\d+\/permanent$/.test(path)) {
+    return { menuPath: 'supply-chain/basic/customers', action: 'delete' }
+  }
+  if (m === 'DELETE' && /^\/api\/supply-chain\/customers\/\d+$/.test(path)) {
+    return { menuPath: 'supply-chain/basic/customers', action: 'delete' }
+  }
+
+  /* 销售/采购/外协管理 — 基本资料：结算方式（菜单 path 与前端一致） */
+  if (m === 'GET' && path === '/api/supply-chain/settlement-methods/list') {
+    return { menuPath: 'supply-chain/basic/payment-methods', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/supply-chain/settlement-methods/suggest-code') {
+    return { menuPath: 'supply-chain/basic/payment-methods', action: 'add' }
+  }
+  if (m === 'POST' && path === '/api/supply-chain/settlement-methods') {
+    return { menuPath: 'supply-chain/basic/payment-methods', action: 'add' }
+  }
+  if (m === 'PUT' && path === '/api/supply-chain/settlement-methods') {
+    return { menuPath: 'supply-chain/basic/payment-methods', action: 'edit' }
+  }
+  if (m === 'PUT' && path === '/api/supply-chain/settlement-methods/audit') {
+    return { menuPath: 'supply-chain/basic/payment-methods', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/supply-chain/settlement-methods/unaudit') {
+    return { menuPath: 'supply-chain/basic/payment-methods', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/supply-chain/settlement-methods/restore') {
+    return { menuPath: 'supply-chain/basic/payment-methods', action: 'edit' }
+  }
+  /* 回收站彻底删除：须先于泛化 DELETE /:id 匹配（路径以 /permanent 结尾） */
+  if (m === 'DELETE' && /^\/api\/supply-chain\/settlement-methods\/\d+\/permanent$/.test(path)) {
+    return { menuPath: 'supply-chain/basic/payment-methods', action: 'delete' }
+  }
+  if (m === 'DELETE' && /^\/api\/supply-chain\/settlement-methods\/\d+$/.test(path)) {
+    return { menuPath: 'supply-chain/basic/payment-methods', action: 'delete' }
+  }
+
   if (m === 'GET' && path === '/api/inventory/color-code/list') {
     return { menuPath: 'inventory/basic/color-code', action: 'view' }
   }

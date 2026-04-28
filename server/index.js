@@ -3184,6 +3184,15 @@ const INV_BOM_MASTER_FROM = `dbo.[${INV_BOM_MASTER_TABLE}]`
 /** 库存基本资料：颜色编码（物理表 Bom_colorcode） */
 const BOM_COLORCODE_FROM = 'dbo.[Bom_colorcode]'
 
+/** 供应商资料（销售/采购/外协管理 → 基本资料 → 供应商资料） */
+const SYS_SUPPLIER_FROM = 'dbo.[System_supplier]'
+
+/** 结算方式（销售/采购/外协管理 → 基本资料 → 结算方式） */
+const SYS_SETTLEMENT_METHOD_FROM = 'dbo.[System_settlement_method]'
+
+/** 销售客户（销售/采购/外协管理 → 基本资料 → 销售客户） */
+const SYS_SALES_CUSTOMER_FROM = 'dbo.[System_sales_customer]'
+
 /**
  * Bom_colorcode 业务时间串：年-月-日 时:分:秒（月、日不补零；时分秒两位），示例 2026-4-23 11:44:51
  * @param {Date} [date]
@@ -3922,6 +3931,9 @@ async function fetchDormElectricRoomInMonthOverlapCount(pool, roomCode, mStartSt
 let HR_STAFF_COLSET_PROMISE = null
 let HR_ROOM_IN_COLSET_PROMISE = null
 let HR_ROOM_COLSET_PROMISE = null
+let SYS_SETTLEMENT_METHOD_COLSET_PROMISE = null
+let SYS_SUPPLIER_COLSET_PROMISE = null
+let SYS_SALES_CUSTOMER_COLSET_PROMISE = null
 
 /**
  * 读取 Hr_staff 的列名集合（小写），并缓存到进程内
@@ -4014,6 +4026,78 @@ async function getHrRoomColumnSet(pool) {
     }
   })()
   return HR_ROOM_COLSET_PROMISE
+}
+
+/** v1.2.2：缓存 System_supplier 列清单（兼容旧库字段不一致导致 SQL 报错） */
+async function getSystemSupplierColumnSet(pool) {
+  if (SYS_SUPPLIER_COLSET_PROMISE) return SYS_SUPPLIER_COLSET_PROMISE
+  SYS_SUPPLIER_COLSET_PROMISE = (async () => {
+    try {
+      const r = await pool.request().query(`
+        SELECT COLUMN_NAME AS name
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'System_supplier'
+      `)
+      const set = new Set()
+      for (const row of r.recordset ?? []) {
+        const n = String(row?.name ?? '').trim()
+        if (n) set.add(n.toLowerCase())
+      }
+      return set
+    } catch (err) {
+      console.warn('[供应商资料] 读取 System_supplier 列清单失败，已降级：', err?.message ?? err)
+      return new Set()
+    }
+  })()
+  return SYS_SUPPLIER_COLSET_PROMISE
+}
+
+/** v1.2.2：缓存 System_settlement_method 列清单（兼容旧库字段不一致导致 SQL 报错） */
+async function getSystemSettlementMethodColumnSet(pool) {
+  if (SYS_SETTLEMENT_METHOD_COLSET_PROMISE) return SYS_SETTLEMENT_METHOD_COLSET_PROMISE
+  SYS_SETTLEMENT_METHOD_COLSET_PROMISE = (async () => {
+    try {
+      const r = await pool.request().query(`
+        SELECT COLUMN_NAME AS name
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'System_settlement_method'
+      `)
+      const set = new Set()
+      for (const row of r.recordset ?? []) {
+        const n = String(row?.name ?? '').trim()
+        if (n) set.add(n.toLowerCase())
+      }
+      return set
+    } catch (err) {
+      console.warn('[结算方式] 读取 System_settlement_method 列清单失败，已降级：', err?.message ?? err)
+      return new Set()
+    }
+  })()
+  return SYS_SETTLEMENT_METHOD_COLSET_PROMISE
+}
+
+/** v1.2.3：缓存 System_sales_customer 列清单（兼容旧库字段不一致导致 SQL 报错） */
+async function getSystemSalesCustomerColumnSet(pool) {
+  if (SYS_SALES_CUSTOMER_COLSET_PROMISE) return SYS_SALES_CUSTOMER_COLSET_PROMISE
+  SYS_SALES_CUSTOMER_COLSET_PROMISE = (async () => {
+    try {
+      const r = await pool.request().query(`
+        SELECT COLUMN_NAME AS name
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'System_sales_customer'
+      `)
+      const set = new Set()
+      for (const row of r.recordset ?? []) {
+        const n = String(row?.name ?? '').trim()
+        if (n) set.add(n.toLowerCase())
+      }
+      return set
+    } catch (err) {
+      console.warn('[销售客户] 读取 System_sales_customer 列清单失败，已降级：', err?.message ?? err)
+      return new Set()
+    }
+  })()
+  return SYS_SALES_CUSTOMER_COLSET_PROMISE
 }
 
 /**
@@ -7141,6 +7225,1802 @@ app.get('/api/inv/bom/list', async (req, res) => {
     console.error('GET /api/inv/bom/list 失败：', err)
     const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
     res.status(500).json({ code: 500, msg: `读取 BOM 列表失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 销售/采购/外协管理：供应商资料分页列表（物理表 System_supplier；SQL Server 2008 R2：ROW_NUMBER 分页）
+ * GET /api/supply-chain/suppliers/list
+ * - 默认：只查已审核 pass=1 且在册 del=0（或空/NULL）
+ * - 可切换：pass=0（显示未审核）；回收站 recycled=1（仅 del=1，不按 pass 过滤）
+ */
+app.get('/api/supply-chain/suppliers/list', async (req, res) => {
+  try {
+    const pool = await getPool()
+    const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
+    const pageSizeRaw = Number(req.query?.pageSize ?? 20) || 20
+    const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+
+    const recycledRaw = String(req.query?.recycled ?? '').trim().toLowerCase()
+    const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
+
+    const passRaw = String(req.query?.pass ?? '1').trim()
+    const pass = passRaw === '0' ? '0' : '1'
+
+    const keywordRaw = String(req.query?.keyword ?? '').trim()
+    const hasKeyword = keywordRaw.length > 0
+    const kwPat = hasKeyword ? `%${escapeSqlLikePattern(keywordRaw)}%` : ''
+
+    const whereBase = recycled
+      ? `
+        WHERE LTRIM(RTRIM(ISNULL(s.del, N''))) = N'1'
+          ${hasKeyword ? ' AND (s.s_code LIKE @kw OR s.s_name LIKE @kw OR s.s_sname LIKE @kw) ' : ''}
+      `
+      : `
+        WHERE (ISNULL(s.del, N'') = N'' OR s.del = N'0')
+          AND LTRIM(RTRIM(ISNULL(s.pass, N''))) = @pass
+          ${hasKeyword ? ' AND (s.s_code LIKE @kw OR s.s_name LIKE @kw OR s.s_sname LIKE @kw) ' : ''}
+      `
+
+    const countReq = pool.request()
+    if (!recycled) countReq.input('pass', sql.NVarChar(10), pass)
+    if (hasKeyword) countReq.input('kw', sql.NVarChar(200), kwPat)
+    const totalRow = await countReq.query(`
+      SELECT COUNT(1) AS total
+      FROM ${SYS_SUPPLIER_FROM} AS s
+      ${whereBase}
+    `)
+    const total = Number(totalRow.recordset?.[0]?.total ?? 0)
+
+    const safeOffset = (page - 1) * pageSize
+    const startRow = safeOffset + 1
+    const endRow = safeOffset + pageSize
+
+    const listReq = pool.request()
+    if (!recycled) listReq.input('pass', sql.NVarChar(10), pass)
+    listReq.input('startRow', sql.Int, startRow)
+    listReq.input('endRow', sql.Int, endRow)
+    if (hasKeyword) listReq.input('kw', sql.NVarChar(200), kwPat)
+
+    const listResult = await listReq.query(`
+      SELECT
+        x.id,
+        x.s_code,
+        x.pass,
+        x.del,
+        x.s_name,
+        x.s_sname,
+        x.s_sh,
+        x.s_lb,
+        x.s_lxr,
+        x.s_mobile,
+        x.s_tel,
+        x.s_payfor,
+        x.s_jh,
+        x.s_wx_jh,
+        x.sl,
+        x.kplx,
+        x.kplxx,
+        x.kplxxx,
+        x.s_address,
+        x.s_business,
+        x.s_bank,
+        x.s_bank_number,
+        x.s_info
+      FROM (
+        SELECT
+          s.id AS id,
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(s.s_code, N'')))) AS s_code,
+          LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(s.pass, N'')))) AS pass,
+          LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(s.del, N'')))) AS del,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.s_name, N'')))) AS s_name,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.s_sname, N'')))) AS s_sname,
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(s.s_sh, N'')))) AS s_sh,
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(s.s_lb, N'')))) AS s_lb,
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(s.s_lxr, N'')))) AS s_lxr,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(s.s_mobile, N'')))) AS s_mobile,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(s.s_tel, N'')))) AS s_tel,
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(s.s_payfor, N'')))) AS s_payfor,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(s.s_jh, N'')))) AS s_jh,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(s.s_wx_jh, N'')))) AS s_wx_jh,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(s.sl, N'')))) AS sl,
+          LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(s.kplx, N'')))) AS kplx,
+          LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(s.kplxx, N'')))) AS kplxx,
+          LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(s.kplxxx, N'')))) AS kplxxx,
+          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(s.s_address, N'')))) AS s_address,
+          LTRIM(RTRIM(CONVERT(nvarchar(1000), ISNULL(s.s_business, N'')))) AS s_business,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.s_bank, N'')))) AS s_bank,
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(s.s_bank_number, N'')))) AS s_bank_number,
+          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(s.s_info, N'')))) AS s_info,
+          ROW_NUMBER() OVER (ORDER BY s.id DESC) AS rn
+        FROM ${SYS_SUPPLIER_FROM} AS s
+        ${whereBase}
+      ) AS x
+      WHERE x.rn BETWEEN @startRow AND @endRow
+      ORDER BY x.rn
+    `)
+
+    const list = (listResult.recordset ?? []).map((row) => ({
+      id: row.id != null ? Number(row.id) : null,
+      s_code: row.s_code ?? '',
+      pass: row.pass ?? '',
+      del: row.del ?? '',
+      s_name: row.s_name ?? '',
+      s_sname: row.s_sname ?? '',
+      s_sh: row.s_sh ?? '',
+      s_lb: row.s_lb ?? '',
+      s_lxr: row.s_lxr ?? '',
+      s_mobile: row.s_mobile ?? '',
+      s_tel: row.s_tel ?? '',
+      s_payfor: row.s_payfor ?? '',
+      s_jh: row.s_jh ?? '',
+      s_wx_jh: row.s_wx_jh ?? '',
+      sl: row.sl ?? '',
+      kplx: row.kplx ?? '',
+      kplxx: row.kplxx ?? '',
+      kplxxx: row.kplxxx ?? '',
+      s_address: row.s_address ?? '',
+      s_business: row.s_business ?? '',
+      s_bank: row.s_bank ?? '',
+      s_bank_number: row.s_bank_number ?? '',
+      s_info: row.s_info ?? '',
+    }))
+
+    res.json({ code: 200, msg: 'success', data: { total, list } })
+  } catch (err) {
+    console.error('GET /api/supply-chain/suppliers/list 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取供应商资料失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 供应商资料：建议编码（用于前端 placeholder）
+ * GET /api/supply-chain/suppliers/suggest-code
+ * 规则：
+ * - 优先：从 s_code 中挑选“纯数字”的最大值 + 1
+ * - 兜底：MAX(id) + 1
+ */
+app.get('/api/supply-chain/suppliers/suggest-code', async (req, res) => {
+  try {
+    const pool = await getPool()
+    const r = await pool.request().query(`
+      SELECT
+        ISNULL(
+          MAX(
+            CASE
+              WHEN LTRIM(RTRIM(ISNULL(s.s_code, N''))) <> N''
+                AND PATINDEX('%[^0-9]%', LTRIM(RTRIM(ISNULL(s.s_code, N'')))) = 0
+                AND ISNUMERIC(LTRIM(RTRIM(ISNULL(s.s_code, N'')))) = 1
+              THEN CAST(LTRIM(RTRIM(ISNULL(s.s_code, N'0'))) AS INT)
+              ELSE NULL
+            END
+          ),
+          0
+        ) AS max_numeric_code,
+        ISNULL(MAX(CASE WHEN s.id IS NULL THEN 0 ELSE s.id END), 0) AS max_id
+      FROM ${SYS_SUPPLIER_FROM} AS s
+    `)
+    const maxNumeric = Number(r.recordset?.[0]?.max_numeric_code ?? 0)
+    const maxId = Number(r.recordset?.[0]?.max_id ?? 0)
+    const n = Number.isFinite(maxNumeric) && maxNumeric > 0 ? maxNumeric + 1 : maxId + 1
+    res.json({ code: 200, msg: 'success', data: { suggestedCode: String(n) } })
+  } catch (err) {
+    console.error('GET /api/supply-chain/suppliers/suggest-code 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `获取建议编码失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 供应商资料：新增（手动编码 s_code）
+ * POST /api/supply-chain/suppliers
+ * - 默认：pass='0'，del='0'
+ * - 审计字段：uid/uname/utruename/addtime（若列存在则写入；值来自 req.user）
+ */
+app.post('/api/supply-chain/suppliers', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const s_code = String(body.s_code ?? '').trim()
+    const s_name = String(body.s_name ?? '').trim()
+    if (!s_code) {
+      res.status(400).json({ code: 400, msg: '新增失败：编码不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const colset = await getSystemSupplierColumnSet(pool)
+
+    // 编码唯一（仅在册）
+    const dupReq = pool.request().input('s_code', sql.NVarChar(100), s_code)
+    const dupRs = await dupReq.query(`
+      SELECT COUNT(1) AS cnt
+      FROM ${SYS_SUPPLIER_FROM} AS s
+      WHERE (ISNULL(s.del, N'') = N'' OR s.del = N'0')
+        AND LTRIM(RTRIM(ISNULL(s.s_code, N''))) = @s_code
+    `)
+    const dup = Number(dupRs.recordset?.[0]?.cnt ?? 0)
+    if (dup > 0) {
+      res.status(400).json({ code: 400, msg: `新增失败：编码「${s_code}」已存在`, data: null })
+      return
+    }
+
+    const nowStr = formatBomColorcodeTimestamp()
+    const actor = getActorAuditTripletFromReq(req)
+
+    /** @type {Array<{ col: string, key: string, type: any, len?: number }>} */
+    const fields = [
+      { col: 's_code', key: 's_code', type: sql.NVarChar, len: 100 },
+      { col: 's_name', key: 's_name', type: sql.NVarChar, len: 200 },
+      { col: 's_sname', key: 's_sname', type: sql.NVarChar, len: 200 },
+      { col: 's_sh', key: 's_sh', type: sql.NVarChar, len: 100 },
+      { col: 's_lb', key: 's_lb', type: sql.NVarChar, len: 100 },
+      { col: 's_lxr', key: 's_lxr', type: sql.NVarChar, len: 100 },
+      { col: 's_mobile', key: 's_mobile', type: sql.NVarChar, len: 50 },
+      { col: 's_tel', key: 's_tel', type: sql.NVarChar, len: 50 },
+      { col: 's_payfor', key: 's_payfor', type: sql.NVarChar, len: 100 },
+      { col: 's_jh', key: 's_jh', type: sql.NVarChar, len: 50 },
+      { col: 's_wx_jh', key: 's_wx_jh', type: sql.NVarChar, len: 50 },
+      { col: 'sl', key: 'sl', type: sql.NVarChar, len: 50 },
+      { col: 'kplx', key: 'kplx', type: sql.NVarChar, len: 10 },
+      { col: 'kplxx', key: 'kplxx', type: sql.NVarChar, len: 10 },
+      { col: 'kplxxx', key: 'kplxxx', type: sql.NVarChar, len: 10 },
+      { col: 's_address', key: 's_address', type: sql.NVarChar, len: 500 },
+      { col: 's_business', key: 's_business', type: sql.NVarChar, len: 1000 },
+      { col: 's_bank', key: 's_bank', type: sql.NVarChar, len: 200 },
+      { col: 's_bank_number', key: 's_bank_number', type: sql.NVarChar, len: 100 },
+      { col: 's_info', key: 's_info', type: sql.NVarChar, len: 500 },
+    ]
+
+    /** @type {string[]} */
+    const cols = []
+    /** @type {string[]} */
+    const vals = []
+    const insReq = pool.request()
+
+    // 业务字段
+    for (const f of fields) {
+      if (!colset.has(f.col.toLowerCase())) continue
+      cols.push(f.col)
+      vals.push(`@${f.key}`)
+      const v = String(body[f.key] ?? '').trim()
+      insReq.input(f.key, f.type(f.len ?? 50), v)
+    }
+
+    // 默认状态位
+    if (colset.has('pass')) {
+      cols.push('pass')
+      vals.push("N'0'")
+    }
+    if (colset.has('del')) {
+      cols.push('del')
+      vals.push("N'0'")
+    }
+
+    // 审计字段（列存在才写）
+    if (colset.has('uid') && actor.uidInt != null) {
+      cols.push('uid')
+      vals.push('@uid')
+      insReq.input('uid', sql.Int, actor.uidInt)
+    }
+    if (colset.has('uname') && actor.uname) {
+      cols.push('uname')
+      vals.push('@uname')
+      insReq.input('uname', sql.NVarChar(50), actor.uname)
+    }
+    if (colset.has('utruename') && actor.utruename) {
+      cols.push('utruename')
+      vals.push('@utruename')
+      insReq.input('utruename', sql.NVarChar(50), actor.utruename)
+    }
+    if (colset.has('addtime')) {
+      cols.push('addtime')
+      vals.push('@addtime')
+      insReq.input('addtime', sql.NVarChar(50), nowStr)
+    }
+
+    if (!cols.length) {
+      res.status(500).json({ code: 500, msg: '新增失败：未探测到可写入的列（请检查 System_supplier 表结构）', data: null })
+      return
+    }
+
+    const r = await insReq.query(`
+      INSERT INTO ${SYS_SUPPLIER_FROM} (${cols.join(', ')})
+      VALUES (${vals.join(', ')})
+    `)
+    const ok = (r.rowsAffected?.[0] ?? 0) > 0
+    if (!ok) {
+      res.status(500).json({ code: 500, msg: '新增失败：数据库未写入记录', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: null })
+  } catch (err) {
+    console.error('POST /api/supply-chain/suppliers 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库写入失败')
+    res.status(500).json({ code: 500, msg: `新增供应商失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 供应商资料：编辑（仅未审核且在册可改）
+ * PUT /api/supply-chain/suppliers
+ * - 规则：WHERE id=@id AND del 在册 AND pass<>'1'
+ */
+app.put('/api/supply-chain/suppliers', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const id = Number(body.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: '参数错误：id 必须为正整数', data: null })
+      return
+    }
+    const s_code = String(body.s_code ?? '').trim()
+    if (!s_code) {
+      res.status(400).json({ code: 400, msg: '保存失败：编码不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const colset = await getSystemSupplierColumnSet(pool)
+    const nowStr = formatBomColorcodeTimestamp()
+    const actor = getActorAuditTripletFromReq(req)
+
+    // 编码唯一（仅在册，排除自己）
+    const dupReq = pool
+      .request()
+      .input('id', sql.Int, id)
+      .input('s_code', sql.NVarChar(100), s_code)
+    const dupRs = await dupReq.query(`
+      SELECT COUNT(1) AS cnt
+      FROM ${SYS_SUPPLIER_FROM} AS s
+      WHERE (ISNULL(s.del, N'') = N'' OR s.del = N'0')
+        AND LTRIM(RTRIM(ISNULL(s.s_code, N''))) = @s_code
+        AND s.id <> @id
+    `)
+    const dup = Number(dupRs.recordset?.[0]?.cnt ?? 0)
+    if (dup > 0) {
+      res.status(400).json({ code: 400, msg: `保存失败：编码「${s_code}」已存在`, data: null })
+      return
+    }
+
+    /** @type {Array<{ col: string, key: string, type: any, len?: number }>} */
+    const fields = [
+      { col: 's_code', key: 's_code', type: sql.NVarChar, len: 100 },
+      { col: 's_name', key: 's_name', type: sql.NVarChar, len: 200 },
+      { col: 's_sname', key: 's_sname', type: sql.NVarChar, len: 200 },
+      { col: 's_sh', key: 's_sh', type: sql.NVarChar, len: 100 },
+      { col: 's_lb', key: 's_lb', type: sql.NVarChar, len: 100 },
+      { col: 's_lxr', key: 's_lxr', type: sql.NVarChar, len: 100 },
+      { col: 's_mobile', key: 's_mobile', type: sql.NVarChar, len: 50 },
+      { col: 's_tel', key: 's_tel', type: sql.NVarChar, len: 50 },
+      { col: 's_payfor', key: 's_payfor', type: sql.NVarChar, len: 100 },
+      { col: 's_jh', key: 's_jh', type: sql.NVarChar, len: 50 },
+      { col: 's_wx_jh', key: 's_wx_jh', type: sql.NVarChar, len: 50 },
+      { col: 'sl', key: 'sl', type: sql.NVarChar, len: 50 },
+      { col: 'kplx', key: 'kplx', type: sql.NVarChar, len: 10 },
+      { col: 'kplxx', key: 'kplxx', type: sql.NVarChar, len: 10 },
+      { col: 'kplxxx', key: 'kplxxx', type: sql.NVarChar, len: 10 },
+      { col: 's_address', key: 's_address', type: sql.NVarChar, len: 500 },
+      { col: 's_business', key: 's_business', type: sql.NVarChar, len: 1000 },
+      { col: 's_bank', key: 's_bank', type: sql.NVarChar, len: 200 },
+      { col: 's_bank_number', key: 's_bank_number', type: sql.NVarChar, len: 100 },
+      { col: 's_info', key: 's_info', type: sql.NVarChar, len: 500 },
+    ]
+
+    /** @type {string[]} */
+    const setParts = []
+    const updReq = pool.request().input('id', sql.Int, id)
+
+    for (const f of fields) {
+      if (!colset.has(f.col.toLowerCase())) continue
+      setParts.push(`${f.col} = @${f.key}`)
+      const v = String(body[f.key] ?? '').trim()
+      updReq.input(f.key, f.type(f.len ?? 50), v)
+    }
+
+    if (colset.has('uid') && actor.uidInt != null) {
+      setParts.push('uid = @uid')
+      updReq.input('uid', sql.Int, actor.uidInt)
+    }
+    if (colset.has('uname') && actor.uname) {
+      setParts.push('uname = @uname')
+      updReq.input('uname', sql.NVarChar(50), actor.uname)
+    }
+    if (colset.has('utruename') && actor.utruename) {
+      setParts.push('utruename = @utruename')
+      updReq.input('utruename', sql.NVarChar(50), actor.utruename)
+    }
+    if (colset.has('edittime')) {
+      setParts.push('edittime = @edittime')
+      updReq.input('edittime', sql.NVarChar(50), nowStr)
+    }
+
+    if (!setParts.length) {
+      res.status(400).json({ code: 400, msg: '保存失败：无可更新字段', data: null })
+      return
+    }
+
+    const r = await updReq.query(`
+      UPDATE ${SYS_SUPPLIER_FROM}
+      SET ${setParts.join(', ')}
+      WHERE id = @id
+        AND (ISNULL(del, N'') = N'' OR del = N'0')
+        AND LTRIM(RTRIM(ISNULL(pass, N''))) <> N'1'
+    `)
+    if ((r.rowsAffected?.[0] ?? 0) <= 0) {
+      res.status(400).json({ code: 400, msg: '保存失败：已审核记录不可修改，或该记录已删除', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: null })
+  } catch (err) {
+    console.error('PUT /api/supply-chain/suppliers 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `保存供应商失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 供应商资料：审核 / 反审 / 恢复 / 软删
+ * - 审核：pass=1
+ * - 反审：pass=0（并清空审核人字段，如列存在）
+ * - 恢复：del=0（仅回收站记录）
+ * - 软删：del=1（仅未审核记录）
+ */
+app.put('/api/supply-chain/suppliers/audit', async (req, res) => {
+  try {
+    const id = Number(req.body?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: '参数错误：id 必须为正整数', data: null })
+      return
+    }
+    const pool = await getPool()
+    const colset = await getSystemSupplierColumnSet(pool)
+    const nowStr = formatBomColorcodeTimestamp()
+    const actor = getActorAuditTripletFromReq(req)
+    const reqDb = pool.request().input('id', sql.Int, id)
+
+    const setParts = ["pass = N'1'"]
+    if (colset.has('edittime')) setParts.push('edittime = @edittime')
+    if (colset.has('passtime')) setParts.push('passtime = @passtime')
+    if (colset.has('passuid') && actor.uidInt != null) setParts.push('passuid = @passuid')
+    if (colset.has('passuname') && actor.uname) setParts.push('passuname = @passuname')
+    if (colset.has('passutruename') && actor.utruename) setParts.push('passutruename = @passutruename')
+    if (colset.has('passip')) setParts.push('passip = @passip')
+
+    if (colset.has('edittime')) reqDb.input('edittime', sql.NVarChar(50), nowStr)
+    if (colset.has('passtime')) reqDb.input('passtime', sql.NVarChar(50), nowStr)
+    if (colset.has('passuid') && actor.uidInt != null) reqDb.input('passuid', sql.Int, actor.uidInt)
+    if (colset.has('passuname') && actor.uname) reqDb.input('passuname', sql.NVarChar(50), actor.uname)
+    if (colset.has('passutruename') && actor.utruename) reqDb.input('passutruename', sql.NVarChar(50), actor.utruename)
+    if (colset.has('passip')) reqDb.input('passip', sql.NVarChar(64), getRequestIp(req))
+
+    const r = await reqDb.query(`
+      UPDATE ${SYS_SUPPLIER_FROM}
+      SET ${setParts.join(', ')}
+      WHERE id = @id AND (ISNULL(del, N'') = N'' OR del = N'0') AND LTRIM(RTRIM(ISNULL(pass, N''))) <> N'1'
+    `)
+    if ((r.rowsAffected?.[0] ?? 0) <= 0) {
+      res.status(400).json({ code: 400, msg: '审核失败：请确认该记录在册且当前为未审核状态', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: null })
+  } catch (err) {
+    console.error('PUT /api/supply-chain/suppliers/audit 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `审核供应商失败：${detail}`, data: null })
+  }
+})
+
+app.put('/api/supply-chain/suppliers/unaudit', async (req, res) => {
+  try {
+    const id = Number(req.body?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: '参数错误：id 必须为正整数', data: null })
+      return
+    }
+    const pool = await getPool()
+    const colset = await getSystemSupplierColumnSet(pool)
+    const nowStr = formatBomColorcodeTimestamp()
+    const reqDb = pool.request().input('id', sql.Int, id)
+
+    const setParts = ["pass = N'0'"]
+    if (colset.has('edittime')) setParts.push('edittime = @edittime')
+    if (colset.has('passtime')) setParts.push('passtime = NULL')
+    if (colset.has('passuid')) setParts.push('passuid = NULL')
+    if (colset.has('passuname')) setParts.push('passuname = NULL')
+    if (colset.has('passutruename')) setParts.push('passutruename = NULL')
+    if (colset.has('passip')) setParts.push('passip = NULL')
+    if (colset.has('edittime')) reqDb.input('edittime', sql.NVarChar(50), nowStr)
+
+    const r = await reqDb.query(`
+      UPDATE ${SYS_SUPPLIER_FROM}
+      SET ${setParts.join(', ')}
+      WHERE id = @id AND (ISNULL(del, N'') = N'' OR del = N'0') AND LTRIM(RTRIM(ISNULL(pass, N''))) = N'1'
+    `)
+    if ((r.rowsAffected?.[0] ?? 0) <= 0) {
+      res.status(400).json({ code: 400, msg: '反审失败：请确认该记录在册且当前为已审核状态', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: null })
+  } catch (err) {
+    console.error('PUT /api/supply-chain/suppliers/unaudit 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `反审供应商失败：${detail}`, data: null })
+  }
+})
+
+app.put('/api/supply-chain/suppliers/restore', async (req, res) => {
+  try {
+    const id = Number(req.body?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: '参数错误：id 必须为正整数', data: null })
+      return
+    }
+    const pool = await getPool()
+    const colset = await getSystemSupplierColumnSet(pool)
+    const nowStr = formatBomColorcodeTimestamp()
+    const reqDb = pool.request().input('id', sql.Int, id)
+
+    const setParts = ["del = N'0'"]
+    if (colset.has('edittime')) setParts.push('edittime = @edittime')
+    if (colset.has('deltime')) setParts.push('deltime = NULL')
+    if (colset.has('edittime')) reqDb.input('edittime', sql.NVarChar(50), nowStr)
+
+    const r = await reqDb.query(`
+      UPDATE ${SYS_SUPPLIER_FROM}
+      SET ${setParts.join(', ')}
+      WHERE id = @id AND LTRIM(RTRIM(ISNULL(del, N''))) = N'1'
+    `)
+    if ((r.rowsAffected?.[0] ?? 0) <= 0) {
+      res.status(400).json({ code: 400, msg: '恢复失败：请确认该记录当前在回收站（del=1）', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: null })
+  } catch (err) {
+    console.error('PUT /api/supply-chain/suppliers/restore 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `恢复供应商失败：${detail}`, data: null })
+  }
+})
+
+app.delete('/api/supply-chain/suppliers/:id', async (req, res) => {
+  try {
+    const id = Number(req.params?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: '参数错误：id 必须为正整数', data: null })
+      return
+    }
+    const pool = await getPool()
+    const colset = await getSystemSupplierColumnSet(pool)
+    const nowStr = formatBomColorcodeTimestamp()
+    const reqDb = pool.request().input('id', sql.Int, id)
+
+    const setParts = ["del = N'1'"]
+    if (colset.has('deltime')) setParts.push('deltime = @deltime')
+    if (colset.has('deltime')) reqDb.input('deltime', sql.NVarChar(50), nowStr)
+
+    const r = await reqDb.query(`
+      UPDATE ${SYS_SUPPLIER_FROM}
+      SET ${setParts.join(', ')}
+      WHERE id = @id
+        AND (ISNULL(del, N'') = N'' OR del = N'0')
+        AND LTRIM(RTRIM(ISNULL(pass, N''))) <> N'1'
+    `)
+    if ((r.rowsAffected?.[0] ?? 0) <= 0) {
+      res.status(400).json({ code: 400, msg: '删除失败：已审核记录不可删除，请先反审；或该记录已在回收站', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: null })
+  } catch (err) {
+    console.error('DELETE /api/supply-chain/suppliers/:id 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `删除供应商失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 供应商资料：回收站彻底删除（物理删除，不可恢复）
+ * DELETE /api/supply-chain/suppliers/:id/permanent
+ * - 仅允许 del=1
+ */
+app.delete('/api/supply-chain/suppliers/:id/permanent', async (req, res) => {
+  try {
+    const id = Number(req.params?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: '参数错误：id 必须为正整数', data: null })
+      return
+    }
+    const pool = await getPool()
+    const r = await pool.request().input('id', sql.Int, id).query(`
+      DELETE FROM ${SYS_SUPPLIER_FROM}
+      WHERE id = @id AND LTRIM(RTRIM(ISNULL(del, N''))) = N'1'
+    `)
+    if ((r.rowsAffected?.[0] ?? 0) <= 0) {
+      res.status(400).json({ code: 400, msg: '彻底删除失败：请确认该记录在回收站（del=1）', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: null })
+  } catch (err) {
+    console.error('DELETE /api/supply-chain/suppliers/:id/permanent 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `彻底删除供应商失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 销售/采购/外协管理：销售客户分页列表（物理表 System_sales_customer；SQL Server 2008 R2：ROW_NUMBER 分页）
+ * GET /api/supply-chain/customers/list
+ * - 默认：只查已审核 pass=1 且在册 del=0（或空/NULL）
+ * - 可切换：pass=0（显示未审核）；回收站 recycled=1（仅 del=1，不按 pass 过滤）
+ */
+app.get('/api/supply-chain/customers/list', async (req, res) => {
+  try {
+    const pool = await getPool()
+    const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
+    const pageSizeRaw = Number(req.query?.pageSize ?? 20) || 20
+    const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+
+    const recycledRaw = String(req.query?.recycled ?? '').trim().toLowerCase()
+    const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
+
+    const passRaw = String(req.query?.pass ?? '1').trim()
+    const pass = passRaw === '0' ? '0' : '1'
+
+    const keywordRaw = String(req.query?.keyword ?? '').trim()
+    const hasKeyword = keywordRaw.length > 0
+    const kwPat = hasKeyword ? `%${escapeSqlLikePattern(keywordRaw)}%` : ''
+
+    const whereBase = recycled
+      ? `
+        WHERE LTRIM(RTRIM(ISNULL(c.del, N''))) = N'1'
+          ${hasKeyword ? ' AND (c.s_code LIKE @kw OR c.s_name LIKE @kw OR c.s_address LIKE @kw) ' : ''}
+      `
+      : `
+        WHERE (ISNULL(c.del, N'') = N'' OR c.del = N'0')
+          AND LTRIM(RTRIM(ISNULL(c.pass, N''))) = @pass
+          ${hasKeyword ? ' AND (c.s_code LIKE @kw OR c.s_name LIKE @kw OR c.s_address LIKE @kw) ' : ''}
+      `
+
+    const countReq = pool.request()
+    if (!recycled) countReq.input('pass', sql.NVarChar(10), pass)
+    if (hasKeyword) countReq.input('kw', sql.NVarChar(200), kwPat)
+    const totalRow = await countReq.query(`
+      SELECT COUNT(1) AS total
+      FROM ${SYS_SALES_CUSTOMER_FROM} AS c
+      ${whereBase}
+    `)
+    const total = Number(totalRow.recordset?.[0]?.total ?? 0)
+
+    const safeOffset = (page - 1) * pageSize
+    const startRow = safeOffset + 1
+    const endRow = safeOffset + pageSize
+
+    const listReq = pool.request()
+    if (!recycled) listReq.input('pass', sql.NVarChar(10), pass)
+    listReq.input('startRow', sql.Int, startRow)
+    listReq.input('endRow', sql.Int, endRow)
+    if (hasKeyword) listReq.input('kw', sql.NVarChar(200), kwPat)
+
+    const listResult = await listReq.query(`
+      SELECT
+        x.id,
+        x.s_code,
+        x.pass,
+        x.del,
+        x.s_name,
+        x.s_address,
+        x.s_lxr,
+        x.s_tel,
+        x.s_mobile,
+        x.s_payfor,
+        x.lxr,
+        x.s_info,
+        x.s_business,
+        x.s_lb
+      FROM (
+        SELECT
+          c.id AS id,
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.s_code, N'')))) AS s_code,
+          LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(c.pass, N'')))) AS pass,
+          LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(c.del, N'')))) AS del,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.s_name, N'')))) AS s_name,
+          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(c.s_address, N'')))) AS s_address,
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.s_lxr, N'')))) AS s_lxr,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(c.s_tel, N'')))) AS s_tel,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(c.s_mobile, N'')))) AS s_mobile,
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.s_payfor, N'')))) AS s_payfor,
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.lxr, N'')))) AS lxr,
+          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(c.s_info, N'')))) AS s_info,
+          LTRIM(RTRIM(CONVERT(nvarchar(1000), ISNULL(c.s_business, N'')))) AS s_business,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(c.s_lb, N'')))) AS s_lb,
+          ROW_NUMBER() OVER (ORDER BY c.id DESC) AS rn
+        FROM ${SYS_SALES_CUSTOMER_FROM} AS c
+        ${whereBase}
+      ) AS x
+      WHERE x.rn BETWEEN @startRow AND @endRow
+      ORDER BY x.rn
+    `)
+
+    const list = (listResult.recordset ?? []).map((row) => ({
+      id: row.id != null ? Number(row.id) : null,
+      s_code: row.s_code ?? '',
+      pass: row.pass ?? '',
+      del: row.del ?? '',
+      s_name: row.s_name ?? '',
+      s_address: row.s_address ?? '',
+      s_lxr: row.s_lxr ?? '',
+      s_tel: row.s_tel ?? '',
+      s_mobile: row.s_mobile ?? '',
+      s_payfor: row.s_payfor ?? '',
+      lxr: row.lxr ?? '',
+      s_info: row.s_info ?? '',
+      s_business: row.s_business ?? '',
+      s_lb: row.s_lb ?? '',
+    }))
+
+    res.json({ code: 200, msg: 'success', data: { total, list, recycled } })
+  } catch (err) {
+    console.error('GET /api/supply-chain/customers/list 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取销售客户失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 销售客户：详情（供“查看”弹窗/抽屉）
+ * GET /api/supply-chain/customers/:id
+ * - 不区分 pass/del（回收站也可查看）
+ */
+app.get('/api/supply-chain/customers/:id', async (req, res) => {
+  try {
+    const id = Number(req.params?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: '参数错误：id 必须为正整数', data: null })
+      return
+    }
+    const pool = await getPool()
+    const r = await pool.request().input('id', sql.Int, id).query(`
+      SELECT TOP (1)
+        c.id,
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.s_code, N'')))) AS s_code,
+        LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(c.pass, N'')))) AS pass,
+        LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(c.del, N'')))) AS del,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.s_name, N'')))) AS s_name,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(c.s_address, N'')))) AS s_address,
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.s_lxr, N'')))) AS s_lxr,
+        LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(c.s_tel, N'')))) AS s_tel,
+        LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(c.s_mobile, N'')))) AS s_mobile,
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.s_payfor, N'')))) AS s_payfor,
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.lxr, N'')))) AS lxr,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(c.s_info, N'')))) AS s_info,
+        LTRIM(RTRIM(CONVERT(nvarchar(1000), ISNULL(c.s_business, N'')))) AS s_business,
+        LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(c.s_lb, N'')))) AS s_lb
+      FROM ${SYS_SALES_CUSTOMER_FROM} AS c
+      WHERE c.id = @id
+    `)
+    const row = r.recordset?.[0]
+    if (!row) {
+      res.status(404).json({ code: 404, msg: '未找到该客户', data: null })
+      return
+    }
+    res.json({
+      code: 200,
+      msg: 'success',
+      data: {
+        id: row.id != null ? Number(row.id) : null,
+        s_code: row.s_code ?? '',
+        pass: row.pass ?? '',
+        del: row.del ?? '',
+        s_name: row.s_name ?? '',
+        s_address: row.s_address ?? '',
+        s_lxr: row.s_lxr ?? '',
+        s_tel: row.s_tel ?? '',
+        s_mobile: row.s_mobile ?? '',
+        s_payfor: row.s_payfor ?? '',
+        lxr: row.lxr ?? '',
+        s_info: row.s_info ?? '',
+        s_business: row.s_business ?? '',
+        s_lb: row.s_lb ?? '',
+      },
+    })
+  } catch (err) {
+    console.error('GET /api/supply-chain/customers/:id 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取客户详情失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 销售客户：新增（编码 s_code 手动填写）
+ * POST /api/supply-chain/customers
+ * - 默认：pass='0'，del='0'
+ * - 审计字段：uid/uname/utruename/addtime（若列存在则写入；值来自 req.user）
+ */
+app.post('/api/supply-chain/customers', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const s_code = String(body.s_code ?? '').trim()
+    const s_name = String(body.s_name ?? '').trim()
+    if (!s_code) {
+      res.status(400).json({ code: 400, msg: '新增失败：编码不能为空', data: null })
+      return
+    }
+    if (!s_name) {
+      res.status(400).json({ code: 400, msg: '新增失败：名称不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const colset = await getSystemSalesCustomerColumnSet(pool)
+
+    // 编码唯一（仅在册）
+    const dupReq = pool.request().input('s_code', sql.NVarChar(100), s_code)
+    const dupRs = await dupReq.query(`
+      SELECT COUNT(1) AS cnt
+      FROM ${SYS_SALES_CUSTOMER_FROM} AS c
+      WHERE (ISNULL(c.del, N'') = N'' OR c.del = N'0')
+        AND LTRIM(RTRIM(ISNULL(c.s_code, N''))) = @s_code
+    `)
+    const dup = Number(dupRs.recordset?.[0]?.cnt ?? 0)
+    if (dup > 0) {
+      res.status(400).json({ code: 400, msg: `新增失败：编码「${s_code}」已存在`, data: null })
+      return
+    }
+
+    const nowStr = formatBomColorcodeTimestamp()
+    const actor = getActorAuditTripletFromReq(req)
+
+    /** @type {Array<{ col: string, key: string, type: any, len?: number }>} */
+    const fields = [
+      { col: 's_code', key: 's_code', type: sql.NVarChar, len: 100 },
+      { col: 's_name', key: 's_name', type: sql.NVarChar, len: 200 },
+      { col: 's_address', key: 's_address', type: sql.NVarChar, len: 500 },
+      { col: 's_lxr', key: 's_lxr', type: sql.NVarChar, len: 100 },
+      { col: 's_tel', key: 's_tel', type: sql.NVarChar, len: 50 },
+      { col: 's_mobile', key: 's_mobile', type: sql.NVarChar, len: 50 },
+      { col: 's_payfor', key: 's_payfor', type: sql.NVarChar, len: 100 },
+      { col: 'lxr', key: 'lxr', type: sql.NVarChar, len: 100 },
+      { col: 's_info', key: 's_info', type: sql.NVarChar, len: 500 },
+      { col: 's_business', key: 's_business', type: sql.NVarChar, len: 1000 },
+      { col: 's_lb', key: 's_lb', type: sql.NVarChar, len: 50 },
+    ]
+
+    /** @type {string[]} */
+    const cols = []
+    /** @type {string[]} */
+    const vals = []
+    const insReq = pool.request()
+
+    for (const f of fields) {
+      if (!colset.has(f.col.toLowerCase())) continue
+      cols.push(f.col)
+      vals.push(`@${f.key}`)
+      const v = String(body[f.key] ?? '').trim()
+      insReq.input(f.key, f.type(f.len ?? 50), v)
+    }
+
+    if (colset.has('pass')) {
+      cols.push('pass')
+      vals.push("N'0'")
+    }
+    if (colset.has('del')) {
+      cols.push('del')
+      vals.push("N'0'")
+    }
+
+    if (colset.has('uid') && actor.uidInt != null) {
+      cols.push('uid')
+      vals.push('@uid')
+      insReq.input('uid', sql.Int, actor.uidInt)
+    }
+    if (colset.has('uname') && actor.uname) {
+      cols.push('uname')
+      vals.push('@uname')
+      insReq.input('uname', sql.NVarChar(50), actor.uname)
+    }
+    if (colset.has('utruename') && actor.utruename) {
+      cols.push('utruename')
+      vals.push('@utruename')
+      insReq.input('utruename', sql.NVarChar(50), actor.utruename)
+    }
+    if (colset.has('addtime')) {
+      cols.push('addtime')
+      vals.push('@addtime')
+      insReq.input('addtime', sql.NVarChar(50), nowStr)
+    }
+
+    if (!cols.length) {
+      res.status(500).json({
+        code: 500,
+        msg: '新增失败：未探测到可写入的列（请检查 System_sales_customer 表结构）',
+        data: null,
+      })
+      return
+    }
+
+    const r = await insReq.query(`
+      INSERT INTO ${SYS_SALES_CUSTOMER_FROM} (${cols.join(', ')})
+      VALUES (${vals.join(', ')})
+    `)
+    const ok = (r.rowsAffected?.[0] ?? 0) > 0
+    if (!ok) {
+      res.status(500).json({ code: 500, msg: '新增失败：数据库未写入记录', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: null })
+  } catch (err) {
+    console.error('POST /api/supply-chain/customers 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库写入失败')
+    res.status(500).json({ code: 500, msg: `新增客户失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 销售客户：编辑（仅未审核且在册可改）
+ * PUT /api/supply-chain/customers
+ */
+app.put('/api/supply-chain/customers', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const id = Number(body.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: '参数错误：id 必须为正整数', data: null })
+      return
+    }
+    const s_code = String(body.s_code ?? '').trim()
+    const s_name = String(body.s_name ?? '').trim()
+    if (!s_code) {
+      res.status(400).json({ code: 400, msg: '保存失败：编码不能为空', data: null })
+      return
+    }
+    if (!s_name) {
+      res.status(400).json({ code: 400, msg: '保存失败：名称不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const colset = await getSystemSalesCustomerColumnSet(pool)
+    const nowStr = formatBomColorcodeTimestamp()
+    const actor = getActorAuditTripletFromReq(req)
+
+    // 编码唯一（仅在册，排除自己）
+    const dupReq = pool.request().input('id', sql.Int, id).input('s_code', sql.NVarChar(100), s_code)
+    const dupRs = await dupReq.query(`
+      SELECT COUNT(1) AS cnt
+      FROM ${SYS_SALES_CUSTOMER_FROM} AS c
+      WHERE (ISNULL(c.del, N'') = N'' OR c.del = N'0')
+        AND LTRIM(RTRIM(ISNULL(c.s_code, N''))) = @s_code
+        AND c.id <> @id
+    `)
+    const dup = Number(dupRs.recordset?.[0]?.cnt ?? 0)
+    if (dup > 0) {
+      res.status(400).json({ code: 400, msg: `保存失败：编码「${s_code}」已存在`, data: null })
+      return
+    }
+
+    /** @type {Array<{ col: string, key: string, type: any, len?: number }>} */
+    const fields = [
+      { col: 's_code', key: 's_code', type: sql.NVarChar, len: 100 },
+      { col: 's_name', key: 's_name', type: sql.NVarChar, len: 200 },
+      { col: 's_address', key: 's_address', type: sql.NVarChar, len: 500 },
+      { col: 's_lxr', key: 's_lxr', type: sql.NVarChar, len: 100 },
+      { col: 's_tel', key: 's_tel', type: sql.NVarChar, len: 50 },
+      { col: 's_mobile', key: 's_mobile', type: sql.NVarChar, len: 50 },
+      { col: 's_payfor', key: 's_payfor', type: sql.NVarChar, len: 100 },
+      { col: 'lxr', key: 'lxr', type: sql.NVarChar, len: 100 },
+      { col: 's_info', key: 's_info', type: sql.NVarChar, len: 500 },
+      { col: 's_business', key: 's_business', type: sql.NVarChar, len: 1000 },
+      { col: 's_lb', key: 's_lb', type: sql.NVarChar, len: 50 },
+    ]
+
+    /** @type {string[]} */
+    const setParts = []
+    const updReq = pool.request().input('id', sql.Int, id)
+    for (const f of fields) {
+      if (!colset.has(f.col.toLowerCase())) continue
+      setParts.push(`${f.col} = @${f.key}`)
+      const v = String(body[f.key] ?? '').trim()
+      updReq.input(f.key, f.type(f.len ?? 50), v)
+    }
+
+    if (colset.has('uid') && actor.uidInt != null) {
+      setParts.push('uid = @uid')
+      updReq.input('uid', sql.Int, actor.uidInt)
+    }
+    if (colset.has('uname') && actor.uname) {
+      setParts.push('uname = @uname')
+      updReq.input('uname', sql.NVarChar(50), actor.uname)
+    }
+    if (colset.has('utruename') && actor.utruename) {
+      setParts.push('utruename = @utruename')
+      updReq.input('utruename', sql.NVarChar(50), actor.utruename)
+    }
+    if (colset.has('edittime')) {
+      setParts.push('edittime = @edittime')
+      updReq.input('edittime', sql.NVarChar(50), nowStr)
+    }
+
+    if (!setParts.length) {
+      res.status(400).json({ code: 400, msg: '保存失败：无可更新字段', data: null })
+      return
+    }
+
+    const r = await updReq.query(`
+      UPDATE ${SYS_SALES_CUSTOMER_FROM}
+      SET ${setParts.join(', ')}
+      WHERE id = @id
+        AND (ISNULL(del, N'') = N'' OR del = N'0')
+        AND LTRIM(RTRIM(ISNULL(pass, N''))) <> N'1'
+    `)
+    if ((r.rowsAffected?.[0] ?? 0) <= 0) {
+      res.status(400).json({ code: 400, msg: '保存失败：已审核记录不可修改，或该记录已删除', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: null })
+  } catch (err) {
+    console.error('PUT /api/supply-chain/customers 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `保存客户失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 销售客户：审核 / 反审 / 恢复 / 软删 / 回收站彻底删除
+ */
+app.put('/api/supply-chain/customers/audit', async (req, res) => {
+  try {
+    const id = Number(req.body?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: '参数错误：id 必须为正整数', data: null })
+      return
+    }
+    const pool = await getPool()
+    const colset = await getSystemSalesCustomerColumnSet(pool)
+    const nowStr = formatBomColorcodeTimestamp()
+    const actor = getActorAuditTripletFromReq(req)
+    const reqDb = pool.request().input('id', sql.Int, id)
+
+    const setParts = ["pass = N'1'"]
+    if (colset.has('edittime')) setParts.push('edittime = @edittime')
+    if (colset.has('passtime')) setParts.push('passtime = @passtime')
+    if (colset.has('passuid') && actor.uidInt != null) setParts.push('passuid = @passuid')
+    if (colset.has('passuname') && actor.uname) setParts.push('passuname = @passuname')
+    if (colset.has('passutruename') && actor.utruename) setParts.push('passutruename = @passutruename')
+    if (colset.has('passip')) setParts.push('passip = @passip')
+
+    if (colset.has('edittime')) reqDb.input('edittime', sql.NVarChar(50), nowStr)
+    if (colset.has('passtime')) reqDb.input('passtime', sql.NVarChar(50), nowStr)
+    if (colset.has('passuid') && actor.uidInt != null) reqDb.input('passuid', sql.Int, actor.uidInt)
+    if (colset.has('passuname') && actor.uname) reqDb.input('passuname', sql.NVarChar(50), actor.uname)
+    if (colset.has('passutruename') && actor.utruename) reqDb.input('passutruename', sql.NVarChar(50), actor.utruename)
+    if (colset.has('passip')) reqDb.input('passip', sql.NVarChar(64), getRequestIp(req))
+
+    const r = await reqDb.query(`
+      UPDATE ${SYS_SALES_CUSTOMER_FROM}
+      SET ${setParts.join(', ')}
+      WHERE id = @id AND (ISNULL(del, N'') = N'' OR del = N'0') AND LTRIM(RTRIM(ISNULL(pass, N''))) <> N'1'
+    `)
+    if ((r.rowsAffected?.[0] ?? 0) <= 0) {
+      res.status(400).json({ code: 400, msg: '审核失败：请确认该记录在册且当前为未审核状态', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: null })
+  } catch (err) {
+    console.error('PUT /api/supply-chain/customers/audit 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `审核客户失败：${detail}`, data: null })
+  }
+})
+
+app.put('/api/supply-chain/customers/unaudit', async (req, res) => {
+  try {
+    const id = Number(req.body?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: '参数错误：id 必须为正整数', data: null })
+      return
+    }
+    const pool = await getPool()
+    const colset = await getSystemSalesCustomerColumnSet(pool)
+    const nowStr = formatBomColorcodeTimestamp()
+    const reqDb = pool.request().input('id', sql.Int, id)
+
+    const setParts = ["pass = N'0'"]
+    if (colset.has('edittime')) setParts.push('edittime = @edittime')
+    if (colset.has('passtime')) setParts.push('passtime = NULL')
+    if (colset.has('passuid')) setParts.push('passuid = NULL')
+    if (colset.has('passuname')) setParts.push('passuname = NULL')
+    if (colset.has('passutruename')) setParts.push('passutruename = NULL')
+    if (colset.has('passip')) setParts.push('passip = NULL')
+    if (colset.has('edittime')) reqDb.input('edittime', sql.NVarChar(50), nowStr)
+
+    const r = await reqDb.query(`
+      UPDATE ${SYS_SALES_CUSTOMER_FROM}
+      SET ${setParts.join(', ')}
+      WHERE id = @id AND (ISNULL(del, N'') = N'' OR del = N'0') AND LTRIM(RTRIM(ISNULL(pass, N''))) = N'1'
+    `)
+    if ((r.rowsAffected?.[0] ?? 0) <= 0) {
+      res.status(400).json({ code: 400, msg: '反审失败：请确认该记录在册且当前为已审核状态', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: null })
+  } catch (err) {
+    console.error('PUT /api/supply-chain/customers/unaudit 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `反审客户失败：${detail}`, data: null })
+  }
+})
+
+app.put('/api/supply-chain/customers/restore', async (req, res) => {
+  try {
+    const id = Number(req.body?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: '参数错误：id 必须为正整数', data: null })
+      return
+    }
+    const pool = await getPool()
+    const colset = await getSystemSalesCustomerColumnSet(pool)
+    const nowStr = formatBomColorcodeTimestamp()
+    const reqDb = pool.request().input('id', sql.Int, id)
+
+    const setParts = ["del = N'0'"]
+    if (colset.has('edittime')) setParts.push('edittime = @edittime')
+    if (colset.has('deltime')) setParts.push('deltime = NULL')
+    if (colset.has('edittime')) reqDb.input('edittime', sql.NVarChar(50), nowStr)
+
+    const r = await reqDb.query(`
+      UPDATE ${SYS_SALES_CUSTOMER_FROM}
+      SET ${setParts.join(', ')}
+      WHERE id = @id AND LTRIM(RTRIM(ISNULL(del, N''))) = N'1'
+    `)
+    if ((r.rowsAffected?.[0] ?? 0) <= 0) {
+      res.status(400).json({ code: 400, msg: '恢复失败：请确认该记录当前在回收站（del=1）', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: null })
+  } catch (err) {
+    console.error('PUT /api/supply-chain/customers/restore 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `恢复客户失败：${detail}`, data: null })
+  }
+})
+
+app.delete('/api/supply-chain/customers/:id', async (req, res) => {
+  try {
+    const id = Number(req.params?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: '参数错误：id 必须为正整数', data: null })
+      return
+    }
+    const pool = await getPool()
+    const colset = await getSystemSalesCustomerColumnSet(pool)
+    const nowStr = formatBomColorcodeTimestamp()
+    const reqDb = pool.request().input('id', sql.Int, id)
+
+    const setParts = ["del = N'1'"]
+    if (colset.has('deltime')) setParts.push('deltime = @deltime')
+    if (colset.has('deltime')) reqDb.input('deltime', sql.NVarChar(50), nowStr)
+
+    const r = await reqDb.query(`
+      UPDATE ${SYS_SALES_CUSTOMER_FROM}
+      SET ${setParts.join(', ')}
+      WHERE id = @id
+        AND (ISNULL(del, N'') = N'' OR del = N'0')
+        AND LTRIM(RTRIM(ISNULL(pass, N''))) <> N'1'
+    `)
+    if ((r.rowsAffected?.[0] ?? 0) <= 0) {
+      res.status(400).json({ code: 400, msg: '删除失败：已审核记录不可删除，请先反审；或该记录已在回收站', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: null })
+  } catch (err) {
+    console.error('DELETE /api/supply-chain/customers/:id 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `删除客户失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 销售客户：回收站彻底删除（物理删除，不可恢复）
+ * DELETE /api/supply-chain/customers/:id/permanent
+ * - 仅允许 del=1
+ */
+app.delete('/api/supply-chain/customers/:id/permanent', async (req, res) => {
+  try {
+    const id = Number(req.params?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: '参数错误：id 必须为正整数', data: null })
+      return
+    }
+    const pool = await getPool()
+    const r = await pool.request().input('id', sql.Int, id).query(`
+      DELETE FROM ${SYS_SALES_CUSTOMER_FROM}
+      WHERE id = @id AND LTRIM(RTRIM(ISNULL(del, N''))) = N'1'
+    `)
+    if ((r.rowsAffected?.[0] ?? 0) <= 0) {
+      res.status(400).json({ code: 400, msg: '彻底删除失败：请确认该记录在回收站（del=1）', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: null })
+  } catch (err) {
+    console.error('DELETE /api/supply-chain/customers/:id/permanent 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `彻底删除客户失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 销售/采购/外协管理：结算方式分页列表（物理表 System_settlement_method；SQL Server 2008 R2：ROW_NUMBER 分页）
+ * GET /api/supply-chain/settlement-methods/list
+ * - 默认：只查已审核 pass=1 且在册 del=0（或空/NULL）
+ * - 可切换：pass=0（显示未审核）；回收站 recycled=1（仅 del=1，不按 pass 过滤）
+ */
+app.get('/api/supply-chain/settlement-methods/list', async (req, res) => {
+  try {
+    const pool = await getPool()
+    const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
+    const pageSizeRaw = Number(req.query?.pageSize ?? 20) || 20
+    const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+
+    const recycledRaw = String(req.query?.recycled ?? '').trim().toLowerCase()
+    const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
+
+    const passRaw = String(req.query?.pass ?? '1').trim()
+    const pass = passRaw === '0' ? '0' : '1'
+
+    const keywordRaw = String(req.query?.keyword ?? '').trim()
+    const hasKeyword = keywordRaw.length > 0
+    const kwPat = hasKeyword ? `%${escapeSqlLikePattern(keywordRaw)}%` : ''
+
+    const whereBase = recycled
+      ? `
+        WHERE LTRIM(RTRIM(ISNULL(m.del, N''))) = N'1'
+          ${hasKeyword ? ' AND (m.code LIKE @kw OR m.name LIKE @kw OR m.info LIKE @kw) ' : ''}
+      `
+      : `
+        WHERE (ISNULL(m.del, N'') = N'' OR m.del = N'0')
+          AND LTRIM(RTRIM(ISNULL(m.pass, N''))) = @pass
+          ${hasKeyword ? ' AND (m.code LIKE @kw OR m.name LIKE @kw OR m.info LIKE @kw) ' : ''}
+      `
+
+    const countReq = pool.request()
+    if (!recycled) countReq.input('pass', sql.NVarChar(10), pass)
+    if (hasKeyword) countReq.input('kw', sql.NVarChar(200), kwPat)
+    const totalRow = await countReq.query(`
+      SELECT COUNT(1) AS total
+      FROM ${SYS_SETTLEMENT_METHOD_FROM} AS m
+      ${whereBase}
+    `)
+    const total = Number(totalRow.recordset?.[0]?.total ?? 0)
+
+    const safeOffset = (page - 1) * pageSize
+    const startRow = safeOffset + 1
+    const endRow = safeOffset + pageSize
+
+    const listReq = pool.request()
+    if (!recycled) listReq.input('pass', sql.NVarChar(10), pass)
+    listReq.input('startRow', sql.Int, startRow)
+    listReq.input('endRow', sql.Int, endRow)
+    if (hasKeyword) listReq.input('kw', sql.NVarChar(200), kwPat)
+
+    const listResult = await listReq.query(`
+      SELECT
+        x.id,
+        x.code,
+        x.name,
+        x.payfor,
+        x.info,
+        x.pass,
+        x.del
+      FROM (
+        SELECT
+          m.id AS id,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(m.code, N'')))) AS code,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(m.name, N'')))) AS name,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(m.payfor, N'')))) AS payfor,
+          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(m.info, N'')))) AS info,
+          LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(m.pass, N'')))) AS pass,
+          LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(m.del, N'')))) AS del,
+          ROW_NUMBER() OVER (ORDER BY m.id DESC) AS rn
+        FROM ${SYS_SETTLEMENT_METHOD_FROM} AS m
+        ${whereBase}
+      ) AS x
+      WHERE x.rn BETWEEN @startRow AND @endRow
+      ORDER BY x.rn
+    `)
+
+    const list = (listResult.recordset ?? []).map((row) => ({
+      id: row.id != null ? Number(row.id) : null,
+      code: row.code ?? '',
+      name: row.name ?? '',
+      payfor: row.payfor ?? '',
+      info: row.info ?? '',
+      pass: row.pass ?? '',
+      del: row.del ?? '',
+    }))
+
+    res.json({ code: 200, msg: 'success', data: { total, list, recycled } })
+  } catch (err) {
+    console.error('GET /api/supply-chain/settlement-methods/list 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取结算方式失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 结算方式：建议编码（用于新增默认值）
+ * GET /api/supply-chain/settlement-methods/suggest-code
+ * 规则：
+ * - 优先：从 code 中挑选“纯数字”的最大值 + 1
+ * - 兜底：MAX(id) + 1
+ */
+app.get('/api/supply-chain/settlement-methods/suggest-code', async (req, res) => {
+  try {
+    const pool = await getPool()
+    const r = await pool.request().query(`
+      SELECT
+        ISNULL(
+          MAX(
+            CASE
+              WHEN UPPER(LTRIM(RTRIM(ISNULL(m.code, N'')))) LIKE N'PT%'
+                AND PATINDEX('%[^0-9]%', SUBSTRING(UPPER(LTRIM(RTRIM(ISNULL(m.code, N'')))), 3, 50)) = 0
+                AND ISNUMERIC(SUBSTRING(UPPER(LTRIM(RTRIM(ISNULL(m.code, N'')))), 3, 50)) = 1
+              THEN CAST(SUBSTRING(UPPER(LTRIM(RTRIM(ISNULL(m.code, N'0')))), 3, 50) AS INT)
+              ELSE NULL
+            END
+          ),
+          0
+        ) AS max_pt_suffix,
+        ISNULL(MAX(CASE WHEN m.id IS NULL THEN 0 ELSE m.id END), 0) AS max_id
+      FROM ${SYS_SETTLEMENT_METHOD_FROM} AS m
+    `)
+    const maxPtSuffix = Number(r.recordset?.[0]?.max_pt_suffix ?? 0)
+    const maxId = Number(r.recordset?.[0]?.max_id ?? 0)
+    const next = Number.isFinite(maxPtSuffix) && maxPtSuffix > 0 ? maxPtSuffix + 1 : maxId + 1
+    res.json({ code: 200, msg: 'success', data: { suggestedCode: `PT${String(next)}` } })
+  } catch (err) {
+    console.error('GET /api/supply-chain/settlement-methods/suggest-code 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `获取建议编码失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 结算方式：新增
+ * POST /api/supply-chain/settlement-methods
+ * body: { code?, name, payfor, info? } —— code 为空则后端自动取 max(code)+1
+ */
+app.post('/api/supply-chain/settlement-methods', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    let code = String(body.code ?? '').trim()
+    const name = String(body.name ?? '').trim()
+    const payfor = String(body.payfor ?? '').trim()
+    const info = String(body.info ?? '').trim()
+    if (!name) {
+      res.status(400).json({ code: 400, msg: '新增失败：名称不能为空', data: null })
+      return
+    }
+    if (!payfor) {
+      res.status(400).json({ code: 400, msg: '新增失败：天数不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const colset = await getSystemSettlementMethodColumnSet(pool)
+
+    // code 为空则自动生成
+    if (!code) {
+      const r = await pool.request().query(`
+        SELECT
+          ISNULL(
+            MAX(
+              CASE
+                WHEN UPPER(LTRIM(RTRIM(ISNULL(m.code, N'')))) LIKE N'PT%'
+                  AND PATINDEX('%[^0-9]%', SUBSTRING(UPPER(LTRIM(RTRIM(ISNULL(m.code, N'')))), 3, 50)) = 0
+                  AND ISNUMERIC(SUBSTRING(UPPER(LTRIM(RTRIM(ISNULL(m.code, N'')))), 3, 50)) = 1
+                THEN CAST(SUBSTRING(UPPER(LTRIM(RTRIM(ISNULL(m.code, N'0')))), 3, 50) AS INT)
+                ELSE NULL
+              END
+            ),
+            0
+          ) AS max_pt_suffix,
+          ISNULL(MAX(CASE WHEN m.id IS NULL THEN 0 ELSE m.id END), 0) AS max_id
+        FROM ${SYS_SETTLEMENT_METHOD_FROM} AS m
+      `)
+      const maxPtSuffix = Number(r.recordset?.[0]?.max_pt_suffix ?? 0)
+      const maxId = Number(r.recordset?.[0]?.max_id ?? 0)
+      const next = Number.isFinite(maxPtSuffix) && maxPtSuffix > 0 ? maxPtSuffix + 1 : maxId + 1
+      code = `PT${String(next)}`
+    }
+
+    if (!code) {
+      res.status(400).json({ code: 400, msg: '新增失败：编码不能为空', data: null })
+      return
+    }
+
+    // 编码唯一（仅在册）
+    const dupReq = pool.request().input('code', sql.NVarChar(50), code)
+    const dupRs = await dupReq.query(`
+      SELECT COUNT(1) AS cnt
+      FROM ${SYS_SETTLEMENT_METHOD_FROM} AS m
+      WHERE (ISNULL(m.del, N'') = N'' OR m.del = N'0')
+        AND LTRIM(RTRIM(ISNULL(m.code, N''))) = @code
+    `)
+    const dup = Number(dupRs.recordset?.[0]?.cnt ?? 0)
+    if (dup > 0) {
+      res.status(400).json({ code: 400, msg: `新增失败：编码「${code}」已存在`, data: null })
+      return
+    }
+
+    const nowStr = formatBomColorcodeTimestamp()
+    const actor = getActorAuditTripletFromReq(req)
+
+    /** @type {Array<{ col: string, key: string, type: any, len?: number, value: any }>} */
+    const fields = [
+      { col: 'code', key: 'code', type: sql.NVarChar, len: 50, value: code },
+      { col: 'name', key: 'name', type: sql.NVarChar, len: 200, value: name },
+      { col: 'payfor', key: 'payfor', type: sql.NVarChar, len: 50, value: payfor },
+      { col: 'info', key: 'info', type: sql.NVarChar, len: 500, value: info },
+    ]
+
+    /** @type {string[]} */
+    const cols = []
+    /** @type {string[]} */
+    const vals = []
+    const insReq = pool.request()
+
+    for (const f of fields) {
+      if (!colset.has(f.col.toLowerCase())) continue
+      cols.push(f.col)
+      vals.push(`@${f.key}`)
+      insReq.input(f.key, f.type(f.len ?? 50), String(f.value ?? '').trim())
+    }
+
+    // 默认状态位
+    if (colset.has('pass')) {
+      cols.push('pass')
+      vals.push("N'0'")
+    }
+    if (colset.has('del')) {
+      cols.push('del')
+      vals.push("N'0'")
+    }
+
+    // 审计字段（列存在才写）
+    if (colset.has('uid') && actor.uidInt != null) {
+      cols.push('uid')
+      vals.push('@uid')
+      insReq.input('uid', sql.Int, actor.uidInt)
+    }
+    if (colset.has('uname') && actor.uname) {
+      cols.push('uname')
+      vals.push('@uname')
+      insReq.input('uname', sql.NVarChar(50), actor.uname)
+    }
+    if (colset.has('utruename') && actor.utruename) {
+      cols.push('utruename')
+      vals.push('@utruename')
+      insReq.input('utruename', sql.NVarChar(50), actor.utruename)
+    }
+    if (colset.has('addtime')) {
+      cols.push('addtime')
+      vals.push('@addtime')
+      insReq.input('addtime', sql.NVarChar(50), nowStr)
+    }
+
+    if (!cols.length) {
+      res.status(500).json({ code: 500, msg: '新增失败：未探测到可写入的列（请检查 System_settlement_method 表结构）', data: null })
+      return
+    }
+
+    const r = await insReq.query(`
+      INSERT INTO ${SYS_SETTLEMENT_METHOD_FROM} (${cols.join(', ')})
+      VALUES (${vals.join(', ')})
+    `)
+    const ok = (r.rowsAffected?.[0] ?? 0) > 0
+    if (!ok) {
+      res.status(500).json({ code: 500, msg: '新增失败：数据库未写入记录', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: null })
+  } catch (err) {
+    console.error('POST /api/supply-chain/settlement-methods 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库写入失败')
+    res.status(500).json({ code: 500, msg: `新增结算方式失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 结算方式：编辑（仅未审核且在册可改）
+ * PUT /api/supply-chain/settlement-methods
+ * body: { id, code, name, payfor, info? } —— code 只读，不允许修改
+ */
+app.put('/api/supply-chain/settlement-methods', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const id = Number(body.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: '参数错误：id 必须为正整数', data: null })
+      return
+    }
+    const code = String(body.code ?? '').trim()
+    const name = String(body.name ?? '').trim()
+    const payfor = String(body.payfor ?? '').trim()
+    const info = String(body.info ?? '').trim()
+    if (!code) {
+      res.status(400).json({ code: 400, msg: '保存失败：编码不能为空', data: null })
+      return
+    }
+    if (!name) {
+      res.status(400).json({ code: 400, msg: '保存失败：名称不能为空', data: null })
+      return
+    }
+    if (!payfor) {
+      res.status(400).json({ code: 400, msg: '保存失败：天数不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const colset = await getSystemSettlementMethodColumnSet(pool)
+    const nowStr = formatBomColorcodeTimestamp()
+    const actor = getActorAuditTripletFromReq(req)
+
+    // 编码唯一（仅在册，排除自己）
+    const dupReq = pool
+      .request()
+      .input('id', sql.Int, id)
+      .input('code', sql.NVarChar(50), code)
+    const dupRs = await dupReq.query(`
+      SELECT COUNT(1) AS cnt
+      FROM ${SYS_SETTLEMENT_METHOD_FROM} AS m
+      WHERE (ISNULL(m.del, N'') = N'' OR m.del = N'0')
+        AND LTRIM(RTRIM(ISNULL(m.code, N''))) = @code
+        AND m.id <> @id
+    `)
+    const dup = Number(dupRs.recordset?.[0]?.cnt ?? 0)
+    if (dup > 0) {
+      res.status(400).json({ code: 400, msg: `保存失败：编码「${code}」已存在`, data: null })
+      return
+    }
+
+    /** @type {Array<{ col: string, key: string, type: any, len?: number, value: any }>} */
+    const fields = [
+      { col: 'name', key: 'name', type: sql.NVarChar, len: 200, value: name },
+      { col: 'payfor', key: 'payfor', type: sql.NVarChar, len: 50, value: payfor },
+      { col: 'info', key: 'info', type: sql.NVarChar, len: 500, value: info },
+    ]
+
+    /** @type {string[]} */
+    const setParts = []
+    const updReq = pool.request().input('id', sql.Int, id)
+    for (const f of fields) {
+      if (!colset.has(f.col.toLowerCase())) continue
+      setParts.push(`${f.col} = @${f.key}`)
+      updReq.input(f.key, f.type(f.len ?? 50), String(f.value ?? '').trim())
+    }
+
+    if (colset.has('uid') && actor.uidInt != null) {
+      setParts.push('uid = @uid')
+      updReq.input('uid', sql.Int, actor.uidInt)
+    }
+    if (colset.has('uname') && actor.uname) {
+      setParts.push('uname = @uname')
+      updReq.input('uname', sql.NVarChar(50), actor.uname)
+    }
+    if (colset.has('utruename') && actor.utruename) {
+      setParts.push('utruename = @utruename')
+      updReq.input('utruename', sql.NVarChar(50), actor.utruename)
+    }
+    if (colset.has('edittime')) {
+      setParts.push('edittime = @edittime')
+      updReq.input('edittime', sql.NVarChar(50), nowStr)
+    }
+
+    if (!setParts.length) {
+      res.status(400).json({ code: 400, msg: '保存失败：无可更新字段', data: null })
+      return
+    }
+
+    const r = await updReq.query(`
+      UPDATE ${SYS_SETTLEMENT_METHOD_FROM}
+      SET ${setParts.join(', ')}
+      WHERE id = @id
+        AND (ISNULL(del, N'') = N'' OR del = N'0')
+        AND LTRIM(RTRIM(ISNULL(pass, N''))) <> N'1'
+    `)
+    if ((r.rowsAffected?.[0] ?? 0) <= 0) {
+      res.status(400).json({ code: 400, msg: '保存失败：已审核记录不可修改，或该记录已删除', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: null })
+  } catch (err) {
+    console.error('PUT /api/supply-chain/settlement-methods 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `保存结算方式失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 结算方式：审核 / 反审 / 恢复 / 软删 / 彻底删除
+ */
+app.put('/api/supply-chain/settlement-methods/audit', async (req, res) => {
+  try {
+    const id = Number(req.body?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: '参数错误：id 必须为正整数', data: null })
+      return
+    }
+    const pool = await getPool()
+    const colset = await getSystemSettlementMethodColumnSet(pool)
+    const nowStr = formatBomColorcodeTimestamp()
+    const actor = getActorAuditTripletFromReq(req)
+    const reqDb = pool.request().input('id', sql.Int, id)
+
+    const setParts = ["pass = N'1'"]
+    if (colset.has('edittime')) setParts.push('edittime = @edittime')
+    if (colset.has('passtime')) setParts.push('passtime = @passtime')
+    if (colset.has('passuid') && actor.uidInt != null) setParts.push('passuid = @passuid')
+    if (colset.has('passuname') && actor.uname) setParts.push('passuname = @passuname')
+    if (colset.has('passutruename') && actor.utruename) setParts.push('passutruename = @passutruename')
+    if (colset.has('passip')) setParts.push('passip = @passip')
+
+    if (colset.has('edittime')) reqDb.input('edittime', sql.NVarChar(50), nowStr)
+    if (colset.has('passtime')) reqDb.input('passtime', sql.NVarChar(50), nowStr)
+    if (colset.has('passuid') && actor.uidInt != null) reqDb.input('passuid', sql.Int, actor.uidInt)
+    if (colset.has('passuname') && actor.uname) reqDb.input('passuname', sql.NVarChar(50), actor.uname)
+    if (colset.has('passutruename') && actor.utruename) reqDb.input('passutruename', sql.NVarChar(50), actor.utruename)
+    if (colset.has('passip')) reqDb.input('passip', sql.NVarChar(64), getRequestIp(req))
+
+    const r = await reqDb.query(`
+      UPDATE ${SYS_SETTLEMENT_METHOD_FROM}
+      SET ${setParts.join(', ')}
+      WHERE id = @id AND (ISNULL(del, N'') = N'' OR del = N'0') AND LTRIM(RTRIM(ISNULL(pass, N''))) <> N'1'
+    `)
+    if ((r.rowsAffected?.[0] ?? 0) <= 0) {
+      res.status(400).json({ code: 400, msg: '审核失败：请确认该记录在册且当前为未审核状态', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: null })
+  } catch (err) {
+    console.error('PUT /api/supply-chain/settlement-methods/audit 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `审核结算方式失败：${detail}`, data: null })
+  }
+})
+
+app.put('/api/supply-chain/settlement-methods/unaudit', async (req, res) => {
+  try {
+    const id = Number(req.body?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: '参数错误：id 必须为正整数', data: null })
+      return
+    }
+    const pool = await getPool()
+    const colset = await getSystemSettlementMethodColumnSet(pool)
+    const nowStr = formatBomColorcodeTimestamp()
+    const reqDb = pool.request().input('id', sql.Int, id)
+
+    const setParts = ["pass = N'0'"]
+    if (colset.has('edittime')) setParts.push('edittime = @edittime')
+    if (colset.has('passtime')) setParts.push('passtime = NULL')
+    if (colset.has('passuid')) setParts.push('passuid = NULL')
+    if (colset.has('passuname')) setParts.push('passuname = NULL')
+    if (colset.has('passutruename')) setParts.push('passutruename = NULL')
+    if (colset.has('passip')) setParts.push('passip = NULL')
+    if (colset.has('edittime')) reqDb.input('edittime', sql.NVarChar(50), nowStr)
+
+    const r = await reqDb.query(`
+      UPDATE ${SYS_SETTLEMENT_METHOD_FROM}
+      SET ${setParts.join(', ')}
+      WHERE id = @id AND (ISNULL(del, N'') = N'' OR del = N'0') AND LTRIM(RTRIM(ISNULL(pass, N''))) = N'1'
+    `)
+    if ((r.rowsAffected?.[0] ?? 0) <= 0) {
+      res.status(400).json({ code: 400, msg: '反审失败：请确认该记录在册且当前为已审核状态', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: null })
+  } catch (err) {
+    console.error('PUT /api/supply-chain/settlement-methods/unaudit 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `反审结算方式失败：${detail}`, data: null })
+  }
+})
+
+app.put('/api/supply-chain/settlement-methods/restore', async (req, res) => {
+  try {
+    const id = Number(req.body?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: '参数错误：id 必须为正整数', data: null })
+      return
+    }
+    const pool = await getPool()
+    const colset = await getSystemSettlementMethodColumnSet(pool)
+    const nowStr = formatBomColorcodeTimestamp()
+    const reqDb = pool.request().input('id', sql.Int, id)
+
+    const setParts = ["del = N'0'"]
+    if (colset.has('edittime')) setParts.push('edittime = @edittime')
+    if (colset.has('deltime')) setParts.push('deltime = NULL')
+    if (colset.has('edittime')) reqDb.input('edittime', sql.NVarChar(50), nowStr)
+
+    const r = await reqDb.query(`
+      UPDATE ${SYS_SETTLEMENT_METHOD_FROM}
+      SET ${setParts.join(', ')}
+      WHERE id = @id AND LTRIM(RTRIM(ISNULL(del, N''))) = N'1'
+    `)
+    if ((r.rowsAffected?.[0] ?? 0) <= 0) {
+      res.status(400).json({ code: 400, msg: '恢复失败：请确认该记录当前在回收站（del=1）', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: null })
+  } catch (err) {
+    console.error('PUT /api/supply-chain/settlement-methods/restore 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `恢复结算方式失败：${detail}`, data: null })
+  }
+})
+
+app.delete('/api/supply-chain/settlement-methods/:id', async (req, res) => {
+  try {
+    const id = Number(req.params?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: '参数错误：id 必须为正整数', data: null })
+      return
+    }
+    const pool = await getPool()
+    const colset = await getSystemSettlementMethodColumnSet(pool)
+    const nowStr = formatBomColorcodeTimestamp()
+    const reqDb = pool.request().input('id', sql.Int, id)
+
+    const setParts = ["del = N'1'"]
+    if (colset.has('deltime')) setParts.push('deltime = @deltime')
+    if (colset.has('deltime')) reqDb.input('deltime', sql.NVarChar(50), nowStr)
+
+    const r = await reqDb.query(`
+      UPDATE ${SYS_SETTLEMENT_METHOD_FROM}
+      SET ${setParts.join(', ')}
+      WHERE id = @id
+        AND (ISNULL(del, N'') = N'' OR del = N'0')
+        AND LTRIM(RTRIM(ISNULL(pass, N''))) <> N'1'
+    `)
+    if ((r.rowsAffected?.[0] ?? 0) <= 0) {
+      res.status(400).json({ code: 400, msg: '删除失败：已审核记录不可删除，请先反审；或该记录已在回收站', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: null })
+  } catch (err) {
+    console.error('DELETE /api/supply-chain/settlement-methods/:id 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `删除结算方式失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 结算方式：回收站彻底删除（物理删除，不可恢复）
+ * DELETE /api/supply-chain/settlement-methods/:id/permanent
+ * - 仅允许 del=1
+ */
+app.delete('/api/supply-chain/settlement-methods/:id/permanent', async (req, res) => {
+  try {
+    const id = Number(req.params?.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ code: 400, msg: '参数错误：id 必须为正整数', data: null })
+      return
+    }
+    const pool = await getPool()
+    const r = await pool.request().input('id', sql.Int, id).query(`
+      DELETE FROM ${SYS_SETTLEMENT_METHOD_FROM}
+      WHERE id = @id AND LTRIM(RTRIM(ISNULL(del, N''))) = N'1'
+    `)
+    if ((r.rowsAffected?.[0] ?? 0) <= 0) {
+      res.status(400).json({ code: 400, msg: '彻底删除失败：请确认该记录在回收站（del=1）', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: null })
+  } catch (err) {
+    console.error('DELETE /api/supply-chain/settlement-methods/:id/permanent 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `彻底删除结算方式失败：${detail}`, data: null })
   }
 })
 

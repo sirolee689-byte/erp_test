@@ -4,7 +4,7 @@
 
 > 约定：本文只维护“项目当前明确使用到”的表与字段；如需扩展，请同时补充迁移脚本（见 `docs/sql/` 与 `scripts/migrations/`）和相关设计文档。
 
-## 1. 全局概览（当前确认：14 张表）
+## 1. 全局概览（当前确认：16 张表）
 
 - **HR_Departments**：部门 / 岗位（旧系统表接管）
 - **Hr_staff**：人事档案资料（精简字段查询）
@@ -20,6 +20,8 @@
 - **Bom_unit_change**：库存基本资料 — 单位转换率（列表分页；审核/软删/恢复）
 - **Bom_material**：库存基本资料 — 材料分类（列表分页；审核/软删/恢复）
 - **Bom_Stocks_workshop**：库存基本资料 — 车间与部门编码（列表分页；审核/软删/恢复）
+- **System_supplier**：销售/采购/外协管理 — 基本资料 — 供应商资料（列表分页；审核/反审/软删/恢复）
+- **System_sales_customer**：销售/采购/外协管理 — 基本资料 — 销售客户（列表分页；审核/反审/软删/恢复）
 
 ## 2. 表关系（ER 摘要）
 
@@ -302,7 +304,80 @@
 - **权限（按钮级）**
   - 菜单 path：`inventory/basic/workshop-dept`：`view`、`add`、`audit`、`delete`、`edit`（恢复）
 
-### 3.12 `Sys_Users`（用户 / 操作员）
+### 3.12 `System_supplier`（供应商资料）
+
+- **Schema**：`dbo`
+- **模块/页面**
+  - 前端：`src/views/supply-chain/basic/suppliers/index.vue`（菜单 path：`supply-chain/basic/suppliers`）
+- **接口（后端：`server/index.js`）**
+  - `GET /api/supply-chain/suppliers/list`：分页（默认 `pageSize=20`）；在册 `del`+`pass`；**`recycled=1`** 仅 `del=1`；`keyword` 对 **`s_code`/`s_name`/`s_sname`** 参数化 `LIKE`；排序 **`id DESC`**；`ROW_NUMBER()`（SQL Server 2008 R2）
+  - `GET /api/supply-chain/suppliers/suggest-code`：返回建议编码（placeholder 用；优先纯数字最大值+1，兜底 `MAX(id)+1`）
+  - `POST /api/supply-chain/suppliers`：新增（手动输入 `s_code`）；默认 `pass='0'`、`del='0'`；在列存在时写 `uid/uname/utruename/addtime`；编码在册唯一校验
+  - `PUT /api/supply-chain/suppliers`：编辑（仅在册且未审核可改）；在列存在时写 `uid/uname/utruename/edittime`；编码在册唯一校验
+  - `PUT /api/supply-chain/suppliers/audit`：body `{ id }`；在册且未审 → `pass='1'`，并在存在列时写入 `pass*`/`passtime`/`passip`/`edittime`
+  - `PUT /api/supply-chain/suppliers/unaudit`：body `{ id }`；在册且已审 → `pass='0'`，并在存在列时清空 `pass*` 字段，写 `edittime`
+  - `DELETE /api/supply-chain/suppliers/:id`：在册且**未审** → `del='1'`（存在列时写 `deltime`）
+  - `PUT /api/supply-chain/suppliers/restore`：body `{ id }`；回收站 `del='1'` → `del='0'`（存在列时清空 `deltime`，写 `edittime`）
+  - `DELETE /api/supply-chain/suppliers/:id/permanent`：回收站（`del='1'`）物理删除（不可恢复）
+- **关键字段**
+  - `id`：主键（整型）
+  - `pass`：审核（`'1'` 已审 / `'0'` 未审）
+  - `del`：逻辑删除（`'1'` 删除；`'0'`/空/NULL 在册）
+  - 展示字段：`s_code`、`s_name`、`s_sname`、`s_sh`、`s_lb`、`s_lxr`、`s_mobile`、`s_tel`、`s_payfor`、`s_jh`、`s_wx_jh`、`sl`、`kplx`/`kplxx`/`kplxxx`、`s_info`
+  - 新增补充：`s_address`（地址）、`s_business`（经营范围）、`s_bank`（开户行）、`s_bank_number`（银行账号）
+- **权限（按钮级）**
+  - 菜单 path：`supply-chain/basic/suppliers`：`view`（列表）、`audit`（审核/反审）、`delete`（软删）、`edit`（恢复）
+
+### 3.13 `System_sales_customer`（销售客户）
+
+- **Schema**：`dbo`
+- **模块/页面**
+  - 前端：`src/views/supply-chain/basic/customers/index.vue`（菜单 path：`supply-chain/basic/customers`）
+- **接口（后端：`server/index.js`）**
+  - `GET /api/supply-chain/customers/list`：分页（默认 `pageSize=20`）；在册 `del`+`pass`；**`recycled=1`** 仅 `del=1`；`keyword` 对 **`s_code`/`s_name`/`s_address`** 参数化 `LIKE`；排序 **`id DESC`**；`ROW_NUMBER()`（SQL Server 2008 R2）
+  - `GET /api/supply-chain/customers/:id`：详情（不区分在册/回收站，用于“查看”）
+  - `POST /api/supply-chain/customers`：新增（**手动输入 `s_code`**）；默认 `pass='0'`、`del='0'`；在列存在时写 `uid/uname/utruename/addtime`；编码在册唯一校验
+  - `PUT /api/supply-chain/customers`：编辑（仅在册且未审核可改）；在列存在时写 `uid/uname/utruename/edittime`；编码在册唯一校验
+  - `PUT /api/supply-chain/customers/audit`：body `{ id }`；在册且未审 → `pass='1'`，并在存在列时写入 `pass*`/`passtime`/`passip`/`edittime`
+  - `PUT /api/supply-chain/customers/unaudit`：body `{ id }`；在册且已审 → `pass='0'`，并在存在列时清空 `pass*` 字段，写 `edittime`
+  - `DELETE /api/supply-chain/customers/:id`：在册且**未审** → `del='1'`（存在列时写 `deltime`）
+  - `PUT /api/supply-chain/customers/restore`：body `{ id }`；回收站 `del='1'` → `del='0'`（存在列时清空 `deltime`，写 `edittime`）
+  - `DELETE /api/supply-chain/customers/:id/permanent`：回收站（`del='1'`）物理删除（不可恢复）
+- **关键字段**
+  - `id`：主键（整型）
+  - `pass`：审核（`'1'` 已审 / `'0'` 未审）
+  - `del`：逻辑删除（`'1'` 删除；`'0'`/空/NULL 在册）
+  - 展示字段：`s_code`、`s_name`、`s_address`、`s_lxr`、`s_tel`、`s_mobile`、`s_payfor`、`lxr`、`s_info`
+  - 新增补充：`s_business`（经营范围）、`s_lb`（类别：国内/国外/其他）
+- **权限（按钮级）**
+  - 菜单 path：`supply-chain/basic/customers`：`view`、`add`、`audit`、`delete`、`edit`（含恢复）
+
+### 3.14 `System_settlement_method`（结算方式）
+
+- **Schema**：`dbo`
+- **模块/页面**
+  - 前端：`src/views/supply-chain/basic/payment-methods/index.vue`（菜单 path：`supply-chain/basic/payment-methods`）
+- **接口（后端：`server/index.js`）**
+  - `GET /api/supply-chain/settlement-methods/list`：分页（默认 `pageSize=20`）；在册 `del`+`pass`；**`recycled=1`** 仅 `del=1`；`keyword` 对 **`code`/`name`/`info`** 参数化 `LIKE`；排序 **`id DESC`**；`ROW_NUMBER()`（SQL Server 2008 R2）
+  - `GET /api/supply-chain/settlement-methods/suggest-code`：返回建议编码（打开新增时自动填入；优先纯数字最大值+1，兜底 `MAX(id)+1`）
+  - `POST /api/supply-chain/settlement-methods`：body `{ code?, name, payfor, info? }`；`code` 为空则后端自动生成；默认 `pass='0'`、`del='0'`；在列存在时写 `uid/uname/utruename/addtime`；编码在册唯一校验
+  - `PUT /api/supply-chain/settlement-methods`：编辑（仅在册且未审核可改）；写 `uid/uname/utruename/edittime`（列存在才写）；编码在册唯一校验；`code` 不允许修改
+  - `PUT /api/supply-chain/settlement-methods/audit`：body `{ id }`；在册且未审 → `pass='1'`，并在存在列时写入 `pass*`/`passtime`/`passip`/`edittime`
+  - `PUT /api/supply-chain/settlement-methods/unaudit`：body `{ id }`；在册且已审 → `pass='0'`，并在存在列时清空 `pass*` 字段，写 `edittime`
+  - `DELETE /api/supply-chain/settlement-methods/:id`：在册且**未审** → `del='1'`（存在列时写 `deltime`）
+  - `PUT /api/supply-chain/settlement-methods/restore`：body `{ id }`；回收站 `del='1'` → `del='0'`（存在列时清空 `deltime`，写 `edittime`）
+  - `DELETE /api/supply-chain/settlement-methods/:id/permanent`：回收站（`del='1'`）物理删除（不可恢复）
+- **关键字段**
+  - `id`：主键（整型）
+  - `code`：编码（新增默认自动生成：max(code)+1）
+  - `name`：名称
+  - `payfor`：天数
+  - `info`：备注
+  - `pass` / `del`：审核/逻辑删除（标准件约定）
+- **权限（按钮级）**
+  - 菜单 path：`supply-chain/basic/payment-methods`：`view`、`add`、`audit`、`delete`、`edit`（恢复）
+
+### 3.13 `Sys_Users`（用户 / 操作员）
 
 - **Schema**：通常为 `dbo`（实际由数据库决定）
 - **模块/页面**
