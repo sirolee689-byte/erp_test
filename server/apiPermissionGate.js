@@ -260,6 +260,7 @@ export function matchApiPermissionRule(method, path, body, params) {
       anyOf: [
         { menuPath: 'inv/bom', action: 'view' },
         { menuPath: 'inventory/basic/bom-data', action: 'view' },
+        { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' },
       ],
     }
   }
@@ -352,6 +353,50 @@ export function matchApiPermissionRule(method, path, body, params) {
   }
   if (m === 'DELETE' && /^\/api\/supply-chain\/settlement-methods\/\d+$/.test(path)) {
     return { menuPath: 'supply-chain/basic/payment-methods', action: 'delete' }
+  }
+
+  /* 销售/采购/外协管理 — 日常工作：采购报价（主从表） */
+  if (m === 'GET' && path === '/api/supply-chain/purchase-quotations/bom-detail') {
+    return { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/supply-chain/purchase-quotations/list') {
+    return { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/supply-chain/purchase-quotations/suggest-doc-no') {
+    return { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/supply-chain/purchase-quotations/check-doc-no') {
+    return { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/supply-chain/purchase-quotations/supplier-options') {
+    return { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' }
+  }
+  if (m === 'GET' && /^\/api\/supply-chain\/purchase-quotations\/[^/]+\/lines$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' }
+  }
+  if (m === 'GET' && /^\/api\/supply-chain\/purchase-quotations\/[^/]+$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' }
+  }
+  if (m === 'POST' && path === '/api/supply-chain/purchase-quotations') {
+    return { menuPath: 'supply-chain/daily/purchase-quote', action: 'add' }
+  }
+  if (m === 'PUT' && path === '/api/supply-chain/purchase-quotations') {
+    return { menuPath: 'supply-chain/daily/purchase-quote', action: 'edit' }
+  }
+  if (m === 'PUT' && path === '/api/supply-chain/purchase-quotations/audit') {
+    return { menuPath: 'supply-chain/daily/purchase-quote', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/supply-chain/purchase-quotations/unaudit') {
+    return { menuPath: 'supply-chain/daily/purchase-quote', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/supply-chain/purchase-quotations/restore') {
+    return { menuPath: 'supply-chain/daily/purchase-quote', action: 'edit' }
+  }
+  if (m === 'DELETE' && /^\/api\/supply-chain\/purchase-quotations\/[^/]+\/permanent$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/purchase-quote', action: 'delete' }
+  }
+  if (m === 'DELETE' && /^\/api\/supply-chain\/purchase-quotations\/[^/]+$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/purchase-quote', action: 'delete' }
   }
 
   if (m === 'GET' && path === '/api/inventory/color-code/list') {

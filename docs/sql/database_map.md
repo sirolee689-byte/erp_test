@@ -4,7 +4,7 @@
 
 > 约定：本文只维护“项目当前明确使用到”的表与字段；如需扩展，请同时补充迁移脚本（见 `docs/sql/` 与 `scripts/migrations/`）和相关设计文档。
 
-## 1. 全局概览（当前确认：16 张表）
+## 1. 全局概览（当前确认：18 张表）
 
 - **HR_Departments**：部门 / 岗位（旧系统表接管）
 - **Hr_staff**：人事档案资料（精简字段查询）
@@ -22,6 +22,8 @@
 - **Bom_Stocks_workshop**：库存基本资料 — 车间与部门编码（列表分页；审核/软删/恢复）
 - **System_supplier**：销售/采购/外协管理 — 基本资料 — 供应商资料（列表分页；审核/反审/软删/恢复）
 - **System_sales_customer**：销售/采购/外协管理 — 基本资料 — 销售客户（列表分页；审核/反审/软删/恢复）
+- **Purchase_Quotation**：销售/采购/外协管理 — 日常工作 — 采购报价主表（列表分页；主从保存；审核/反审/软删/恢复/彻底删）
+- **Purchase_Quotation_list**：采购报价明细表（通过外键或 `pid` 等列关联主表；保存时先删后插整批替换）
 
 ## 2. 表关系（ER 摘要）
 
@@ -30,6 +32,10 @@
   - 设计文档：`src/views/system/rbac_design.md`
 
 > 备注：`HR_Departments` 与 `Hr_staff` 在当前版本 **没有数据库级外键** 约束（至少在仓库脚本/设计文档中未定义）。`Hr_staff.in_bm` 与部门关系属于“业务字段”层面的关联。
+
+- **`Purchase_Quotation_list` → `Purchase_Quotation`**
+  - 业务关联：**`Purchase_Quotation.cgaa01` = `Purchase_Quotation_list.cgab01`**
+  - 说明：后端在首次访问时通过 `sys.foreign_keys` 解析外键列；若无约束，则候选含 **`cgab01`**（及 `pid` 等）。列表接口对明细按 `cgab01` 分组汇总 **`cgab04`/`cgab05`**（在册明细：`del` 为空/`0`）。
 
 ## 3. 表明细
 
@@ -377,6 +383,33 @@
 - **权限（按钮级）**
   - 菜单 path：`supply-chain/basic/payment-methods`：`view`、`add`、`audit`、`delete`、`edit`（恢复）
 
+### 3.15 `Purchase_Quotation` / `Purchase_Quotation_list`（采购报价主从）
+
+- **Schema**：`dbo`
+- **实现文件**：`server/purchaseQuotationHandlers.js`（`server/index.js` 注册路由）
+- **模块/页面**
+  - 前端：`src/views/supply-chain/daily/purchase-quote/index.vue`（菜单 path：`supply-chain/daily/purchase-quote`）
+- **接口**
+  - `GET /api/supply-chain/purchase-quotations/list`：主表分页；`keyword` 对主表文本列 OR `LIKE`；`pass` / `recycled` 与标准件一致；`ROW_NUMBER()` 分页
+  - `GET /api/supply-chain/purchase-quotations/:id`：主表一行 + 明细列表（排序优先 `xh`/行号类列）
+  - `GET /api/supply-chain/purchase-quotations/:id/lines`：仅明细（展开行懒加载）
+  - `GET /api/supply-chain/purchase-quotations/bom-detail`：按物料编码 `kcaa01` 读 `bom_000`（明细选材弹窗补全名称/规格/颜色/单位）
+  - `POST /api/supply-chain/purchase-quotations`：body `{ header, lines[] }`；事务：`OUTPUT INSERTED` 取主键后批量插入明细；若存在 `systemcode`/`code`/`quotation_code`/`dh`/`djbh`/`bill_no` 之一则在册单号唯一校验
+  - `PUT /api/supply-chain/purchase-quotations`：body `{ id, header, lines[] }`；**已审主表 `pass=1` 禁止保存**（400）；在册且未审；事务内 `DELETE` 旧明细再整批 `INSERT`；允许仅改明细（主表 `SET` 可为 PK 自赋值占位）
+  - `PUT /api/supply-chain/purchase-quotations/audit` / `unaudit` / `restore`：body `{ id }`（与供应商等模块一致）
+  - `DELETE /api/supply-chain/purchase-quotations/:id`：软删主表（已审禁止）
+  - `DELETE /api/supply-chain/purchase-quotations/:id/permanent`：事务内先删明细再删主表（仅回收站且未审）
+- **前端明细（v1.2.1）**：页内 `MaterialSelector` 调 `GET /api/inv/bom/list`（采购报价菜单 `view` 已放行）选编码，含税单价 **`cgab05` = `cgab04` × (1 + `Tax`/100)**，按主表小数位四舍五入；备注列 **`remark`**；删除行前二次确认；主表已审时明细区域禁用并与后端一致拦截。
+- **明细关键字段（`Purchase_Quotation_list`）**
+  - **`kcaa01`–`kcaa05`**：材料编码/名称/规格/颜色/单位（选材自 `bom_000`）
+  - **`cgab04`**：单价（不含税）；**`Tax`**：税点 0–100（接口与库可能为小数税率，前端归一为百分比）
+  - **`cgab05`**：单价（含税），只读计算字段
+  - **`remark`**：行备注
+- **审计**：`POST`/`PUT` 成功时日志含「明细共 N 项物料」类人话（见 `server/operationAuditMiddleware.js`）。
+- **元数据探测**：首次请求时读取 `INFORMATION_SCHEMA` 列清单、`PRIMARY KEY`（主表须单列主键）、`IDENTITY` 列、以及 `sys.foreign_keys` 指向主表的明细外键列（无则按候选列名兜底）。
+- **权限（按钮级）**
+  - 菜单 path：`supply-chain/daily/purchase-quote`：`view`、`add`、`edit`、`audit`、`delete`
+
 ### 3.13 `Sys_Users`（用户 / 操作员）
 
 - **Schema**：通常为 `dbo`（实际由数据库决定）
@@ -451,4 +484,7 @@
 
 - **`dbo.[Bom_Stocks_workshop]`**
   - 来源：`server/index.js`（车间与部门编码列表、新增、审核、反审、软删、恢复）
+
+- **`dbo.[Purchase_Quotation]` / `dbo.[Purchase_Quotation_list]`**
+  - 来源：`server/purchaseQuotationHandlers.js`（采购报价 REST）
 

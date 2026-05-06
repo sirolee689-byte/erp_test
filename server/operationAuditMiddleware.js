@@ -5,6 +5,11 @@
  */
 import { getPool, sql } from './db.js'
 import { resolveAuditActionAndTable } from './action_map.js'
+import {
+  buildPurchaseQuotationPutDiffChinese,
+  fetchPurchaseQuotationHeaderFullForAudit,
+  fetchPurchaseQuotationSnapshotForAudit,
+} from './purchaseQuotationHandlers.js'
 
 export { resolveAuditActionAndTable } from './action_map.js'
 
@@ -699,6 +704,50 @@ export function createOperationAuditPrepareMiddleware() {
         }
       }
 
+      // === 采购报价（主从）===
+      if (
+        (method === 'PUT' &&
+          (path === '/api/supply-chain/purchase-quotations/audit' ||
+            path === '/api/supply-chain/purchase-quotations/unaudit' ||
+            path === '/api/supply-chain/purchase-quotations/restore' ||
+            path === '/api/supply-chain/purchase-quotations')) ||
+        (method === 'DELETE' &&
+          (/^\/api\/supply-chain\/purchase-quotations\/[^/]+$/.test(path) ||
+            /^\/api\/supply-chain\/purchase-quotations\/[^/]+\/permanent$/.test(path)))
+      ) {
+        if (method === 'DELETE') {
+          const tail = path
+            .slice('/api/supply-chain/purchase-quotations/'.length)
+            .replace(/\/permanent$/, '')
+          let auditId = tail
+          try {
+            auditId = decodeURIComponent(tail)
+          } catch {
+            /* ignore */
+          }
+          if (String(auditId).trim()) {
+            const row = await fetchPurchaseQuotationSnapshotForAudit(pool, auditId)
+            if (row) req.__auditPurchaseQuotationSnapshot = row
+          }
+        } else {
+          const rawId = req.body?.id
+          if (rawId !== undefined && rawId !== null && String(rawId).trim() !== '') {
+            const row = await fetchPurchaseQuotationSnapshotForAudit(pool, rawId)
+            if (row) req.__auditPurchaseQuotationSnapshot = row
+          }
+        }
+      }
+
+      if (method === 'PUT' && path === '/api/supply-chain/purchase-quotations') {
+        const rawId = req.body?.id
+        if (rawId !== undefined && rawId !== null && String(rawId).trim() !== '') {
+          const oldRow = await fetchPurchaseQuotationHeaderFullForAudit(pool, rawId)
+          if (oldRow) {
+            req.__auditPutPurchaseQuotationDiff = buildPurchaseQuotationPutDiffChinese(oldRow, req.body ?? {})
+          }
+        }
+      }
+
       // === 角色管理：用于禁用/恢复/删/分配权限的可读日志 ===
       if (method === 'PUT' && path === '/api/roles') {
         const body = req.body ?? {}
@@ -1128,6 +1177,92 @@ export function createOperationAuditMiddleware(deps) {
           const op = operatorDisplayName(user)
           const s = req.__auditSettlementMethodSnapshot
           content = `${op}删除了结算方式「${displayCell(s.name)}」（编码：${displayCell(s.code)}，已移入回收站）`
+        } else if (method === 'POST' && path === '/api/supply-chain/purchase-quotations') {
+          const op = operatorDisplayName(user)
+          const hid = req.body?.header && typeof req.body.header === 'object' ? req.body.header : {}
+          const label =
+            displayCell(
+              hid.cgaa01 ??
+                hid.systemcode ??
+                hid.code ??
+                hid.quotation_code ??
+                hid.dh ??
+                hid.djbh ??
+                hid.bill_no,
+            ) || '（空）'
+          const sup = displayCell(hid.kehu) || '（空）'
+          const lineN = Array.isArray(req.body?.lines) ? req.body.lines.length : 0
+          content = `${op}录入了采购报价单，单号：[${label}]，供应商：[${sup}]；录入了采购报价单明细，共 ${lineN} 项物料。`
+        } else if (
+          method === 'PUT' &&
+          path === '/api/supply-chain/purchase-quotations' &&
+          req.__auditPurchaseQuotationSnapshot
+        ) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditPurchaseQuotationSnapshot
+          const diff = String(req.__auditPutPurchaseQuotationDiff ?? '').trim()
+          const label =
+            displayCell(s.cgaa01 || s.systemcode || s.code || s.quotation_code || s.dh || s.djbh) ||
+            `ID:${s.id}`
+          const lineN = Array.isArray(req.body?.lines) ? req.body.lines.length : 0
+          content = diff
+            ? `${op}保存了采购报价「${label}」。${diff} 明细共 ${lineN} 项物料。`
+            : `${op}保存了采购报价「${label}」（已重写明细），明细共 ${lineN} 项物料。`
+        } else if (
+          method === 'PUT' &&
+          path === '/api/supply-chain/purchase-quotations/audit' &&
+          req.__auditPurchaseQuotationSnapshot
+        ) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditPurchaseQuotationSnapshot
+          const label =
+            displayCell(s.cgaa01 || s.systemcode || s.code || s.quotation_code || s.dh || s.djbh) ||
+            `ID:${s.id}`
+          content = `${op}审核了采购报价「${label}」`
+        } else if (
+          method === 'PUT' &&
+          path === '/api/supply-chain/purchase-quotations/unaudit' &&
+          req.__auditPurchaseQuotationSnapshot
+        ) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditPurchaseQuotationSnapshot
+          const label =
+            displayCell(s.cgaa01 || s.systemcode || s.code || s.quotation_code || s.dh || s.djbh) ||
+            `ID:${s.id}`
+          content = `${op}反审了采购报价「${label}」`
+        } else if (
+          method === 'PUT' &&
+          path === '/api/supply-chain/purchase-quotations/restore' &&
+          req.__auditPurchaseQuotationSnapshot
+        ) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditPurchaseQuotationSnapshot
+          const label =
+            displayCell(s.cgaa01 || s.systemcode || s.code || s.quotation_code || s.dh || s.djbh) ||
+            `ID:${s.id}`
+          content = `${op}恢复了采购报价「${label}」（从回收站回到在册）`
+        } else if (
+          method === 'DELETE' &&
+          /^\/api\/supply-chain\/purchase-quotations\/[^/]+\/permanent$/.test(path) &&
+          req.__auditPurchaseQuotationSnapshot
+        ) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditPurchaseQuotationSnapshot
+          const label =
+            displayCell(s.cgaa01 || s.systemcode || s.code || s.quotation_code || s.dh || s.djbh) ||
+            `ID:${s.id}`
+          content = `${op}彻底删除了采购报价「${label}」（不可恢复）`
+        } else if (
+          method === 'DELETE' &&
+          /^\/api\/supply-chain\/purchase-quotations\/[^/]+$/.test(path) &&
+          req.__auditPurchaseQuotationSnapshot
+        ) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditPurchaseQuotationSnapshot
+          const label =
+            displayCell(s.cgaa01 || s.systemcode || s.code || s.quotation_code || s.dh || s.djbh) ||
+            `ID:${s.id}`
+          content = `${op}删除了采购报价「${label}」（已移入回收站）`
         } else if (method === 'DELETE' && /^\/api\/inventory\/color-code\/.+\/permanent$/.test(path) && req.__auditDeleteColorCode) {
           const op = operatorDisplayName(user)
           const { code, name } = req.__auditDeleteColorCode

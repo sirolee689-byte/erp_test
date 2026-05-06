@@ -39,6 +39,7 @@ import {
   queryOperatorUsersPage,
   restoreOperatorUserDel,
 } from './operatorUsersHandlers.js'
+import { registerPurchaseQuotationRoutes } from './purchaseQuotationHandlers.js'
 
 dotenv.config()
 
@@ -6988,6 +6989,7 @@ function escapeSqlLikePattern(s) {
  * GET /api/inv/bom/list
  * - 默认排序：优先按 edittime DESC；edittime 为空则按 addtime DESC（保证打开页面先看到最近更新/新增）
  * - 搜索：kcaa01 / kcaa02 独立参数化 LIKE；前后端约定「不足 3 字不筛」以降低大表模糊扫描风险
+ * - 采购报价选材弹窗：`keyword`（≥3）→ `AND (b.kcaa01 LIKE @kwLike OR b.kcaa02 LIKE @kwLike)`，与 `code`/`name` 互斥（有 keyword 时不叠加独立编码/名称条件）
  * - 成品关联附件搜索（kcaa01）：按 Bom_code.flag5 剥离已知前缀后取「核心款号」，若核心长度≥3 则使用 `kcaa01 LIKE @codeSuffixLike`（参数值形如 `%核心`）；否则回退为 `%关键字%` 包含匹配
  * - 裁片深度匹配：若物料编码搜索以 `CUT-` 开头且不含 `<`，使用右模糊 `kcaa01 LIKE @cutRightFuzzy`（`keyword%`，利于索引）；含 `<` 时回退 `%keyword%` 包含匹配。用户显式搜 CUT- 时，即使 `bom_cut=0` 也会临时取消全局 `NOT LIKE CUT-%` 排除，否则无法命中裁片行。
  * - 过滤：del 在册 + pass（与项目列表页「显示未审核」一致）
@@ -7006,10 +7008,14 @@ app.get('/api/inv/bom/list', async (req, res) => {
     const bomCutRaw = String(req.query?.bom_cut ?? '0').trim()
     const bomCutInclude = bomCutRaw === '1' || bomCutRaw.toLowerCase() === 'true'
 
+    const keywordRaw = String(req.query?.keyword ?? '').trim()
+    const keywordOk = keywordRaw.length >= 3
+    const kwLike = keywordOk ? `%${escapeSqlLikePattern(keywordRaw)}%` : ''
+
     const codeRaw = String(req.query?.code ?? '').trim()
     const nameRaw = String(req.query?.name ?? '').trim()
-    const codeOk = codeRaw.length >= 3
-    const nameOk = nameRaw.length >= 3
+    const codeOk = !keywordOk && codeRaw.length >= 3
+    const nameOk = !keywordOk && nameRaw.length >= 3
     const nameLike = nameOk ? `%${escapeSqlLikePattern(nameRaw)}%` : ''
 
     const pool = await getPool()
@@ -7018,6 +7024,8 @@ app.get('/api/inv/bom/list', async (req, res) => {
 
     /** 用户显式按裁片编码搜索（以 CUT- 开头） */
     const isExplicitCutCodeSearch = codeOk && codeRaw.toUpperCase().startsWith('CUT-')
+    /** 统一关键词搜索裁片编码（与 keyword 模式共用 CUT 排除逻辑） */
+    const isExplicitCutKeywordSearch = keywordOk && keywordRaw.toUpperCase().startsWith('CUT-')
 
     let codeCondSql = ''
     /** @type {'cut_right'|'cut_contains'|'core_suffix'|'contains'|''} */
@@ -7028,7 +7036,7 @@ app.get('/api/inv/bom/list', async (req, res) => {
     let codeSuffixLike = ''
     let codeLikeContains = ''
 
-    if (codeOk) {
+    if (!keywordOk && codeOk) {
       if (isExplicitCutCodeSearch) {
         if (!codeRaw.includes('<')) {
           codeSearchMode = 'cut_right'
@@ -7054,19 +7062,23 @@ app.get('/api/inv/bom/list', async (req, res) => {
       }
     }
 
+    const keywordOrSql = keywordOk ? ' AND (b.kcaa01 LIKE @kwLike OR b.kcaa02 LIKE @kwLike) ' : ''
+
     // 显式搜 CUT- 时必须允许命中裁片行：否则与 bom_cut=0 的全局 CUT 排除互相矛盾
     const whereExcludeCut =
-      bomCutInclude || isExplicitCutCodeSearch ? '' : ` AND b.kcaa01 NOT LIKE N'CUT-%' `
+      bomCutInclude || isExplicitCutCodeSearch || isExplicitCutKeywordSearch
+        ? ''
+        : ` AND b.kcaa01 NOT LIKE N'CUT-%' `
     const whereBase = `
       WHERE (ISNULL(b.del, N'') = N'' OR b.del = N'0')
         AND LTRIM(RTRIM(ISNULL(b.pass, N''))) = @pass
       ${whereExcludeCut}
-      ${codeCondSql}
-      ${nameOk ? ' AND b.kcaa02 LIKE @nameLike ' : ''}
+      ${keywordOk ? keywordOrSql : `${codeCondSql}${nameOk ? ' AND b.kcaa02 LIKE @nameLike ' : ''}`}
     `
 
     const countReq = pool.request()
     countReq.input('pass', sql.NVarChar(10), pass)
+    if (keywordOk) countReq.input('kwLike', sql.NVarChar(300), kwLike)
     if (codeSearchMode === 'cut_right') countReq.input('cutRightFuzzy', sql.NVarChar(300), cutRightFuzzy)
     if (codeSearchMode === 'cut_contains') countReq.input('cutContainsLike', sql.NVarChar(300), cutContainsLike)
     if (codeSearchMode === 'core_suffix') countReq.input('codeSuffixLike', sql.NVarChar(300), codeSuffixLike)
@@ -7097,6 +7109,7 @@ app.get('/api/inv/bom/list', async (req, res) => {
     listReq.input('pass', sql.NVarChar(10), pass)
     listReq.input('startRow', sql.Int, startRow)
     listReq.input('endRow', sql.Int, endRow)
+    if (keywordOk) listReq.input('kwLike', sql.NVarChar(300), kwLike)
     if (codeSearchMode === 'cut_right') listReq.input('cutRightFuzzy', sql.NVarChar(300), cutRightFuzzy)
     if (codeSearchMode === 'cut_contains') listReq.input('cutContainsLike', sql.NVarChar(300), cutContainsLike)
     if (codeSearchMode === 'core_suffix') listReq.input('codeSuffixLike', sql.NVarChar(300), codeSuffixLike)
@@ -12309,6 +12322,12 @@ app.delete('/api/dorm/delete-checkin', async (req, res) => {
     const detail = String(err?.message ?? '数据库删除失败')
     res.status(500).json({ code: 500, msg: `删除失败：${detail}`, data: null })
   }
+})
+
+registerPurchaseQuotationRoutes(app, {
+  getPool,
+  formatBomColorcodeTimestamp,
+  getActorAuditTripletFromReq,
 })
 
 // 可选：优雅关闭（例如 Ctrl+C）
