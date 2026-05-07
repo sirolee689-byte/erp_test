@@ -3464,62 +3464,6 @@ function buildBomNeedCalcSqlCondition(rules, codeExpr) {
 }
 
 /**
- * 物料编码搜索：从 Bom_code.flag5 推导可剥离的前缀（与 buildBomNeedCalcSqlCondition 语义对齐）
- * - OUT：不是前缀，不参与剥离
- * - RP：额外加入 `RP-PQ-`（与运算规则一致）
- * - 其它安全 flag5：加入 `${flag5}-`
- * 返回按长度降序，保证先剥最长前缀（如 RP-PQ- 先于 PQ-）
- * @param {{ flag5: string }[]} rules
- */
-function buildBomCodeSearchStripPrefixes(rules) {
-  /** @type {string[]} */
-  const out = []
-  let hasRp = false
-  for (const r of rules ?? []) {
-    const f = String(r?.flag5 ?? '').trim()
-    if (!f) continue
-    const u = f.toUpperCase()
-    if (u === 'OUT') continue
-    if (u === 'RP') {
-      hasRp = true
-      continue
-    }
-    if (!/^[A-Za-z0-9_]+$/.test(f)) continue
-    out.push(`${f}-`)
-  }
-  if (hasRp) out.push('RP-PQ-')
-  const uniq = [...new Set(out)]
-  uniq.sort((a, b) => b.length - a.length)
-  return uniq
-}
-
-/**
- * 成品关联附件搜索：按配置前缀反复剥离，得到「核心款号」片段（用于 kcaa01 后缀模糊）
- * @param {string} raw
- * @param {{ flag5: string }[]} rules
- */
-function extractKcaa01CoreKeywordFromSearch(raw, rules) {
-  let s = String(raw ?? '').trim()
-  if (!s) return ''
-  const prefixes = buildBomCodeSearchStripPrefixes(rules)
-  let guard = 0
-  while (guard < 20) {
-    guard += 1
-    let hit = ''
-    const su = s.toUpperCase()
-    for (const p of prefixes) {
-      if (su.startsWith(p.toUpperCase())) {
-        hit = p
-        break
-      }
-    }
-    if (!hit) break
-    s = s.slice(hit.length)
-  }
-  return s.trim()
-}
-
-/**
  * 日期/时间列落在 [@mStart, @mEnd) 自然月半开区间；兼容 SQL Server 2008 R2（无 TRY_CONVERT）。
  * 要点：若列已是 datetime，不能再「先转 nvarchar 再 CONVERT 回 datetime」，否则受会话语言/格式影响易报 241。
  * 做法：CASE 短路——日期型直接比较参数；字符型先尝试 style 120 的 yyyy-MM-dd / 8 位 yyyymmdd；
@@ -6986,15 +6930,16 @@ function escapeSqlLikePattern(s) {
 }
 
 /**
- * v1.1.7：BOM 主档分页列表（SQL Server 2008 R2：仅 ROW_NUMBER 分页，禁用 OFFSET-FETCH）
+ * v1.1.8：BOM 主档分页列表（SQL Server 2008 R2：仅 ROW_NUMBER 分页，禁用 OFFSET-FETCH）
  * GET /api/inv/bom/list
  * - 默认排序：优先按 edittime DESC；edittime 为空则按 addtime DESC（保证打开页面先看到最近更新/新增）
- * - 搜索：kcaa01 / kcaa02 独立参数化 LIKE；前后端约定「不足 3 字不筛」以降低大表模糊扫描风险
- * - 采购报价选材弹窗：`keyword`（≥3）→ `AND (b.kcaa01 LIKE @kwLike OR b.kcaa02 LIKE @kwLike)`，与 `code`/`name` 互斥（有 keyword 时不叠加独立编码/名称条件）
- * - 成品关联附件搜索（kcaa01）：按 Bom_code.flag5 剥离已知前缀后取「核心款号」，若核心长度≥3 则使用 `kcaa01 LIKE @codeSuffixLike`（参数值形如 `%核心`）；否则回退为 `%关键字%` 包含匹配
- * - 裁片深度匹配：若物料编码搜索以 `CUT-` 开头且不含 `<`，使用右模糊 `kcaa01 LIKE @cutRightFuzzy`（`keyword%`，利于索引）；含 `<` 时回退 `%keyword%` 包含匹配。用户显式搜 CUT- 时，即使 `bom_cut=0` 也会临时取消全局 `NOT LIKE CUT-%` 排除，否则无法命中裁片行。
+ * - 合并搜索 `keyword`（≥3）：全模糊 + 兼容「连字符不一致」（库内常见 PQ3691 与 PQ-3691）：额外
+ *   `(REPLACE(b.kcaa01,N'-',N'') LIKE @kwNormLike OR …kcaa02…)`，@kwNormLike 为去掉关键字中 `-` 后的 `%…%`
+ * - 兼容旧参：无 `keyword` 时可用 `code`/`name`（均≥3），分别为 `kcaa01`、`kcaa02` 的全模糊；前后端约定「不足 3 字不筛」
+ * - 用户显式搜 `CUT-` 开头（keyword 或 code）时，即使 `bom_cut=0` 也临时取消全局 `kcaa01 NOT LIKE N'CUT-%'`，否则无法命中裁片行
+ * - bom_cut=1（仅裁片）：结果仅限 `kcaa01` 以 `CUT-` 开头（`UPPER(trim(kcaa01)) LIKE N'CUT-%'`，大小写不敏感）；keyword/name/code 等其它筛选不变
  * - 过滤：del 在册 + pass（与项目列表页「显示未审核」一致）
- * - 裁片：默认 bom_cut=0 时强制 `kcaa01 NOT LIKE N'CUT-%'`；bom_cut=1 时取消该条件（与前端默认一致，刷新即生效）
+ * - 裁片：bom_cut=0 时默认 `kcaa01 NOT LIKE N'CUT-%'`（除非显式 CUT- 搜索）；bom_cut=1 时仅保留 CUT- 前缀行
  */
 app.get('/api/inv/bom/list', async (req, res) => {
   try {
@@ -7012,12 +6957,17 @@ app.get('/api/inv/bom/list', async (req, res) => {
     const keywordRaw = String(req.query?.keyword ?? '').trim()
     const keywordOk = keywordRaw.length >= 3
     const kwLike = keywordOk ? `%${escapeSqlLikePattern(keywordRaw)}%` : ''
+    /** 去掉连字符后的关键词（用于匹配 TAG-PQ3691… 与 PQ-3691… 混写）； strip 后不足 3 字则不启用该分支 */
+    const keywordNoHyphen = keywordRaw.replace(/-/g, '')
+    const keywordNormOk = keywordOk && keywordNoHyphen.length >= 3
+    const kwNormLike = keywordNormOk ? `%${escapeSqlLikePattern(keywordNoHyphen)}%` : ''
 
     const codeRaw = String(req.query?.code ?? '').trim()
     const nameRaw = String(req.query?.name ?? '').trim()
     const codeOk = !keywordOk && codeRaw.length >= 3
     const nameOk = !keywordOk && nameRaw.length >= 3
     const nameLike = nameOk ? `%${escapeSqlLikePattern(nameRaw)}%` : ''
+    const codeContainsLike = codeOk ? `%${escapeSqlLikePattern(codeRaw)}%` : ''
 
     const pool = await getPool()
     const bomRules = await getBomCalcRules(pool)
@@ -7028,62 +6978,51 @@ app.get('/api/inv/bom/list', async (req, res) => {
     /** 统一关键词搜索裁片编码（与 keyword 模式共用 CUT 排除逻辑） */
     const isExplicitCutKeywordSearch = keywordOk && keywordRaw.toUpperCase().startsWith('CUT-')
 
-    let codeCondSql = ''
-    /** @type {'cut_right'|'cut_contains'|'core_suffix'|'contains'|''} */
-    let codeSearchMode = ''
-    let cutRightFuzzy = ''
-    let cutContainsLike = ''
-    let coreKeyword = ''
-    let codeSuffixLike = ''
-    let codeLikeContains = ''
+    const codeNoHyphen = codeRaw.replace(/-/g, '')
+    const codeNormOk = codeOk && codeNoHyphen.length >= 3
+    const codeNormLike = codeNormOk ? `%${escapeSqlLikePattern(codeNoHyphen)}%` : ''
+    const codeCondSql =
+      !keywordOk && codeOk
+        ? codeNormOk
+          ? ` AND (
+            b.kcaa01 LIKE @codeContainsLike
+            OR REPLACE(b.kcaa01, N'-', N'') LIKE @codeNormLike
+          ) `
+          : ' AND b.kcaa01 LIKE @codeContainsLike '
+        : ''
 
-    if (!keywordOk && codeOk) {
-      if (isExplicitCutCodeSearch) {
-        if (!codeRaw.includes('<')) {
-          codeSearchMode = 'cut_right'
-          cutRightFuzzy = `${escapeSqlLikePattern(codeRaw)}%`
-          codeCondSql = ' AND b.kcaa01 LIKE @cutRightFuzzy '
-        } else {
-          codeSearchMode = 'cut_contains'
-          cutContainsLike = `%${escapeSqlLikePattern(codeRaw)}%`
-          codeCondSql = ' AND b.kcaa01 LIKE @cutContainsLike '
-        }
-      } else {
-        coreKeyword = extractKcaa01CoreKeywordFromSearch(codeRaw, bomRules)
-        const codeUseSuffixCore = coreKeyword.length >= 3
-        if (codeUseSuffixCore) {
-          codeSearchMode = 'core_suffix'
-          codeSuffixLike = `%${escapeSqlLikePattern(coreKeyword)}`
-          codeCondSql = ' AND b.kcaa01 LIKE @codeSuffixLike '
-        } else {
-          codeSearchMode = 'contains'
-          codeLikeContains = `%${escapeSqlLikePattern(codeRaw)}%`
-          codeCondSql = ' AND b.kcaa01 LIKE @codeLikeContains '
-        }
-      }
+    const keywordOrSql = keywordOk
+      ? keywordNormOk
+        ? ` AND (
+          (b.kcaa01 LIKE @kwLike OR b.kcaa02 LIKE @kwLike)
+          OR (
+            REPLACE(b.kcaa01, N'-', N'') LIKE @kwNormLike
+            OR REPLACE(b.kcaa02, N'-', N'') LIKE @kwNormLike
+          )
+        ) `
+        : ' AND (b.kcaa01 LIKE @kwLike OR b.kcaa02 LIKE @kwLike) '
+      : ''
+
+    /** bom_cut=1：仅保留裁片主档（编码以 CUT- 开头，忽略大小写）；bom_cut=0：默认排除 CUT-，除非用户显式按 CUT- 搜索 */
+    let whereCutSql = ''
+    if (bomCutInclude) {
+      whereCutSql = ` AND UPPER(LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N''))))) LIKE N'CUT-%' `
+    } else if (!isExplicitCutCodeSearch && !isExplicitCutKeywordSearch) {
+      whereCutSql = ` AND b.kcaa01 NOT LIKE N'CUT-%' `
     }
-
-    const keywordOrSql = keywordOk ? ' AND (b.kcaa01 LIKE @kwLike OR b.kcaa02 LIKE @kwLike) ' : ''
-
-    // 显式搜 CUT- 时必须允许命中裁片行：否则与 bom_cut=0 的全局 CUT 排除互相矛盾
-    const whereExcludeCut =
-      bomCutInclude || isExplicitCutCodeSearch || isExplicitCutKeywordSearch
-        ? ''
-        : ` AND b.kcaa01 NOT LIKE N'CUT-%' `
     const whereBase = `
       WHERE (ISNULL(b.del, N'') = N'' OR b.del = N'0')
         AND LTRIM(RTRIM(ISNULL(b.pass, N''))) = @pass
-      ${whereExcludeCut}
+      ${whereCutSql}
       ${keywordOk ? keywordOrSql : `${codeCondSql}${nameOk ? ' AND b.kcaa02 LIKE @nameLike ' : ''}`}
     `
 
     const countReq = pool.request()
     countReq.input('pass', sql.NVarChar(10), pass)
     if (keywordOk) countReq.input('kwLike', sql.NVarChar(300), kwLike)
-    if (codeSearchMode === 'cut_right') countReq.input('cutRightFuzzy', sql.NVarChar(300), cutRightFuzzy)
-    if (codeSearchMode === 'cut_contains') countReq.input('cutContainsLike', sql.NVarChar(300), cutContainsLike)
-    if (codeSearchMode === 'core_suffix') countReq.input('codeSuffixLike', sql.NVarChar(300), codeSuffixLike)
-    if (codeSearchMode === 'contains') countReq.input('codeLikeContains', sql.NVarChar(300), codeLikeContains)
+    if (keywordNormOk) countReq.input('kwNormLike', sql.NVarChar(300), kwNormLike)
+    if (codeOk) countReq.input('codeContainsLike', sql.NVarChar(300), codeContainsLike)
+    if (codeNormOk) countReq.input('codeNormLike', sql.NVarChar(300), codeNormLike)
     if (nameOk) countReq.input('nameLike', sql.NVarChar(300), nameLike)
 
     const tCount0 = Date.now()
@@ -7094,11 +7033,9 @@ app.get('/api/inv/bom/list', async (req, res) => {
     `)
     const tCount1 = Date.now()
     if (tCount1 - tCount0 > 500) {
-      const hint =
-        codeSearchMode === 'cut_right'
-          ? '当前为裁片右模糊（keyword%），理论上可走 kcaa01 前缀索引；若仍慢请让 DBA 看实际执行计划'
-          : 'kcaa01 含前导 % 的模糊可能无法命中前缀索引，建议在库端评估 kcaa01 索引或全文检索 CONTAINS'
-      console.warn(`[BOM列表] COUNT 查询耗时 ${tCount1 - tCount0}ms（>500ms）：${hint}`)
+      console.warn(
+        `[BOM列表] COUNT 查询耗时 ${tCount1 - tCount0}ms（>500ms）：kcaa01/kcaa02 含前导 % 的全模糊可能无法命中前缀索引，建议在库端评估索引或全文检索 CONTAINS`,
+      )
     }
     const total = Number(totalRow.recordset?.[0]?.total ?? 0)
 
@@ -7111,10 +7048,9 @@ app.get('/api/inv/bom/list', async (req, res) => {
     listReq.input('startRow', sql.Int, startRow)
     listReq.input('endRow', sql.Int, endRow)
     if (keywordOk) listReq.input('kwLike', sql.NVarChar(300), kwLike)
-    if (codeSearchMode === 'cut_right') listReq.input('cutRightFuzzy', sql.NVarChar(300), cutRightFuzzy)
-    if (codeSearchMode === 'cut_contains') listReq.input('cutContainsLike', sql.NVarChar(300), cutContainsLike)
-    if (codeSearchMode === 'core_suffix') listReq.input('codeSuffixLike', sql.NVarChar(300), codeSuffixLike)
-    if (codeSearchMode === 'contains') listReq.input('codeLikeContains', sql.NVarChar(300), codeLikeContains)
+    if (keywordNormOk) listReq.input('kwNormLike', sql.NVarChar(300), kwNormLike)
+    if (codeOk) listReq.input('codeContainsLike', sql.NVarChar(300), codeContainsLike)
+    if (codeNormOk) listReq.input('codeNormLike', sql.NVarChar(300), codeNormLike)
     if (nameOk) listReq.input('nameLike', sql.NVarChar(300), nameLike)
 
     const tList0 = Date.now()
@@ -7199,11 +7135,9 @@ app.get('/api/inv/bom/list', async (req, res) => {
     `)
     const tList1 = Date.now()
     if (tList1 - tList0 > 500) {
-      const hint =
-        codeSearchMode === 'cut_right'
-          ? '当前为裁片右模糊（keyword%），理论上可走 kcaa01 前缀索引；若仍慢请让 DBA 看实际执行计划'
-          : '建议 DBA 检查执行计划；大表可考虑反向索引/全文检索优化含 % 前缀的模糊条件'
-      console.warn(`[BOM列表] LIST 查询耗时 ${tList1 - tList0}ms（>500ms）：${hint}`)
+      console.warn(
+        `[BOM列表] LIST 查询耗时 ${tList1 - tList0}ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件`,
+      )
     }
 
     const list = (listResult.recordset ?? []).map((row) => ({

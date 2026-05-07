@@ -1,8 +1,8 @@
 <template>
   <div class="erp-module-page">
     <!--
-      v1.1.7：BOM 主档列表（bom_000），严格服务端分页，避免一次渲染 6.8W 行拖垮浏览器。
-      性能约定：编码/名称模糊搜索仅在后端「满 3 字」时生效（参数化 LIKE），降低大表全表扫风险。
+      v1.1.8：BOM 主档列表（bom_000），严格服务端分页；合并关键词搜索（kcaa01/kcaa02 全模糊 OR）。
+      性能约定：关键词仅在后端「满 3 字」时生效（参数化 LIKE），降低大表扫描风险。
     -->
     <el-card shadow="never">
       <template #header>
@@ -14,17 +14,10 @@
 
       <div class="search-row">
         <el-input
-          v-model="code"
-          placeholder="物料编码（至少 3 个字才参与模糊查询）"
+          v-model="keyword"
+          placeholder="输入编码或名称关键词（支持全模糊）"
           clearable
-          style="max-width: 220px"
-          @keyup.enter="onSearch"
-        />
-        <el-input
-          v-model="name"
-          placeholder="物料名称（至少 3 个字才参与模糊查询）"
-          clearable
-          style="max-width: 260px"
+          class="bom-keyword-input"
           @keyup.enter="onSearch"
         />
         <el-select
@@ -33,8 +26,8 @@
           style="width: 200px"
           @change="onSearch"
         >
-          <el-option label="不搜索包含裁片" :value="0" />
-          <el-option label="搜索包含裁片" :value="1" />
+          <el-option label="不包含裁片编码（排除 CUT- 开头）" :value="0" />
+          <el-option label="仅裁片编码（仅 CUT- 开头）" :value="1" />
         </el-select>
         <div class="audit-switch">
           <span class="switch-label">显示未审核</span>
@@ -50,7 +43,7 @@
         show-icon
         :closable="false"
         class="hint-alert"
-        title="提示：编码或名称不足 3 个字时不会作为筛选条件（避免大表慢查询）。"
+        title="提示：关键词不足 3 个字时不会作为筛选条件（避免大表慢查询）。"
       />
 
       <el-alert v-if="errorMessage" :title="errorMessage" type="error" show-icon class="error-alert" />
@@ -186,9 +179,9 @@ const page = ref(1)
 /** 默认每页 10 条：配合“按最近修改/新增优先”更符合使用习惯 */
 const pageSize = ref(10)
 
-const code = ref('')
-const name = ref('')
-/** 裁片过滤：0 默认排除 kcaa01 以 CUT- 开头的行；1 包含裁片（刷新后仍为 0，除非用户改） */
+/** 合并搜索：同时模糊匹配物料编码（kcaa01）与名称（kcaa02） */
+const keyword = ref('')
+/** 裁片过滤：0 排除 CUT- 开头料号；1 仅查询 CUT- 开头裁片主档（后端强制前缀） */
 const searchQuery = reactive({
   bom_cut: 0,
 })
@@ -198,11 +191,8 @@ const detailVisible = ref(false)
 const detailRow = ref(null)
 
 const hintShort = computed(() => {
-  const c = String(code.value ?? '').trim()
-  const n = String(name.value ?? '').trim()
-  if (c.length > 0 && c.length < 3) return true
-  if (n.length > 0 && n.length < 3) return true
-  return false
+  const k = String(keyword.value ?? '').trim()
+  return k.length > 0 && k.length < 3
 })
 
 function formatDateTime(v) {
@@ -241,15 +231,13 @@ async function loadData() {
   errorMessage.value = ''
   try {
     const pass = showUnAudited.value ? '0' : '1'
-    const c = String(code.value ?? '').trim()
-    const n = String(name.value ?? '').trim()
+    const kw = String(keyword.value ?? '').trim()
     const params = {
       page: page.value,
       pageSize: pageSize.value,
       pass,
       bom_cut: searchQuery.bom_cut === 1 ? 1 : 0,
-      ...(c.length >= 3 ? { code: c } : {}),
-      ...(n.length >= 3 ? { name: n } : {}),
+      ...(kw.length >= 3 ? { keyword: kw } : {}),
     }
     const res = await axios.get('/api/inv/bom/list', { params })
     const body = res.data
@@ -278,8 +266,7 @@ function onSearch() {
 }
 
 function onReset() {
-  code.value = ''
-  name.value = ''
+  keyword.value = ''
   searchQuery.bom_cut = 0
   showUnAudited.value = false
   page.value = 1
@@ -354,6 +341,11 @@ loadData()
   align-items: center;
   gap: 10px;
   margin-bottom: 12px;
+}
+.bom-keyword-input {
+  flex: 1;
+  min-width: 280px;
+  max-width: 520px;
 }
 .audit-switch {
   display: inline-flex;
