@@ -40,6 +40,7 @@ import {
   restoreOperatorUserDel,
 } from './operatorUsersHandlers.js'
 import { registerPurchaseQuotationRoutes } from './purchaseQuotationHandlers.js'
+import { registerOutsourcingQuotationRoutes } from './outsourcingQuotationHandlers.js'
 
 dotenv.config()
 
@@ -12325,6 +12326,11 @@ app.delete('/api/dorm/delete-checkin', async (req, res) => {
 })
 
 registerPurchaseQuotationRoutes(app, {
+  getPool,
+  formatBomColorcodeTimestamp,
+  getActorAuditTripletFromReq,
+})
+registerOutsourcingQuotationRoutes(app, {
   getPool,
   formatBomColorcodeTimestamp,
   getActorAuditTripletFromReq,

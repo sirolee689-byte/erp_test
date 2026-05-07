@@ -19,8 +19,9 @@ export function getActorAuditFromReq(req) {
 }
 
 /**
- * 规则 16 三字段：uid（Sys_Users.UserID）、uname（UserCode）、utruename（UserName）
+ * 规则 13 / 16 三字段：uid（Sys_Users.UserID）、uname（UserCode）、utruename（UserName）
  * 仅从 req.user 取值，禁止信任前端 body 传入。
+ * 账号与姓名允许交叉兜底，最后用数值 UserID 转字符串兜底，避免 INSERT 漏写审计列。
  * @param {import('express').Request} req
  * @returns {{ uidInt: number | null, uname: string | null, utruename: string | null }}
  */
@@ -31,7 +32,10 @@ export function getActorAuditTripletFromReq(req) {
   }
   const uidInt = Number(u.userId)
   const uidOk = Number.isFinite(uidInt) && uidInt > 0 ? uidInt : null
-  const uname = String(u.userCode ?? '').trim() || null
-  const utruename = String(u.userName ?? '').trim() || null
+  const code = String(u.userCode ?? '').trim()
+  const name = String(u.userName ?? '').trim()
+  const uidStr = uidOk != null ? String(uidOk) : ''
+  const uname = code || name || uidStr || null
+  const utruename = name || code || uidStr || null
   return { uidInt: uidOk, uname, utruename }
 }

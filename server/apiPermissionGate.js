@@ -261,6 +261,7 @@ export function matchApiPermissionRule(method, path, body, params) {
         { menuPath: 'inv/bom', action: 'view' },
         { menuPath: 'inventory/basic/bom-data', action: 'view' },
         { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' },
+        { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'view' },
       ],
     }
   }
@@ -397,6 +398,50 @@ export function matchApiPermissionRule(method, path, body, params) {
   }
   if (m === 'DELETE' && /^\/api\/supply-chain\/purchase-quotations\/[^/]+$/.test(path)) {
     return { menuPath: 'supply-chain/daily/purchase-quote', action: 'delete' }
+  }
+
+  /* 销售/采购/外协管理 — 日常工作：外协报价（主从表） */
+  if (m === 'GET' && path === '/api/supply-chain/outsourcing-quotations/bom-detail') {
+    return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/supply-chain/outsourcing-quotations/list') {
+    return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/supply-chain/outsourcing-quotations/suggest-doc-no') {
+    return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/supply-chain/outsourcing-quotations/check-doc-no') {
+    return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/supply-chain/outsourcing-quotations/supplier-options') {
+    return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'view' }
+  }
+  if (m === 'GET' && /^\/api\/supply-chain\/outsourcing-quotations\/[^/]+\/lines$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'view' }
+  }
+  if (m === 'GET' && /^\/api\/supply-chain\/outsourcing-quotations\/[^/]+$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'view' }
+  }
+  if (m === 'POST' && path === '/api/supply-chain/outsourcing-quotations') {
+    return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'add' }
+  }
+  if (m === 'PUT' && path === '/api/supply-chain/outsourcing-quotations') {
+    return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'edit' }
+  }
+  if (m === 'PUT' && path === '/api/supply-chain/outsourcing-quotations/audit') {
+    return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/supply-chain/outsourcing-quotations/unaudit') {
+    return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/supply-chain/outsourcing-quotations/restore') {
+    return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'edit' }
+  }
+  if (m === 'DELETE' && /^\/api\/supply-chain\/outsourcing-quotations\/[^/]+\/permanent$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'delete' }
+  }
+  if (m === 'DELETE' && /^\/api\/supply-chain\/outsourcing-quotations\/[^/]+$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'delete' }
   }
 
   if (m === 'GET' && path === '/api/inventory/color-code/list') {

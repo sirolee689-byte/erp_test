@@ -380,7 +380,14 @@
                 </el-col>
                 <el-col :xs="24" :sm="14">
                   <el-form-item label="币别">
-                    <el-input v-model="currencyCombo" clearable placeholder="例：001,人民币（cgaa05 + rmb）" />
+                    <el-select v-model="currencyCode" placeholder="选择币别" clearable style="width: 100%">
+                      <el-option
+                        v-for="opt in CURRENCY_OPTIONS"
+                        :key="opt.code"
+                        :label="`${opt.code}，${opt.name}`"
+                        :value="opt.code"
+                      />
+                    </el-select>
                   </el-form-item>
                 </el-col>
                 <el-col :xs="24" :sm="10">
@@ -415,28 +422,54 @@
               单价、单价(含税)均可录入（按主表小数位四舍五入）；一般填其一，另一项随税点自动计算。改税点时若已填单价则重算含税，否则从未含税反推单价。保存前请点击保存写入数据库。
             </p>
             <div class="lines-toolbar">
-              <el-button
-                v-if="editMode === 'create'"
-                v-permission="'add'"
-                type="primary"
-                plain
-                size="small"
-                :disabled="detailLocked"
-                @click="addLineRow"
-              >
-                增行
-              </el-button>
-              <el-button
-                v-else
-                v-permission="'edit'"
-                type="primary"
-                plain
-                size="small"
-                :disabled="detailLocked"
-                @click="addLineRow"
-              >
-                增行
-              </el-button>
+              <div class="lines-toolbar-left">
+                <el-button
+                  v-if="editMode === 'create'"
+                  v-permission="'add'"
+                  type="primary"
+                  plain
+                  size="small"
+                  :disabled="detailLocked"
+                  @click="addLineRow"
+                >
+                  增行
+                </el-button>
+                <el-button
+                  v-else
+                  v-permission="'edit'"
+                  type="primary"
+                  plain
+                  size="small"
+                  :disabled="detailLocked"
+                  @click="addLineRow"
+                >
+                  增行
+                </el-button>
+                <el-button
+                  v-if="editMode === 'create'"
+                  v-permission="'add'"
+                  type="primary"
+                  plain
+                  size="small"
+                  :disabled="detailLocked"
+                  @click="openBatchMaterialPicker"
+                >
+                  <el-icon class="lines-toolbar-icon"><DocumentCopy /></el-icon>
+                  批量增行
+                </el-button>
+                <el-button
+                  v-else
+                  v-permission="'edit'"
+                  type="primary"
+                  plain
+                  size="small"
+                  :disabled="detailLocked"
+                  @click="openBatchMaterialPicker"
+                >
+                  <el-icon class="lines-toolbar-icon"><DocumentCopy /></el-icon>
+                  批量增行
+                </el-button>
+              </div>
             </div>
             <el-table
               :data="lineRows"
@@ -572,14 +605,22 @@
       </template>
     </el-dialog>
 
-    <MaterialSelector v-model="materialSelectorVisible" @picked="onMaterialPicked" />
+    <MaterialSelector
+      v-model="materialSelectorVisible"
+      :multiple="materialSelectorBatchMode"
+      @picked="onMaterialPicked"
+      @batch-confirm="onMaterialBatchConfirm"
+    />
   </div>
 </template>
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
+
+// 与 router 生成的 route.name 一致，供布局 keep-alive 按组件名缓存
+defineOptions({ name: 'supply-chain-daily-purchase-quote' })
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Search } from '@element-plus/icons-vue'
+import { DocumentCopy, Refresh, Search } from '@element-plus/icons-vue'
 import axios from 'axios'
 import MaterialSelector from './MaterialSelector.vue'
 
@@ -619,7 +660,14 @@ const docNoChecking = ref(false)
 const supplierLoading = ref(false)
 /** @type {import('vue').Ref<{ id: unknown, s_code: string, s_name: string }[]>} */
 const supplierOptions = ref([])
-const currencyCombo = ref('001,人民币')
+
+/** 币别：码写入 cgaa05，名称写入 rmb */
+const CURRENCY_OPTIONS = [
+  { code: '001', name: '人民币' },
+  { code: '002', name: '美元' },
+  { code: '003', name: '港元' },
+]
+const currencyCode = ref('001')
 
 const basicForm = reactive({
   cgaa01: '',
@@ -635,7 +683,12 @@ const lineRows = ref([])
 /** 编辑弹窗内主表审核状态（明细锁定）：pass=1 禁止改明细 */
 const dialogHeaderPass = ref('0')
 const materialSelectorVisible = ref(false)
+/** 是否批量选材（与单笔「增行旁放大镜」互斥模式） */
+const materialSelectorBatchMode = ref(false)
 const materialSelectorRowIndex = ref(-1)
+
+/** 单笔选材前请勿开批量模式 */
+const BATCH_ADD_THRESHOLD = 50
 
 const detailLocked = computed(() => String(dialogHeaderPass.value ?? '').trim() === '1')
 
@@ -840,7 +893,19 @@ function openMaterialPicker(idx) {
     ElMessage.warning('该报价单已审核，请先反审后再修改明细。')
     return
   }
+  materialSelectorBatchMode.value = false
   materialSelectorRowIndex.value = idx
+  materialSelectorVisible.value = true
+}
+
+/** 明细批量增行：打开多选物料弹窗 */
+function openBatchMaterialPicker() {
+  if (detailLocked.value) {
+    ElMessage.warning('该报价单已审核，请先反审后再修改明细。')
+    return
+  }
+  materialSelectorBatchMode.value = true
+  materialSelectorRowIndex.value = -1
   materialSelectorVisible.value = true
 }
 
@@ -849,6 +914,12 @@ function onMaterialPicked(payload) {
   if (idx < 0) return
   const row = lineRows.value[idx]
   if (!row) return
+  applyPickedPayloadToLineRow(row, payload)
+}
+
+/** 将选材结果写入明细行（单笔 / 批量共用字段映射） */
+function applyPickedPayloadToLineRow(row, payload) {
+  if (!row || !payload) return
   row.kcaa01 = payload.kcaa01 ?? ''
   row.kcaa02 = payload.kcaa02 ?? ''
   row.kcaa03 = payload.kcaa03 ?? ''
@@ -860,6 +931,62 @@ function onMaterialPicked(payload) {
     rawEx !== '' && rawEx != null && rawEx !== undefined && Number.isFinite(ex)
   if (hasEx) applyExToIncl(row)
   else syncLineOnTaxChange(row)
+}
+
+/** 当前明细已有编码集合（用于批量增行去重） */
+function collectExistingMaterialCodes() {
+  /** @type {Set<string>} */
+  const set = new Set()
+  for (const r of lineRows.value || []) {
+    const c = String(lineField(r, 'kcaa01') ?? '').trim()
+    if (c) set.add(c)
+  }
+  return set
+}
+
+/**
+ * 批量确认物料：注入新行，重复编码跳过并提示
+ * @param {Record<string, unknown>[]} payloads bom-detail 映射结果列表
+ */
+function onMaterialBatchConfirm(payloads) {
+  if (!Array.isArray(payloads) || !payloads.length) return
+  const existing = collectExistingMaterialCodes()
+  /** @type {Record<string, unknown>[]} */
+  const toAdd = []
+  let skippedDup = 0
+  for (const p of payloads) {
+    const code = String(p?.kcaa01 ?? '').trim()
+    if (!code) continue
+    if (existing.has(code)) {
+      skippedDup += 1
+      continue
+    }
+    existing.add(code)
+    toAdd.push({
+      kcaa01: code,
+      kcaa02: String(p.kcaa02 ?? '').trim(),
+      kcaa03: String(p.kcaa03 ?? '').trim(),
+      kcaa11: String(p.kcaa11 ?? '').trim(),
+      kcaa05: String(p.kcaa05 ?? '').trim(),
+      cgab04: undefined,
+      Tax: undefined,
+      cgab05: undefined,
+      remark: '',
+    })
+  }
+  if (skippedDup) {
+    ElMessage.warning(`有 ${skippedDup} 条物料编码已在明细中存在，已跳过`)
+  }
+  if (!toAdd.length) {
+    ElMessage.info('没有可添加的新物料（可能全部重复）')
+    return
+  }
+  if (toAdd.length > BATCH_ADD_THRESHOLD) {
+    lineRows.value = [...lineRows.value, ...toAdd]
+  } else {
+    lineRows.value.push(...toAdd)
+  }
+  ElMessage.success(`已添加 ${toAdd.length} 条明细，请补充单价与税点后保存`)
 }
 
 function lineHasNumericPrice(r) {
@@ -1062,15 +1189,13 @@ function normalizeHeaderDateForPicker(v) {
   return ''
 }
 
-/** 币别组合输入解析 → cgaa05 / rmb */
-function parseCurrencyCombo(combo) {
-  const s = String(combo ?? '').trim()
-  const i = s.indexOf(',')
-  if (i === -1) return { code: s.slice(0, 10).trim(), name: '' }
-  return {
-    code: s.slice(0, i).trim().slice(0, 10),
-    name: s.slice(i + 1).trim().slice(0, 50),
-  }
+/** 根据主表已存 cgaa05 / rmb 反推下拉 value */
+function resolveCurrencyCodeFromHeader(header) {
+  const c05 = String(lineField(header, 'cgaa05') ?? '').trim()
+  if (CURRENCY_OPTIONS.some((o) => o.code === c05)) return c05
+  const rmbv = String(lineField(header, 'rmb') ?? '').trim()
+  const byName = CURRENCY_OPTIONS.find((o) => o.name === rmbv)
+  return byName ? byName.code : '001'
 }
 
 function formatSupplierOptionLabel(opt) {
@@ -1088,7 +1213,7 @@ function resetBasicForm() {
   basicForm.kehu = ''
   basicForm.decimalPlaces = 4
   basicForm.remark = ''
-  currencyCombo.value = '001,人民币'
+  currencyCode.value = '001'
   supplierOptions.value = []
 }
 
@@ -1147,7 +1272,8 @@ function onSupplierDropdownVisible(open) {
 
 function buildHeaderForSubmit() {
   const qd = String(basicForm.quoteDate ?? '').trim() || formatTodayYmd()
-  const { code: curCode, name: curName } = parseCurrencyCombo(currencyCombo.value)
+  const cur =
+    CURRENCY_OPTIONS.find((o) => o.code === String(currencyCode.value ?? '').trim()) || CURRENCY_OPTIONS[0]
   const decStr = String(
     Number.isFinite(Number(basicForm.decimalPlaces)) ? Math.trunc(Number(basicForm.decimalPlaces)) : 4,
   )
@@ -1156,8 +1282,8 @@ function buildHeaderForSubmit() {
     cgaa01: String(basicForm.cgaa01 ?? '').trim(),
     kehu: String(basicForm.kehu ?? '').trim(),
     remark: String(basicForm.remark ?? '').trim(),
-    cgaa05: curCode,
-    rmb: curName,
+    cgaa05: cur.code,
+    rmb: cur.name,
     decimal: decStr,
     decimal_view: decStr,
     addtime: qd,
@@ -1251,12 +1377,7 @@ async function openEdit(row) {
     const decRaw = lineField(header, 'decimal') ?? lineField(header, 'decimal_view')
     const decNum = Number(decRaw)
     basicForm.decimalPlaces = Number.isFinite(decNum) ? Math.trunc(decNum) : 4
-    const c05 = String(lineField(header, 'cgaa05') ?? '').trim()
-    const rmbv = String(lineField(header, 'rmb') ?? '').trim()
-    if (c05 && rmbv) currencyCombo.value = `${c05},${rmbv}`
-    else if (c05) currencyCombo.value = c05
-    else if (rmbv) currencyCombo.value = rmbv
-    else currencyCombo.value = '001,人民币'
+    currencyCode.value = resolveCurrencyCodeFromHeader(header)
 
     supplierOptions.value = []
     dialogHeaderPass.value = String(lineField(header, 'pass') ?? row.pass ?? '').trim() || '0'
@@ -1541,6 +1662,16 @@ loadData()
   align-items: center;
   justify-content: space-between;
   margin-bottom: 8px;
+}
+.lines-toolbar-left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.lines-toolbar-icon {
+  margin-right: 4px;
+  vertical-align: middle;
 }
 .header-form {
   max-height: 280px;

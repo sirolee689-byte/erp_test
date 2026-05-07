@@ -24,6 +24,8 @@
 - **System_sales_customer**：销售/采购/外协管理 — 基本资料 — 销售客户（列表分页；审核/反审/软删/恢复）
 - **Purchase_Quotation**：销售/采购/外协管理 — 日常工作 — 采购报价主表（列表分页；主从保存；审核/反审/软删/恢复/彻底删）
 - **Purchase_Quotation_list**：采购报价明细表（通过外键或 `pid` 等列关联主表；保存时先删后插整批替换）
+- **Outsourcing_Quotation**：销售/采购/外协管理 — 日常工作 — 外协报价主表（与采购报价同一套主从/审核/回收站接口形态；字段列名 `wxaa*`）
+- **Outsourcing_Quotation_list**：外协报价明细表（与主表 `wxaa01` = 明细 `wxab01` 业务关联；汇总 `wxab04`/`wxab05`）
 
 ## 2. 表关系（ER 摘要）
 
@@ -36,6 +38,10 @@
 - **`Purchase_Quotation_list` → `Purchase_Quotation`**
   - 业务关联：**`Purchase_Quotation.cgaa01` = `Purchase_Quotation_list.cgab01`**
   - 说明：后端在首次访问时通过 `sys.foreign_keys` 解析外键列；若无约束，则候选含 **`cgab01`**（及 `pid` 等）。列表接口对明细按 `cgab01` 分组汇总 **`cgab04`/`cgab05`**（在册明细：`del` 为空/`0`）。
+
+- **`Outsourcing_Quotation_list` → `Outsourcing_Quotation`**
+  - 业务关联：**`Outsourcing_Quotation.wxaa01` = `Outsourcing_Quotation_list.wxab01`**
+  - 说明：实现见 `server/outsourcingQuotationHandlers.js`；列表汇总明细 **`wxab04`（不含税）/`wxab05`（含税）**，税点合计为二者之差（SQL `SUM`）。
 
 ## 3. 表明细
 
@@ -410,6 +416,19 @@
 - **权限（按钮级）**
   - 菜单 path：`supply-chain/daily/purchase-quote`：`view`、`add`、`edit`、`audit`、`delete`
 
+### 3.15b `Outsourcing_Quotation` / `Outsourcing_Quotation_list`（外协报价主从）
+
+- **Schema**：`dbo`
+- **实现文件**：`server/outsourcingQuotationHandlers.js`（`server/index.js` 注册 `registerOutsourcingQuotationRoutes`）
+- **模块/页面**
+  - 前端：`src/views/supply-chain/daily/outsourcing-quote/index.vue`（菜单 path：`supply-chain/daily/outsourcing-quote`）
+  - 选材弹窗复用：`src/views/supply-chain/daily/purchase-quote/MaterialSelector.vue`
+- **接口**：与采购报价路径对称，前缀改为 **`/api/supply-chain/outsourcing-quotations`**（`list`、`suggest-doc-no`、`check-doc-no?wxaa01=`、`supplier-options`、`bom-detail`、`POST`/`PUT`、`audit`/`unaudit`/`restore`、`DELETE` 软删与 `/permanent`）
+- **主表常用字段**：**`wxaa01`** 外协单号；**`wxaa02`** 报价日期；**`wxaa07`** 有效期；**`rmb`** / **`wxaa05`** 币别代码与名称（与采购报价表单同一组合录入逻辑）；**`kehu`** 供应商/外协商；**`remark`** 备注
+- **明细关键字段**：**`wxab01`** 关联主表单号；**`wxab04`**/**`wxab05`** 不含税/含税金额（列表按行 `SUM`）；选材字段 **`kcaa01`** 等与采购报价明细一致
+- **权限（按钮级）**
+  - 菜单 path：`supply-chain/daily/outsourcing-quote`：`view`、`add`、`edit`、`audit`、`delete`
+
 ### 3.13 `Sys_Users`（用户 / 操作员）
 
 - **Schema**：通常为 `dbo`（实际由数据库决定）
@@ -487,4 +506,7 @@
 
 - **`dbo.[Purchase_Quotation]` / `dbo.[Purchase_Quotation_list]`**
   - 来源：`server/purchaseQuotationHandlers.js`（采购报价 REST）
+
+- **`dbo.[Outsourcing_Quotation]` / `dbo.[Outsourcing_Quotation_list]`**
+  - 来源：`server/outsourcingQuotationHandlers.js`（外协报价 REST）
 

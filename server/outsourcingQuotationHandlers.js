@@ -1,13 +1,13 @@
 /**
- * 采购报价：Purchase_Quotation + Purchase_Quotation_list
+ * 外协报价：Outsourcing_Quotation + Outsourcing_Quotation_list
  * - 运行时探测列/主键/外键，兼容库结构差异
  * - SQL Server 2008 R2：列表分页使用 ROW_NUMBER
  */
 import { sql } from './db.js'
 import { applySupplierCodeColumnFromKehu } from './supplierSCodeLookup.js'
 
-const HEADER_TABLE = 'Purchase_Quotation'
-const LINE_TABLE = 'Purchase_Quotation_list'
+const HEADER_TABLE = 'Outsourcing_Quotation'
+const LINE_TABLE = 'Outsourcing_Quotation_list'
 const HEADER_FROM = `dbo.[${HEADER_TABLE}]`
 const LINE_FROM = `dbo.[${LINE_TABLE}]`
 const SYS_SUPPLIER_FROM = 'dbo.[System_supplier]'
@@ -47,11 +47,11 @@ function formatLocalYmd(d = new Date()) {
 }
 
 /**
- * 写入前归一化 body.header（decimal_view、报价日与 cgaa02 同步）
- * @param {PurchaseQuotationMeta} meta
+ * 写入前归一化 body.header（decimal_view、报价日与 wxaa02 同步）
+ * @param {OutsourcingQuotationMeta} meta
  * @param {Record<string, any>} headerIn
  */
-function normalizePurchaseQuotationHeaderBody(meta, headerIn) {
+function normalizeOutsourcingQuotationHeaderBody(meta, headerIn) {
   const h = { ...(headerIn && typeof headerIn === 'object' ? headerIn : {}) }
   const dec = pickBodyField(h, 'decimal')
   if (
@@ -62,13 +62,13 @@ function normalizePurchaseQuotationHeaderBody(meta, headerIn) {
     h.decimal_view = dec
   }
   const addStr = cellStr(pickBodyField(h, 'addtime'))
-  const cgaa2 = pickBodyField(h, 'cgaa02')
+  const wxaa2 = pickBodyField(h, 'wxaa02')
   if (
-    meta.headerColNames.has('cgaa02') &&
-    (cgaa2 === undefined || cgaa2 === null || cellStr(cgaa2) === '') &&
+    meta.headerColNames.has('wxaa02') &&
+    (wxaa2 === undefined || wxaa2 === null || cellStr(wxaa2) === '') &&
     addStr
   ) {
-    h.cgaa02 = addStr
+    h.wxaa02 = addStr
   }
   return h
 }
@@ -83,7 +83,7 @@ function actorUidStringForHeader(actor, req) {
 
 /**
  * 明细 INSERT：规则 13 — uid/uname/utruename 由服务端从登录态写入，禁止前端 body 覆盖
- * @param {PurchaseQuotationMeta} meta
+ * @param {OutsourcingQuotationMeta} meta
  * @param {import('mssql').Request} lreq
  * @param {string[]} lc
  * @param {string[]} lv
@@ -91,7 +91,7 @@ function actorUidStringForHeader(actor, req) {
  * @param {import('express').Request} req
  * @param {number} lineIdx
  */
-function appendPurchaseQuotationLineAuditTriplet(meta, lreq, lc, lv, actor, req, lineIdx) {
+function appendOutsourcingQuotationLineAuditTriplet(meta, lreq, lc, lv, actor, req, lineIdx) {
   const uidStrActor = actorUidStringForHeader(actor, req)
   const unameVal =
     String(actor.uname ?? '').trim() ||
@@ -184,11 +184,11 @@ function invBomMasterFrom() {
  *   lineCols: ColMeta[],
  *   headerColNames: Set<string>,
  *   lineColNames: Set<string>,
- * }} PurchaseQuotationMeta
+ * }} OutsourcingQuotationMeta
  */
 
-/** @type {Promise<PurchaseQuotationMeta> | null} */
-let META_PROMISE = null
+/** @type {Promise<OutsourcingQuotationMeta> | null} */
+let OQ_META_PROMISE = null
 
 function escapeSqlLikePattern(s) {
   return String(s ?? '')
@@ -221,9 +221,9 @@ function cellStr(v) {
 
 /**
  * @param {import('mssql').ConnectionPool} pool
- * @returns {Promise<PurchaseQuotationMeta>}
+ * @returns {Promise<OutsourcingQuotationMeta>}
  */
-async function loadPurchaseQuotationMeta(pool) {
+async function loadOutsourcingQuotationMeta(pool) {
   const reqCols = async (table) => {
     const r = await pool
       .request()
@@ -303,14 +303,14 @@ async function loadPurchaseQuotationMeta(pool) {
     if (fk) return fk
     const lowerSet = new Set(lineCols.map((c) => c.name.toLowerCase()))
     const candidates = [
-      'cgab01',
+      'wxab01',
       'pid',
-      'purchase_quotation_id',
+      'outsourcing_quotation_id',
       'quotation_id',
       'sid',
       'master_id',
       'parent_id',
-      'Purchase_Quotation_id',
+      'Outsourcing_Quotation_id',
     ]
     for (const c of candidates) {
       if (!lowerSet.has(c.toLowerCase())) continue
@@ -318,18 +318,18 @@ async function loadPurchaseQuotationMeta(pool) {
       if (hit) return hit.name
     }
     throw new Error(
-      `[采购报价] 未找到 ${LINE_TABLE} 指向 ${HEADER_TABLE} 的外键列；请在库中建立外键或为明细表增加 pid 等关联列`,
+      `[外协报价] 未找到 ${LINE_TABLE} 指向 ${HEADER_TABLE} 的外键列；请在库中建立外键或为明细表增加 pid 等关联列`,
     )
   }
 
   const headerCols = await reqCols(HEADER_TABLE)
   const lineCols = await reqCols(LINE_TABLE)
-  if (!headerCols.length) throw new Error(`[采购报价] 表 ${HEADER_TABLE} 无列或不存在`)
-  if (!lineCols.length) throw new Error(`[采购报价] 表 ${LINE_TABLE} 无列或不存在`)
+  if (!headerCols.length) throw new Error(`[外协报价] 表 ${HEADER_TABLE} 无列或不存在`)
+  if (!lineCols.length) throw new Error(`[外协报价] 表 ${LINE_TABLE} 无列或不存在`)
 
   const pkH = await fetchPk(HEADER_TABLE)
   if (pkH.length !== 1) {
-    throw new Error(`[采购报价] ${HEADER_TABLE} 需要单列主键，当前：${pkH.join(',') || '无'}`)
+    throw new Error(`[外协报价] ${HEADER_TABLE} 需要单列主键，当前：${pkH.join(',') || '无'}`)
   }
   const headerPk = pkH[0]
 
@@ -356,23 +356,23 @@ async function loadPurchaseQuotationMeta(pool) {
 /**
  * @param {import('mssql').ConnectionPool} pool
  */
-export async function ensurePurchaseQuotationMeta(pool) {
-  if (!META_PROMISE) META_PROMISE = loadPurchaseQuotationMeta(pool)
+export async function ensureOutsourcingQuotationMeta(pool) {
+  if (!OQ_META_PROMISE) OQ_META_PROMISE = loadOutsourcingQuotationMeta(pool)
   try {
-    return await META_PROMISE
+    return await OQ_META_PROMISE
   } catch (e) {
-    META_PROMISE = null
+    OQ_META_PROMISE = null
     throw e
   }
 }
 
 /** 模块测试或迁移后可调用 */
-export function invalidatePurchaseQuotationMetaCache() {
-  META_PROMISE = null
+export function invalidateOutsourcingQuotationMetaCache() {
+  OQ_META_PROMISE = null
 }
 
 /**
- * @param {PurchaseQuotationMeta} meta
+ * @param {OutsourcingQuotationMeta} meta
  * @param {'h' | 'l'} table
  * @param {string} colName
  * @returns {ColMeta | null}
@@ -533,12 +533,12 @@ function bindTypedParam(rq, pname, cm, rawVal) {
 }
 
 /**
- * @param {PurchaseQuotationMeta} meta
+ * @param {OutsourcingQuotationMeta} meta
  * @param {Record<string, any>} row
  */
-export function getPurchaseQuotationDisplayLabel(meta, row) {
+export function getOutsourcingQuotationDisplayLabel(meta, row) {
   const candidates = [
-    'cgaa01',
+    'wxaa01',
     'systemcode',
     'SystemCode',
     'code',
@@ -554,7 +554,7 @@ export function getPurchaseQuotationDisplayLabel(meta, row) {
     if (s) return s
   }
   const idv = pickBodyField(row, meta.headerPk)
-  return idv != null ? `单据#${idv}` : '采购报价'
+  return idv != null ? `单据#${idv}` : '外协报价'
 }
 
 /**
@@ -562,11 +562,11 @@ export function getPurchaseQuotationDisplayLabel(meta, row) {
  * @param {import('mssql').ConnectionPool} pool
  * @param {string | number} id
  */
-export async function fetchPurchaseQuotationSnapshotForAudit(pool, id) {
-  const meta = await ensurePurchaseQuotationMeta(pool)
+export async function fetchOutsourcingQuotationSnapshotForAudit(pool, id) {
+  const meta = await ensureOutsourcingQuotationMeta(pool)
   const pk = meta.headerPk
   const pkCol = colMeta(meta, 'h', pk)
-  const docCandidates = ['cgaa01', 'systemcode', 'code', 'quotation_code', 'dh', 'djbh'].filter((c) =>
+  const docCandidates = ['wxaa01', 'systemcode', 'code', 'quotation_code', 'dh', 'djbh'].filter((c) =>
     meta.headerColNames.has(c.toLowerCase()),
   )
   const sel = [
@@ -601,7 +601,7 @@ export async function fetchPurchaseQuotationSnapshotForAudit(pool, id) {
  * @param {Record<string, any>} oldRow
  * @param {Record<string, any>} body
  */
-export function buildPurchaseQuotationPutDiffChinese(oldRow, body) {
+export function buildOutsourcingQuotationPutDiffChinese(oldRow, body) {
   const header = body?.header && typeof body.header === 'object' ? body.header : {}
   const parts = []
   const keys = new Set([...Object.keys(oldRow || {}), ...Object.keys(header)])
@@ -621,8 +621,8 @@ export function buildPurchaseQuotationPutDiffChinese(oldRow, body) {
  * @param {import('mssql').ConnectionPool} pool
  * @param {string | number} id
  */
-export async function fetchPurchaseQuotationHeaderFullForAudit(pool, id) {
-  const meta = await ensurePurchaseQuotationMeta(pool)
+export async function fetchOutsourcingQuotationHeaderFullForAudit(pool, id) {
+  const meta = await ensureOutsourcingQuotationMeta(pool)
   const pk = meta.headerPk
   const pkCol = colMeta(meta, 'h', pk)
   const rq = pool.request()
@@ -687,14 +687,14 @@ function keywordOrClause(meta, kwParamName) {
 }
 
 function docNoColumns(meta) {
-  return ['cgaa01', 'systemcode', 'code', 'quotation_code', 'dh', 'djbh', 'bill_no'].filter((c) =>
+  return ['wxaa01', 'systemcode', 'code', 'quotation_code', 'dh', 'djbh', 'bill_no'].filter((c) =>
     meta.headerColNames.has(c.toLowerCase()),
   )
 }
 
-/** 主表上与明细字符串外键对应的单号列（优先 cgaa01） */
+/** 主表上与明细字符串外键对应的单号列（优先 wxaa01） */
 function headerDocLinkColumn(meta) {
-  const order = ['cgaa01', ...docNoColumns(meta).filter((c) => c.toLowerCase() !== 'cgaa01')]
+  const order = ['wxaa01', ...docNoColumns(meta).filter((c) => c.toLowerCase() !== 'wxaa01')]
   const seen = new Set()
   for (const c of order) {
     const k = c.toLowerCase()
@@ -708,13 +708,13 @@ function headerDocLinkColumn(meta) {
 /**
  * 数字主键 + 明细 nvarchar 外键：用主表单号列查明细关联值
  * @param {import('mssql').ConnectionPool} pool
- * @param {PurchaseQuotationMeta} meta
+ * @param {OutsourcingQuotationMeta} meta
  * @param {string | number} headerPkVal
  */
 async function fetchLineFilterStringFromNumericHeader(pool, meta, headerPkVal) {
   const docCol = headerDocLinkColumn(meta)
   if (!docCol) {
-    throw new Error('[采购报价] 主表缺少 cgaa01/单号列，无法按明细外键类型关联')
+    throw new Error('[外协报价] 主表缺少 wxaa01/单号列，无法按明细外键类型关联')
   }
   const pkCol = colMeta(meta, 'h', meta.headerPk)
   const rq = pool.request()
@@ -728,7 +728,7 @@ async function fetchLineFilterStringFromNumericHeader(pool, meta, headerPkVal) {
   return v == null ? '' : String(v).trim()
 }
 
-/** 从主表行得到明细字符串外键应匹配的值（cgaa01= cgab01） */
+/** 从主表行得到明细字符串外键应匹配的值（wxaa01= wxab01） */
 function headerLineLinkFromHeaderRow(meta, headerRow) {
   const docCol = headerDocLinkColumn(meta)
   if (docCol) {
@@ -757,13 +757,13 @@ function lineFkStringValueForInsert(meta, headerIn, newPkRaw) {
   return cellStr(newPkRaw)
 }
 
-/** UB_ERP 采购报价：主表 cgaa01 = 明细 cgab01，列表汇总 cgab04/cgab05 */
-function hasUbErpQuotationListAgg(meta) {
+/** UB_ERP 外协报价：主表 wxaa01 = 明细 wxab01，列表汇总 wxab04/wxab05 */
+function hasUbErpOutsourcingListAgg(meta) {
   return (
-    meta.headerColNames.has('cgaa01') &&
-    meta.lineColNames.has('cgab01') &&
-    meta.lineColNames.has('cgab04') &&
-    meta.lineColNames.has('cgab05')
+    meta.headerColNames.has('wxaa01') &&
+    meta.lineColNames.has('wxab01') &&
+    meta.lineColNames.has('wxab04') &&
+    meta.lineColNames.has('wxab05')
   )
 }
 
@@ -775,27 +775,27 @@ function sqlLineDelActiveClause(meta, alias = 'l') {
 }
 
 /**
- * 列表附加：明细行数、不含税/含税/税点合计；报价日 cgaa02、有效期 cgaa07 格式 yyyy-MM-dd
+ * 列表附加：明细行数、不含税/含税/税点合计；报价日 wxaa02、有效期 wxaa07 格式 yyyy-MM-dd
  */
-function ubQuotationListAggSelectFragments(meta) {
-  const cgab01 = bracketIdent('cgab01')
-  const cgab04 = bracketIdent('cgab04')
-  const cgab05 = bracketIdent('cgab05')
-  const cgaa01 = bracketIdent('cgaa01')
+function ubOutsourcingListAggSelectFragments(meta) {
+  const wxab01 = bracketIdent('wxab01')
+  const wxab04 = bracketIdent('wxab04')
+  const wxab05 = bracketIdent('wxab05')
+  const wxaa01 = bracketIdent('wxaa01')
   const lineWhere = sqlLineDelActiveClause(meta, 'l')
 
   const aggInner = `
       SELECT
-        LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(l.${cgab01}, N'')))) AS pq_link,
+        LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(l.${wxab01}, N'')))) AS pq_link,
         COUNT(1) AS pq_line_count,
-        SUM(CAST(ISNULL(l.${cgab04}, 0) AS decimal(18,6))) AS pq_sum_excl_tax,
-        SUM(CAST(ISNULL(l.${cgab05}, 0) AS decimal(18,6))) AS pq_sum_incl_tax
+        SUM(CAST(ISNULL(l.${wxab04}, 0) AS decimal(18,6))) AS pq_sum_excl_tax,
+        SUM(CAST(ISNULL(l.${wxab05}, 0) AS decimal(18,6))) AS pq_sum_incl_tax
       FROM ${LINE_FROM} AS l
       WHERE ${lineWhere}
-      GROUP BY LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(l.${cgab01}, N''))))
+      GROUP BY LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(l.${wxab01}, N''))))
   `.trim()
 
-  const joinOn = `pq_agg.pq_link = LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(h.${cgaa01}, N''))))`
+  const joinOn = `pq_agg.pq_link = LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(h.${wxaa01}, N''))))`
 
   const parts = [
     `ISNULL(pq_agg.pq_line_count, 0) AS pq_line_count`,
@@ -803,16 +803,16 @@ function ubQuotationListAggSelectFragments(meta) {
     `CAST(ISNULL(pq_agg.pq_sum_incl_tax, 0) AS decimal(18,6)) AS pq_sum_incl_tax`,
     `CAST(ISNULL(pq_agg.pq_sum_incl_tax, 0) - ISNULL(pq_agg.pq_sum_excl_tax, 0) AS decimal(18,6)) AS pq_tax_amount`,
   ]
-  if (meta.headerColNames.has('cgaa02')) {
-    const c2 = bracketIdent('cgaa02')
+  if (meta.headerColNames.has('wxaa02')) {
+    const c2 = bracketIdent('wxaa02')
     parts.push(
       `CASE WHEN h.${c2} IS NULL THEN N'' ELSE CONVERT(nvarchar(10), h.${c2}, 23) END AS pq_quote_date_display`,
     )
   } else {
     parts.push(`CAST(N'' AS nvarchar(10)) AS pq_quote_date_display`)
   }
-  if (meta.headerColNames.has('cgaa07')) {
-    const c7 = bracketIdent('cgaa07')
+  if (meta.headerColNames.has('wxaa07')) {
+    const c7 = bracketIdent('wxaa07')
     parts.push(
       `CASE WHEN h.${c7} IS NULL THEN N'' ELSE CONVERT(nvarchar(10), h.${c7}, 23) END AS pq_valid_until_display`,
     )
@@ -831,7 +831,7 @@ function ubQuotationListAggSelectFragments(meta) {
  *   getActorAuditTripletFromReq: (req: any) => { uidInt: number | null, uname: string, utruename: string },
  * }} deps
  */
-export function registerPurchaseQuotationRoutes(app, deps) {
+export function registerOutsourcingQuotationRoutes(app, deps) {
   const { getPool, formatBomColorcodeTimestamp, getActorAuditTripletFromReq } = deps
 
   /** 未审且在册（用于保存/审核前状态匹配） */
@@ -868,10 +868,10 @@ export function registerPurchaseQuotationRoutes(app, deps) {
   }
 
   /**
-   * GET /api/supply-chain/purchase-quotations/bom-detail?kcaa01=
-   * 按材料编码读取 BOM 主档一行（在册），供明细「查看」；权限使用采购报价 view
+   * GET /api/supply-chain/outsourcing-quotations/bom-detail?kcaa01=
+   * 按材料编码读取 BOM 主档一行（在册），供明细「查看」；权限使用外协报价 view
    */
-  app.get('/api/supply-chain/purchase-quotations/bom-detail', async (req, res) => {
+  app.get('/api/supply-chain/outsourcing-quotations/bom-detail', async (req, res) => {
     try {
       const code = String(req.query?.kcaa01 ?? '').trim()
       if (!code) {
@@ -900,19 +900,19 @@ export function registerPurchaseQuotationRoutes(app, deps) {
       }
       res.json({ code: 200, msg: 'success', data: { bom: safe } })
     } catch (err) {
-      console.error('GET /api/supply-chain/purchase-quotations/bom-detail 失败：', err)
+      console.error('GET /api/supply-chain/outsourcing-quotations/bom-detail 失败：', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
       res.status(500).json({ code: 500, msg: `读取 BOM 资料失败：${detail}`, data: null })
     }
   })
 
   /**
-   * GET /api/supply-chain/purchase-quotations/list
+   * GET /api/supply-chain/outsourcing-quotations/list
    */
-  app.get('/api/supply-chain/purchase-quotations/list', async (req, res) => {
+  app.get('/api/supply-chain/outsourcing-quotations/list', async (req, res) => {
     try {
       const pool = await getPool()
-      const meta = await ensurePurchaseQuotationMeta(pool)
+      const meta = await ensureOutsourcingQuotationMeta(pool)
 
       const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
       const pageSizeRaw = Number(req.query?.pageSize ?? 20) || 20
@@ -971,8 +971,8 @@ export function registerPurchaseQuotationRoutes(app, deps) {
       const orderPkDesc = `h.${bracketIdent(pk)} DESC`
 
       let listSql
-      if (hasUbErpQuotationListAgg(meta)) {
-        const { aggInner, joinOn, extraCols } = ubQuotationListAggSelectFragments(meta)
+      if (hasUbErpOutsourcingListAgg(meta)) {
+        const { aggInner, joinOn, extraCols } = ubOutsourcingListAggSelectFragments(meta)
         listSql = `
         SELECT x.*
         FROM (
@@ -1021,24 +1021,24 @@ export function registerPurchaseQuotationRoutes(app, deps) {
       })
       res.json({ code: 200, msg: 'success', data: { total, list } })
     } catch (err) {
-      console.error('GET /api/supply-chain/purchase-quotations/list 失败：', err)
+      console.error('GET /api/supply-chain/outsourcing-quotations/list 失败：', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
-      res.status(500).json({ code: 500, msg: `读取采购报价列表失败：${detail}`, data: null })
+      res.status(500).json({ code: 500, msg: `读取外协报价列表失败：${detail}`, data: null })
     }
   })
 
   /**
-   * GET /api/supply-chain/purchase-quotations/suggest-doc-no
+   * GET /api/supply-chain/outsourcing-quotations/suggest-doc-no
    * 按最大主键行上的单号列自增 1，供新增默认单号
    */
-  app.get('/api/supply-chain/purchase-quotations/suggest-doc-no', async (req, res) => {
+  app.get('/api/supply-chain/outsourcing-quotations/suggest-doc-no', async (req, res) => {
     try {
       const pool = await getPool()
-      const meta = await ensurePurchaseQuotationMeta(pool)
+      const meta = await ensureOutsourcingQuotationMeta(pool)
       const pk = meta.headerPk
       const docCol = headerDocLinkColumn(meta)
       if (!docCol) {
-        res.status(500).json({ code: 500, msg: '主表缺少单号列（cgaa01 等）', data: null })
+        res.status(500).json({ code: 500, msg: '主表缺少单号列（wxaa01 等）', data: null })
         return
       }
       const r = await pool.request().query(`
@@ -1058,22 +1058,22 @@ export function registerPurchaseQuotationRoutes(app, deps) {
         data: { lastId: lastId ?? null, lastNo, suggested },
       })
     } catch (err) {
-      console.error('GET /api/supply-chain/purchase-quotations/suggest-doc-no 失败：', err)
+      console.error('GET /api/supply-chain/outsourcing-quotations/suggest-doc-no 失败：', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
       res.status(500).json({ code: 500, msg: `获取建议单号失败：${detail}`, data: null })
     }
   })
 
   /**
-   * GET /api/supply-chain/purchase-quotations/check-doc-no?cgaa01=
+   * GET /api/supply-chain/outsourcing-quotations/check-doc-no?wxaa01=
    */
-  app.get('/api/supply-chain/purchase-quotations/check-doc-no', async (req, res) => {
+  app.get('/api/supply-chain/outsourcing-quotations/check-doc-no', async (req, res) => {
     try {
       const pool = await getPool()
-      const meta = await ensurePurchaseQuotationMeta(pool)
-      const code = String(req.query?.cgaa01 ?? '').trim()
+      const meta = await ensureOutsourcingQuotationMeta(pool)
+      const code = String(req.query?.wxaa01 ?? '').trim()
       if (!code) {
-        res.status(400).json({ code: 400, msg: '参数错误：cgaa01', data: null })
+        res.status(400).json({ code: 400, msg: '参数错误：wxaa01', data: null })
         return
       }
       const errMsg = await assertDocNoUnique(pool, meta, code, null)
@@ -1083,17 +1083,17 @@ export function registerPurchaseQuotationRoutes(app, deps) {
         data: { available: !errMsg, message: errMsg || '' },
       })
     } catch (err) {
-      console.error('GET /api/supply-chain/purchase-quotations/check-doc-no 失败：', err)
+      console.error('GET /api/supply-chain/outsourcing-quotations/check-doc-no 失败：', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
       res.status(500).json({ code: 500, msg: `检测单号失败：${detail}`, data: null })
     }
   })
 
   /**
-   * GET /api/supply-chain/purchase-quotations/supplier-options?keyword=&limit=
+   * GET /api/supply-chain/outsourcing-quotations/supplier-options?keyword=&limit=
    * 已审核且在册供应商（System_supplier），用于报价「供应商/外协商」下拉
    */
-  app.get('/api/supply-chain/purchase-quotations/supplier-options', async (req, res) => {
+  app.get('/api/supply-chain/outsourcing-quotations/supplier-options', async (req, res) => {
     try {
       const pool = await getPool()
       const keywordRaw = String(req.query?.keyword ?? '').trim()
@@ -1123,19 +1123,19 @@ export function registerPurchaseQuotationRoutes(app, deps) {
 
       res.json({ code: 200, msg: 'success', data: { list: r.recordset ?? [] } })
     } catch (err) {
-      console.error('GET /api/supply-chain/purchase-quotations/supplier-options 失败：', err)
+      console.error('GET /api/supply-chain/outsourcing-quotations/supplier-options 失败：', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
       res.status(500).json({ code: 500, msg: `读取供应商下拉失败：${detail}`, data: null })
     }
   })
 
   /**
-   * GET /api/supply-chain/purchase-quotations/:id/lines
+   * GET /api/supply-chain/outsourcing-quotations/:id/lines
    */
-  app.get('/api/supply-chain/purchase-quotations/:id/lines', async (req, res) => {
+  app.get('/api/supply-chain/outsourcing-quotations/:id/lines', async (req, res) => {
     try {
       const pool = await getPool()
-      const meta = await ensurePurchaseQuotationMeta(pool)
+      const meta = await ensureOutsourcingQuotationMeta(pool)
       const parsed = parseRouteHeaderKey(req.params.id, meta)
       if (!parsed.ok) {
         res.status(400).json({ code: 400, msg: parsed.msg || '参数错误：id', data: null })
@@ -1166,19 +1166,19 @@ export function registerPurchaseQuotationRoutes(app, deps) {
       `)
       res.json({ code: 200, msg: 'success', data: { list: r.recordset ?? [] } })
     } catch (err) {
-      console.error('GET /api/supply-chain/purchase-quotations/:id/lines 失败：', err)
+      console.error('GET /api/supply-chain/outsourcing-quotations/:id/lines 失败：', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
-      res.status(500).json({ code: 500, msg: `读取采购报价明细失败：${detail}`, data: null })
+      res.status(500).json({ code: 500, msg: `读取外协报价明细失败：${detail}`, data: null })
     }
   })
 
   /**
-   * GET /api/supply-chain/purchase-quotations/:id
+   * GET /api/supply-chain/outsourcing-quotations/:id
    */
-  app.get('/api/supply-chain/purchase-quotations/:id', async (req, res) => {
+  app.get('/api/supply-chain/outsourcing-quotations/:id', async (req, res) => {
     try {
       const pool = await getPool()
-      const meta = await ensurePurchaseQuotationMeta(pool)
+      const meta = await ensureOutsourcingQuotationMeta(pool)
       const parsed = parseRouteHeaderKey(req.params.id, meta)
       if (!parsed.ok) {
         res.status(400).json({ code: 400, msg: parsed.msg || '参数错误：id', data: null })
@@ -1217,9 +1217,9 @@ export function registerPurchaseQuotationRoutes(app, deps) {
       `)
       res.json({ code: 200, msg: 'success', data: { header, lines: lr.recordset ?? [] } })
     } catch (err) {
-      console.error('GET /api/supply-chain/purchase-quotations/:id 失败：', err)
+      console.error('GET /api/supply-chain/outsourcing-quotations/:id 失败：', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
-      res.status(500).json({ code: 500, msg: `读取采购报价详情失败：${detail}`, data: null })
+      res.status(500).json({ code: 500, msg: `读取外协报价详情失败：${detail}`, data: null })
     }
   })
 
@@ -1247,21 +1247,21 @@ export function registerPurchaseQuotationRoutes(app, deps) {
   }
 
   /**
-   * POST /api/supply-chain/purchase-quotations
+   * POST /api/supply-chain/outsourcing-quotations
    * body: { header: {}, lines: [] }
    */
-  app.post('/api/supply-chain/purchase-quotations', async (req, res) => {
+  app.post('/api/supply-chain/outsourcing-quotations', async (req, res) => {
     /** @type {import('mssql').Transaction | null} */
     let tx = null
     try {
       const pool = await getPool()
-      const meta = await ensurePurchaseQuotationMeta(pool)
+      const meta = await ensureOutsourcingQuotationMeta(pool)
       const body = req.body ?? {}
-      const headerIn = normalizePurchaseQuotationHeaderBody(
+      const headerIn = normalizeOutsourcingQuotationHeaderBody(
         meta,
         body.header && typeof body.header === 'object' ? body.header : {},
       )
-      await applySupplierCodeColumnFromKehu(pool, meta, headerIn, 'cgaa04')
+      await applySupplierCodeColumnFromKehu(pool, meta, headerIn, 'wxaa04')
       const linesIn = Array.isArray(body.lines) ? body.lines : []
 
       const docCols = docNoColumns(meta)
@@ -1430,7 +1430,7 @@ export function registerPurchaseQuotationRoutes(app, deps) {
           lv.push(`@L${lps}`)
           bindTypedParam(lreq, `L${lps}`, cm, raw)
         }
-        appendPurchaseQuotationLineAuditTriplet(meta, lreq, lc, lv, actor, req, lineIdx)
+        appendOutsourcingQuotationLineAuditTriplet(meta, lreq, lc, lv, actor, req, lineIdx)
         lc.push(bracketIdent(fk))
         lv.push('@hid')
         let hidVal = newIdRaw
@@ -1444,7 +1444,7 @@ export function registerPurchaseQuotationRoutes(app, deps) {
             await tx.rollback()
             res.status(400).json({
               code: 400,
-              msg: '新增失败：请填写采购报价单号（cgaa01）以便关联明细',
+              msg: '新增失败：请填写外协报价单号（wxaa01）以便关联明细',
               data: null,
             })
             return
@@ -1469,22 +1469,22 @@ export function registerPurchaseQuotationRoutes(app, deps) {
       } catch {
         /* ignore */
       }
-      console.error('POST /api/supply-chain/purchase-quotations 失败：', err)
+      console.error('POST /api/supply-chain/outsourcing-quotations 失败：', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? '数据库写入失败')
-      res.status(500).json({ code: 500, msg: `新增采购报价失败：${detail}`, data: null })
+      res.status(500).json({ code: 500, msg: `新增外协报价失败：${detail}`, data: null })
     }
   })
 
   /**
-   * PUT /api/supply-chain/purchase-quotations
+   * PUT /api/supply-chain/outsourcing-quotations
    * body: { id, header: {}, lines: [] }
    */
-  app.put('/api/supply-chain/purchase-quotations', async (req, res) => {
+  app.put('/api/supply-chain/outsourcing-quotations', async (req, res) => {
     /** @type {import('mssql').Transaction | null} */
     let tx = null
     try {
       const pool = await getPool()
-      const meta = await ensurePurchaseQuotationMeta(pool)
+      const meta = await ensureOutsourcingQuotationMeta(pool)
       const body = req.body ?? {}
       const parsedId = parseBodyHeaderKey(body.id, meta)
       if (!parsedId.ok) {
@@ -1492,11 +1492,11 @@ export function registerPurchaseQuotationRoutes(app, deps) {
         return
       }
       const id = parsedId.value
-      const headerIn = normalizePurchaseQuotationHeaderBody(
+      const headerIn = normalizeOutsourcingQuotationHeaderBody(
         meta,
         body.header && typeof body.header === 'object' ? body.header : {},
       )
-      await applySupplierCodeColumnFromKehu(pool, meta, headerIn, 'cgaa04')
+      await applySupplierCodeColumnFromKehu(pool, meta, headerIn, 'wxaa04')
       const linesIn = Array.isArray(body.lines) ? body.lines : []
 
       const pk = meta.headerPk
@@ -1683,7 +1683,7 @@ export function registerPurchaseQuotationRoutes(app, deps) {
           lv.push(`@L${lps}`)
           bindTypedParam(lreq, `L${lps}`, cm, raw)
         }
-        appendPurchaseQuotationLineAuditTriplet(meta, lreq, lc, lv, actor, req, lineIdx)
+        appendOutsourcingQuotationLineAuditTriplet(meta, lreq, lc, lv, actor, req, lineIdx)
         lc.push(bracketIdent(fk))
         lv.push('@hid')
         bindPkOrFkParam(lreq, 'hid', fkColPut, insertLineFkVal)
@@ -1705,14 +1705,14 @@ export function registerPurchaseQuotationRoutes(app, deps) {
       } catch {
         /* ignore */
       }
-      console.error('PUT /api/supply-chain/purchase-quotations 失败：', err)
+      console.error('PUT /api/supply-chain/outsourcing-quotations 失败：', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? '数据库写入失败')
-      res.status(500).json({ code: 500, msg: `保存采购报价失败：${detail}`, data: null })
+      res.status(500).json({ code: 500, msg: `保存外协报价失败：${detail}`, data: null })
     }
   })
 
   async function fetchHeaderStatus(pool, id) {
-    const meta = await ensurePurchaseQuotationMeta(pool)
+    const meta = await ensureOutsourcingQuotationMeta(pool)
     const pk = meta.headerPk
     const pkColSt = colMeta(meta, 'h', pk)
     const hasPass = meta.headerColNames.has('pass')
@@ -1733,12 +1733,12 @@ export function registerPurchaseQuotationRoutes(app, deps) {
   }
 
   /**
-   * PUT /api/supply-chain/purchase-quotations/audit  body: { id }
+   * PUT /api/supply-chain/outsourcing-quotations/audit  body: { id }
    */
-  app.put('/api/supply-chain/purchase-quotations/audit', async (req, res) => {
+  app.put('/api/supply-chain/outsourcing-quotations/audit', async (req, res) => {
     try {
       const pool = await getPool()
-      const meta = await ensurePurchaseQuotationMeta(pool)
+      const meta = await ensureOutsourcingQuotationMeta(pool)
       if (!meta.headerColNames.has('pass')) {
         res.status(400).json({ code: 400, msg: '当前表无 pass 列，无法审核', data: null })
         return
@@ -1779,19 +1779,19 @@ export function registerPurchaseQuotationRoutes(app, deps) {
       }
       res.json({ code: 200, msg: 'success', data: null })
     } catch (err) {
-      console.error('PUT /api/supply-chain/purchase-quotations/audit 失败：', err)
+      console.error('PUT /api/supply-chain/outsourcing-quotations/audit 失败：', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? '数据库写入失败')
       res.status(500).json({ code: 500, msg: `审核失败：${detail}`, data: null })
     }
   })
 
   /**
-   * PUT /api/supply-chain/purchase-quotations/unaudit  body: { id }
+   * PUT /api/supply-chain/outsourcing-quotations/unaudit  body: { id }
    */
-  app.put('/api/supply-chain/purchase-quotations/unaudit', async (req, res) => {
+  app.put('/api/supply-chain/outsourcing-quotations/unaudit', async (req, res) => {
     try {
       const pool = await getPool()
-      const meta = await ensurePurchaseQuotationMeta(pool)
+      const meta = await ensureOutsourcingQuotationMeta(pool)
       if (!meta.headerColNames.has('pass')) {
         res.status(400).json({ code: 400, msg: '当前表无 pass 列，无法反审', data: null })
         return
@@ -1832,19 +1832,19 @@ export function registerPurchaseQuotationRoutes(app, deps) {
       }
       res.json({ code: 200, msg: 'success', data: null })
     } catch (err) {
-      console.error('PUT /api/supply-chain/purchase-quotations/unaudit 失败：', err)
+      console.error('PUT /api/supply-chain/outsourcing-quotations/unaudit 失败：', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? '数据库写入失败')
       res.status(500).json({ code: 500, msg: `反审失败：${detail}`, data: null })
     }
   })
 
   /**
-   * PUT /api/supply-chain/purchase-quotations/restore  body: { id }
+   * PUT /api/supply-chain/outsourcing-quotations/restore  body: { id }
    */
-  app.put('/api/supply-chain/purchase-quotations/restore', async (req, res) => {
+  app.put('/api/supply-chain/outsourcing-quotations/restore', async (req, res) => {
     try {
       const pool = await getPool()
-      const meta = await ensurePurchaseQuotationMeta(pool)
+      const meta = await ensureOutsourcingQuotationMeta(pool)
       if (!meta.headerColNames.has('del')) {
         res.status(400).json({ code: 400, msg: '当前表无 del 列，无法恢复', data: null })
         return
@@ -1877,19 +1877,19 @@ export function registerPurchaseQuotationRoutes(app, deps) {
       }
       res.json({ code: 200, msg: 'success', data: null })
     } catch (err) {
-      console.error('PUT /api/supply-chain/purchase-quotations/restore 失败：', err)
+      console.error('PUT /api/supply-chain/outsourcing-quotations/restore 失败：', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? '数据库写入失败')
       res.status(500).json({ code: 500, msg: `恢复失败：${detail}`, data: null })
     }
   })
 
   /**
-   * DELETE /api/supply-chain/purchase-quotations/:id  软删
+   * DELETE /api/supply-chain/outsourcing-quotations/:id  软删
    */
-  app.delete('/api/supply-chain/purchase-quotations/:id', async (req, res) => {
+  app.delete('/api/supply-chain/outsourcing-quotations/:id', async (req, res) => {
     try {
       const pool = await getPool()
-      const meta = await ensurePurchaseQuotationMeta(pool)
+      const meta = await ensureOutsourcingQuotationMeta(pool)
       const parsed = parseRouteHeaderKey(req.params.id, meta)
       if (!parsed.ok) {
         res.status(400).json({ code: 400, msg: parsed.msg || '参数错误：id', data: null })
@@ -1932,21 +1932,21 @@ export function registerPurchaseQuotationRoutes(app, deps) {
       }
       res.json({ code: 200, msg: 'success', data: { id } })
     } catch (err) {
-      console.error('DELETE /api/supply-chain/purchase-quotations/:id 失败：', err)
+      console.error('DELETE /api/supply-chain/outsourcing-quotations/:id 失败：', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? '数据库写入失败')
       res.status(500).json({ code: 500, msg: `删除失败：${detail}`, data: null })
     }
   })
 
   /**
-   * DELETE /api/supply-chain/purchase-quotations/:id/permanent
+   * DELETE /api/supply-chain/outsourcing-quotations/:id/permanent
    */
-  app.delete('/api/supply-chain/purchase-quotations/:id/permanent', async (req, res) => {
+  app.delete('/api/supply-chain/outsourcing-quotations/:id/permanent', async (req, res) => {
     /** @type {import('mssql').Transaction | null} */
     let tx = null
     try {
       const pool = await getPool()
-      const meta = await ensurePurchaseQuotationMeta(pool)
+      const meta = await ensureOutsourcingQuotationMeta(pool)
       const parsed = parseRouteHeaderKey(req.params.id, meta)
       if (!parsed.ok) {
         res.status(400).json({ code: 400, msg: parsed.msg || '参数错误：id', data: null })
@@ -1971,7 +1971,7 @@ export function registerPurchaseQuotationRoutes(app, deps) {
       await tx.begin()
       const fk = meta.lineFk
       const fkColPm = colMeta(meta, 'l', fk)
-      const hdrPm = await fetchPurchaseQuotationHeaderFullForAudit(pool, id)
+      const hdrPm = await fetchOutsourcingQuotationHeaderFullForAudit(pool, id)
       const lineHidPerm =
         fkColPm && isStringishSqlType(fkColPm.dataType) && hdrPm
           ? headerLineLinkFromHeaderRow(meta, hdrPm)
@@ -2008,7 +2008,7 @@ export function registerPurchaseQuotationRoutes(app, deps) {
       } catch {
         /* ignore */
       }
-      console.error('DELETE /api/supply-chain/purchase-quotations/:id/permanent 失败：', err)
+      console.error('DELETE /api/supply-chain/outsourcing-quotations/:id/permanent 失败：', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? '数据库写入失败')
       res.status(500).json({ code: 500, msg: `彻底删除失败：${detail}`, data: null })
     }

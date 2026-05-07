@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import menuStructure from '../../erp_structure_dump.json'
-import ErpLayout from '@/layout/ErpLayout.vue'
+import ErpLayout from '@/layout/index.vue'
 import {
   getFirstPermittedRoutePath,
   getPermissionModelFromStorage,

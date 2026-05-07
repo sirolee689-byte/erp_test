@@ -10,6 +10,11 @@ import {
   fetchPurchaseQuotationHeaderFullForAudit,
   fetchPurchaseQuotationSnapshotForAudit,
 } from './purchaseQuotationHandlers.js'
+import {
+  buildOutsourcingQuotationPutDiffChinese,
+  fetchOutsourcingQuotationHeaderFullForAudit,
+  fetchOutsourcingQuotationSnapshotForAudit,
+} from './outsourcingQuotationHandlers.js'
 
 export { resolveAuditActionAndTable } from './action_map.js'
 
@@ -748,6 +753,50 @@ export function createOperationAuditPrepareMiddleware() {
         }
       }
 
+      // === 外协报价（主从）===
+      if (
+        (method === 'PUT' &&
+          (path === '/api/supply-chain/outsourcing-quotations/audit' ||
+            path === '/api/supply-chain/outsourcing-quotations/unaudit' ||
+            path === '/api/supply-chain/outsourcing-quotations/restore' ||
+            path === '/api/supply-chain/outsourcing-quotations')) ||
+        (method === 'DELETE' &&
+          (/^\/api\/supply-chain\/outsourcing-quotations\/[^/]+$/.test(path) ||
+            /^\/api\/supply-chain\/outsourcing-quotations\/[^/]+\/permanent$/.test(path)))
+      ) {
+        if (method === 'DELETE') {
+          const tail = path
+            .slice('/api/supply-chain/outsourcing-quotations/'.length)
+            .replace(/\/permanent$/, '')
+          let auditId = tail
+          try {
+            auditId = decodeURIComponent(tail)
+          } catch {
+            /* ignore */
+          }
+          if (String(auditId).trim()) {
+            const row = await fetchOutsourcingQuotationSnapshotForAudit(pool, auditId)
+            if (row) req.__auditOutsourcingQuotationSnapshot = row
+          }
+        } else {
+          const rawId = req.body?.id
+          if (rawId !== undefined && rawId !== null && String(rawId).trim() !== '') {
+            const row = await fetchOutsourcingQuotationSnapshotForAudit(pool, rawId)
+            if (row) req.__auditOutsourcingQuotationSnapshot = row
+          }
+        }
+      }
+
+      if (method === 'PUT' && path === '/api/supply-chain/outsourcing-quotations') {
+        const rawId = req.body?.id
+        if (rawId !== undefined && rawId !== null && String(rawId).trim() !== '') {
+          const oldRow = await fetchOutsourcingQuotationHeaderFullForAudit(pool, rawId)
+          if (oldRow) {
+            req.__auditPutOutsourcingQuotationDiff = buildOutsourcingQuotationPutDiffChinese(oldRow, req.body ?? {})
+          }
+        }
+      }
+
       // === 角色管理：用于禁用/恢复/删/分配权限的可读日志 ===
       if (method === 'PUT' && path === '/api/roles') {
         const body = req.body ?? {}
@@ -1263,6 +1312,92 @@ export function createOperationAuditMiddleware(deps) {
             displayCell(s.cgaa01 || s.systemcode || s.code || s.quotation_code || s.dh || s.djbh) ||
             `ID:${s.id}`
           content = `${op}删除了采购报价「${label}」（已移入回收站）`
+        } else if (method === 'POST' && path === '/api/supply-chain/outsourcing-quotations') {
+          const op = operatorDisplayName(user)
+          const hid = req.body?.header && typeof req.body.header === 'object' ? req.body.header : {}
+          const label =
+            displayCell(
+              hid.wxaa01 ??
+                hid.systemcode ??
+                hid.code ??
+                hid.quotation_code ??
+                hid.dh ??
+                hid.djbh ??
+                hid.bill_no,
+            ) || '（空）'
+          const sup = displayCell(hid.kehu) || '（空）'
+          const lineN = Array.isArray(req.body?.lines) ? req.body.lines.length : 0
+          content = `${op}录入了外协报价单，单号：[${label}]，外协商：[${sup}]；录入了外协报价单明细，共 ${lineN} 项物料。`
+        } else if (
+          method === 'PUT' &&
+          path === '/api/supply-chain/outsourcing-quotations' &&
+          req.__auditOutsourcingQuotationSnapshot
+        ) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditOutsourcingQuotationSnapshot
+          const diff = String(req.__auditPutOutsourcingQuotationDiff ?? '').trim()
+          const label =
+            displayCell(s.wxaa01 || s.systemcode || s.code || s.quotation_code || s.dh || s.djbh) ||
+            `ID:${s.id}`
+          const lineN = Array.isArray(req.body?.lines) ? req.body.lines.length : 0
+          content = diff
+            ? `${op}保存了外协报价「${label}」。${diff} 明细共 ${lineN} 项物料。`
+            : `${op}保存了外协报价「${label}」（已重写明细），明细共 ${lineN} 项物料。`
+        } else if (
+          method === 'PUT' &&
+          path === '/api/supply-chain/outsourcing-quotations/audit' &&
+          req.__auditOutsourcingQuotationSnapshot
+        ) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditOutsourcingQuotationSnapshot
+          const label =
+            displayCell(s.wxaa01 || s.systemcode || s.code || s.quotation_code || s.dh || s.djbh) ||
+            `ID:${s.id}`
+          content = `${op}审核了外协报价「${label}」`
+        } else if (
+          method === 'PUT' &&
+          path === '/api/supply-chain/outsourcing-quotations/unaudit' &&
+          req.__auditOutsourcingQuotationSnapshot
+        ) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditOutsourcingQuotationSnapshot
+          const label =
+            displayCell(s.wxaa01 || s.systemcode || s.code || s.quotation_code || s.dh || s.djbh) ||
+            `ID:${s.id}`
+          content = `${op}反审了外协报价「${label}」`
+        } else if (
+          method === 'PUT' &&
+          path === '/api/supply-chain/outsourcing-quotations/restore' &&
+          req.__auditOutsourcingQuotationSnapshot
+        ) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditOutsourcingQuotationSnapshot
+          const label =
+            displayCell(s.wxaa01 || s.systemcode || s.code || s.quotation_code || s.dh || s.djbh) ||
+            `ID:${s.id}`
+          content = `${op}恢复了外协报价「${label}」（从回收站回到在册）`
+        } else if (
+          method === 'DELETE' &&
+          /^\/api\/supply-chain\/outsourcing-quotations\/[^/]+\/permanent$/.test(path) &&
+          req.__auditOutsourcingQuotationSnapshot
+        ) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditOutsourcingQuotationSnapshot
+          const label =
+            displayCell(s.wxaa01 || s.systemcode || s.code || s.quotation_code || s.dh || s.djbh) ||
+            `ID:${s.id}`
+          content = `${op}彻底删除了外协报价「${label}」（不可恢复）`
+        } else if (
+          method === 'DELETE' &&
+          /^\/api\/supply-chain\/outsourcing-quotations\/[^/]+$/.test(path) &&
+          req.__auditOutsourcingQuotationSnapshot
+        ) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditOutsourcingQuotationSnapshot
+          const label =
+            displayCell(s.wxaa01 || s.systemcode || s.code || s.quotation_code || s.dh || s.djbh) ||
+            `ID:${s.id}`
+          content = `${op}删除了外协报价「${label}」（已移入回收站）`
         } else if (method === 'DELETE' && /^\/api\/inventory\/color-code\/.+\/permanent$/.test(path) && req.__auditDeleteColorCode) {
           const op = operatorDisplayName(user)
           const { code, name } = req.__auditDeleteColorCode

@@ -1,27 +1,12 @@
-<template>
+﻿<template>
   <el-container class="erp-layout">
-    <el-aside :width="asideWidth" class="erp-aside">
-      <div class="erp-logo" :class="{ collapsed: isCollapsed }">
-        <span v-if="!isCollapsed">ERP 基础框架</span>
-        <span v-else class="erp-logo-mini">ERP</span>
-      </div>
-      <el-scrollbar class="erp-menu-scroll">
-        <el-menu
-          :router="true"
-          :default-active="active"
-          :collapse="isCollapsed"
-          :collapse-transition="false"
-          class="erp-menu"
-          background-color="#0b1f3a"
-          text-color="#ffffff"
-          active-text-color="#5aa7ff"
-        >
-          <!-- v1.0.7：侧栏菜单按当前用户 Permissions 过滤，不再整棵 JSON 全量展示 -->
-          <ErpMenuTree :nodes="filteredMenuStructure" />
-        </el-menu>
-      </el-scrollbar>
-    </el-aside>
-    <el-container>
+    <ErpSidebar
+      :aside-width="asideWidth"
+      :collapsed="isCollapsed"
+      :menu-nodes="filteredMenuStructure"
+      :active-path="active"
+    />
+    <el-container class="erp-main-column">
       <el-header class="erp-header" height="56px">
         <el-button class="collapse-btn" text @click="toggleCollapse">
           <el-icon :size="18">
@@ -72,11 +57,40 @@
           </el-dropdown>
         </div>
       </el-header>
-      <el-main class="erp-main">
-        <div class="erp-content-card">
-          <router-view />
-        </div>
-      </el-main>
+      <ErpAppMain>
+        <template #tags>
+          <!-- 多标签导航：sticky 悬顶，内容区滚动时标签栏保持可见 -->
+          <div v-if="visitedViews.length" class="erp-tags-wrap">
+            <el-tabs
+              v-model="activeTabPath"
+              type="card"
+              class="erp-route-tabs"
+              @tab-click="onTagsTabClick"
+              @tab-remove="onTagsTabRemove"
+            >
+              <el-tab-pane v-for="v in visitedViews" :key="v.path" :name="v.path" :closable="true">
+                <template #label>
+                  <el-dropdown trigger="contextmenu" @command="(cmd) => onTagMenuCommand(cmd, v)">
+                    <span class="erp-tab-label">{{ v.title }}</span>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="closeOthers">关闭其它</el-dropdown-item>
+                        <el-dropdown-item command="closeAll">关闭全部</el-dropdown-item>
+                        <el-dropdown-item divided command="refresh">刷新</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </template>
+              </el-tab-pane>
+            </el-tabs>
+          </div>
+        </template>
+        <router-view v-slot="{ Component }">
+          <keep-alive :include="cachedAliveNames">
+            <component :is="Component" :key="routeComponentKey" />
+          </keep-alive>
+        </router-view>
+      </ErpAppMain>
     </el-container>
   </el-container>
 
@@ -105,11 +119,17 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import rawMenuStructure from '../../erp_structure_dump.json'
-import { filterMenuTreeByPermission, getPermissionModelFromStorage } from '@/utils/menuPermission'
-import ErpMenuTree from './ErpMenuTree.vue'
+import {
+  filterMenuTreeByPermission,
+  getFirstPermittedRoutePath,
+  getPermissionModelFromStorage,
+} from '@/utils/menuPermission'
+import { useTagsViewStore } from '@/store/modules/tagsView'
+import ErpAppMain from './ErpAppMain.vue'
+import ErpSidebar from './ErpSidebar.vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, Edit, Expand, Fold, SwitchButton, UserFilled } from '@element-plus/icons-vue'
@@ -118,6 +138,85 @@ const route = useRoute()
 const router = useRouter()
 const active = computed(() => route.path)
 const headerTitle = computed(() => (route.meta.title ? String(route.meta.title) : '首页'))
+
+/** 多标签：与路由同步 */
+const tagsStore = useTagsViewStore()
+const visitedViews = computed(() => tagsStore.state.visitedViews)
+
+watch(
+  () => route.fullPath,
+  () => {
+    tagsStore.addVisitedView(route)
+  },
+  { immediate: true },
+)
+
+/** Tab v-model 与当前 path 双向对齐（点击 Tab 时 push） */
+const activeTabPath = computed({
+  get: () => route.path,
+  set: (p) => {
+    const next = String(p ?? '')
+    if (next && next !== route.path) router.push(next)
+  },
+})
+
+/** keep-alive 按路由 name（须与页面 defineOptions name 一致） */
+const cachedAliveNames = computed(() =>
+  tagsStore.state.visitedViews.map((v) => v.name).filter((n) => String(n).length > 0),
+)
+
+/** 右键「刷新」：按路由 name 递增 key，强制重挂载当前缓存页 */
+const refreshTickByName = reactive({})
+const routeComponentKey = computed(() => {
+  const n = route.name != null ? String(route.name) : ''
+  const t = n ? refreshTickByName[n] || 0 : 0
+  return `${n}:${t}`
+})
+
+function bumpRefreshForRouteName(routeName) {
+  const n = String(routeName ?? '')
+  if (!n) return
+  refreshTickByName[n] = (refreshTickByName[n] || 0) + 1
+}
+
+/** Tab 点击：Element Plus 传入 (pane, event)，路径取 pane.props.name */
+function onTagsTabClick(tab) {
+  const path = tab?.props?.name != null ? String(tab.props.name) : ''
+  if (path && path !== route.path) router.push(path)
+}
+
+/** @param {string | number} targetPath */
+function onTagsTabRemove(targetPath) {
+  const p = String(targetPath)
+  const closingActive = route.path === p
+  const next = tagsStore.delVisitedView(p)
+  if (!closingActive) return
+  if (next) router.push(next.path)
+  else router.push(getFirstPermittedRoutePath(rawMenuStructure))
+}
+
+/**
+ * @param {'closeOthers' | 'closeAll' | 'refresh'} cmd
+ * @param {{ title: string, path: string, name: string }} v
+ */
+function onTagMenuCommand(cmd, v) {
+  if (cmd === 'closeOthers') {
+    tagsStore.delOthersViews(v.path)
+    if (route.path !== v.path) router.push(v.path)
+    return
+  }
+  if (cmd === 'closeAll') {
+    tagsStore.delAllViews()
+    router.push(getFirstPermittedRoutePath(rawMenuStructure))
+    return
+  }
+  if (cmd === 'refresh') {
+    const go = route.path !== v.path ? router.push(v.path) : Promise.resolve()
+    go.then(() => {
+      bumpRefreshForRouteName(route.name)
+    })
+  }
+}
 
 /**
  * 根据 localStorage 中 erp_user.Permissions 递归过滤菜单树（算法见 @/utils/menuPermission.js）
@@ -377,53 +476,10 @@ async function submitChangePassword() {
 .erp-layout {
   min-height: 100vh;
 }
-.erp-aside {
-  background-color: #0b1f3a;
-  display: flex;
-  flex-direction: column;
-  transition: width 0.18s ease;
-}
-.erp-logo {
-  flex-shrink: 0;
-  height: 56px;
-  line-height: 56px;
-  padding: 0 16px;
-  font-size: 16px;
-  font-weight: 600;
-  color: #fff;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.erp-logo.collapsed {
-  padding: 0 8px;
-  text-align: center;
-}
-.erp-logo-mini {
-  display: inline-block;
-  width: 100%;
-}
-.erp-menu-scroll {
+/* 右侧列占满剩余宽度，避免主内容变化时挤压侧栏 */
+.erp-main-column {
   flex: 1;
-  min-height: 0;
-}
-.erp-menu {
-  border-right: none;
-}
-.erp-menu :deep(.el-menu-item),
-.erp-menu :deep(.el-sub-menu__title) {
-  color: #ffffff !important;
-}
-.erp-menu :deep(.el-menu-item:hover),
-.erp-menu :deep(.el-sub-menu__title:hover) {
-  background-color: rgba(90, 167, 255, 0.16) !important;
-}
-.erp-menu :deep(.el-menu-item.is-active) {
-  background-color: rgba(90, 167, 255, 0.22) !important;
-}
-.erp-menu :deep(.el-sub-menu.is-active > .el-sub-menu__title) {
-  background-color: rgba(90, 167, 255, 0.12) !important;
+  min-width: 0;
 }
 .erp-header {
   display: flex;
@@ -490,18 +546,5 @@ async function submitChangePassword() {
   font-size: 16px;
   font-weight: 500;
   color: var(--el-text-color-primary);
-}
-.erp-main {
-  background: #f3f5f7;
-  padding: 16px;
-  min-width: 0;
-}
-.erp-content-card {
-  background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
-  padding: 16px;
-  min-height: calc(100vh - 56px - 32px);
-  min-width: 0;
 }
 </style>
