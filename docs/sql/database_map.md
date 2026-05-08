@@ -224,6 +224,23 @@
   - `version`：版本号（排序降序）；`pass` / `del`：沿用项目「审核 / 逻辑删除」约定
 - **权限（按钮级）**
   - 菜单 path：`inv/bom` 或 `inventory/basic/bom-data`；`GET /api/inv/bom/list` 在 `apiPermissionGate.js` 中满足任一路径的 `view` 即可；复制/详情依赖同页 `view`，编辑按钮预留 `edit`（后续保存接口落地后再审）
+- **主档稳定键 `systemcode`（与配件子表关联）**
+  - `GET /api/inventory/bom/:id` 的 `data.basic.systemcode` 来自 `bom_000.systemcode`，**`data.basic.pass`** 来自 `bom_000.pass`（前端钻取子 BOM 配件时用）；配件子表 `Bom_parts.kcac01` 存该值（与物料编码 `kcaa01` 不是同一列）；表名可由 `INV_BOM_PARTS_TABLE` 覆盖
+  - 若历史行 `systemcode` 为空，则「配件明细」Tab 无法加载/保存，需在库内补齐主档或按实际库结构再调整
+
+### 3.6.1 `Bom_parts`（BOM 配件明细，v1.1.8+）
+
+- **Schema**：`dbo`；**表名来源**：环境变量 `INV_BOM_PARTS_TABLE`，默认 `Bom_parts`（仅字母数字下划线）；**列类型权威清单**：[`docs/bom_parts.txt`](../bom_parts.txt)（内网导出）；关联主档：**`kcac01` = `bom_000.systemcode`**（两表 `systemcode` 均为 **nvarchar**，主档来源见 [`docs/bom_000.txt`](../bom_000.txt)）
+- **模块/页面**
+  - 前端：`src/views/inv/bom/index.vue` 详情弹窗 **Tab「配件明细」**（与 `inventory/basic/bom-data` 内嵌复用同一页）
+- **接口（后端：`server/index.js`）**
+  - `GET /api/inventory/bom/parts/:systemcode`：先 **TOP 1** 判断主档 `bom_000.systemcode` 存在且在册，再仅查 `Bom_parts`（`WHERE kcac01=@systemcode`），避免与子表 **JOIN 大表**导致超时；子行 `del=0`（或空）在册；无主档时返回空列表
+  - `PUT /api/inventory/bom/parts/:systemcode`：body `{ lines: [...] }` 批量处理；`id`+`pendingDelete=true` → `UPDATE del=1`；有 `id` 且未标记删除 → 更新单位用量/损耗/单价/备注；无 `id` 且未标记删除 → `INSERT`（`kcac01` 填主档 `systemcode`，子行物料编码等为 body 字段）
+- **关键字段（与当前接口一致）**
+  - `kcac01`：父级主档 `systemcode`；`kcaa01`～`kcaa04`/`kcaa11`：配件编码、名称、规格、单位、颜色；`kcac04` 单位用量；`kcac05` 损耗率（**小数**，如 5% 存 `0.05`）；`cost_price` 单价；`remark` 备注；`del` 逻辑删除
+- **权限（按钮级）**
+  - `GET`：与 `GET /api/inventory/bom/:id` 相同（`view`）
+  - `PUT`：菜单 `inv/bom` 或 `inventory/basic/bom-data` 的 `edit`
 
 ### 3.7 `Bom_colorcode`（颜色编码，v1.0.0+）
 
@@ -458,6 +475,8 @@
 - `HR_LEGACY_DEPT_TABLE`：部门/岗位表名，默认 `HR_Departments`
 - `HR_STAFF_TABLE`：员工档案表名，默认 `Hr_staff`
 - `INV_BOM_MASTER_TABLE`：BOM 主档表名，默认 `bom_000`（仅字母数字下划线）
+- `INV_BOM_PARTS_TABLE`：BOM 配件明细表名，默认 `Bom_parts`（仅字母数字下划线）
+- `DB_REQUEST_TIMEOUT_MS`：SQL 请求超时（mssql/tedious），默认 `60000`；旧默认 15000ms 易在大查询时报「Timeout: Request failed to complete」
 
 ## 5. 维护指引（建议）
 
@@ -488,6 +507,8 @@
   - 来源：`server/index.js`（宿舍列表、办理入住、住宿总览/历史/入住单审核）
 - **`dbo.[bom_000]`（表名可由环境变量 `INV_BOM_MASTER_TABLE` 覆盖）**
   - 来源：`server/index.js`（`GET /api/inv/bom/list`）
+- **`dbo.[Bom_parts]`（表名可由 `INV_BOM_PARTS_TABLE` 覆盖）**
+  - 来源：`server/index.js`（`GET`/`PUT /api/inventory/bom/parts/:systemcode`）
 - **`dbo.[Bom_code]`**
   - 来源：`server/index.js`（BOM 用量运算规则：`copen=1`、`flag5` 动态匹配）
 - **`dbo.[Bom_colorcode]`**

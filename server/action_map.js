@@ -68,6 +68,9 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   { method: 'DELETE', path: '/api/sys/logs/clear', action: '清空操作日志', targetTable: 'Sys_OperationLogs' },
 
   { method: 'GET', path: '/api/inv/bom/list', action: '查询BOM资料列表', targetTable: 'bom_000' },
+  { method: 'GET', path: /^\/api\/inventory\/bom\/parts\/.+$/, action: '查询BOM配件明细', targetTable: 'Bom_parts' },
+  { method: 'PUT', path: /^\/api\/inventory\/bom\/parts\/.+$/, action: '保存BOM配件明细', targetTable: 'Bom_parts' },
+  { method: 'GET', path: /^\/api\/inventory\/bom\/.+$/, action: '查看BOM主档详情', targetTable: 'bom_000' },
 
   { method: 'GET', path: '/api/supply-chain/suppliers/list', action: '查询供应商资料列表', targetTable: 'System_supplier' },
   { method: 'GET', path: '/api/supply-chain/suppliers/suggest-code', action: '获取供应商编码建议', targetTable: 'System_supplier' },

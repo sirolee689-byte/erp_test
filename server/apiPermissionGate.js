@@ -254,6 +254,24 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'hr/dormitory/lodging-records', action: 'audit' }
   }
 
+  /* BOM 配件明细（须先于泛化 GET /api/inventory/bom/:id，否则会被 /.+/ 误匹配；权限仍与详情 view / 保存 edit 一致） */
+  if (m === 'GET' && /^\/api\/inventory\/bom\/parts\/.+$/.test(path)) {
+    return {
+      anyOf: [
+        { menuPath: 'inv/bom', action: 'view' },
+        { menuPath: 'inventory/basic/bom-data', action: 'view' },
+      ],
+    }
+  }
+  if (m === 'PUT' && /^\/api\/inventory\/bom\/parts\/.+$/.test(path)) {
+    return {
+      anyOf: [
+        { menuPath: 'inv/bom', action: 'edit' },
+        { menuPath: 'inventory/basic/bom-data', action: 'edit' },
+      ],
+    }
+  }
+
   /* v1.1.7：BOM 列表（菜单在「存货 inv/bom」与「库存管理 inventory/basic/bom-data」两处均可调） */
   if (m === 'GET' && path === '/api/inv/bom/list') {
     return {
@@ -262,6 +280,15 @@ export function matchApiPermissionRule(method, path, body, params) {
         { menuPath: 'inventory/basic/bom-data', action: 'view' },
         { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' },
         { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'view' },
+      ],
+    }
+  }
+  /* BOM 主档详情（查看弹窗基础资料）；权限与列表 view 一致 */
+  if (m === 'GET' && /^\/api\/inventory\/bom\/.+$/.test(path)) {
+    return {
+      anyOf: [
+        { menuPath: 'inv/bom', action: 'view' },
+        { menuPath: 'inventory/basic/bom-data', action: 'view' },
       ],
     }
   }

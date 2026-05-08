@@ -3183,6 +3183,13 @@ const INV_BOM_MASTER_TABLE = (() => {
 })()
 const INV_BOM_MASTER_FROM = `dbo.[${INV_BOM_MASTER_TABLE}]`
 
+/** BOM 配件明细表名（默认 Bom_parts）；列类型见 docs/bom_parts.txt；kcac01=主档 systemcode；INV_BOM_PARTS_TABLE 可覆盖 */
+const INV_BOM_PARTS_TABLE = (() => {
+  const raw = String(process.env.INV_BOM_PARTS_TABLE ?? 'Bom_parts').trim()
+  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'Bom_parts'
+})()
+const INV_BOM_PARTS_FROM = `dbo.[${INV_BOM_PARTS_TABLE}]`
+
 /** 库存基本资料：颜色编码（物理表 Bom_colorcode） */
 const BOM_COLORCODE_FROM = 'dbo.[Bom_colorcode]'
 
@@ -3531,6 +3538,57 @@ function bomKcacAsDecimalSql(colExpr) {
   const c = String(colExpr ?? '').trim()
   const norm = `REPLACE(REPLACE(LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(${c}, N'')))), N' ', N''), N',', N'')`
   return `CASE WHEN ${norm} = N'' THEN CAST(0 AS decimal(18,4)) WHEN ISNUMERIC(${norm}) = 1 THEN CAST(${norm} AS decimal(18,4)) ELSE CAST(0 AS decimal(18,4)) END`
+}
+
+/**
+ * 配件明细保存：解析 decimal 列（前端可能是字符串或带千分位）
+ * @param {unknown} raw
+ * @returns {number}
+ */
+function bomPartParseDecimal(raw) {
+  if (raw === null || raw === undefined) return 0
+  const s = String(raw).replace(/,/g, '').trim()
+  if (s === '') return 0
+  const n = Number(s)
+  return Number.isFinite(n) ? n : 0
+}
+
+/**
+ * Bom_parts：`kcac04`/`kcac05`/`cost_price` 库类型为 numeric/decimal（见 docs/bom_parts.txt）。
+ * 禁止使用 bomKcacAsDecimalSql（内部 ISNULL(列, N'')），numeric 列与 nvarchar 字面量混用会触发转换异常。
+ * @param {string} colExpr 列引用，如 p.kcac04
+ */
+function bomPartsNumericColAsDecimalSql(colExpr) {
+  const c = String(colExpr ?? '').trim()
+  return `CAST(ISNULL(${c}, 0) AS decimal(18, 4))`
+}
+
+/**
+ * Bom_parts.id 为 int（docs/bom_parts.txt）
+ * @param {import('mssql').Request} request
+ * @param {unknown} rawId
+ */
+function bomPartsSqlBindId(request, rawId) {
+  const s0 = String(rawId ?? '').trim().replace(/\.0+$/, '')
+  let v
+  if (/^\d+$/.test(s0)) {
+    v = parseInt(s0, 10)
+  } else {
+    const n = Number(rawId)
+    if (!Number.isFinite(n)) throw new Error('无效的行 id')
+    v = Math.trunc(n)
+  }
+  if (!Number.isFinite(v) || v < 1 || v > 2147483647) {
+    throw new Error('无效的行 id')
+  }
+  request.input('id', sql.Int, v)
+}
+
+/** 是否视为数据库已有行（兼容整数字符串 id） */
+function bomPartLineHasDbId(raw) {
+  if (raw?.id == null || raw.id === '') return false
+  const s = String(raw.id).trim().replace(/\.0+$/, '')
+  return /^[1-9]\d*$/.test(s)
 }
 
 /**
@@ -6930,6 +6988,113 @@ function escapeSqlLikePattern(s) {
 }
 
 /**
+ * BOM 详情：从 Bom_unit_change 解析采购/报价与使用单位的转换方向及转换率（已审、在册）
+ * @returns {{ purchase_direction: string, purchase_rate: string, quote_direction: string, quote_rate: string }}
+ */
+async function fetchBomUnitConversionDetail(pool, uUse, uPo, uQt) {
+  const use = String(uUse ?? '').trim()
+  const po = String(uPo ?? '').trim()
+  const qt = String(uQt ?? '').trim()
+  const empty = {
+    purchase_direction: '',
+    purchase_rate: '',
+    quote_direction: '',
+    quote_rate: '',
+  }
+  if (!use) return empty
+
+  const str = (v) => (v == null ? '' : String(v))
+
+  let purchase_direction = ''
+  let purchase_rate = ''
+  if (po) {
+    const r1 = await pool
+      .request()
+      .input('uUse', sql.NVarChar(200), use)
+      .input('uPo', sql.NVarChar(200), po)
+      .query(`
+        SELECT TOP 1
+          LTRIM(RTRIM(CONVERT(nvarchar(80), ISNULL(c.change_bl, N'')))) AS rate,
+          CASE
+            WHEN LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name, N'')))) = @uPo
+              AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name_tow, N'')))) = @uUse
+              THEN N'po_to_use'
+            WHEN LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name, N'')))) = @uUse
+              AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name_tow, N'')))) = @uPo
+              THEN N'use_to_po'
+            ELSE N''
+          END AS dir
+        FROM ${BOM_UNIT_CHANGE_FROM} AS c
+        WHERE (ISNULL(c.del, N'') = N'' OR c.del = N'0')
+          AND LTRIM(RTRIM(ISNULL(c.pass, N''))) = N'1'
+          AND (
+            (LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name, N'')))) = @uPo
+              AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name_tow, N'')))) = @uUse)
+            OR
+            (LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name, N'')))) = @uUse
+              AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name_tow, N'')))) = @uPo)
+          )
+      `)
+    const row1 = r1.recordset?.[0]
+    if (row1) {
+      purchase_direction = str(row1.dir).trim()
+      purchase_rate = str(row1.rate).trim()
+    }
+  }
+
+  let quote_direction = ''
+  let quote_rate = ''
+  if (qt) {
+    const r2 = await pool
+      .request()
+      .input('uUse', sql.NVarChar(200), use)
+      .input('uQt', sql.NVarChar(200), qt)
+      .query(`
+        SELECT TOP 1
+          LTRIM(RTRIM(CONVERT(nvarchar(80), ISNULL(c.change_bl, N'')))) AS rate,
+          CASE
+            WHEN LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name, N'')))) = @uQt
+              AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name_tow, N'')))) = @uUse
+              THEN N'qt_to_use'
+            WHEN LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name, N'')))) = @uUse
+              AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name_tow, N'')))) = @uQt
+              THEN N'use_to_qt'
+            ELSE N''
+          END AS dir
+        FROM ${BOM_UNIT_CHANGE_FROM} AS c
+        WHERE (ISNULL(c.del, N'') = N'' OR c.del = N'0')
+          AND LTRIM(RTRIM(ISNULL(c.pass, N''))) = N'1'
+          AND (
+            (LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name, N'')))) = @uQt
+              AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name_tow, N'')))) = @uUse)
+            OR
+            (LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name, N'')))) = @uUse
+              AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name_tow, N'')))) = @uQt)
+          )
+      `)
+    const row2 = r2.recordset?.[0]
+    if (row2) {
+      quote_direction = str(row2.dir).trim()
+      quote_rate = str(row2.rate).trim()
+    }
+  }
+
+  return { purchase_direction, purchase_rate, quote_direction, quote_rate }
+}
+
+/**
+ * 生产车间展示：编码, 名称（与分类名称逻辑类似；缺名称时保留逗号后占位便于测试核对）
+ */
+function buildBomWorkshopDisplay(code15, workshopName) {
+  const c = String(code15 ?? '').trim()
+  const n = String(workshopName ?? '').trim()
+  if (!c && !n) return ''
+  if (c && n) return `${c}, ${n}`
+  if (c) return `${c}, —`
+  return `—, ${n}`
+}
+
+/**
  * v1.1.8：BOM 主档分页列表（SQL Server 2008 R2：仅 ROW_NUMBER 分页，禁用 OFFSET-FETCH）
  * GET /api/inv/bom/list
  * - 默认排序：优先按 edittime DESC；edittime 为空则按 addtime DESC（保证打开页面先看到最近更新/新增）
@@ -7173,6 +7338,373 @@ app.get('/api/inv/bom/list', async (req, res) => {
     console.error('GET /api/inv/bom/list 失败：', err)
     const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
     res.status(500).json({ code: 500, msg: `读取 BOM 列表失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * BOM 配件明细列表（Tab 配件明细）
+ * GET /api/inventory/bom/parts/:systemcode — :systemcode 为主档 systemcode（URL 编码）
+ * - 先 TOP 1 校验主档存在（避免与子表 JOIN 扫整表 bom_000 导致超时）
+ * - 再仅查配件表 WHERE kcac01=@sc；排除 del=1；孤儿行（主档已不存在）因前置校验不会误展示他人数据
+ */
+app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
+  try {
+    let systemcode = ''
+    try {
+      systemcode = decodeURIComponent(String(req.params?.systemcode ?? '').trim())
+    } catch {
+      systemcode = String(req.params?.systemcode ?? '').trim()
+    }
+    if (!systemcode) {
+      res.status(400).json({ code: 400, msg: '参数错误：systemcode 不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const headReq = pool.request().input('sc', sql.NVarChar(100), systemcode)
+    const headRow = await headReq.query(`
+      SELECT TOP 1
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS systemcode
+      FROM ${INV_BOM_MASTER_FROM} AS b
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) = @sc
+        AND (ISNULL(b.del, N'') = N'' OR b.del = N'0')
+    `)
+    const head = headRow.recordset?.[0] ?? null
+    if (!head || !String(head.systemcode ?? '').trim()) {
+      // 与旧版 INNER JOIN 行为一致：无主档行则返回空列表（前端不按异常处理）
+      res.json({ code: 200, msg: 'success', data: { list: [] } })
+      return
+    }
+
+    const r = await pool
+      .request()
+      .input('sc', sql.NVarChar(100), systemcode)
+      .query(`
+      SELECT
+        p.id,
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) AS kcac01,
+        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p.kcaa01, N'')))) AS kcaa01,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(p.kcaa02, N'')))) AS kcaa02,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(p.kcaa03, N'')))) AS kcaa03,
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcaa04, N'')))) AS kcaa04,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(p.kcaa11, N'')))) AS kcaa11,
+        ${bomPartsNumericColAsDecimalSql('p.kcac04')} AS kcac04,
+        ${bomPartsNumericColAsDecimalSql('p.kcac05')} AS kcac05,
+        ${bomPartsNumericColAsDecimalSql('p.cost_price')} AS cost_price,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(p.remark, N'')))) AS remark,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(10), p.del), N''))) AS del
+      FROM ${INV_BOM_PARTS_FROM} AS p
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) = @sc
+        AND (ISNULL(p.del, N'') = N'' OR p.del = N'0')
+      ORDER BY p.id
+    `)
+
+    const list = (r.recordset ?? []).map((row) => ({
+      id: row.id != null ? Number(row.id) : null,
+      kcac01: row.kcac01 != null ? String(row.kcac01) : '',
+      kcaa01: row.kcaa01 != null ? String(row.kcaa01) : '',
+      kcaa02: row.kcaa02 != null ? String(row.kcaa02) : '',
+      kcaa03: row.kcaa03 != null ? String(row.kcaa03) : '',
+      kcaa04: row.kcaa04 != null ? String(row.kcaa04) : '',
+      kcaa11: row.kcaa11 != null ? String(row.kcaa11) : '',
+      kcac04: Number(row.kcac04 ?? 0),
+      kcac05: Number(row.kcac05 ?? 0),
+      cost_price: Number(row.cost_price ?? 0),
+      remark: row.remark != null ? String(row.remark) : '',
+      del: row.del != null ? String(row.del) : '0',
+    }))
+
+    res.json({ code: 200, msg: 'success', data: { list } })
+  } catch (err) {
+    console.error('GET /api/inventory/bom/parts/:systemcode 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取 BOM 配件明细失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * BOM 配件明细批量保存：软删（del=1）+ 更新 + 新增
+ * PUT /api/inventory/bom/parts/:systemcode
+ * body: { lines: [{ id?, pendingDelete?, kcaa01, kcaa02, kcaa03, kcaa04, kcaa11, kcac04, kcac05, cost_price, remark }] }
+ */
+app.put('/api/inventory/bom/parts/:systemcode', async (req, res) => {
+  try {
+    let systemcode = ''
+    try {
+      systemcode = decodeURIComponent(String(req.params?.systemcode ?? '').trim())
+    } catch {
+      systemcode = String(req.params?.systemcode ?? '').trim()
+    }
+    if (!systemcode) {
+      res.status(400).json({ code: 400, msg: '参数错误：systemcode 不能为空', data: null })
+      return
+    }
+
+    const lines = Array.isArray(req.body?.lines) ? req.body.lines : []
+    if (!lines.length) {
+      res.status(400).json({ code: 400, msg: 'body.lines 不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const check = await pool.request().input('sc', sql.NVarChar(100), systemcode).query(`
+      SELECT TOP 1
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS systemcode,
+        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) AS kcaa01
+      FROM ${INV_BOM_MASTER_FROM} AS b
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) = @sc
+        AND (ISNULL(b.del, N'') = N'' OR b.del = N'0')
+    `)
+    const head = check.recordset?.[0] ?? null
+    if (!head || !String(head.systemcode ?? '').trim()) {
+      res.status(404).json({ code: 404, msg: '未找到对应主档或主档缺少 systemcode', data: null })
+      return
+    }
+
+    const tx = new sql.Transaction(pool)
+    await tx.begin()
+    try {
+      let softDeleted = 0
+      let updated = 0
+      let inserted = 0
+
+      for (const raw of lines) {
+        const pendingDelete = !!raw?.pendingDelete
+        const hasId = bomPartLineHasDbId(raw)
+
+        if (hasId && pendingDelete) {
+          const q = new sql.Request(tx)
+          bomPartsSqlBindId(q, raw?.id)
+          q.input('kcac01', sql.NVarChar(100), systemcode)
+          const ur = await q.query(`
+            UPDATE p
+            SET p.del = N'1'
+            FROM ${INV_BOM_PARTS_FROM} AS p
+            WHERE p.id = @id
+              AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) = @kcac01
+          `)
+          softDeleted += Number(ur.rowsAffected?.[0] ?? 0)
+          continue
+        }
+
+        if (hasId && !pendingDelete) {
+          const kcac04 = bomPartParseDecimal(raw?.kcac04)
+          const kcac05 = bomPartParseDecimal(raw?.kcac05)
+          const costNum = bomPartParseDecimal(raw?.cost_price)
+          const q = new sql.Request(tx)
+          bomPartsSqlBindId(q, raw?.id)
+          q.input('kcac01', sql.NVarChar(100), systemcode)
+          q.input('kcac04', sql.Decimal(18, 4), kcac04)
+          q.input('kcac05', sql.Decimal(18, 4), kcac05)
+          q.input('cost_price', sql.Decimal(18, 4), costNum)
+          q.input('remark', sql.NVarChar(500), raw?.remark != null ? String(raw.remark) : '')
+          const ur = await q.query(`
+            UPDATE p
+            SET
+              p.kcac04 = @kcac04,
+              p.kcac05 = @kcac05,
+              p.cost_price = @cost_price,
+              p.remark = @remark
+            FROM ${INV_BOM_PARTS_FROM} AS p
+            WHERE p.id = @id
+              AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) = @kcac01
+              AND (ISNULL(p.del, N'') = N'' OR p.del = N'0')
+          `)
+          updated += Number(ur.rowsAffected?.[0] ?? 0)
+          continue
+        }
+
+        if (!hasId && !pendingDelete) {
+          const kcaa01 = String(raw?.kcaa01 ?? '').trim()
+          if (!kcaa01) {
+            throw new Error('新增行缺少配件编码 kcaa01')
+          }
+          const q = new sql.Request(tx)
+          q.input('kcac01', sql.NVarChar(100), systemcode)
+          q.input('kcaa01', sql.NVarChar(300), kcaa01)
+          q.input('kcaa02', sql.NVarChar(500), raw?.kcaa02 != null ? String(raw.kcaa02) : '')
+          q.input('kcaa03', sql.NVarChar(500), raw?.kcaa03 != null ? String(raw.kcaa03) : '')
+          q.input('kcaa04', sql.NVarChar(100), raw?.kcaa04 != null ? String(raw.kcaa04) : '')
+          q.input('kcaa11', sql.NVarChar(200), raw?.kcaa11 != null ? String(raw.kcaa11) : '')
+          const kcac04 = bomPartParseDecimal(raw?.kcac04)
+          const kcac05 = bomPartParseDecimal(raw?.kcac05)
+          const costNum = bomPartParseDecimal(raw?.cost_price)
+          q.input('kcac04', sql.Decimal(18, 4), kcac04)
+          q.input('kcac05', sql.Decimal(18, 4), kcac05)
+          q.input('cost_price', sql.Decimal(18, 4), costNum)
+          q.input('remark', sql.NVarChar(500), raw?.remark != null ? String(raw.remark) : '')
+          await q.query(`
+            INSERT INTO ${INV_BOM_PARTS_FROM} (
+              kcac01, kcaa01, kcaa02, kcaa03, kcaa04, kcaa11,
+              kcac04, kcac05, cost_price, remark, del
+            )
+            VALUES (
+              @kcac01, @kcaa01, @kcaa02, @kcaa03, @kcaa04, @kcaa11,
+              @kcac04, @kcac05, @cost_price, @remark, N'0'
+            )
+          `)
+          inserted += 1
+        }
+      }
+
+      await tx.commit()
+      res.json({
+        code: 200,
+        msg: 'success',
+        data: { softDeleted, updated, inserted },
+      })
+    } catch (innerErr) {
+      try {
+        await tx.rollback()
+      } catch {
+        // ignore
+      }
+      throw innerErr
+    }
+  } catch (err) {
+    console.error('PUT /api/inventory/bom/parts/:systemcode 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `保存 BOM 配件明细失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * BOM 主档详情（基础资料步骤）：仅选取约定列，不查询 kcaa16
+ * GET /api/inventory/bom/:id — :id 为 kcaa01（URL 编码，支持含 / 的编码）
+ * - LEFT JOIN Bom_material：kcaa05=code，带出 categoryName；分类展示名称
+ * - LEFT JOIN Bom_Stocks_workshop：kcaa15=code，workshopName；workshop_display 为「编码, 名称」
+ * - unit_conversion：采购/报价与使用的转换方向（po_to_use 等）及转换率；sale_price、kcaa34_display；kpname 开票名称
+ * - systemcode：主档稳定键，供 Bom_parts.kcac01 关联
+ */
+app.get('/api/inventory/bom/:id', async (req, res) => {
+  try {
+    let code = ''
+    try {
+      code = decodeURIComponent(String(req.params?.id ?? '').trim())
+    } catch {
+      code = String(req.params?.id ?? '').trim()
+    }
+    if (!code) {
+      res.status(400).json({ code: 400, msg: '参数错误：编码不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const r = await pool.request().input('code', sql.NVarChar(300), code).query(`
+      SELECT TOP 1
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS systemcode,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(10), b.pass), N''))) AS pass,
+        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) AS kcaa01,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa02, N'')))) AS kcaa02,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa02_en, N'')))) AS kcaa02_en,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kpname, N'')))) AS kpname,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa03, N'')))) AS kcaa03,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.kcaa11, N'')))) AS kcaa11,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.kcaa05, N'')))) AS kcaa05,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(cat.name, N'')))) AS categoryName,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.kcaa10, N'')))) AS kcaa10,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.location, N'')))) AS location,
+        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa06, N'')))) AS kcaa06,
+        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa09, N'')))) AS kcaa09,
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.kcaa04, N'')))) AS kcaa04,
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.kcaa25, N'')))) AS kcaa25,
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.kcaa29, N'')))) AS kcaa29,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(80), b.cost_price), N''))) AS cost_price,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(80), b.sale_price), N''))) AS sale_price,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(80), b.kcaa34), N''))) AS kcaa34,
+        LTRIM(RTRIM(CONVERT(nvarchar(80), ISNULL(b.kcaa35, N'')))) AS kcaa35,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(80), b.[decimal]), N''))) AS bom_decimal,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.remark, N'')))) AS remark,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(80), b.kcaa32), N''))) AS kcaa32,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(80), b.kcaa33), N''))) AS kcaa33,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.kcaa12), N''))) AS kcaa12,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.kcaa13), N''))) AS kcaa13,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.kcaa14), N''))) AS kcaa14,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.kcaa15), N''))) AS kcaa15,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(ws.name, N'')))) AS workshopName,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.Customer_supply), N''))) AS Customer_supply
+      FROM ${INV_BOM_MASTER_FROM} AS b
+      LEFT JOIN ${BOM_MATERIAL_FROM} AS cat
+        ON LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(200), b.kcaa05), N''))) = LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(200), cat.code), N'')))
+      LEFT JOIN ${BOM_STOCKS_WORKSHOP_FROM} AS ws
+        ON LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(200), b.kcaa15), N''))) = LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(200), ws.code), N'')))
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) = @code
+        AND (
+          ISNULL(CONVERT(nvarchar(20), b.del), N'') = N''
+          OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.del), N''))) = N'0'
+        )
+    `)
+
+    const row = r.recordset?.[0] ?? null
+    if (!row) {
+      res.status(404).json({ code: 404, msg: '未找到该编码对应的 BOM 资料', data: null })
+      return
+    }
+
+    const str = (v) => (v == null ? '' : String(v))
+    const flagChecked = (v) => {
+      const s = str(v).trim()
+      return s === '1' || s.toLowerCase() === 'y' || s === '是'
+    }
+    const csRaw = str(row.Customer_supply).trim()
+    const customer_supply_checked =
+      csRaw === ''
+        ? false
+        : Number.isFinite(Number(csRaw))
+          ? Number(csRaw) === 1
+          : flagChecked(row.Customer_supply)
+
+    const unit_conversion = await fetchBomUnitConversionDetail(pool, row.kcaa04, row.kcaa25, row.kcaa29)
+
+    /** BOM 币别 kcaa34：测试期固定码表；未知编码原样返回便于核对库值 */
+    const kcaa34Raw = str(row.kcaa34).trim()
+    const kcaa34DisplayMap = { '001': '001,人民币', '002': '002,美元', '003': '003,港元' }
+    const kcaa34_display =
+      kcaa34Raw === '' ? '' : Object.prototype.hasOwnProperty.call(kcaa34DisplayMap, kcaa34Raw) ? kcaa34DisplayMap[kcaa34Raw] : kcaa34Raw
+
+    const workshop_display = buildBomWorkshopDisplay(row.kcaa15, row.workshopName)
+
+    const basic = {
+      systemcode: str(row.systemcode),
+      pass: str(row.pass),
+      kcaa01: str(row.kcaa01),
+      kcaa02: str(row.kcaa02),
+      kcaa02_en: str(row.kcaa02_en),
+      kpname: str(row.kpname),
+      kcaa03: str(row.kcaa03),
+      kcaa11: str(row.kcaa11),
+      kcaa05: str(row.kcaa05),
+      categoryName: str(row.categoryName),
+      kcaa10: str(row.kcaa10),
+      location: str(row.location),
+      kcaa06: str(row.kcaa06),
+      kcaa09: str(row.kcaa09),
+      kcaa04: str(row.kcaa04),
+      kcaa25: str(row.kcaa25),
+      kcaa29: str(row.kcaa29),
+      cost_price: str(row.cost_price),
+      sale_price: str(row.sale_price),
+      kcaa34: kcaa34Raw,
+      kcaa34_display: kcaa34_display,
+      kcaa35: str(row.kcaa35),
+      decimal: str(row.bom_decimal),
+      remark: str(row.remark),
+      kcaa32: str(row.kcaa32),
+      kcaa33: str(row.kcaa33),
+      unit_conversion,
+      workshop_display,
+      kcaa12_checked: flagChecked(row.kcaa12),
+      kcaa13_checked: flagChecked(row.kcaa13),
+      kcaa14_checked: flagChecked(row.kcaa14),
+      kcaa15_checked: flagChecked(row.kcaa15),
+      customer_supply_checked,
+    }
+
+    res.json({ code: 200, msg: 'success', data: { basic } })
+  } catch (err) {
+    console.error('GET /api/inventory/bom/:id 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取 BOM 详情失败：${detail}`, data: null })
   }
 })
 
