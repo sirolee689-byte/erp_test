@@ -1,0 +1,14 @@
+---
+description: 修改 server 或 API 门禁后必须重启 3001、回复附启动指纹并提醒重新登录（全文见 .cursorrules §14.1）
+alwaysApply: true
+---
+
+# 后端/API 变更收尾（硬性）
+
+凡本会话曾 **保存或修改** `server/**` 内文件，或 `server/apiPermissionGate.js`：
+
+1. **重启 API**：项目根目录执行 `npm run dev:server`（默认端口 **3001**）。`npm run dev` **只起前端**，不能代替后端重启。
+2. **回复必须带证据**：粘贴控制台 **`[启动指纹]` / `bootAt=`** 或同等指纹行 / **3001 新 PID**。无证据不得断言「已生效」。
+3. **提醒用户**：后端重启后须 **重新登录**（`erp_token` 失效）。
+
+细则：**仓库根目录 `.cursorrules` → §14.1**。

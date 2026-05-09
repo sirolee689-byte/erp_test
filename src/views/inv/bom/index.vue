@@ -21,6 +21,7 @@
           @keyup.enter="onSearch"
         />
         <el-select
+          v-if="!showRecycle"
           v-model="searchQuery.bom_cut"
           placeholder="裁片过滤"
           style="width: 200px"
@@ -30,11 +31,16 @@
           <el-option label="仅裁片编码（仅 CUT- 开头）" :value="1" />
         </el-select>
         <div class="audit-switch">
+          <span class="switch-label">回收站</span>
+          <el-switch v-model="showRecycle" @change="onRecycleChange" />
+        </div>
+        <div v-if="!showRecycle" class="audit-switch">
           <span class="switch-label">显示未审核</span>
           <el-switch v-model="showUnAudited" @change="onSearch" />
         </div>
         <el-button type="primary" @click="onSearch">查询</el-button>
         <el-button @click="onReset">重置</el-button>
+        <el-button v-if="!showRecycle" v-permission="'add'" type="success" @click="openAddBom">新增 BOM</el-button>
       </div>
 
       <el-alert
@@ -49,7 +55,14 @@
       <el-alert v-if="errorMessage" :title="errorMessage" type="error" show-icon class="error-alert" />
 
       <el-alert
-        v-if="showUnAudited"
+        v-if="showRecycle"
+        title="当前为回收站视图：仅显示已逻辑删除（del=1）的主档；可恢复或彻底删除（不可恢复）。"
+        type="info"
+        show-icon
+        class="audit-view-alert"
+      />
+      <el-alert
+        v-else-if="showUnAudited"
         title="当前显示：未审核（pass=0）的 BOM 行"
         type="warning"
         show-icon
@@ -66,55 +79,138 @@
             row-key="rowKey"
             :empty-text="loading ? '加载中…' : '暂无数据'"
           >
-            <el-table-column prop="code" label="编码" min-width="120" show-overflow-tooltip />
-            <el-table-column prop="name" label="名称" min-width="160" show-overflow-tooltip />
-            <el-table-column prop="spec" label="规格" min-width="120" show-overflow-tooltip />
-            <el-table-column prop="unit" label="单位" width="72" show-overflow-tooltip />
-            <el-table-column label="成本用量,成品用量" min-width="210">
+            <el-table-column label="操作" width="218" fixed="left" align="left">
               <template #default="{ row }">
-                <div v-if="row.calcStatus === 'not_needed'" class="usage-sum-muted"></div>
-                <div v-else class="usage-sum-cell">
-                  <div>成本：{{ row.sumCost04 ?? '0.0000' }}，{{ row.sumCost06 ?? '0.0000' }}</div>
-                  <div>成品：{{ row.sumCons04 ?? '0.0000' }}，{{ row.sumCons06 ?? '0.0000' }}</div>
+                <div class="bom-list-actions">
+                  <template v-if="showRecycle">
+                    <el-button
+                      v-permission="'view'"
+                      size="small"
+                      @click="openDetail(row)"
+                    >
+                      查看详情
+                    </el-button>
+                    <el-button
+                      v-permission="'edit'"
+                      type="primary"
+                      link
+                      size="small"
+                      :loading="busySystemcode === row.systemcode"
+                      :disabled="!String(row.systemcode ?? '').trim()"
+                      @click="onRestore(row)"
+                    >
+                      恢复
+                    </el-button>
+                    <el-button
+                      v-permission="'delete'"
+                      type="danger"
+                      link
+                      size="small"
+                      :loading="busySystemcode === row.systemcode"
+                      :disabled="!String(row.systemcode ?? '').trim() || rowIsAudited(row)"
+                      @click="onHardDelete(row)"
+                    >
+                      彻底删除
+                    </el-button>
+                  </template>
+                  <template v-else>
+                    <el-button v-permission="'view'" size="small" @click="openDetail(row)">查看详情</el-button>
+                    <el-button
+                      v-permission="'add'"
+                      size="small"
+                      type="primary"
+                      link
+                      :loading="busyCopySystemcode === row.systemcode || busyCopySystemcode === row.code"
+                      :disabled="!String(row.code ?? '').trim()"
+                      @click="openCopyBom(row)"
+                    >
+                      复制
+                    </el-button>
+                    <el-button
+                      v-if="showUnAudited"
+                      v-permission="'edit'"
+                      size="small"
+                      :disabled="rowIsAudited(row)"
+                      @click="onEdit(row)"
+                    >
+                      编辑
+                    </el-button>
+                    <el-button
+                      v-if="showUnAudited && !rowIsAudited(row)"
+                      v-permission="'audit'"
+                      type="success"
+                      link
+                      size="small"
+                      :loading="busySystemcode === row.systemcode"
+                      @click="onAudit(row)"
+                    >
+                      审核
+                    </el-button>
+                    <el-button
+                      v-if="!showUnAudited && rowIsAudited(row)"
+                      v-permission="'audit'"
+                      type="warning"
+                      link
+                      size="small"
+                      :loading="busySystemcode === row.systemcode"
+                      @click="onUnaudit(row)"
+                    >
+                      反审
+                    </el-button>
+                    <el-button
+                      v-if="showUnAudited"
+                      v-permission="'delete'"
+                      type="danger"
+                      link
+                      size="small"
+                      :disabled="rowIsAudited(row) || !String(row.systemcode ?? '').trim()"
+                      :loading="busySystemcode === row.systemcode"
+                      @click="onSoftDelete(row)"
+                    >
+                      删除
+                    </el-button>
+                  </template>
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="是否运算用量" width="110">
+            <el-table-column label="编码" min-width="220">
               <template #default="{ row }">
-                <el-tag v-if="row.calcStatus === 'done'" type="success" size="small">已运算</el-tag>
-                <el-tag v-else-if="row.calcStatus === 'not_done'" type="danger" size="small">未运算</el-tag>
-                <el-tag v-else type="info" size="small">不需运算</el-tag>
+                <span class="bom-list-cell-wrap">{{ row.code }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="addtime" label="输入时间" width="150" show-overflow-tooltip>
-              <template #default="{ row }">{{ formatDateTime(row.addtime) }}</template>
+            <el-table-column label="名称" min-width="140">
+              <template #default="{ row }">
+                <span class="bom-list-cell-wrap">{{ row.name }}</span>
+              </template>
             </el-table-column>
-            <el-table-column prop="edittime" label="修改时间" width="150" show-overflow-tooltip>
-              <template #default="{ row }">{{ formatDateTime(row.edittime) }}</template>
+            <el-table-column label="规格" min-width="140">
+              <template #default="{ row }">
+                <span class="bom-list-cell-wrap">{{ row.spec }}</span>
+              </template>
             </el-table-column>
-            <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip />
-            <el-table-column label="采购" width="72" align="center">
+            <el-table-column prop="unit" label="单位" width="56" align="center" show-overflow-tooltip />
+            <el-table-column label="输入/修改时间" min-width="158">
+              <template #default="{ row }">
+                <div class="usage-sum-cell">
+                  <div>输入：{{ formatDateTime(row.addtime) }}</div>
+                  <div>修改：{{ formatDateTime(row.edittime) }}</div>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip />
+            <el-table-column label="采购" width="56" align="center">
               <template #default="{ row }">{{ ynText(row.isPurchase) }}</template>
             </el-table-column>
-            <el-table-column label="外协" width="72" align="center">
+            <el-table-column label="外协" width="56" align="center">
               <template #default="{ row }">{{ ynText(row.isSubcontract) }}</template>
             </el-table-column>
-            <el-table-column label="自产" width="72" align="center">
+            <el-table-column label="自产" width="56" align="center">
               <template #default="{ row }">{{ ynText(row.isSelfProduced) }}</template>
             </el-table-column>
-            <el-table-column label="审核" width="88">
+            <el-table-column label="审核" width="72" align="center">
               <template #default="{ row }">
                 <el-tag v-if="rowIsAudited(row)" type="success" size="small">已审</el-tag>
                 <el-tag v-else type="info" size="small">未审</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="260" fixed="right">
-              <template #default="{ row }">
-                <el-button v-permission="'view'" size="small" @click="openDetail(row)">查看详情</el-button>
-                <el-button v-permission="'view'" size="small" type="primary" plain @click="copyRow(row)">复制</el-button>
-                <el-button v-permission="'edit'" size="small" :disabled="rowIsAudited(row)" @click="onEdit(row)">
-                  编辑
-                </el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -138,7 +234,8 @@
     <el-dialog
       v-model="detailVisible"
       :title="detailDialogTitle"
-      width="85%"
+      width="900px"
+      top="4vh"
       destroy-on-close
       class="bom-detail-dialog"
       @closed="onDetailClosed"
@@ -149,214 +246,213 @@
           <template v-else-if="bomBasic">
             <el-tabs v-model="detailActiveTab">
               <el-tab-pane label="基础资料" name="basic">
-                <el-form class="bom-detail-form" label-position="right" label-width="112px" size="default">
-                  <!-- Row1 核心：编码 + 名称类（名称 / 英文名称 / 开票名称）四列栅格 -->
-                  <el-row :gutter="16">
-                    <el-col :xs="24" :sm="12" :md="6">
-                      <el-form-item label="编码">
-                        <el-input :model-value="dVal(bomBasic.kcaa01)" readonly />
-                      </el-form-item>
-                    </el-col>
-                    <el-col :xs="24" :sm="12" :md="6">
-                      <el-form-item label="名称">
-                        <el-input :model-value="dVal(bomBasic.kcaa02)" readonly />
-                      </el-form-item>
-                    </el-col>
-                    <el-col :xs="24" :sm="12" :md="6">
-                      <el-form-item label="英文名称">
-                        <el-input :model-value="dVal(bomBasic.kcaa02_en)" readonly />
-                      </el-form-item>
-                    </el-col>
-                    <el-col :xs="24" :sm="12" :md="6">
-                      <el-form-item label="开票名称">
-                        <el-input :model-value="dVal(bomBasic.kpname)" readonly />
-                      </el-form-item>
-                    </el-col>
-                  </el-row>
-                  <!-- Row2 规格 -->
-                  <el-row :gutter="16">
-                    <el-col :xs="24" :sm="12" :md="8">
-                      <el-form-item label="规格">
-                        <el-input :model-value="dVal(bomBasic.kcaa03)" readonly />
-                      </el-form-item>
-                    </el-col>
-                    <el-col :xs="24" :sm="12" :md="8">
-                      <el-form-item label="颜色">
-                        <el-input :model-value="dVal(bomBasic.kcaa11)" readonly />
-                      </el-form-item>
-                    </el-col>
-                    <el-col :xs="24" :sm="12" :md="8">
-                      <el-form-item label="分类">
-                        <el-input :model-value="dVal(bomBasic.categoryName)" readonly />
-                      </el-form-item>
-                    </el-col>
-                  </el-row>
-                  <!-- Row3 款号（四项一行：大屏四列） -->
-                  <el-row :gutter="16">
-                    <el-col :xs="24" :sm="12" :md="6">
-                      <el-form-item label="组别">
-                        <el-input :model-value="dVal(bomBasic.kcaa10)" readonly />
-                      </el-form-item>
-                    </el-col>
-                    <el-col :xs="24" :sm="12" :md="6">
-                      <el-form-item label="产地">
-                        <el-input :model-value="dVal(bomBasic.location)" readonly />
-                      </el-form-item>
-                    </el-col>
-                    <el-col :xs="24" :sm="12" :md="6">
-                      <el-form-item label="客户款号">
-                        <el-input :model-value="dVal(bomBasic.kcaa06)" readonly />
-                      </el-form-item>
-                    </el-col>
-                    <el-col :xs="24" :sm="12" :md="6">
-                      <el-form-item label="工厂款号">
-                        <el-input :model-value="dVal(bomBasic.kcaa09)" readonly />
-                      </el-form-item>
-                    </el-col>
-                  </el-row>
-                  <el-row :gutter="16">
-                    <el-col :xs="24" :sm="12" :md="12">
-                      <el-form-item label="生产车间">
-                        <el-input :model-value="dVal(bomBasic.workshop_display)" readonly />
-                      </el-form-item>
-                    </el-col>
-                  </el-row>
-                  <!-- 单位与转换 -->
-                  <div class="bom-section-title">单位与转换</div>
-                  <el-row :gutter="16">
-                    <el-col :xs="24" :sm="12" :md="8">
-                      <el-form-item label="使用单位">
-                        <el-input :model-value="dVal(bomBasic.kcaa04)" readonly />
-                      </el-form-item>
-                    </el-col>
-                    <el-col :xs="24" :sm="12" :md="8">
-                      <el-form-item label="采购单位">
-                        <el-input :model-value="dVal(bomBasic.kcaa25)" readonly />
-                      </el-form-item>
-                    </el-col>
-                    <el-col :xs="24" :sm="12" :md="8">
-                      <el-form-item label="报价单位">
-                        <el-input :model-value="dVal(bomBasic.kcaa29)" readonly />
-                      </el-form-item>
-                    </el-col>
-                  </el-row>
-                  <div class="bom-sub-block-title">采购转换</div>
-                  <el-row :gutter="16">
-                    <el-col :xs="24" :sm="12" :md="12">
-                      <el-form-item label="转换方向">
-                        <el-select
-                          :model-value="purchaseDirModel"
-                          disabled
-                          placeholder="—"
-                          style="width: 100%"
-                          :clearable="false"
-                        >
-                          <el-option
-                            v-for="opt in purchaseDirOptions"
-                            :key="opt.value"
-                            :label="opt.label"
-                            :value="opt.value"
-                          />
-                        </el-select>
-                      </el-form-item>
-                    </el-col>
-                    <el-col :xs="24" :sm="12" :md="12">
-                      <el-form-item label="转换率">
-                        <el-input :model-value="dVal(ucPurchaseRate)" readonly />
-                      </el-form-item>
-                    </el-col>
-                  </el-row>
-                  <div class="bom-sub-block-title">报价转换</div>
-                  <el-row :gutter="16">
-                    <el-col :xs="24" :sm="12" :md="12">
-                      <el-form-item label="转换方向">
-                        <el-select
-                          :model-value="quoteDirModel"
-                          disabled
-                          placeholder="—"
-                          style="width: 100%"
-                          :clearable="false"
-                        >
-                          <el-option
-                            v-for="opt in quoteDirOptions"
-                            :key="opt.value"
-                            :label="opt.label"
-                            :value="opt.value"
-                          />
-                        </el-select>
-                      </el-form-item>
-                    </el-col>
-                    <el-col :xs="24" :sm="12" :md="12">
-                      <el-form-item label="转换率">
-                        <el-input :model-value="dVal(ucQuoteRate)" readonly />
-                      </el-form-item>
-                    </el-col>
-                  </el-row>
-                  <!-- 财务 -->
-                  <el-row :gutter="16">
-                    <el-col :xs="24" :sm="12" :md="8">
-                      <el-form-item label="采购价格">
-                        <el-input :model-value="dVal(bomBasic.cost_price)" readonly />
-                      </el-form-item>
-                    </el-col>
-                    <el-col :xs="24" :sm="12" :md="8">
-                      <el-form-item label="币别">
-                        <el-input :model-value="dVal(bomBasic.kcaa35)" readonly />
-                      </el-form-item>
-                    </el-col>
-                    <el-col :xs="24" :sm="12" :md="8">
-                      <el-form-item label="小数点配置">
-                        <el-input :model-value="dVal(bomBasic.decimal)" readonly />
-                      </el-form-item>
-                    </el-col>
-                  </el-row>
-                  <el-row :gutter="16">
-                    <el-col :xs="24" :sm="12" :md="8">
-                      <el-form-item label="BOM 价格">
-                        <el-input :model-value="dVal(bomBasic.sale_price)" readonly />
-                      </el-form-item>
-                    </el-col>
-                    <el-col :xs="24" :sm="12" :md="8">
-                      <el-form-item label="BOM 币别">
-                        <el-input :model-value="dVal(bomBasic.kcaa34_display)" readonly />
-                      </el-form-item>
-                    </el-col>
-                  </el-row>
-                  <!-- 损耗 -->
-                  <el-row :gutter="16">
-                    <el-col :xs="24" :sm="12" :md="12">
-                      <el-form-item label="报价损耗">
-                        <el-input :model-value="dVal(bomBasic.kcaa32)" readonly />
-                      </el-form-item>
-                    </el-col>
-                    <el-col :xs="24" :sm="12" :md="12">
-                      <el-form-item label="物价损耗">
-                        <el-input :model-value="dVal(bomBasic.kcaa33)" readonly />
-                      </el-form-item>
-                    </el-col>
-                  </el-row>
-                  <!-- 工作方式 -->
-                  <el-row :gutter="16">
-                    <el-col :span="24">
-                      <el-form-item label="工作方式">
-                        <div class="bom-detail-check-row">
-                          <el-checkbox :model-value="bomBasic.kcaa12_checked" disabled>采购</el-checkbox>
-                          <el-checkbox :model-value="bomBasic.kcaa13_checked" disabled>外协</el-checkbox>
-                          <el-checkbox :model-value="bomBasic.kcaa14_checked" disabled>自产</el-checkbox>
-                          <el-checkbox :model-value="bomBasic.customer_supply_checked" disabled>客供</el-checkbox>
-                        </div>
-                      </el-form-item>
-                    </el-col>
-                  </el-row>
-                  <!-- 备注 -->
-                  <el-row :gutter="16">
-                    <el-col :span="24">
-                      <el-form-item label="备注">
-                        <el-input :model-value="dVal(bomBasic.remark)" type="textarea" :rows="3" readonly />
-                      </el-form-item>
-                    </el-col>
-                  </el-row>
-                </el-form>
+                <div class="bom-detail-body">
+                  <el-form class="bom-detail-form" label-position="right" label-width="112px" size="default">
+                    <div class="bom-section-title">系统</div>
+                    <el-row :gutter="12" class="bom-edit-row-system">
+                      <el-col :xs="24" :sm="15">
+                        <el-form-item label="系统编码">
+                          <el-input :model-value="dVal(bomBasic.systemcode)" readonly placeholder="—" />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="9">
+                        <el-form-item label="客供">
+                          <div class="bom-edit-checkbox-cell">
+                            <el-checkbox :model-value="bomBasic.customer_supply_checked" disabled>是</el-checkbox>
+                          </div>
+                        </el-form-item>
+                      </el-col>
+                    </el-row>
+
+                    <div class="bom-section-title">基本资料</div>
+                    <el-row :gutter="12">
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="编码">
+                          <el-input :model-value="dVal(bomBasic.kcaa01)" readonly />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="名称">
+                          <el-input :model-value="dVal(bomBasic.kcaa02)" readonly />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="开票名称">
+                          <el-input :model-value="dVal(bomBasic.kpname)" readonly />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="英文名称">
+                          <el-input :model-value="dVal(bomBasic.kcaa02_en)" readonly />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="分类">
+                          <el-input :model-value="dVal(detailCategoryDisplay)" readonly />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="规格">
+                          <el-input :model-value="dVal(bomBasic.kcaa03)" readonly />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="组别">
+                          <el-input :model-value="dVal(bomBasic.kcaa10)" readonly />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="颜色">
+                          <el-input :model-value="dVal(bomBasic.kcaa11)" readonly />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="产地">
+                          <el-input :model-value="dVal(bomBasic.location)" readonly />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="客户款号">
+                          <el-input :model-value="dVal(bomBasic.kcaa06)" readonly />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="工厂款号">
+                          <el-input :model-value="dVal(bomBasic.kcaa09)" readonly />
+                        </el-form-item>
+                      </el-col>
+                    </el-row>
+
+                    <div class="bom-section-title">单位与损耗</div>
+                    <div class="bom-unit-loss-block">
+                      <el-row :gutter="12">
+                        <el-col :xs="24" :sm="12">
+                          <el-form-item label="使用单位">
+                            <el-input :model-value="dVal(bomBasic.kcaa04)" readonly />
+                          </el-form-item>
+                        </el-col>
+                        <el-col :xs="24" :sm="12">
+                          <el-form-item label="小数点配置">
+                            <el-input :model-value="dVal(detailDecimalLabel)" readonly />
+                          </el-form-item>
+                        </el-col>
+                      </el-row>
+                      <el-row :gutter="12">
+                        <el-col :xs="24" :sm="8">
+                          <el-form-item label="采购单位">
+                            <el-input :model-value="dVal(bomBasic.kcaa25)" readonly />
+                          </el-form-item>
+                        </el-col>
+                        <el-col :xs="24" :sm="8">
+                          <el-form-item label="转换方式">
+                            <el-select :model-value="detailKcaa27Num" disabled style="width: 100%">
+                              <el-option label="采购->使用" :value="0" />
+                              <el-option label="使用->采购" :value="1" />
+                            </el-select>
+                          </el-form-item>
+                        </el-col>
+                        <el-col :xs="24" :sm="8">
+                          <el-form-item label="转换率">
+                            <el-input :model-value="dVal(bomBasic.kcaa26)" readonly />
+                          </el-form-item>
+                        </el-col>
+                      </el-row>
+                      <el-row :gutter="12">
+                        <el-col :xs="24" :sm="8">
+                          <el-form-item label="报价单位">
+                            <el-input :model-value="dVal(bomBasic.kcaa29)" readonly />
+                          </el-form-item>
+                        </el-col>
+                        <el-col :xs="24" :sm="8">
+                          <el-form-item label="转换方式">
+                            <el-select :model-value="detailKcaa31Num" disabled style="width: 100%">
+                              <el-option label="报价->使用" :value="0" />
+                              <el-option label="使用->报价" :value="1" />
+                            </el-select>
+                          </el-form-item>
+                        </el-col>
+                        <el-col :xs="24" :sm="8">
+                          <el-form-item label="转换率">
+                            <el-input :model-value="dVal(bomBasic.kcaa30)" readonly />
+                          </el-form-item>
+                        </el-col>
+                      </el-row>
+                      <el-row :gutter="12">
+                        <el-col :xs="24" :sm="12">
+                          <el-form-item label="报价损耗">
+                            <el-input :model-value="dVal(bomBasic.kcaa32)" readonly />
+                          </el-form-item>
+                        </el-col>
+                        <el-col :xs="24" :sm="12">
+                          <el-form-item label="物料损耗">
+                            <el-input :model-value="dVal(bomBasic.kcaa33)" readonly />
+                          </el-form-item>
+                        </el-col>
+                      </el-row>
+                    </div>
+
+                    <div class="bom-section-title">价格与币别</div>
+                    <el-row :gutter="12">
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="BOM价格">
+                          <el-input :model-value="dVal(bomBasic.sale_price)" readonly />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="币别(报价)">
+                          <el-input :model-value="dVal(detailQuoteCurrencyText)" readonly />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="采购价格">
+                          <el-input :model-value="dVal(bomBasic.cost_price)" readonly />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="币别(采购)">
+                          <el-input :model-value="dVal(bomBasic.kcaa35)" readonly />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :span="24">
+                        <el-form-item label="供应商">
+                          <el-input :model-value="dVal(bomBasic.supplier_display)" readonly />
+                        </el-form-item>
+                      </el-col>
+                    </el-row>
+
+                    <div class="bom-section-title">工作方式与车间</div>
+                    <el-row :gutter="12">
+                      <el-col :span="24">
+                        <el-form-item label="工作方式">
+                          <div class="bom-detail-check-row">
+                            <el-checkbox :model-value="bomBasic.kcaa12_checked" disabled>采购</el-checkbox>
+                            <el-checkbox :model-value="bomBasic.kcaa13_checked" disabled>外协</el-checkbox>
+                            <el-checkbox :model-value="bomBasic.kcaa14_checked" disabled>自产</el-checkbox>
+                          </div>
+                        </el-form-item>
+                      </el-col>
+                      <el-col :span="24">
+                        <el-form-item label="生产车间">
+                          <el-input :model-value="dVal(bomBasic.workshop_display)" readonly />
+                        </el-form-item>
+                      </el-col>
+                    </el-row>
+
+                    <div class="bom-section-title">其它</div>
+                    <el-row :gutter="12">
+                      <el-col :xs="24" :sm="12">
+                        <el-form-item label="保税">
+                          <el-switch :model-value="detailSignBool" disabled active-text="保税" inactive-text="非保税" />
+                        </el-form-item>
+                      </el-col>
+                      <el-col :span="24">
+                        <el-form-item label="备注">
+                          <el-input :model-value="dVal(bomBasic.remark)" type="textarea" :rows="3" readonly />
+                        </el-form-item>
+                      </el-col>
+                    </el-row>
+                  </el-form>
+                </div>
               </el-tab-pane>
               <el-tab-pane label="配件明细" name="parts" :disabled="!bomBasic">
                 <el-alert
@@ -407,7 +503,7 @@
                       fixed="left"
                       :index="partsRowIndex"
                     />
-                    <el-table-column label="操作" width="88" align="center" fixed="left">
+                    <el-table-column label="操作" width="148" align="center" fixed="left">
                       <template #default="{ row }">
                         <el-button
                           type="primary"
@@ -417,6 +513,15 @@
                           @click="openLinkedBomDetailFromPart(row)"
                         >
                           查看
+                        </el-button>
+                        <el-button
+                          type="danger"
+                          link
+                          size="small"
+                          :disabled="partsReadOnly"
+                          @click="removeDetailPartRow(row)"
+                        >
+                          删除
                         </el-button>
                       </template>
                     </el-table-column>
@@ -494,13 +599,527 @@
         </template>
       </el-skeleton>
     </el-dialog>
+
+    <!-- BOM 主档新增/编辑（bom_000） -->
+    <el-dialog
+      v-model="editVisible"
+      :title="editDialogTitle"
+      width="96%"
+      top="3vh"
+      destroy-on-close
+      class="bom-edit-dialog"
+      @closed="onEditClosed"
+    >
+      <div class="bom-edit-body">
+        <el-alert
+          v-if="editMode === 'add'"
+          type="info"
+          show-icon
+          :closable="false"
+          class="bom-edit-alert"
+          :title="
+            editOpenedFromCopy
+              ? '已从所选 BOM 复制除物料编码外的资料（请填写新编码）；保存后将生成唯一 systemcode。配件明细请另行维护。'
+              : '新增保存后将生成唯一 systemcode；编码不可含空格，且不能与在册记录重复。保存主档后可切换到「配件明细」。'
+          "
+        />
+        <el-tabs v-model="editActiveTab" class="bom-edit-tabs">
+          <el-tab-pane label="BOM基础资料" name="main">
+            <el-form ref="editFormRef" :model="editForm" label-width="112px" size="default" @submit.prevent>
+          <div class="bom-section-title">系统</div>
+          <el-row :gutter="12" class="bom-edit-row-system">
+            <el-col :xs="24" :sm="15">
+              <el-form-item label="系统编码">
+                <el-input v-model="editForm.systemcode" disabled placeholder="保存后自动生成" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="9">
+              <el-form-item label="客供">
+                <div class="bom-edit-checkbox-cell">
+                  <el-checkbox v-model="editForm.customer_supply_bool">是</el-checkbox>
+                </div>
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <div class="bom-section-title">基本资料</div>
+          <el-row :gutter="12">
+            <el-col :xs="24" :sm="12">
+              <el-form-item label="编码" required>
+                <el-input
+                  v-model="editForm.kcaa01"
+                  maxlength="300"
+                  show-word-limit
+                  placeholder="必填，不可含空格"
+                  @keydown="onKcaa01Keydown"
+                  @paste="onKcaa01Paste"
+                  @blur="onKcaa01Blur"
+                />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item label="名称" required>
+                <el-input v-model="editForm.kcaa02" maxlength="500" show-word-limit />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item label="开票名称">
+                <el-input v-model="editForm.kpname" maxlength="500" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item label="英文名称">
+                <el-input v-model="editForm.kcaa02_en" maxlength="500" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item label="分类" required>
+                <el-autocomplete
+                  v-model="editForm.kcaa05_display"
+                  :fetch-suggestions="fetchMaterialSuggest"
+                  clearable
+                  placeholder="必填，编码/名称检索"
+                  style="width: 100%"
+                  value-key="label"
+                  @select="onPickMaterial"
+                />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item label="规格">
+                <el-input v-model="editForm.kcaa03" maxlength="500" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item label="组别">
+                <el-input v-model="editForm.kcaa10" maxlength="200" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item label="颜色">
+                <el-autocomplete
+                  v-model="editForm.kcaa11_display"
+                  :fetch-suggestions="fetchColorSuggest"
+                  clearable
+                  placeholder="编码/名称检索"
+                  style="width: 100%"
+                  value-key="label"
+                  @select="onPickColor"
+                />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item label="产地">
+                <el-select v-model="editForm.location" placeholder="请选择" style="width: 100%">
+                  <el-option label="国内" value="国内" />
+                  <el-option label="进口" value="进口" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item label="客户款号">
+                <el-input v-model="editForm.kcaa06" maxlength="300" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item label="工厂款号">
+                <el-input v-model="editForm.kcaa09" maxlength="300" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+
+          <div class="bom-section-title">单位与损耗</div>
+          <!-- 布局参考：第 1 行使用单位+小数；第 2、3 行各为三列「单位 | 转换方式 | 转换率」 -->
+          <div class="bom-unit-loss-block">
+            <el-row :gutter="12">
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="使用单位" required>
+                  <el-autocomplete
+                    v-model="editForm.kcaa04"
+                    :fetch-suggestions="fetchUnitSuggest"
+                    clearable
+                    placeholder="必填"
+                    style="width: 100%"
+                    value-key="value"
+                    @select="onPickUnitUse"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="小数点配置">
+                  <el-select v-model="editForm.decimal" placeholder="位数" style="width: 100%">
+                    <el-option v-for="n in 6" :key="n" :label="`${n} 位`" :value="String(n)" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="12">
+              <el-col :xs="24" :sm="8">
+                <el-form-item label="采购单位" required>
+                  <el-autocomplete
+                    v-model="editForm.kcaa25"
+                    :fetch-suggestions="fetchUnitSuggest"
+                    clearable
+                    placeholder="必填"
+                    style="width: 100%"
+                    value-key="value"
+                    @select="onPickUnitPo"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="8">
+                <el-form-item label="转换方式">
+                  <el-select v-model="editForm.kcaa27" style="width: 100%">
+                    <el-option label="采购->使用" :value="0" />
+                    <el-option label="使用->采购" :value="1" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="8">
+                <el-form-item label="转换率">
+                  <el-input v-model="editForm.kcaa26" placeholder="填写使用单位与采购单位后自动换算" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="12">
+              <el-col :xs="24" :sm="8">
+                <el-form-item label="报价单位">
+                  <el-autocomplete
+                    v-model="editForm.kcaa29"
+                    :fetch-suggestions="fetchUnitSuggest"
+                    clearable
+                    placeholder="单位名称"
+                    style="width: 100%"
+                    value-key="value"
+                    @select="onPickUnitQt"
+                  />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="8">
+                <el-form-item label="转换方式">
+                  <el-select v-model="editForm.kcaa31" style="width: 100%">
+                    <el-option label="报价->使用" :value="0" />
+                    <el-option label="使用->报价" :value="1" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="8">
+                <el-form-item label="转换率">
+                  <el-input v-model="editForm.kcaa30" placeholder="填写使用单位与报价单位后自动换算" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="12">
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="报价损耗">
+                  <el-input v-model="editForm.kcaa32" @input="onNumericInput($event, 'kcaa32')" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :sm="12">
+                <el-form-item label="物料损耗">
+                  <el-input v-model="editForm.kcaa33" @input="onNumericInput($event, 'kcaa33')" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </div>
+
+          <div class="bom-section-title">价格与币别</div>
+          <el-row :gutter="12">
+            <el-col :xs="24" :sm="12">
+              <el-form-item label="BOM价格">
+                <el-input v-model="editForm.sale_price" @input="onNumericInput($event, 'sale_price')" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item label="币别(报价)">
+                <el-select
+                  v-model="editForm.kcaa34"
+                  filterable
+                  clearable
+                  placeholder="请选择币别"
+                  style="width: 100%"
+                >
+                  <el-option
+                    v-for="(name, idx) in currencyDropdownOptions"
+                    :key="'c34-' + idx + '-' + name"
+                    :label="name"
+                    :value="name"
+                  />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item label="采购价格">
+                <el-input v-model="editForm.cost_price" @input="onNumericInput($event, 'cost_price')" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item label="币别(采购)">
+                <el-select
+                  v-model="editForm.kcaa35"
+                  filterable
+                  clearable
+                  placeholder="请选择币别"
+                  style="width: 100%"
+                >
+                  <el-option
+                    v-for="(name, idx) in currencyDropdownOptions"
+                    :key="'c35-' + idx + '-' + name"
+                    :label="name"
+                    :value="name"
+                  />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="24">
+              <el-form-item label="供应商">
+                <el-autocomplete
+                  v-model="editForm.supplier_display"
+                  :fetch-suggestions="fetchSupplierSuggest"
+                  clearable
+                  placeholder="编码/名称"
+                  style="width: 100%"
+                  value-key="label"
+                  @select="onPickSupplier"
+                />
+              </el-form-item>
+            </el-col>
+          </el-row>
+
+          <div class="bom-section-title">工作方式与车间</div>
+          <el-row :gutter="12">
+            <el-col :span="24">
+              <el-form-item label="工作方式">
+                <el-checkbox v-model="editForm.kcaa12_bool">采购</el-checkbox>
+                <el-checkbox v-model="editForm.kcaa13_bool">外协</el-checkbox>
+                <el-checkbox v-model="editForm.kcaa14_bool">自产</el-checkbox>
+              </el-form-item>
+            </el-col>
+            <el-col :span="24">
+              <el-form-item label="生产车间">
+                <el-autocomplete
+                  v-model="editForm.workshop_display"
+                  :fetch-suggestions="fetchWorkshopSuggest"
+                  clearable
+                  placeholder="编码/名称"
+                  style="width: 100%"
+                  value-key="label"
+                  @select="onPickWorkshop"
+                />
+              </el-form-item>
+            </el-col>
+          </el-row>
+
+          <div class="bom-section-title">其它</div>
+          <el-row :gutter="12">
+            <el-col :xs="24" :sm="12">
+              <el-form-item label="保税">
+                <el-switch v-model="editForm.sign_bool" active-text="保税" inactive-text="非保税" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="24">
+              <el-form-item label="备注">
+                <el-input v-model="editForm.remark" type="textarea" :rows="3" maxlength="2000" show-word-limit />
+              </el-form-item>
+            </el-col>
+          </el-row>
+            </el-form>
+          </el-tab-pane>
+
+          <el-tab-pane label="配件明细" name="parts">
+            <el-alert
+              v-if="!editBomSystemcode"
+              type="warning"
+              show-icon
+              :closable="false"
+              class="bom-parts-alert"
+              title="请先在「BOM基础资料」中填写必填项并点击「保存主档」，生成系统编码后即可添加与保存配件。"
+            />
+            <template v-else>
+              <div class="bom-parts-toolbar">
+                <el-button
+                  type="primary"
+                  :disabled="editPartsReadOnly || !editBomSystemcode"
+                  @click="appendEditPartBlankRow"
+                >
+                  + 增加配件明细
+                </el-button>
+                <el-button
+                  :disabled="editPartsReadOnly || !editBomSystemcode || editPartsLoading"
+                  @click="batchRemoveEditPartsSelected"
+                >
+                  - 删除选定明细
+                </el-button>
+                <el-button :disabled="editPartsReadOnly || !editBomSystemcode || editPartsLoading" @click="loadEditBomParts">
+                  刷新
+                </el-button>
+                <el-button
+                  type="success"
+                  :disabled="editPartsReadOnly || !editBomSystemcode || editPartsLoading"
+                  @click="saveEditBomParts"
+                >
+                  保存配件明细
+                </el-button>
+              </div>
+              <el-alert v-if="editPartsError" :title="editPartsError" type="error" show-icon class="bom-parts-alert" />
+              <div class="bom-parts-table-wrap">
+                <el-table
+                  v-loading="editPartsLoading"
+                  :data="sortedEditPartsList"
+                  border
+                  stripe
+                  size="small"
+                  class="bom-parts-table bom-parts-table--edit"
+                  :empty-text="editPartsLoading ? '加载中…' : '暂无配件'"
+                  :row-key="partsRowKey"
+                  max-height="420"
+                >
+                  <el-table-column label="选择" width="78" align="center" fixed="left">
+                    <template #default="{ row }">
+                      <el-button
+                        size="small"
+                        class="bom-part-mark-btn"
+                        :class="{ 'bom-part-mark-btn--on': row._partsMarkSelected }"
+                        :disabled="editPartsReadOnly"
+                        @click="toggleEditPartSelect(row)"
+                      >
+                        {{ row._partsMarkSelected ? '已选择' : '删除' }}
+                      </el-button>
+                    </template>
+                  </el-table-column>
+                  <el-table-column
+                    type="index"
+                    label="序号"
+                    width="52"
+                    align="center"
+                    fixed="left"
+                    :index="partsRowIndex"
+                  />
+                  <el-table-column label="操作" min-width="232" align="center" fixed="left">
+                    <template #default="{ row }">
+                      <el-button
+                        type="primary"
+                        link
+                        size="small"
+                        :disabled="editPartsReadOnly"
+                        @click="openEditPartMaterialPicker(row)"
+                      >
+                        添加配件
+                      </el-button>
+                      <el-button
+                        type="primary"
+                        size="small"
+                        class="bom-part-view-action-btn"
+                        :disabled="!String(row.kcaa01 ?? '').trim()"
+                        @click="openLinkedBomDetailFromPart(row)"
+                      >
+                        查看配件
+                      </el-button>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="kcaa01" label="编码" min-width="150" fixed="left" show-overflow-tooltip />
+                  <el-table-column prop="kcaa02" label="名称" min-width="120" show-overflow-tooltip />
+                  <el-table-column prop="kcaa03" label="规格" min-width="100" show-overflow-tooltip />
+                  <el-table-column prop="kcaa04" label="单位" width="72" show-overflow-tooltip />
+                  <el-table-column prop="kcaa11" label="颜色" width="88" show-overflow-tooltip />
+                  <el-table-column label="用量" width="105">
+                    <template #default="{ row }">
+                      <el-input-number
+                        v-model="row.kcac04"
+                        :disabled="editPartsReadOnly"
+                        :min="0"
+                        :precision="4"
+                        :step="0.0001"
+                        controls-position="right"
+                        class="bom-parts-num"
+                      />
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="损耗" width="88">
+                    <template #default="{ row }">
+                      <el-input-number
+                        :model-value="lossPctDisplay(row)"
+                        :disabled="editPartsReadOnly"
+                        :min="0"
+                        :precision="2"
+                        :step="0.1"
+                        controls-position="right"
+                        class="bom-parts-num"
+                        @update:model-value="(v) => onLossPctChange(row, v)"
+                      />
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="用量合计" width="105" align="right">
+                    <template #default="{ row }">{{ formatQty(partUsageSum(row)) }}</template>
+                  </el-table-column>
+                  <el-table-column label="说明" min-width="105">
+                    <template #default="{ row }">
+                      <el-input
+                        v-model="row.remark"
+                        :disabled="editPartsReadOnly"
+                        maxlength="500"
+                        show-word-limit
+                      />
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="单价" width="105">
+                    <template #default="{ row }">
+                      <el-input-number
+                        v-model="row.cost_price"
+                        :disabled="editPartsReadOnly"
+                        :min="0"
+                        :precision="4"
+                        :step="0.0001"
+                        controls-position="right"
+                        class="bom-parts-num"
+                      />
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="成本合计" width="105" align="right">
+                    <template #default="{ row }">{{ formatMoney(partCostSum(row)) }}</template>
+                  </el-table-column>
+                  <el-table-column label="排序" width="88" align="center">
+                    <template #default="{ row }">
+                      <el-input-number
+                        v-model="row.part_seq"
+                        :disabled="editPartsReadOnly"
+                        :min="0"
+                        :precision="0"
+                        :step="1"
+                        controls-position="right"
+                        class="bom-parts-num"
+                      />
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </div>
+              <div class="bom-parts-sum-row">
+                <span>实际用量总和：<strong>{{ formatQty(editPartsSumActualUsage) }}</strong></span>
+                <span class="bom-parts-sum-gap">总成本：<strong>{{ formatMoney(editPartsSumCost) }}</strong></span>
+              </div>
+              <MaterialSelector v-model="editPartsMaterialSelectorVisible" @picked="onEditMaterialPicked" />
+            </template>
+          </el-tab-pane>
+        </el-tabs>
+      </div>
+      <template #footer>
+        <el-button @click="editVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="editSaving" @click="submitBomEdit">保存主档</el-button>
+        <el-button
+          type="success"
+          :disabled="!editBomSystemcode || editPartsReadOnly"
+          @click="saveEditBomParts"
+        >
+          保存配件明细
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import MaterialSelector from '../../supply-chain/daily/purchase-quote/MaterialSelector.vue'
 
 /**
@@ -531,6 +1150,12 @@ const searchQuery = reactive({
   bom_cut: 0,
 })
 const showUnAudited = ref(false)
+/** 回收站视图（与「显示未审核」互斥） */
+const showRecycle = ref(false)
+/** 列表行 systemcode 正在请求（审核/删/恢复等） */
+const busySystemcode = ref('')
+/** 列表行正在「复制到新增」加载 */
+const busyCopySystemcode = ref('')
 
 const detailVisible = ref(false)
 const detailLoading = ref(false)
@@ -540,7 +1165,6 @@ const detailTitleCode = ref('')
 const bomBasic = ref(null)
 /** 列表打开详情时的原始行（审核态等） */
 const detailListRow = ref(null)
-/** 预留后续 Tab（清单/用量等） */
 const detailActiveTab = ref('basic')
 
 /** 配件明细 Tab */
@@ -551,32 +1175,608 @@ const partsLoadedToken = ref('')
 const materialSelectorVisible = ref(false)
 /** 防止重复请求：systemcode + 时间戳在关闭弹窗时清空 */
 const partsLoadGeneration = ref(0)
-
-/** 单位转换方向选项（与后端 po_to_use / qt_to_use 等一致） */
-const purchaseDirOptions = [
-  { value: 'po_to_use', label: '采购→使用' },
-  { value: 'use_to_po', label: '使用→采购' },
-]
-const quoteDirOptions = [
-  { value: 'qt_to_use', label: '报价→使用' },
-  { value: 'use_to_qt', label: '使用→报价' },
-]
-
-const purchaseDirModel = computed(() => {
-  const d = String(bomBasic.value?.unit_conversion?.purchase_direction ?? '').trim()
-  return d || undefined
-})
-const quoteDirModel = computed(() => {
-  const d = String(bomBasic.value?.unit_conversion?.quote_direction ?? '').trim()
-  return d || undefined
-})
-const ucPurchaseRate = computed(() => bomBasic.value?.unit_conversion?.purchase_rate ?? '')
-const ucQuoteRate = computed(() => bomBasic.value?.unit_conversion?.quote_rate ?? '')
+/** 详情弹窗：待保存的配件行软删 */
+const partsPendingDeleteIds = ref([])
 
 const detailDialogTitle = computed(() => {
   const c = String(detailTitleCode.value ?? '').trim()
   return c ? `BOM 详情 - ${c}` : 'BOM 详情'
 })
+
+/** 详情「基础资料」只读布局与新增/编辑表单分区一致 */
+const detailCategoryDisplay = computed(() => {
+  const b = bomBasic.value
+  if (!b) return ''
+  const n = String(b.categoryName ?? '').trim()
+  if (n) return n
+  return String(b.kcaa05 ?? '').trim()
+})
+
+const detailKcaa27Num = computed(() => (Number(bomBasic.value?.kcaa27) === 1 ? 1 : 0))
+
+const detailKcaa31Num = computed(() => (Number(bomBasic.value?.kcaa31) === 1 ? 1 : 0))
+
+const detailDecimalLabel = computed(() => {
+  const d = String(bomBasic.value?.decimal ?? '').trim()
+  if (/^[1-6]$/.test(d)) return `${d} 位`
+  return d
+})
+
+/** 报价币别：优先存库名称 kcaa34，否则兼容旧码 kcaa34_display */
+const detailQuoteCurrencyText = computed(() => {
+  const raw = String(bomBasic.value?.kcaa34 ?? '').trim()
+  if (raw) return raw
+  return String(bomBasic.value?.kcaa34_display ?? '').trim()
+})
+
+const detailSignBool = computed(() => {
+  const s = String(bomBasic.value?.sign ?? '').trim()
+  return s === '1' || s.toLowerCase() === 'y'
+})
+
+/** 主档新增/编辑弹窗 */
+const editVisible = ref(false)
+/** @type {import('vue').Ref<'add' | 'edit'>} */
+const editMode = ref('add')
+const editSaving = ref(false)
+
+/** 新增/编辑弹窗标签：基础资料 | 配件明细 */
+const editActiveTab = ref('main')
+/** 当前编辑主档审核状态（'1' 已审则配件只读） */
+const editMasterPass = ref('0')
+/** 编辑弹窗内配件明细（独立自详情页 partsList） */
+const editPartsList = ref([])
+const editPartsLoading = ref(false)
+const editPartsError = ref('')
+const editPartsMaterialSelectorVisible = ref(false)
+/** 选材弹窗回填目标行（`_localKey`）；null 表示追加到末尾 */
+const editPartsPickerTargetKey = ref(null)
+const editPartsLoadedToken = ref('')
+const editPartsLoadGeneration = ref(0)
+/** 由列表「复制」打开：标题与提示区分普通新增 */
+const editOpenedFromCopy = ref(false)
+/** 编辑弹窗：待保存的已入库配件行软删（PUT lines pendingDelete） */
+const editPartsPendingDeleteIds = ref([])
+
+const editDialogTitle = computed(() => {
+  if (editMode.value === 'add' && editOpenedFromCopy.value) return '新增 BOM 主档（复制）'
+  return editMode.value === 'add' ? '新增 BOM 主档' : '编辑 BOM 主档'
+})
+
+function createEmptyEditForm() {
+  return {
+    systemcode: '',
+    kcaa01: '',
+    kcaa02: '',
+    kcaa02_en: '',
+    kpname: '',
+    kcaa03: '',
+    kcaa05: '',
+    kcaa05_display: '',
+    kcaa06: '',
+    kcaa09: '',
+    kcaa10: '',
+    kcaa11: '',
+    kcaa11_display: '',
+    location: '国内',
+    kcaa04: '',
+    decimal: '2',
+    kcaa25: '',
+    kcaa27: 0,
+    kcaa26: '',
+    kcaa29: '',
+    kcaa31: 0,
+    kcaa30: '',
+    kcaa32: '',
+    kcaa33: '',
+    sale_price: '',
+    kcaa34: '',
+    cost_price: '',
+    kcaa35: '',
+    Customer_Name: '',
+    supplier_display: '',
+    kcaa12_bool: false,
+    kcaa13_bool: false,
+    kcaa14_bool: true,
+    customer_supply_bool: false,
+    workshop_display: '',
+    kcaa15: '',
+    remark: '',
+    sign_bool: false,
+  }
+}
+
+const editForm = reactive(createEmptyEditForm())
+
+const editBomSystemcode = computed(() => String(editForm.systemcode ?? '').trim())
+
+const editPartsReadOnly = computed(() => String(editMasterPass.value ?? '').trim() === '1')
+
+const editPartsSumActualUsage = computed(() => {
+  let s = 0
+  for (const row of editPartsList.value || []) {
+    s += partUsageSum(row)
+  }
+  return s
+})
+
+const editPartsSumCost = computed(() => {
+  let s = 0
+  for (const row of editPartsList.value || []) {
+    s += partCostSum(row)
+  }
+  return s
+})
+
+/** 按排序字段展示明细（业务文档：保存 Seq 后下次加载顺序一致） */
+const sortedEditPartsList = computed(() => {
+  const arr = [...(editPartsList.value ?? [])]
+  arr.sort((a, b) => {
+    const sa = Number(a.part_seq)
+    const sb = Number(b.part_seq)
+    const na = Number.isFinite(sa) ? sa : 2147483647
+    const nb = Number.isFinite(sb) ? sb : 2147483647
+    if (na !== nb) return na - nb
+    const ia = a.id != null && Number(a.id) > 0 ? Number(a.id) : 0
+    const ib = b.id != null && Number(b.id) > 0 ? Number(b.id) : 0
+    if (ia !== ib) return ia - ib
+    return String(a._localKey ?? '').localeCompare(String(b._localKey ?? ''))
+  })
+  return arr
+})
+
+/** bom_currency.cn_name 列表（下拉）；编辑时合并当前 kcaa34/kcaa35 防旧值不在表内无法展示 */
+const bomCurrencyNames = ref([])
+
+const currencyDropdownOptions = computed(() => {
+  const set = new Set(bomCurrencyNames.value.map((s) => String(s ?? '').trim()).filter(Boolean))
+  const q = String(editForm.kcaa34 ?? '').trim()
+  const p = String(editForm.kcaa35 ?? '').trim()
+  if (q) set.add(q)
+  if (p) set.add(p)
+  return [...set].sort((a, b) => a.localeCompare(b, 'zh-CN'))
+})
+
+async function loadBomCurrencyNames() {
+  try {
+    const res = await axios.get('/api/inventory/bom/currency-options')
+    if (res.data?.code === 200 && Array.isArray(res.data?.data?.rows)) {
+      bomCurrencyNames.value = res.data.data.rows
+        .map((r) => String(r.cn_name ?? '').trim())
+        .filter(Boolean)
+    } else {
+      bomCurrencyNames.value = []
+    }
+  } catch {
+    bomCurrencyNames.value = []
+  }
+}
+
+function resetEditForm() {
+  const d = createEmptyEditForm()
+  for (const k of Object.keys(d)) {
+    editForm[k] = d[k]
+  }
+}
+
+/** @param {Record<string, unknown>} b */
+function fillEditFormFromBasic(b) {
+  resetEditForm()
+  editForm.systemcode = String(b.systemcode ?? '')
+  editForm.kcaa01 = String(b.kcaa01 ?? '')
+  editForm.kcaa02 = String(b.kcaa02 ?? '')
+  editForm.kcaa02_en = String(b.kcaa02_en ?? '')
+  editForm.kpname = String(b.kpname ?? '')
+  editForm.kcaa03 = String(b.kcaa03 ?? '')
+  editForm.kcaa05 = String(b.kcaa05 ?? '')
+  const cat = String(b.categoryName ?? '').trim()
+  editForm.kcaa05_display = editForm.kcaa05 ? (cat ? `${editForm.kcaa05},${cat}` : editForm.kcaa05) : ''
+  editForm.kcaa06 = String(b.kcaa06 ?? '')
+  editForm.kcaa09 = String(b.kcaa09 ?? '')
+  editForm.kcaa10 = String(b.kcaa10 ?? '')
+  editForm.kcaa11 = String(b.kcaa11 ?? '')
+  editForm.kcaa11_display = editForm.kcaa11
+  editForm.location = String(b.location ?? '').trim() || '国内'
+  editForm.kcaa04 = String(b.kcaa04 ?? '')
+  editForm.decimal = String(b.decimal ?? '2') || '2'
+  editForm.kcaa25 = String(b.kcaa25 ?? '')
+  editForm.kcaa29 = String(b.kcaa29 ?? '')
+  editForm.kcaa26 = String(b.kcaa26 ?? '')
+  editForm.kcaa30 = String(b.kcaa30 ?? '')
+  const k27 = Number(b.kcaa27)
+  editForm.kcaa27 = k27 === 1 ? 1 : 0
+  const k31 = Number(b.kcaa31)
+  editForm.kcaa31 = k31 === 1 ? 1 : 0
+  editForm.kcaa32 = String(b.kcaa32 ?? '')
+  editForm.kcaa33 = String(b.kcaa33 ?? '')
+  editForm.sale_price = String(b.sale_price ?? '')
+  editForm.kcaa34 = String(b.kcaa34 ?? '')
+  editForm.cost_price = String(b.cost_price ?? '')
+  editForm.kcaa35 = String(b.kcaa35 ?? '')
+  editForm.Customer_Name = String(b.Customer_Name ?? '')
+  editForm.supplier_display = String(b.supplier_display ?? '').trim() || editForm.Customer_Name
+  editForm.kcaa15 = String(b.kcaa15 ?? '')
+  editForm.workshop_display = String(b.workshop_display ?? '').trim()
+  editForm.remark = String(b.remark ?? '')
+  editForm.kcaa12_bool = !!b.kcaa12_checked
+  editForm.kcaa13_bool = !!b.kcaa13_checked
+  editForm.kcaa14_bool = b.kcaa14_checked !== false
+  editForm.customer_supply_bool = !!b.customer_supply_checked
+  const sig = String(b.sign ?? '').trim()
+  editForm.sign_bool = sig === '1' || sig.toLowerCase() === 'y'
+  editMasterPass.value = String(b.pass ?? '').trim()
+}
+
+function onEditClosed() {
+  editActiveTab.value = 'main'
+  editMasterPass.value = '0'
+  editPartsList.value = []
+  editPartsError.value = ''
+  editPartsLoadedToken.value = ''
+  editPartsLoadGeneration.value += 1
+  editPartsMaterialSelectorVisible.value = false
+  editPartsPickerTargetKey.value = null
+  editOpenedFromCopy.value = false
+  editPartsPendingDeleteIds.value = []
+  resetEditForm()
+}
+
+function openAddBom() {
+  editMode.value = 'add'
+  editActiveTab.value = 'main'
+  editMasterPass.value = '0'
+  editOpenedFromCopy.value = false
+  editPartsPendingDeleteIds.value = []
+  editPartsList.value = []
+  editPartsError.value = ''
+  resetEditForm()
+  editVisible.value = true
+}
+
+function onKcaa01Keydown(ev) {
+  if (ev.key === ' ' || ev.code === 'Space') {
+    ev.preventDefault()
+  }
+}
+
+function onKcaa01Paste(ev) {
+  ev.preventDefault()
+  const t = ev.clipboardData?.getData('text') ?? ''
+  editForm.kcaa01 = String(t).replace(/\s+/g, '')
+}
+
+function onNumericInput(val, key) {
+  const s = String(val ?? '').replace(/[^\d.-]/g, '')
+  editForm[key] = s
+}
+
+async function onKcaa01Blur() {
+  const code = String(editForm.kcaa01 ?? '').trim()
+  if (!code) return
+  const exclude = editMode.value === 'edit' ? String(editForm.systemcode ?? '').trim() : ''
+  try {
+    const res = await axios.get('/api/inventory/bom/check-code', {
+      params: { kcaa01: code, ...(exclude ? { excludeSystemcode: exclude } : {}) },
+    })
+    if (res.data?.code !== 200) return
+    const dup = !!res.data?.data?.duplicate
+    const rows = Array.isArray(res.data?.data?.rows) ? res.data.data.rows : []
+    if (!dup) return
+    const hint = rows.length
+      ? `该编码已在库（示例：${rows[0].kcaa02 || '—'}，systemcode=${rows[0].systemcode || '—'}）`
+      : '该编码可能已在库'
+    if (editMode.value === 'add') {
+      ElMessage.warning(`${hint}；保存时服务端将再次校验。`)
+    }
+  } catch {
+    /* 忽略 */
+  }
+}
+
+async function fetchMaterialSuggest(queryString, cb) {
+  const q = String(queryString ?? '').trim()
+  try {
+    const res = await axios.get('/api/inventory/material-category/list', {
+      params: { page: 1, pageSize: 50, keyword: q, pass: 1 },
+    })
+    const list = Array.isArray(res.data?.data?.list) ? res.data.data.list : []
+    cb(
+      list.map((r) => {
+        const code = String(r.code ?? '').trim()
+        const name = String(r.name ?? '').trim()
+        const label = code && name ? `${code},${name}` : code || name
+        return { value: label, label, code }
+      }),
+    )
+  } catch {
+    cb([])
+  }
+}
+
+function onPickMaterial(item) {
+  const code = String(item?.code ?? '').trim()
+  editForm.kcaa05 = code
+  editForm.kcaa05_display = String(item?.label ?? item?.value ?? '')
+}
+
+async function fetchColorSuggest(queryString, cb) {
+  const q = String(queryString ?? '').trim()
+  try {
+    const res = await axios.get('/api/inventory/color-code/list', {
+      params: { page: 1, pageSize: 50, keyword: q, pass: 1 },
+    })
+    const list = Array.isArray(res.data?.data?.list) ? res.data.data.list : []
+    cb(
+      list.map((r) => {
+        const code = String(r.code ?? '').trim()
+        const name = String(r.name ?? '').trim()
+        const label = code && name ? `${code},${name}` : code || name
+        return { value: label, label, code }
+      }),
+    )
+  } catch {
+    cb([])
+  }
+}
+
+function onPickColor(item) {
+  const code = String(item?.code ?? '').trim()
+  editForm.kcaa11 = code
+  editForm.kcaa11_display = String(item?.label ?? item?.value ?? '')
+}
+
+async function fetchUnitSuggest(queryString, cb) {
+  const q = String(queryString ?? '').trim()
+  try {
+    const res = await axios.get('/api/inventory/units/list', {
+      params: { page: 1, pageSize: 50, keyword: q, pass: 1 },
+    })
+    const list = Array.isArray(res.data?.data?.list) ? res.data.data.list : []
+    cb(list.map((r) => ({ value: String(r.name ?? '').trim() })))
+  } catch {
+    cb([])
+  }
+}
+
+function onPickUnitUse(item) {
+  editForm.kcaa04 = String(item?.value ?? '').trim()
+}
+function onPickUnitPo(item) {
+  editForm.kcaa25 = String(item?.value ?? '').trim()
+}
+function onPickUnitQt(item) {
+  editForm.kcaa29 = String(item?.value ?? '').trim()
+}
+
+async function fetchWorkshopSuggest(queryString, cb) {
+  const q = String(queryString ?? '').trim()
+  try {
+    const res = await axios.get('/api/inventory/workshop-dept/list', {
+      params: { page: 1, pageSize: 50, keyword: q, pass: 1 },
+    })
+    const list = Array.isArray(res.data?.data?.list) ? res.data.data.list : []
+    cb(
+      list.map((r) => {
+        const code = String(r.code ?? '').trim()
+        const name = String(r.name ?? '').trim()
+        const label = code && name ? `${code},${name}` : code || name
+        return { value: label, label, code }
+      }),
+    )
+  } catch {
+    cb([])
+  }
+}
+
+function onPickWorkshop(item) {
+  const code = String(item?.code ?? '').trim()
+  editForm.kcaa15 = code
+  editForm.workshop_display = String(item?.label ?? item?.value ?? '')
+}
+
+async function fetchSupplierSuggest(queryString, cb) {
+  const q = String(queryString ?? '').trim()
+  try {
+    const res = await axios.get('/api/supply-chain/suppliers/list', {
+      params: { page: 1, pageSize: 50, keyword: q, pass: 1 },
+    })
+    const list = Array.isArray(res.data?.data?.list) ? res.data.data.list : []
+    cb(
+      list.map((r) => {
+        const code = String(r.s_code ?? '').trim()
+        const name = String(r.s_name ?? '').trim()
+        const label = code && name ? `${code},${name}` : code || name
+        return { value: label, label, code }
+      }),
+    )
+  } catch {
+    cb([])
+  }
+}
+
+function onPickSupplier(item) {
+  const code = String(item?.code ?? '').trim()
+  editForm.Customer_Name = code
+  editForm.supplier_display = String(item?.label ?? item?.value ?? '')
+}
+
+/**
+ * 采购侧转换率：依赖使用单位 + 采购单位
+ * @param {{ silent?: boolean }} [opts] silent 时不弹出成功提示（自动换算用）
+ */
+async function fillPurchaseRate(opts = {}) {
+  const silent = !!opts.silent
+  const u = String(editForm.kcaa04 ?? '').trim()
+  const o = String(editForm.kcaa25 ?? '').trim()
+  if (!u || !o) {
+    if (!silent) ElMessage.warning('请先填写使用单位与采购单位')
+    return
+  }
+  try {
+    const res = await axios.get('/api/inventory/bom/unit-rate-suggest', {
+      params: { useUnit: u, otherUnit: o },
+    })
+    const d = res.data?.data
+    const rate = d?.rate != null ? String(d.rate).trim() : ''
+    const dir = d?.direction
+    if (!rate) {
+      editForm.kcaa26 = ''
+      if (!silent) ElMessage.warning('单位换算表中未找到该组合或未审核')
+      return
+    }
+    editForm.kcaa26 = rate
+    if (dir === 0 || dir === 1) editForm.kcaa27 = dir
+    if (!silent) ElMessage.success('已根据单位换算表填充采购转换')
+  } catch (e) {
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '请求失败'))
+  }
+}
+
+/**
+ * 报价侧转换率：依赖使用单位 + 报价单位
+ * @param {{ silent?: boolean }} [opts]
+ */
+async function fillQuoteRate(opts = {}) {
+  const silent = !!opts.silent
+  const u = String(editForm.kcaa04 ?? '').trim()
+  const o = String(editForm.kcaa29 ?? '').trim()
+  if (!u || !o) {
+    if (!silent) ElMessage.warning('请先填写使用单位与报价单位')
+    return
+  }
+  try {
+    const res = await axios.get('/api/inventory/bom/unit-rate-suggest', {
+      params: { useUnit: u, otherUnit: o },
+    })
+    const d = res.data?.data
+    const rate = d?.rate != null ? String(d.rate).trim() : ''
+    const dir = d?.direction
+    if (!rate) {
+      editForm.kcaa30 = ''
+      if (!silent) ElMessage.warning('单位换算表中未找到该组合或未审核')
+      return
+    }
+    editForm.kcaa30 = rate
+    if (dir === 0 || dir === 1) editForm.kcaa31 = dir
+    if (!silent) ElMessage.success('已根据单位换算表填充报价转换')
+  } catch (e) {
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '请求失败'))
+  }
+}
+
+function buildBomMasterPayload() {
+  return {
+    systemcode: String(editForm.systemcode ?? '').trim(),
+    kcaa01: String(editForm.kcaa01 ?? '').trim(),
+    kcaa02: String(editForm.kcaa02 ?? '').trim(),
+    kcaa02_en: String(editForm.kcaa02_en ?? ''),
+    kpname: String(editForm.kpname ?? ''),
+    kcaa03: String(editForm.kcaa03 ?? ''),
+    kcaa05: String(editForm.kcaa05 ?? '').trim(),
+    kcaa06: String(editForm.kcaa06 ?? ''),
+    kcaa09: String(editForm.kcaa09 ?? ''),
+    kcaa10: String(editForm.kcaa10 ?? ''),
+    kcaa11: String(editForm.kcaa11 ?? '').trim(),
+    location: String(editForm.location ?? '').trim() || '国内',
+    kcaa04: String(editForm.kcaa04 ?? '').trim(),
+    decimal: String(editForm.decimal ?? '2'),
+    kcaa25: String(editForm.kcaa25 ?? '').trim(),
+    kcaa27: Number(editForm.kcaa27) === 1 ? 1 : 0,
+    kcaa26: editForm.kcaa26,
+    kcaa29: String(editForm.kcaa29 ?? '').trim(),
+    kcaa31: Number(editForm.kcaa31) === 1 ? 1 : 0,
+    kcaa30: editForm.kcaa30,
+    kcaa32: editForm.kcaa32,
+    kcaa33: editForm.kcaa33,
+    sale_price: editForm.sale_price,
+    kcaa34: String(editForm.kcaa34 ?? '').trim(),
+    cost_price: editForm.cost_price,
+    kcaa35: String(editForm.kcaa35 ?? '').trim(),
+    Customer_Name: String(editForm.Customer_Name ?? '').trim(),
+    kcaa12: editForm.kcaa12_bool ? 1 : 0,
+    kcaa13: editForm.kcaa13_bool ? 1 : 0,
+    kcaa14: editForm.kcaa14_bool ? 1 : 0,
+    Customer_supply: editForm.customer_supply_bool ? 1 : 0,
+    kcaa15: String(editForm.kcaa15 ?? '').trim(),
+    remark: String(editForm.remark ?? ''),
+    sign: editForm.sign_bool ? 1 : 0,
+  }
+}
+
+/** 新增主档：优先 save-main；若后端未重启仍为旧路由则 404 回退 POST /api/inventory/bom */
+async function postBomMasterInsert(payload) {
+  try {
+    return await axios.post('/api/inventory/bom/save-main', payload)
+  } catch (e) {
+    if (e?.response?.status === 404) {
+      return await axios.post('/api/inventory/bom', payload)
+    }
+    throw e
+  }
+}
+
+async function submitBomEdit() {
+  const code = String(editForm.kcaa01 ?? '').trim()
+  const name = String(editForm.kcaa02 ?? '').trim()
+  const cat = String(editForm.kcaa05 ?? '').trim()
+  const useU = String(editForm.kcaa04 ?? '').trim()
+  const poU = String(editForm.kcaa25 ?? '').trim()
+  if (!code || !name) {
+    ElMessage.warning('请填写编码与名称')
+    return
+  }
+  if (!cat) {
+    ElMessage.warning('请选择分类')
+    return
+  }
+  if (!useU || !poU) {
+    ElMessage.warning('请填写使用单位与采购单位')
+    return
+  }
+  if (/\s/.test(code)) {
+    ElMessage.warning('编码不能包含空格')
+    return
+  }
+  editSaving.value = true
+  try {
+    const payload = buildBomMasterPayload()
+    if (editMode.value === 'add') {
+      const res = await postBomMasterInsert(payload)
+      if (res.data?.code !== 200) {
+        ElMessage.error(res.data?.msg || '新增失败')
+        return
+      }
+      const sc = String(res.data?.data?.systemcode ?? '').trim()
+      if (sc) {
+        editForm.systemcode = sc
+        editMode.value = 'edit'
+        editMasterPass.value = '0'
+      }
+      ElMessage.success(sc ? 'BOM 主资料保存成功' : '新增成功')
+      editActiveTab.value = 'parts'
+      page.value = 1
+      await loadData()
+      if (sc) await loadEditBomParts()
+      return
+    }
+    if (!payload.systemcode) {
+      ElMessage.warning('缺少 systemcode，无法保存')
+      return
+    }
+    const res = await axios.put('/api/inventory/bom', payload)
+    if (res.data?.code !== 200) {
+      ElMessage.error(res.data?.msg || '保存失败')
+      return
+    }
+    ElMessage.success('保存成功')
+    editVisible.value = false
+    await loadData()
+  } catch (e) {
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '请求失败'))
+  } finally {
+    editSaving.value = false
+  }
+}
 
 /** 主档 systemcode 为空则无法加载配件表 */
 const bomSystemcode = computed(() => String(bomBasic.value?.systemcode ?? '').trim())
@@ -655,6 +1855,93 @@ function genLocalKey() {
   return `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
+/** @param {import('vue').Ref<number[]>} idsRef */
+function pushPendingDeleteId(idsRef, rawId) {
+  const n = Number(rawId)
+  if (!Number.isFinite(n) || n <= 0) return
+  if (!idsRef.value.includes(n)) idsRef.value.push(n)
+}
+
+function toggleEditPartSelect(row) {
+  if (editPartsReadOnly.value) return
+  row._partsMarkSelected = !row._partsMarkSelected
+}
+
+/** 文档：批量移除「已选择」行；已入库行记入待软删 */
+async function batchRemoveEditPartsSelected() {
+  if (editPartsReadOnly.value) return
+  const marked = (editPartsList.value ?? []).filter((r) => r._partsMarkSelected)
+  if (!marked.length) {
+    ElMessage.warning('请先在「选择」列点击「删除」标记要移除的行')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `将移除 ${marked.length} 行明细；已保存过的配件需点击「保存配件明细」后才会从系统中删除。`,
+      '删除选定明细',
+      { type: 'warning', confirmButtonText: '确定', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  for (const row of marked) {
+    const id = row?.id != null && Number(row.id) > 0 ? Number(row.id) : null
+    if (id) pushPendingDeleteId(editPartsPendingDeleteIds, id)
+    const idx = editPartsList.value.indexOf(row)
+    if (idx >= 0) editPartsList.value.splice(idx, 1)
+  }
+}
+
+function appendEditPartBlankRow() {
+  if (editPartsReadOnly.value || !editBomSystemcode.value) return
+  const rows = editPartsList.value ?? []
+  let maxSeq = 0
+  for (const r of rows) {
+    const ps = Number(r.part_seq)
+    if (Number.isFinite(ps) && ps > maxSeq) maxSeq = ps
+  }
+  editPartsList.value.push({
+    _localKey: genLocalKey(),
+    id: null,
+    kcac01: '',
+    kcaa01: '',
+    kcaa02: '',
+    kcaa03: '',
+    kcaa04: '',
+    kcaa11: '',
+    kcac04: 0,
+    kcac05: 0,
+    cost_price: 0,
+    remark: '',
+    part_seq: maxSeq + 1,
+    _partsMarkSelected: false,
+  })
+}
+
+function openEditPartMaterialPicker(row) {
+  if (editPartsReadOnly.value) return
+  editPartsPickerTargetKey.value = row?._localKey ?? null
+  editPartsMaterialSelectorVisible.value = true
+}
+
+/** 详情弹窗配件表：同上 */
+async function removeDetailPartRow(row) {
+  if (partsReadOnly.value) return
+  try {
+    await ElMessageBox.confirm(
+      '确认从明细中移除该行吗？已保存过的配件需点击「保存配件明细」后才会从系统中删除。',
+      '删除确认',
+      { type: 'warning', confirmButtonText: '确定', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  const id = row?.id != null && Number(row.id) > 0 ? Number(row.id) : null
+  if (id) pushPendingDeleteId(partsPendingDeleteIds, id)
+  const idx = partsList.value.indexOf(row)
+  if (idx >= 0) partsList.value.splice(idx, 1)
+}
+
 /** 选材回调：kcaa05 为选材组件内的「单位」别名，映射到配件表 kcaa04 */
 function onMaterialPicked(payload) {
   const kcaa01 = String(payload?.kcaa01 ?? '').trim()
@@ -696,6 +1983,7 @@ async function loadBomParts() {
     }
     const list = Array.isArray(body?.data?.list) ? body.data.list : []
     if (partsLoadedToken.value !== token) return
+    partsPendingDeleteIds.value = []
     partsList.value = list.map((r) => ({
       ...r,
       _localKey: genLocalKey(),
@@ -720,9 +2008,10 @@ async function saveBomParts() {
     return
   }
   try {
-    const lines = (partsList.value ?? []).map((r) => ({
+    const kept = (partsList.value ?? []).map((r) => ({
       id: r.id != null && Number(r.id) > 0 ? Number(r.id) : undefined,
       pendingDelete: false,
+      kcac01: sc,
       kcaa01: String(r.kcaa01 ?? '').trim(),
       kcaa02: r.kcaa02,
       kcaa03: r.kcaa03,
@@ -732,7 +2021,19 @@ async function saveBomParts() {
       kcac05: r.kcac05,
       cost_price: r.cost_price,
       remark: r.remark,
+      seq: Number.isFinite(Number(r.seq)) ? Number(r.seq) : 0,
     }))
+    const dels = (partsPendingDeleteIds.value ?? []).map((pid) => ({
+      id: Number(pid),
+      pendingDelete: true,
+      kcac01: sc,
+      kcaa01: '',
+    }))
+    const lines = [...kept, ...dels]
+    if (!lines.length) {
+      ElMessage.warning('没有需要保存的变更')
+      return
+    }
     const res = await axios.put(`/api/inventory/bom/parts/${encodeURIComponent(sc)}`, { lines })
     const body = res.data
     if (body?.code !== 200) {
@@ -740,17 +2041,160 @@ async function saveBomParts() {
       return
     }
     ElMessage.success('配件明细已保存')
+    partsPendingDeleteIds.value = []
     await loadBomParts()
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '保存失败'))
   }
 }
 
+/** 新增/编辑弹窗：加载配件明细 */
+async function loadEditBomParts() {
+  const sc = editBomSystemcode.value
+  if (!sc) {
+    editPartsError.value = ''
+    editPartsList.value = []
+    return
+  }
+  const token = `edit-${sc}@@${editPartsLoadGeneration.value}`
+  editPartsLoadedToken.value = token
+  editPartsLoading.value = true
+  editPartsError.value = ''
+  try {
+    const res = await axios.get(`/api/inventory/bom/parts/${encodeURIComponent(sc)}`)
+    const body = res.data
+    if (body?.code !== 200) {
+      if (editPartsLoadedToken.value !== token) return
+      editPartsError.value = body?.msg || '加载失败'
+      editPartsList.value = []
+      return
+    }
+    const list = Array.isArray(body?.data?.list) ? body.data.list : []
+    if (editPartsLoadedToken.value !== token) return
+    editPartsPendingDeleteIds.value = []
+    editPartsList.value = list.map((r, idx) => {
+      const seqFromDb = r.seq != null && Number.isFinite(Number(r.seq)) ? Number(r.seq) : null
+      return {
+        ...r,
+        _localKey: genLocalKey(),
+        part_seq: seqFromDb != null ? seqFromDb : idx + 1,
+        _partsMarkSelected: false,
+      }
+    })
+  } catch (e) {
+    if (editPartsLoadedToken.value !== token) return
+    editPartsError.value = String(e?.response?.data?.msg ?? e?.message ?? '网络错误')
+    editPartsList.value = []
+  } finally {
+    if (editPartsLoadedToken.value === token) editPartsLoading.value = false
+  }
+}
+
+/** 新增/编辑弹窗：保存配件明细 */
+async function saveEditBomParts() {
+  const sc = editBomSystemcode.value
+  if (!sc) {
+    ElMessage.warning('请先保存主档以生成系统编码')
+    return
+  }
+  if (editPartsReadOnly.value) {
+    ElMessage.warning('已审核的 BOM 不可修改配件')
+    return
+  }
+  try {
+    const kept = (editPartsList.value ?? [])
+      .filter((r) => String(r.kcaa01 ?? '').trim())
+      .map((r) => ({
+        id: r.id != null && Number(r.id) > 0 ? Number(r.id) : undefined,
+        pendingDelete: false,
+        kcac01: sc,
+        kcaa01: String(r.kcaa01 ?? '').trim(),
+        kcaa02: r.kcaa02,
+        kcaa03: r.kcaa03,
+        kcaa04: r.kcaa04,
+        kcaa11: r.kcaa11,
+        kcac04: r.kcac04,
+        kcac05: r.kcac05,
+        cost_price: r.cost_price,
+        remark: r.remark,
+        seq: Number.isFinite(Number(r.part_seq)) ? Number(r.part_seq) : 0,
+      }))
+    const dels = (editPartsPendingDeleteIds.value ?? []).map((pid) => ({
+      id: Number(pid),
+      pendingDelete: true,
+      kcac01: sc,
+      kcaa01: '',
+    }))
+    const lines = [...kept, ...dels]
+    if (!lines.length) {
+      ElMessage.warning('没有需要保存的变更')
+      return
+    }
+    const res = await axios.put(`/api/inventory/bom/parts/${encodeURIComponent(sc)}`, { lines })
+    const body = res.data
+    if (body?.code !== 200) {
+      ElMessage.error(body?.msg || '保存失败')
+      return
+    }
+    ElMessage.success('配件明细已保存')
+    editPartsPendingDeleteIds.value = []
+    await loadEditBomParts()
+  } catch (e) {
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '保存失败'))
+  }
+}
+
+function onEditMaterialPicked(payload) {
+  const kcaa01 = String(payload?.kcaa01 ?? '').trim()
+  if (!kcaa01) return
+  const key = editPartsPickerTargetKey.value
+  editPartsPickerTargetKey.value = null
+  const target = key ? editPartsList.value.find((r) => r._localKey === key) : null
+  if (target) {
+    target.kcaa01 = kcaa01
+    target.kcaa02 = String(payload?.kcaa02 ?? '').trim()
+    target.kcaa03 = String(payload?.kcaa03 ?? '').trim()
+    target.kcaa04 = String(payload?.kcaa05 ?? payload?.kcaa04 ?? '').trim()
+    target.kcaa11 = String(payload?.kcaa11 ?? '').trim()
+    if (!(Number(target.kcac04) > 0)) target.kcac04 = 1
+    return
+  }
+  let maxSeq = 0
+  for (const r of editPartsList.value ?? []) {
+    const ps = Number(r.part_seq)
+    if (Number.isFinite(ps) && ps > maxSeq) maxSeq = ps
+  }
+  editPartsList.value.push({
+    _localKey: genLocalKey(),
+    id: null,
+    kcac01: '',
+    kcaa01,
+    kcaa02: String(payload?.kcaa02 ?? '').trim(),
+    kcaa03: String(payload?.kcaa03 ?? '').trim(),
+    kcaa04: String(payload?.kcaa05 ?? payload?.kcaa04 ?? '').trim(),
+    kcaa11: String(payload?.kcaa11 ?? '').trim(),
+    kcac04: 1,
+    kcac05: 0,
+    cost_price: 0,
+    remark: '',
+    part_seq: maxSeq + 1,
+    _partsMarkSelected: false,
+  })
+}
+
 watch(
   () => [detailActiveTab.value, bomSystemcode.value, detailVisible.value],
   ([tab, sc, vis]) => {
-    if (!vis || tab !== 'parts' || !sc) return
-    loadBomParts()
+    if (!vis || !sc) return
+    if (tab === 'parts') loadBomParts()
+  },
+)
+
+watch(
+  () => [editActiveTab.value, editVisible.value, editBomSystemcode.value],
+  ([tab, vis, sc]) => {
+    if (!vis || !String(sc ?? '').trim()) return
+    if (tab === 'parts') void loadEditBomParts()
   },
 )
 
@@ -767,6 +2211,7 @@ function onDetailClosed() {
   detailActiveTab.value = 'basic'
   detailListRow.value = null
   partsList.value = []
+  partsPendingDeleteIds.value = []
   partsError.value = ''
   partsLoadedToken.value = ''
   partsLoadGeneration.value += 1
@@ -805,7 +2250,7 @@ function ynText(v) {
 function withRowKey(list) {
   return (list ?? []).map((r) => ({
     ...r,
-    rowKey: `${String(r.code ?? '')}@@${String(r.version ?? '')}`,
+    rowKey: `${String(r.systemcode ?? '')}@@${String(r.code ?? '')}@@${String(r.version ?? '')}`,
   }))
 }
 
@@ -813,13 +2258,16 @@ async function loadData() {
   loading.value = true
   errorMessage.value = ''
   try {
-    const pass = showUnAudited.value ? '0' : '1'
     const kw = String(keyword.value ?? '').trim()
     const params = {
       page: page.value,
       pageSize: pageSize.value,
-      pass,
-      bom_cut: searchQuery.bom_cut === 1 ? 1 : 0,
+      ...(showRecycle.value
+        ? { recycled: '1' }
+        : {
+            pass: showUnAudited.value ? '0' : '1',
+            bom_cut: searchQuery.bom_cut === 1 ? 1 : 0,
+          }),
       ...(kw.length >= 3 ? { keyword: kw } : {}),
     }
     const res = await axios.get('/api/inv/bom/list', { params })
@@ -852,6 +2300,15 @@ function onReset() {
   keyword.value = ''
   searchQuery.bom_cut = 0
   showUnAudited.value = false
+  showRecycle.value = false
+  page.value = 1
+  loadData()
+}
+
+function onRecycleChange() {
+  if (showRecycle.value) {
+    showUnAudited.value = false
+  }
   page.value = 1
   loadData()
 }
@@ -902,7 +2359,7 @@ async function openDetail(row) {
 async function openLinkedBomDetailFromPart(partRow) {
   const code = String(partRow?.kcaa01 ?? '').trim()
   if (!code) {
-    ElMessage.warning('该行无配件编码，无法跳转')
+    ElMessage.warning('请先选择配件')
     return
   }
   detailLoading.value = true
@@ -937,34 +2394,287 @@ async function openLinkedBomDetailFromPart(partRow) {
   }
 }
 
-async function copyRow(row) {
-  const text = JSON.stringify(
-    {
-      code: row.code,
-      name: row.name,
-      spec: row.spec,
-      unit: row.unit,
-      version: row.version,
-      isPurchase: row.isPurchase,
-      isSubcontract: row.isSubcontract,
-      isSelfProduced: row.isSelfProduced,
-      status: row.status,
-      pass: row.pass,
-    },
-    null,
-    2,
-  )
+async function onAudit(row) {
+  const sc = String(row?.systemcode ?? '').trim()
+  const label = String(row?.name ?? row?.code ?? '').trim() || sc
+  if (!sc) {
+    ElMessage.warning('缺少 systemcode，无法审核')
+    return
+  }
   try {
-    await navigator.clipboard.writeText(text)
-    ElMessage.success('已复制到剪贴板')
+    await ElMessageBox.confirm(`确认要审核「${label}」吗？审核后将出现在默认（已审核）列表中，并可供业务单据选用。`, '确认审核', {
+      type: 'warning',
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+    })
   } catch {
-    ElMessage.warning('复制失败，请手动选择文本复制')
+    return
+  }
+  busySystemcode.value = sc
+  try {
+    const res = await axios.put('/api/inventory/bom/audit', { systemcode: sc })
+    if (res.data?.code === 200) {
+      ElMessage.success('审核成功')
+      await loadData()
+    } else {
+      ElMessage.error(res.data?.msg || '审核失败')
+    }
+  } catch (e) {
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '审核失败'))
+  } finally {
+    busySystemcode.value = ''
   }
 }
 
-function onEdit(row) {
-  if (rowIsAudited(row)) return
-  ElMessage.info('编辑表单将在后续版本对接保存接口，当前仅开放列表与详情查看。')
+async function onUnaudit(row) {
+  const sc = String(row?.systemcode ?? '').trim()
+  const label = String(row?.name ?? row?.code ?? '').trim() || sc
+  if (!sc) {
+    ElMessage.warning('缺少 systemcode，无法反审')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(`确认要反审「${label}」吗？反审后可编辑或逻辑删除；已引用的业务不受影响。`, '确认反审', {
+      type: 'warning',
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+  busySystemcode.value = sc
+  try {
+    const res = await axios.put('/api/inventory/bom/unaudit', { systemcode: sc })
+    if (res.data?.code === 200) {
+      ElMessage.success('反审成功')
+      await loadData()
+    } else {
+      ElMessage.error(res.data?.msg || '反审失败')
+    }
+  } catch (e) {
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '反审失败'))
+  } finally {
+    busySystemcode.value = ''
+  }
+}
+
+async function onSoftDelete(row) {
+  const sc = String(row?.systemcode ?? '').trim()
+  const label = String(row?.name ?? row?.code ?? '').trim() || sc
+  if (!sc) {
+    ElMessage.warning('缺少 systemcode，无法删除')
+    return
+  }
+  if (rowIsAudited(row)) {
+    ElMessage.warning('该记录已审核，需先反审后才能删除。')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(`确认要删除「${label}」吗？删除后将移入回收站，可在回收站恢复。`, '确认删除', {
+      type: 'warning',
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+  busySystemcode.value = sc
+  try {
+    const res = await axios.delete(`/api/inventory/bom/systemcode/${encodeURIComponent(sc)}`)
+    if (res.data?.code === 200) {
+      ElMessage.success('已移入回收站')
+      await loadData()
+    } else {
+      ElMessage.error(res.data?.msg || '删除失败')
+    }
+  } catch (e) {
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '删除失败'))
+  } finally {
+    busySystemcode.value = ''
+  }
+}
+
+async function onRestore(row) {
+  const sc = String(row?.systemcode ?? '').trim()
+  const label = String(row?.name ?? row?.code ?? '').trim() || sc
+  if (!sc) {
+    ElMessage.warning('缺少 systemcode，无法恢复')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(`确认恢复「${label}」吗？恢复后将回到在册列表（按审核状态筛选）。`, '确认恢复', {
+      type: 'warning',
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+  busySystemcode.value = sc
+  try {
+    const res = await axios.put('/api/inventory/bom/restore', { systemcode: sc })
+    if (res.data?.code === 200) {
+      ElMessage.success('恢复成功')
+      await loadData()
+    } else {
+      ElMessage.error(res.data?.msg || '恢复失败')
+    }
+  } catch (e) {
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '恢复失败'))
+  } finally {
+    busySystemcode.value = ''
+  }
+}
+
+async function onHardDelete(row) {
+  const sc = String(row?.systemcode ?? '').trim()
+  const label = String(row?.name ?? row?.code ?? '').trim() || sc
+  if (!sc) {
+    ElMessage.warning('缺少 systemcode，无法彻底删除')
+    return
+  }
+  if (rowIsAudited(row)) {
+    ElMessage.warning('该记录已审核，需先反审后才能删除。请先恢复后再反审。')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确认彻底删除「${label}」吗？该操作将永久删除数据库记录且不可恢复。`,
+      '彻底删除',
+      { type: 'error', confirmButtonText: '确定删除', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  busySystemcode.value = sc
+  try {
+    const res = await axios.delete(`/api/inventory/bom/systemcode/${encodeURIComponent(sc)}/permanent`)
+    if (res.data?.code === 200) {
+      ElMessage.success('已彻底删除')
+      await loadData()
+    } else {
+      ElMessage.error(res.data?.msg || '彻底删除失败')
+    }
+  } catch (e) {
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '彻底删除失败'))
+  } finally {
+    busySystemcode.value = ''
+  }
+}
+
+/** 弹窗打开时间戳：避免回填表单时立即触发自动换算 */
+const editDialogOpenedAt = ref(0)
+let purchaseRateAutoTimer = null
+let quoteRateAutoTimer = null
+
+watch(editVisible, (open) => {
+  if (open) {
+    editDialogOpenedAt.value = Date.now()
+    void loadBomCurrencyNames()
+  }
+})
+
+watch(
+  () => [
+    editVisible.value,
+    String(editForm.kcaa04 ?? '').trim(),
+    String(editForm.kcaa25 ?? '').trim(),
+  ],
+  ([vis, u, o]) => {
+    if (purchaseRateAutoTimer) clearTimeout(purchaseRateAutoTimer)
+    if (!vis || !u || !o) return
+    purchaseRateAutoTimer = setTimeout(() => {
+      purchaseRateAutoTimer = null
+      if (!editVisible.value) return
+      if (Date.now() - editDialogOpenedAt.value < 650) return
+      void fillPurchaseRate({ silent: true })
+    }, 450)
+  },
+)
+
+watch(
+  () => [
+    editVisible.value,
+    String(editForm.kcaa04 ?? '').trim(),
+    String(editForm.kcaa29 ?? '').trim(),
+  ],
+  ([vis, u, q]) => {
+    if (quoteRateAutoTimer) clearTimeout(quoteRateAutoTimer)
+    if (!vis || !u || !q) return
+    quoteRateAutoTimer = setTimeout(() => {
+      quoteRateAutoTimer = null
+      if (!editVisible.value) return
+      if (Date.now() - editDialogOpenedAt.value < 650) return
+      void fillQuoteRate({ silent: true })
+    }, 450)
+  },
+)
+
+async function onEdit(row) {
+  if (rowIsAudited(row)) {
+    ElMessage.warning('该数据已审核，需先反审后才能编辑。')
+    return
+  }
+  const code = String(row?.code ?? '').trim()
+  if (!code) {
+    ElMessage.warning('当前行无编码，无法编辑')
+    return
+  }
+  editMode.value = 'edit'
+  editActiveTab.value = 'main'
+  resetEditForm()
+  editVisible.value = true
+  try {
+    const res = await axios.get(`/api/inventory/bom/${encodeURIComponent(code)}`)
+    const basic = res.data?.data?.basic
+    if (res.data?.code !== 200 || !basic) {
+      ElMessage.error(res.data?.msg || '加载主档失败')
+      editVisible.value = false
+      return
+    }
+    fillEditFormFromBasic(basic)
+  } catch (e) {
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '网络错误'))
+    editVisible.value = false
+  }
+}
+
+/** 复制到新增：除物料编码 kcaa01、系统编码外带入主档字段（不复制配件明细） */
+async function openCopyBom(row) {
+  const code = String(row?.code ?? '').trim()
+  if (!code) {
+    ElMessage.warning('当前行无编码，无法复制')
+    return
+  }
+  const sc = String(row?.systemcode ?? '').trim()
+  busyCopySystemcode.value = sc || code
+  editMode.value = 'add'
+  editActiveTab.value = 'main'
+  editOpenedFromCopy.value = true
+  editMasterPass.value = '0'
+  editPartsList.value = []
+  editPartsError.value = ''
+  editPartsPendingDeleteIds.value = []
+  resetEditForm()
+  editVisible.value = true
+  try {
+    const res = await axios.get(`/api/inventory/bom/${encodeURIComponent(code)}`)
+    const basic = res.data?.data?.basic
+    if (res.data?.code !== 200 || !basic) {
+      ElMessage.error(res.data?.msg || '加载主档失败')
+      editVisible.value = false
+      return
+    }
+    fillEditFormFromBasic(basic)
+    editForm.systemcode = ''
+    editForm.kcaa01 = ''
+    editMasterPass.value = '0'
+  } catch (e) {
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '网络错误'))
+    editVisible.value = false
+  } finally {
+    busyCopySystemcode.value = ''
+  }
 }
 
 loadData()
@@ -1010,6 +2720,26 @@ loadData()
 .audit-view-alert {
   margin-bottom: 12px;
 }
+/* 列表：操作列收窄允许按钮折行；编码/名称/规格自动换行完整展示 */
+.bom-list-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  max-width: 100%;
+}
+.bom-list-actions :deep(.el-button) {
+  margin-left: 0;
+}
+.bom-list-cell-wrap {
+  display: inline-block;
+  width: 100%;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.35;
+  font-size: 12px;
+  vertical-align: top;
+}
 .pagination-row {
   margin-top: 14px;
   display: flex;
@@ -1019,15 +2749,16 @@ loadData()
   line-height: 18px;
   font-size: 12px;
 }
-.usage-sum-muted {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
 .bom-detail-alert {
   margin-bottom: 12px;
 }
 .bom-detail-form {
   padding-top: 4px;
+}
+.bom-detail-body {
+  max-height: calc(92vh - 160px);
+  overflow-y: auto;
+  padding-right: 4px;
 }
 .bom-detail-check-row {
   display: flex;
@@ -1068,10 +2799,30 @@ loadData()
 .bom-parts-table {
   min-width: 1100px;
 }
+.bom-parts-table--edit {
+  min-width: 1580px;
+}
 .bom-parts-num {
   width: 100%;
 }
-/** 操作列「查看」：实心 small 主色按钮 */
+/** 选择列：未标记＝删除（橘色），已标记＝已选择（灰） */
+.bom-part-mark-btn {
+  min-width: 64px;
+  background-color: #ff7800;
+  border-color: #ff7800;
+  color: #fff;
+}
+.bom-part-mark-btn:hover {
+  background-color: #e56e00;
+  border-color: #e56e00;
+  color: #fff;
+}
+.bom-part-mark-btn--on {
+  background-color: #ccc !important;
+  border-color: #ccc !important;
+  color: #333 !important;
+}
+/** 操作列「查看配件」：实心 small 主色按钮 */
 .bom-part-view-action-btn {
   min-width: 72px;
 }
@@ -1082,5 +2833,32 @@ loadData()
 }
 .bom-parts-sum-gap {
   margin-left: 24px;
+}
+.bom-edit-dialog :deep(.el-dialog__body) {
+  padding-top: 8px;
+}
+.bom-edit-body {
+  max-height: calc(92vh - 160px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.bom-edit-alert {
+  margin-bottom: 12px;
+}
+.bom-edit-tabs {
+  margin-top: 4px;
+}
+.bom-edit-tabs :deep(.el-tab-pane) {
+  padding-top: 4px;
+}
+/* 新增/编辑弹窗：系统编码与客供同一行，复选框与输入框垂直对齐 */
+.bom-edit-row-system .bom-edit-checkbox-cell {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+}
+/* 单位与损耗：多行分区，行间距略收紧以贴近参考稿 */
+.bom-unit-loss-block > .el-row:not(:last-child) {
+  margin-bottom: 4px;
 }
 </style>

@@ -29,3 +29,5 @@ Thumbs.db
 temp/
 logs/
 e2e-output/
+
+docs/

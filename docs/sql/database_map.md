@@ -210,22 +210,21 @@
 
 - **Schema**：`dbo`（实际由数据库决定）
 - **表名来源**：环境变量 `INV_BOM_MASTER_TABLE`，默认 `bom_000`
+- **币别下拉**：物理表 **`bom_currency`**（环境变量 **`INV_BOM_CURRENCY_TABLE`** 可覆盖），展示列 **`cn_name`**；接口 **`GET /api/inventory/bom/currency-options`** 返回 `{ rows: [{ cn_name }] }`；主档 **`kcaa34` / `kcaa35`** 存所选中文名称（与新增模块文档一致）
 - **模块/页面**
   - 前端：`src/views/inv/bom/index.vue`（菜单 path：`inv/bom`）；**同一列表**亦由 `src/views/inventory/basic/bom-data/index.vue`（菜单 path：`inventory/basic/bom-data`，侧栏「BOM资料」）内嵌复用
 - **接口（后端：`server/index.js`）**
-  - `GET /api/inv/bom/list`：分页列表；`WHERE` 含在册 `del` 与 `pass=@pass`；默认排序 **edittime DESC**，`edittime` 空则 **addtime DESC**，次级 `kcaa01 ASC`；分页 **仅** `ROW_NUMBER()`（SQL Server 2008 R2）；名称搜索为参数化 `LIKE`，且 **输入满 3 字符** 才生效；**物料编码 `code`（kcaa01）**：若以 **`CUT-`** 开头且不含 `<`，用右模糊 `LIKE '关键词%'`；若含 `<` 用 `%关键词%`；其它情况先按 `Bom_code.flag5` 剥离前缀得核心款号，核心长度≥3 时用 `LIKE '%核心'`，否则 `%关键字%`；入参 **`bom_cut`**：默认 `0` 时强制执行 `kcaa01 NOT LIKE N'CUT-%'`，`bom_cut=1` 时取消；**显式以 `CUT-` 搜索时临时取消该排除**以便命中裁片
-    - 用量运算规则：**不允许硬编码前缀**；由配置表 `Bom_code` 中 `copen=1` 的 `flag5` 动态生成匹配规则，并在后端做 TTL 缓存
-    - 规则含义：`flag5='OUT'` → 编码包含 `-OUT`；`flag5='RP'` → 编码以 `RP-PQ` 开头；其它 → 编码以 `${flag5}-` 开头
-    - 列表返回：`calcStatus`（`done/not_done/not_needed`）+ 成本/成品用量四个汇总值（仅 `done/not_done` 行展示）
+  - `GET /api/inv/bom/list`：分页列表；**`recycled=1`** 时仅 `del=1`（回收站，不按 `pass` 过滤）；否则 `WHERE` 含在册 `del` 与 `pass=@pass`；返回 **`systemcode`**（主档键）；默认排序 **edittime DESC**，`edittime` 空则 **addtime DESC**，次级 `kcaa01 ASC`；分页 **仅** `ROW_NUMBER()`（SQL Server 2008 R2）；名称搜索为参数化 `LIKE`，且 **输入满 3 字符** 才生效；**物料编码 `code`（kcaa01）**：若以 **`CUT-`** 开头且不含 `<`，用右模糊 `LIKE '关键词%'`；若含 `<` 用 `%关键词%`；其它情况先按 `Bom_code.flag5` 剥离前缀得核心款号，核心长度≥3 时用 `LIKE '%核心'`，否则 `%关键字%`；入参 **`bom_cut`**：默认 `0` 时强制执行 `kcaa01 NOT LIKE N'CUT-%'`，`bom_cut=1` 时取消；**显式以 `CUT-` 搜索时临时取消该排除**以便命中裁片
+  - 主档 CRUD（标准件）：**`POST /api/inventory/bom/save-main`** 新增主档（`INSERT` 字段列表含 **systemcode、[GUID]、dr_systemcode**，`VALUES` 三连同一绑定参数；**[version]** 写入 **100**（**sql.Int**）；若存在 **`type`** 列则 **`[type] = 1`**（新增默认）；若 `bom_000` 缺少 **systemcode / guid（物理列名 GUID）/ dr_systemcode / version** 任一列则返回 500）；**systemcode** 已存在于库则拒绝；**`POST /api/inventory/bom`** 与前者共用处理函数；`PUT /api/inventory/bom` 保存时同步 **[GUID]、dr_systemcode** 与 **systemcode**；其余同前（审核/删除/校验等）
 - **关键字段（接口 JSON 映射）**
   - `kcaa01` → `code`，`kcaa02` → `name`，`kcaa03` → `spec`，`kcaa04` → `unit`
   - `kcaa12` → `isPurchase`，`kcaa13` → `isSubcontract`，`kcaa14` → `isSelfProduced`
   - `sign` → `status`（接口字段名 `status`，避免与前端「状态」文案混淆时在列表列标题标注 `sign`）
   - `version`：版本号（排序降序）；`pass` / `del`：沿用项目「审核 / 逻辑删除」约定
 - **权限（按钮级）**
-  - 菜单 path：`inv/bom` 或 `inventory/basic/bom-data`；`GET /api/inv/bom/list` 在 `apiPermissionGate.js` 中满足任一路径的 `view` 即可；复制/详情依赖同页 `view`，编辑按钮预留 `edit`（后续保存接口落地后再审）
+  - 菜单 path：`inv/bom` 或 `inventory/basic/bom-data`：`view`（列表/详情/校验/换算建议）、`add`（新增）、`edit`（保存主档、恢复）、`audit`（审核/反审）、`delete`（软删/彻底删）；见 `apiPermissionGate.js`
 - **主档稳定键 `systemcode`（与配件子表关联）**
-  - `GET /api/inventory/bom/:id` 的 `data.basic.systemcode` 来自 `bom_000.systemcode`，**`data.basic.pass`** 来自 `bom_000.pass`（前端钻取子 BOM 配件时用）；配件子表 `Bom_parts.kcac01` 存该值（与物料编码 `kcaa01` 不是同一列）；表名可由 `INV_BOM_PARTS_TABLE` 覆盖
+  - `GET /api/inventory/bom/:id` 的 `data.basic.systemcode` 来自 `bom_000.systemcode`，**`data.basic.pass`** 来自主档；配件子表 **`Bom_parts.kcac01`** 存父级 `systemcode`（与物料编码 `kcaa01` 不是同一列）；表名可由 `INV_BOM_PARTS_TABLE` 覆盖
   - 若历史行 `systemcode` 为空，则「配件明细」Tab 无法加载/保存，需在库内补齐主档或按实际库结构再调整
 
 ### 3.6.1 `Bom_parts`（BOM 配件明细，v1.1.8+）
@@ -237,10 +236,15 @@
   - `GET /api/inventory/bom/parts/:systemcode`：先 **TOP 1** 判断主档 `bom_000.systemcode` 存在且在册，再仅查 `Bom_parts`（`WHERE kcac01=@systemcode`），避免与子表 **JOIN 大表**导致超时；子行 `del=0`（或空）在册；无主档时返回空列表
   - `PUT /api/inventory/bom/parts/:systemcode`：body `{ lines: [...] }` 批量处理；`id`+`pendingDelete=true` → `UPDATE del=1`；有 `id` 且未标记删除 → 更新单位用量/损耗/单价/备注；无 `id` 且未标记删除 → `INSERT`（`kcac01` 填主档 `systemcode`，子行物料编码等为 body 字段）
 - **关键字段（与当前接口一致）**
-  - `kcac01`：父级主档 `systemcode`；`kcaa01`～`kcaa04`/`kcaa11`：配件编码、名称、规格、单位、颜色；`kcac04` 单位用量；`kcac05` 损耗率（**小数**，如 5% 存 `0.05`）；`cost_price` 单价；`remark` 备注；`del` 逻辑删除
+  - `kcac01`：父级主档 `systemcode`；**`kcac02`**：子件关联编码（匹配下层 BOM 时优先用于关联 `bom_000.kcaa01`，空则回退 `kcaa01`）；`kcaa01`～`kcaa04`/`kcaa11`：配件编码、名称、规格、单位、颜色；`kcac04` 单位用量；`kcac05` 损耗率（**小数**，如 5% 存 `0.05`）；`cost_price` 单价；`[Describe]` 行备注；`Seq` 排序；`del` 逻辑删除
 - **权限（按钮级）**
   - `GET`：与 `GET /api/inventory/bom/:id` 相同（`view`）
   - `PUT`：菜单 `inv/bom` 或 `inventory/basic/bom-data` 的 `edit`
+
+### 3.6.2 `Bom_cost` / `Bom_consumption`（历史表：曾用于用量运算）
+
+- **说明**：部分库中仍存在上述物理表及历史数据。**当前版本已移除** BOM 用量运算的前端 Tab 与对应接口（原 `usage-calc` / `usage-result`），应用层不再读写这两张表。
+- **备注**：若需清理数据或重新规划功能，请在库侧另行评估；旧版算法说明曾归档于 [`docs/bom运算需求文档.md`](../bom运算需求文档.md)（仅供参考，与现行代码可能不一致）。
 
 ### 3.7 `Bom_colorcode`（颜色编码，v1.0.0+）
 
@@ -475,6 +479,7 @@
 - `HR_LEGACY_DEPT_TABLE`：部门/岗位表名，默认 `HR_Departments`
 - `HR_STAFF_TABLE`：员工档案表名，默认 `Hr_staff`
 - `INV_BOM_MASTER_TABLE`：BOM 主档表名，默认 `bom_000`（仅字母数字下划线）
+- `INV_BOM_CURRENCY_TABLE`：BOM 币别表名，默认 `bom_currency`（仅字母数字下划线）
 - `INV_BOM_PARTS_TABLE`：BOM 配件明细表名，默认 `Bom_parts`（仅字母数字下划线）
 - `DB_REQUEST_TIMEOUT_MS`：SQL 请求超时（mssql/tedious），默认 `60000`；旧默认 15000ms 易在大查询时报「Timeout: Request failed to complete」
 
@@ -506,9 +511,11 @@
 - **`dbo.[Hr_room]` / `dbo.[Hr_room_in]` / `dbo.[Hr_room_use]`**
   - 来源：`server/index.js`（宿舍列表、办理入住、住宿总览/历史/入住单审核）
 - **`dbo.[bom_000]`（表名可由环境变量 `INV_BOM_MASTER_TABLE` 覆盖）**
-  - 来源：`server/index.js`（`GET /api/inv/bom/list`）
+  - 来源：`server/index.js`（`GET /api/inv/bom/list`、`GET /api/inventory/bom/:id`、`POST /api/inventory/bom/usage-calc/:systemcode`）
 - **`dbo.[Bom_parts]`（表名可由 `INV_BOM_PARTS_TABLE` 覆盖）**
-  - 来源：`server/index.js`（`GET`/`PUT /api/inventory/bom/parts/:systemcode`）
+  - 来源：`server/index.js`（`GET`/`PUT /api/inventory/bom/parts/:systemcode`、`POST /api/inventory/bom/usage-calc/:systemcode`）
+- **`dbo.[Bom_cost]` / `dbo.[Bom_consumption]`**
+  - 来源：`server/index.js`（`GET /api/inv/bom/list` 汇总、`GET /api/inventory/bom/usage-result/:systemcode`、`POST /api/inventory/bom/usage-calc/:systemcode`）
 - **`dbo.[Bom_code]`**
   - 来源：`server/index.js`（BOM 用量运算规则：`copen=1`、`flag5` 动态匹配）
 - **`dbo.[Bom_colorcode]`**

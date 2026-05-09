@@ -271,6 +271,105 @@ export function matchApiPermissionRule(method, path, body, params) {
       ],
     }
   }
+  if (m === 'POST' && path === '/api/inventory/bom/save-parts') {
+    return {
+      anyOf: [
+        { menuPath: 'inv/bom', action: 'edit' },
+        { menuPath: 'inventory/basic/bom-data', action: 'edit' },
+      ],
+    }
+  }
+
+  /* BOM 主档新增/保存前校验与单位换算（须先于泛化 GET /api/inventory/bom/:id） */
+  if (m === 'GET' && path === '/api/inventory/bom/check-code') {
+    return {
+      anyOf: [
+        { menuPath: 'inv/bom', action: 'view' },
+        { menuPath: 'inventory/basic/bom-data', action: 'view' },
+      ],
+    }
+  }
+  if (m === 'GET' && path === '/api/inventory/bom/unit-rate-suggest') {
+    return {
+      anyOf: [
+        { menuPath: 'inv/bom', action: 'view' },
+        { menuPath: 'inventory/basic/bom-data', action: 'view' },
+      ],
+    }
+  }
+  if (m === 'GET' && path === '/api/inventory/bom/currency-options') {
+    return {
+      anyOf: [
+        { menuPath: 'inv/bom', action: 'view' },
+        { menuPath: 'inventory/basic/bom-data', action: 'view' },
+      ],
+    }
+  }
+  if (m === 'POST' && path === '/api/inventory/bom/save-main') {
+    return {
+      anyOf: [
+        { menuPath: 'inv/bom', action: 'add' },
+        { menuPath: 'inventory/basic/bom-data', action: 'add' },
+      ],
+    }
+  }
+  if (m === 'POST' && path === '/api/inventory/bom') {
+    return {
+      anyOf: [
+        { menuPath: 'inv/bom', action: 'add' },
+        { menuPath: 'inventory/basic/bom-data', action: 'add' },
+      ],
+    }
+  }
+  if (m === 'PUT' && path === '/api/inventory/bom') {
+    return {
+      anyOf: [
+        { menuPath: 'inv/bom', action: 'edit' },
+        { menuPath: 'inventory/basic/bom-data', action: 'edit' },
+      ],
+    }
+  }
+  if (m === 'PUT' && path === '/api/inventory/bom/audit') {
+    return {
+      anyOf: [
+        { menuPath: 'inv/bom', action: 'audit' },
+        { menuPath: 'inventory/basic/bom-data', action: 'audit' },
+      ],
+    }
+  }
+  if (m === 'PUT' && path === '/api/inventory/bom/unaudit') {
+    return {
+      anyOf: [
+        { menuPath: 'inv/bom', action: 'audit' },
+        { menuPath: 'inventory/basic/bom-data', action: 'audit' },
+      ],
+    }
+  }
+  if (m === 'PUT' && path === '/api/inventory/bom/restore') {
+    return {
+      anyOf: [
+        { menuPath: 'inv/bom', action: 'edit' },
+        { menuPath: 'inventory/basic/bom-data', action: 'edit' },
+      ],
+    }
+  }
+  /* BOM 主档彻底删除（须先于泛化 DELETE systemcode 单段） */
+  if (m === 'DELETE' && /^\/api\/inventory\/bom\/systemcode\/.+\/permanent\/?$/.test(path)) {
+    return {
+      anyOf: [
+        { menuPath: 'inv/bom', action: 'delete' },
+        { menuPath: 'inventory/basic/bom-data', action: 'delete' },
+      ],
+    }
+  }
+  if (m === 'DELETE' && /^\/api\/inventory\/bom\/systemcode\/.+$/.test(path) && !/\/permanent\/?$/.test(path)) {
+    return {
+      anyOf: [
+        { menuPath: 'inv/bom', action: 'delete' },
+        { menuPath: 'inventory/basic/bom-data', action: 'delete' },
+      ],
+    }
+  }
 
   /* v1.1.7：BOM 列表（菜单在「存货 inv/bom」与「库存管理 inventory/basic/bom-data」两处均可调） */
   if (m === 'GET' && path === '/api/inv/bom/list') {
@@ -295,7 +394,13 @@ export function matchApiPermissionRule(method, path, body, params) {
 
   /* 销售/采购/外协管理 — 基本资料：供应商资料（菜单 path 与 erp_structure_dump 一致） */
   if (m === 'GET' && path === '/api/supply-chain/suppliers/list') {
-    return { menuPath: 'supply-chain/basic/suppliers', action: 'view' }
+    return {
+      anyOf: [
+        { menuPath: 'supply-chain/basic/suppliers', action: 'view' },
+        { menuPath: 'inv/bom', action: 'view' },
+        { menuPath: 'inventory/basic/bom-data', action: 'view' },
+      ],
+    }
   }
   if (m === 'GET' && path === '/api/supply-chain/suppliers/suggest-code') {
     return { menuPath: 'supply-chain/basic/suppliers', action: 'add' }
@@ -472,7 +577,13 @@ export function matchApiPermissionRule(method, path, body, params) {
   }
 
   if (m === 'GET' && path === '/api/inventory/color-code/list') {
-    return { menuPath: 'inventory/basic/color-code', action: 'view' }
+    return {
+      anyOf: [
+        { menuPath: 'inventory/basic/color-code', action: 'view' },
+        { menuPath: 'inv/bom', action: 'view' },
+        { menuPath: 'inventory/basic/bom-data', action: 'view' },
+      ],
+    }
   }
   if (m === 'POST' && path === '/api/inventory/color-code') {
     return { menuPath: 'inventory/basic/color-code', action: 'add' }
@@ -502,7 +613,13 @@ export function matchApiPermissionRule(method, path, body, params) {
 
   /* 使用单位 Bom_unit（须先于其它 inventory 泛化规则） */
   if (m === 'GET' && path === '/api/inventory/units/list') {
-    return { menuPath: 'inventory/basic/units', action: 'view' }
+    return {
+      anyOf: [
+        { menuPath: 'inventory/basic/units', action: 'view' },
+        { menuPath: 'inv/bom', action: 'view' },
+        { menuPath: 'inventory/basic/bom-data', action: 'view' },
+      ],
+    }
   }
   if (m === 'POST' && path === '/api/inventory/units') {
     return { menuPath: 'inventory/basic/units', action: 'add' }
@@ -550,7 +667,13 @@ export function matchApiPermissionRule(method, path, body, params) {
 
   /* 材料分类 Bom_material（须先于其它 inventory 泛化规则） */
   if (m === 'GET' && path === '/api/inventory/material-category/list') {
-    return { menuPath: 'inventory/basic/material-category', action: 'view' }
+    return {
+      anyOf: [
+        { menuPath: 'inventory/basic/material-category', action: 'view' },
+        { menuPath: 'inv/bom', action: 'view' },
+        { menuPath: 'inventory/basic/bom-data', action: 'view' },
+      ],
+    }
   }
   if (m === 'POST' && path === '/api/inventory/material-category') {
     return { menuPath: 'inventory/basic/material-category', action: 'add' }
@@ -574,7 +697,13 @@ export function matchApiPermissionRule(method, path, body, params) {
 
   /* 车间与部门编码 Bom_Stocks_workshop（须先于其它 inventory 泛化规则） */
   if (m === 'GET' && path === '/api/inventory/workshop-dept/list') {
-    return { menuPath: 'inventory/basic/workshop-dept', action: 'view' }
+    return {
+      anyOf: [
+        { menuPath: 'inventory/basic/workshop-dept', action: 'view' },
+        { menuPath: 'inv/bom', action: 'view' },
+        { menuPath: 'inventory/basic/bom-data', action: 'view' },
+      ],
+    }
   }
   if (m === 'POST' && path === '/api/inventory/workshop-dept') {
     return { menuPath: 'inventory/basic/workshop-dept', action: 'add' }

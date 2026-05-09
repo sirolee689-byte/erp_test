@@ -3190,6 +3190,13 @@ const INV_BOM_PARTS_TABLE = (() => {
 })()
 const INV_BOM_PARTS_FROM = `dbo.[${INV_BOM_PARTS_TABLE}]`
 
+/** BOM 币别表（默认 bom_currency，列含 cn_name）；表名仅允许字母数字下划线 */
+const INV_BOM_CURRENCY_TABLE = (() => {
+  const raw = String(process.env.INV_BOM_CURRENCY_TABLE ?? 'bom_currency').trim()
+  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'bom_currency'
+})()
+const INV_BOM_CURRENCY_FROM = `dbo.[${INV_BOM_CURRENCY_TABLE}]`
+
 /** 库存基本资料：颜色编码（物理表 Bom_colorcode） */
 const BOM_COLORCODE_FROM = 'dbo.[Bom_colorcode]'
 
@@ -3360,116 +3367,6 @@ async function fetchBomStocksWorkshopById(pool, idRaw) {
   return r.recordset?.[0] ?? null
 }
 
-/** BOM 运算规则配置表（固定物理表名） */
-const BOM_CODE_FROM = 'dbo.[Bom_code]'
-
-/**
- * Bom_code 规则缓存（配置表：变更频率低；避免在每次分页查询中反复 JOIN/扫描）
- * - warmup：第一次请求时加载
- * - ttl：默认 60 秒自动刷新（足够应对配置变更；同时避免每次请求打配置表）
- */
-const bomCalcRuleCache = {
-  loadedAt: 0,
-  ttlMs: 60 * 1000,
-  /** @type {{ flag5: string }[]} */
-  rules: [],
-}
-
-/**
- * 读取 Bom_code 中启用规则（copen=1），只取 flag5 字段
- * @param {import('mssql').ConnectionPool} pool
- */
-async function loadBomCalcRulesFromDb(pool) {
-  const q = pool.request()
-  const r = await q.query(`
-    SELECT LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(flag5, N'')))) AS flag5
-    FROM ${BOM_CODE_FROM}
-    WHERE ISNULL(copen, 0) = 1
-      AND LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(flag5, N'')))) <> N''
-  `)
-  const out = []
-  for (const row of r.recordset ?? []) {
-    const flag5 = String(row?.flag5 ?? '').trim()
-    if (!flag5) continue
-    out.push({ flag5 })
-  }
-  return out
-}
-
-/**
- * 获取 Bom_code 规则（带 TTL 缓存）
- * @param {import('mssql').ConnectionPool} pool
- */
-async function getBomCalcRules(pool) {
-  const now = Date.now()
-  const expired = now - bomCalcRuleCache.loadedAt > bomCalcRuleCache.ttlMs
-  if (!bomCalcRuleCache.loadedAt || expired) {
-    try {
-      bomCalcRuleCache.rules = await loadBomCalcRulesFromDb(pool)
-      bomCalcRuleCache.loadedAt = now
-    } catch (e) {
-      // 关键：配置表异常时，不要阻塞主业务；沿用旧缓存（若无缓存则为空，等同“全部不需运算”）
-      console.error('[BOM规则] 读取 Bom_code 失败：', e)
-      bomCalcRuleCache.loadedAt = now
-    }
-  }
-  return bomCalcRuleCache.rules
-}
-
-/**
- * 根据 Bom_code.flag5 规则生成「物料编码是否需要运算」的 SQL 条件（仅用于当前页匹配）
- * - OUT：编码包含 '-OUT'
- * - RP：编码以 'RP-PQ' 开头
- * - 其它：编码以 `${flag5}-` 开头（如 PQ-）
- *
- * 说明：此处会将 flag5 做白名单过滤（仅字母数字下划线），避免规则值被注入到 SQL 字符串中。
- * @param {{ flag5: string }[]} rules
- * @param {string} codeExpr SQL 里的编码表达式，如 p.code
- */
-function buildBomNeedCalcSqlCondition(rules, codeExpr) {
-  const c = String(codeExpr ?? 'p.code').trim() || 'p.code'
-  /** @type {string[]} */
-  const parts = []
-
-  // 特殊规则：只要 Bom_code 启用包含 OUT/RP，就允许匹配；其余规则走 prefix
-  let enableOut = false
-  let enableRp = false
-  /** @type {string[]} */
-  const prefixes = []
-
-  for (const r of rules ?? []) {
-    const f = String(r?.flag5 ?? '').trim()
-    if (!f) continue
-    if (f.toUpperCase() === 'OUT') {
-      enableOut = true
-      continue
-    }
-    if (f.toUpperCase() === 'RP') {
-      enableRp = true
-      continue
-    }
-    // 仅允许安全字符
-    if (!/^[A-Za-z0-9_]+$/.test(f)) continue
-    prefixes.push(`${f}-`)
-  }
-
-  if (enableOut) {
-    parts.push(`CHARINDEX(N'-OUT', ${c}) > 0`)
-  }
-  if (enableRp) {
-    parts.push(`${c} LIKE N'RP-PQ%'`)
-  }
-  for (const p of prefixes) {
-    const lit = `N'${String(p).replace(/'/g, "''")}%'`
-    parts.push(`${c} LIKE ${lit}`)
-  }
-
-  if (!parts.length) {
-    return '1=0'
-  }
-  return `(${parts.join(' OR ')})`
-}
-
 /**
  * 日期/时间列落在 [@mStart, @mEnd) 自然月半开区间；兼容 SQL Server 2008 R2（无 TRY_CONVERT）。
  * 要点：若列已是 datetime，不能再「先转 nvarchar 再 CONVERT 回 datetime」，否则受会话语言/格式影响易报 241。
@@ -3530,17 +3427,6 @@ function hrRoomUseCsumMoneyAsDecimalSql(colExpr) {
 }
 
 /**
- * Bom_cost / Bom_consumption 的 kcac04/kcac06 可能为 nvarchar：SUM 前转为 decimal；空或非数字视为 0。
- * SQL Server 2008 R2：无 TRY_CONVERT，使用 ISNUMERIC 兜底。
- * @param {string} colExpr 列引用，如 c.kcac04
- */
-function bomKcacAsDecimalSql(colExpr) {
-  const c = String(colExpr ?? '').trim()
-  const norm = `REPLACE(REPLACE(LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(${c}, N'')))), N' ', N''), N',', N'')`
-  return `CASE WHEN ${norm} = N'' THEN CAST(0 AS decimal(18,4)) WHEN ISNUMERIC(${norm}) = 1 THEN CAST(${norm} AS decimal(18,4)) ELSE CAST(0 AS decimal(18,4)) END`
-}
-
-/**
  * 配件明细保存：解析 decimal 列（前端可能是字符串或带千分位）
  * @param {unknown} raw
  * @returns {number}
@@ -3560,7 +3446,8 @@ function bomPartParseDecimal(raw) {
  */
 function bomPartsNumericColAsDecimalSql(colExpr) {
   const c = String(colExpr ?? '').trim()
-  return `CAST(ISNULL(${c}, 0) AS decimal(18, 4))`
+  // 与 bom_parts 数值列精度一致（多为 decimal(18,6)）；若用 4 位小数会误把损耗率等舍入（如 0.02345→0.0235）导致明细用量与金额偏差
+  return `CAST(ISNULL(${c}, 0) AS decimal(18, 6))`
 }
 
 /**
@@ -3589,6 +3476,66 @@ function bomPartLineHasDbId(raw) {
   if (raw?.id == null || raw.id === '') return false
   const s = String(raw.id).trim().replace(/\.0+$/, '')
   return /^[1-9]\d*$/.test(s)
+}
+
+/** Bom_parts.[Seq]：排序序号（int） */
+function bomPartParseSeq(raw) {
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n < 0) return 0
+  const t = Math.trunc(n)
+  return t > 2147483647 ? 2147483647 : t
+}
+
+/** del 视为在册：空或 0（兼容数值类驱动返回） */
+function bomPartsDelLooksActive(delS) {
+  const s = String(delS ?? '').trim().toLowerCase()
+  if (!s) return true
+  if (s === '0') return true
+  const n = Number(s.replace(/^'+|'+$/g, ''))
+  return Number.isFinite(n) && n === 0
+}
+
+/**
+ * 同主档 kcac01 + 配件 kcaa01 已有行（含软删），按 id 升序
+ * @param {import('mssql').Transaction} tx
+ */
+async function bomPartsFindRowsByScAndPartCode(tx, systemcode, kcaa01) {
+  const code = String(kcaa01 ?? '').trim()
+  if (!code) return []
+  const r = await new sql.Request(tx)
+    .input('kcac01', sql.NVarChar(100), systemcode)
+    .input('kcaa01', sql.NVarChar(300), code)
+    .query(`
+      SELECT p.id,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(10), p.del), N''))) AS del_s
+      FROM ${INV_BOM_PARTS_FROM} AS p
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) =
+            LTRIM(RTRIM(CONVERT(nvarchar(100), @kcac01)))
+        AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p.kcaa01, N'')))) =
+            LTRIM(RTRIM(CONVERT(nvarchar(300), @kcaa01)))
+      ORDER BY p.id ASC
+    `)
+  return Array.isArray(r.recordset) ? r.recordset : []
+}
+
+/**
+ * 根据配件物料编码（bom_000.kcaa01）解析对应 BOM 主档 systemcode，写入 Bom_parts.kcac02（跨主表关联）
+ * @param {import('mssql').Transaction|import('mssql').ConnectionPool} poolOrTx
+ */
+async function bomPartsLookupSubBomSystemcode(poolOrTx, partMaterialCode) {
+  const code = String(partMaterialCode ?? '').trim()
+  if (!code) return ''
+  const r = await new sql.Request(poolOrTx)
+    .input('kcaa01', sql.NVarChar(300), code)
+    .query(`
+      SELECT TOP 1
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS sub_sc
+      FROM ${INV_BOM_MASTER_FROM} AS b
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) = @kcaa01
+        AND (ISNULL(b.del, N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.del), N''))) = N'0')
+      ORDER BY b.id DESC
+    `)
+  return String(r.recordset?.[0]?.sub_sc ?? '').trim()
 }
 
 /**
@@ -3938,6 +3885,8 @@ let HR_ROOM_COLSET_PROMISE = null
 let SYS_SETTLEMENT_METHOD_COLSET_PROMISE = null
 let SYS_SUPPLIER_COLSET_PROMISE = null
 let SYS_SALES_CUSTOMER_COLSET_PROMISE = null
+/** BOM 主档（默认 bom_000）列清单缓存 */
+let INV_BOM_MASTER_COLSET_PROMISE = null
 
 /**
  * 读取 Hr_staff 的列名集合（小写），并缓存到进程内
@@ -4054,6 +4003,80 @@ async function getSystemSupplierColumnSet(pool) {
     }
   })()
   return SYS_SUPPLIER_COLSET_PROMISE
+}
+
+/**
+ * bom_000（表名来自 INV_BOM_MASTER_TABLE）列清单，兼容旧库缺列
+ * @param {import('mssql').ConnectionPool} pool
+ */
+async function getInvBomMasterColumnSet(pool) {
+  if (INV_BOM_MASTER_COLSET_PROMISE) return INV_BOM_MASTER_COLSET_PROMISE
+  const tbl = INV_BOM_MASTER_TABLE
+  INV_BOM_MASTER_COLSET_PROMISE = (async () => {
+    try {
+      const r = await pool.request().input('tn', sql.NVarChar(128), tbl).query(`
+        SELECT COLUMN_NAME AS name
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = @tn
+      `)
+      const set = new Set()
+      for (const row of r.recordset ?? []) {
+        const n = String(row?.name ?? '').trim()
+        if (n) set.add(n.toLowerCase())
+      }
+      return set
+    } catch (err) {
+      console.warn('[BOM主档] 读取 bom_000 列清单失败，已降级：', err?.message ?? err)
+      return new Set()
+    }
+  })()
+  return INV_BOM_MASTER_COLSET_PROMISE
+}
+
+/** Bom_parts 列清单（缓存），用于软删写 del/deltime 等兼容 */
+let INV_BOM_PARTS_COLSET_PROMISE = null
+async function getInvBomPartsColumnSet(pool) {
+  if (INV_BOM_PARTS_COLSET_PROMISE) return INV_BOM_PARTS_COLSET_PROMISE
+  const tbl = INV_BOM_PARTS_TABLE
+  INV_BOM_PARTS_COLSET_PROMISE = (async () => {
+    try {
+      const r = await pool.request().input('tn', sql.NVarChar(128), tbl).query(`
+        SELECT COLUMN_NAME AS name
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = @tn
+      `)
+      const set = new Set()
+      for (const row of r.recordset ?? []) {
+        const n = String(row?.name ?? '').trim()
+        if (n) set.add(n.toLowerCase())
+      }
+      return set
+    } catch (err) {
+      console.warn('[BOM配件表] 读取列清单失败，已降级：', err?.message ?? err)
+      return new Set()
+    }
+  })()
+  return INV_BOM_PARTS_COLSET_PROMISE
+}
+
+/**
+ * Bom_parts.del 物理类型：少数旧库为 int/bit，多数为 nvarchar；错误类型会导致「软删」未命中或表现异常
+ * @param {import('mssql').ConnectionPool} pool
+ */
+async function getInvBomPartsDelColumnKind(pool) {
+  try {
+    const r = await pool.request().input('tn', sql.NVarChar(128), INV_BOM_PARTS_TABLE).query(`
+      SELECT DATA_TYPE AS dt
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = @tn AND COLUMN_NAME = N'del'
+    `)
+    const dt = String(r.recordset?.[0]?.dt ?? '').toLowerCase()
+    if (dt === 'bit' || dt === 'tinyint' || dt === 'smallint' || dt === 'int' || dt === 'bigint')
+      return 'numeric'
+    return 'nvarchar'
+  } catch {
+    return 'nvarchar'
+  }
 }
 
 /** v1.2.2：缓存 System_settlement_method 列清单（兼容旧库字段不一致导致 SQL 报错） */
@@ -7095,6 +7118,130 @@ function buildBomWorkshopDisplay(code15, workshopName) {
 }
 
 /**
+ * BOM 主档 systemcode：年月日 + MD5(时间随机+用户) + 用户尾缀（截断防超长）
+ * @param {string|number|null|undefined} uidPart
+ */
+function generateInvBomSystemcode(uidPart) {
+  const uid = String(uidPart ?? '').trim() || '0'
+  const d = new Date()
+  const pad = (n) => String(n).padStart(2, '0')
+  const ymd = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`
+  const rnd = `${Date.now()}_${crypto.randomBytes(12).toString('hex')}_${uid}`
+  const md5 = crypto.createHash('md5').update(rnd, 'utf8').digest('hex')
+  const tail = (uid.replace(/\D/g, '').slice(-6) || uid.slice(0, 8)).replace(/\s+/g, '')
+  const raw = `${ymd}${md5.slice(0, 22)}${tail}`
+  return raw.slice(0, 88)
+}
+
+/**
+ * kcaa01 唯一（在册行）；编辑时排除指定 systemcode
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {string} kcaa01
+ * @param {string} [excludeSystemcode]
+ */
+async function countInvBomDuplicateKcaa01(pool, kcaa01, excludeSystemcode) {
+  const code = String(kcaa01 ?? '').trim()
+  if (!code) return 0
+  const ex = String(excludeSystemcode ?? '').trim()
+  const req = pool.request().input('kcaa01', sql.NVarChar(300), code)
+  let sqlEx = ''
+  if (ex) {
+    req.input('exsc', sql.NVarChar(100), ex)
+    sqlEx = ` AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) <> @exsc `
+  }
+  const r = await req.query(`
+    SELECT COUNT(1) AS cnt
+    FROM ${INV_BOM_MASTER_FROM} AS b
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) = @kcaa01
+      AND (ISNULL(b.del, N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.del), N''))) = N'0')
+      ${sqlEx}
+  `)
+  return Number(r.recordset?.[0]?.cnt ?? 0)
+}
+
+/**
+ * bom_000 是否已存在指定 systemcode（任意 del，避免主键/唯一冲突）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {string} systemcode
+ */
+async function invBomMasterSystemcodeExists(pool, systemcode) {
+  const sc = String(systemcode ?? '').trim()
+  if (!sc) return false
+  const r = await pool.request().input('sc', sql.NVarChar(100), sc).query(`
+    SELECT TOP (1) 1 AS x
+    FROM ${INV_BOM_MASTER_FROM} AS b
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) = @sc
+  `)
+  return (r.recordset ?? []).length > 0
+}
+
+/**
+ * 单位换算建议：使用单位 + 目标单位（采购或报价单位），匹配 Bom_unit_change 已审在册行
+ * @returns {{ direction: 0|1|null, rate: string }}
+ */
+/**
+ * 按 systemcode 读取 bom_000 一行（不区分在册/删除，供审核/删除审计）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {string} systemcodeRaw
+ */
+async function fetchInvBomMasterRowBySystemcode(pool, systemcodeRaw) {
+  const sc = String(systemcodeRaw ?? '').trim()
+  if (!sc) return null
+  const r = await pool.request().input('sc', sql.NVarChar(100), sc).query(`
+    SELECT TOP (1)
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS systemcode,
+      LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(10), b.pass), N''))) AS pass,
+      LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.del), N''))) AS del,
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) AS kcaa01,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa02, N'')))) AS kcaa02
+    FROM ${INV_BOM_MASTER_FROM} AS b
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) = @sc
+  `)
+  return r.recordset?.[0] ?? null
+}
+
+async function lookupBomUnitChangeDirectionRate(pool, useName, otherName) {
+  const use = String(useName ?? '').trim()
+  const other = String(otherName ?? '').trim()
+  if (!use || !other) return { direction: null, rate: '' }
+  const r = await pool
+    .request()
+    .input('uUse', sql.NVarChar(200), use)
+    .input('uOther', sql.NVarChar(200), other)
+    .query(`
+      SELECT TOP 1
+        LTRIM(RTRIM(CONVERT(nvarchar(80), ISNULL(c.change_bl, N'')))) AS rate,
+        CASE
+          WHEN LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name, N'')))) = @uOther
+            AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name_tow, N'')))) = @uUse
+            THEN 0
+          WHEN LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name, N'')))) = @uUse
+            AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name_tow, N'')))) = @uOther
+            THEN 1
+          ELSE NULL
+        END AS dir
+      FROM ${BOM_UNIT_CHANGE_FROM} AS c
+      WHERE (ISNULL(c.del, N'') = N'' OR c.del = N'0')
+        AND LTRIM(RTRIM(ISNULL(c.pass, N''))) = N'1'
+        AND (
+          (LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name, N'')))) = @uOther
+            AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name_tow, N'')))) = @uUse)
+          OR
+          (LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name, N'')))) = @uUse
+            AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name_tow, N'')))) = @uOther)
+        )
+    `)
+  const row = r.recordset?.[0]
+  if (!row || row.dir == null || row.dir === '') {
+    return { direction: null, rate: '' }
+  }
+  const dirNum = Number(row.dir)
+  const direction = dirNum === 0 || dirNum === 1 ? /** @type {0|1} */ (dirNum) : null
+  const rate = row.rate != null ? String(row.rate).trim() : ''
+  return { direction, rate }
+}
+
+/**
  * v1.1.8：BOM 主档分页列表（SQL Server 2008 R2：仅 ROW_NUMBER 分页，禁用 OFFSET-FETCH）
  * GET /api/inv/bom/list
  * - 默认排序：优先按 edittime DESC；edittime 为空则按 addtime DESC（保证打开页面先看到最近更新/新增）
@@ -7105,12 +7252,16 @@ function buildBomWorkshopDisplay(code15, workshopName) {
  * - bom_cut=1（仅裁片）：结果仅限 `kcaa01` 以 `CUT-` 开头（`UPPER(trim(kcaa01)) LIKE N'CUT-%'`，大小写不敏感）；keyword/name/code 等其它筛选不变
  * - 过滤：del 在册 + pass（与项目列表页「显示未审核」一致）
  * - 裁片：bom_cut=0 时默认 `kcaa01 NOT LIKE N'CUT-%'`（除非显式 CUT- 搜索）；bom_cut=1 时仅保留 CUT- 前缀行
+ * - recycled=1：仅查 del=1（回收站），不按 pass 过滤
  */
 app.get('/api/inv/bom/list', async (req, res) => {
   try {
     const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
     const pageSizeRaw = Number(req.query?.pageSize ?? 10) || 10
     const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+
+    const recycledRaw = String(req.query?.recycled ?? '').trim().toLowerCase()
+    const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
 
     const passRaw = String(req.query?.pass ?? '1').trim()
     const pass = passRaw === '0' ? '0' : '1'
@@ -7135,8 +7286,6 @@ app.get('/api/inv/bom/list', async (req, res) => {
     const codeContainsLike = codeOk ? `%${escapeSqlLikePattern(codeRaw)}%` : ''
 
     const pool = await getPool()
-    const bomRules = await getBomCalcRules(pool)
-    const needCalcCondSql = buildBomNeedCalcSqlCondition(bomRules, 'p.code')
 
     /** 用户显式按裁片编码搜索（以 CUT- 开头） */
     const isExplicitCutCodeSearch = codeOk && codeRaw.toUpperCase().startsWith('CUT-')
@@ -7175,7 +7324,13 @@ app.get('/api/inv/bom/list', async (req, res) => {
     } else if (!isExplicitCutCodeSearch && !isExplicitCutKeywordSearch) {
       whereCutSql = ` AND b.kcaa01 NOT LIKE N'CUT-%' `
     }
-    const whereBase = `
+    const whereBase = recycled
+      ? `
+      WHERE LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.del), N''))) = N'1'
+      ${whereCutSql}
+      ${keywordOk ? keywordOrSql : `${codeCondSql}${nameOk ? ' AND b.kcaa02 LIKE @nameLike ' : ''}`}
+    `
+      : `
       WHERE (ISNULL(b.del, N'') = N'' OR b.del = N'0')
         AND LTRIM(RTRIM(ISNULL(b.pass, N''))) = @pass
       ${whereCutSql}
@@ -7183,7 +7338,7 @@ app.get('/api/inv/bom/list', async (req, res) => {
     `
 
     const countReq = pool.request()
-    countReq.input('pass', sql.NVarChar(10), pass)
+    if (!recycled) countReq.input('pass', sql.NVarChar(10), pass)
     if (keywordOk) countReq.input('kwLike', sql.NVarChar(300), kwLike)
     if (keywordNormOk) countReq.input('kwNormLike', sql.NVarChar(300), kwNormLike)
     if (codeOk) countReq.input('codeContainsLike', sql.NVarChar(300), codeContainsLike)
@@ -7209,7 +7364,7 @@ app.get('/api/inv/bom/list', async (req, res) => {
     const endRow = safeOffset + pageSize
 
     const listReq = pool.request()
-    listReq.input('pass', sql.NVarChar(10), pass)
+    if (!recycled) listReq.input('pass', sql.NVarChar(10), pass)
     listReq.input('startRow', sql.Int, startRow)
     listReq.input('endRow', sql.Int, endRow)
     if (keywordOk) listReq.input('kwLike', sql.NVarChar(300), kwLike)
@@ -7222,6 +7377,7 @@ app.get('/api/inv/bom/list', async (req, res) => {
     const listResult = await listReq.query(`
       ;WITH base AS (
         SELECT
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS systemcode,
           b.kcaa01 AS code,
           b.kcaa02 AS product_name,
           b.kcaa03 AS spec,
@@ -7246,33 +7402,9 @@ app.get('/api/inv/bom/list', async (req, res) => {
           ) AS rn
         FROM ${INV_BOM_MASTER_FROM} AS b
         ${whereBase}
-      ),
-      page AS (
-        SELECT *
-        FROM base
-        WHERE rn BETWEEN @startRow AND @endRow
-      ),
-      agg_cost AS (
-        SELECT
-          c.pq AS pq,
-          COUNT(1) AS cost_count,
-          SUM(${bomKcacAsDecimalSql('c.kcac04')}) AS sum_cost_04,
-          SUM(${bomKcacAsDecimalSql('c.kcac06')}) AS sum_cost_06
-        FROM dbo.[Bom_cost] AS c
-        WHERE c.pq IN (SELECT p.code FROM page AS p WHERE ${needCalcCondSql})
-        GROUP BY c.pq
-      ),
-      agg_cons AS (
-        SELECT
-          d.pq AS pq,
-          COUNT(1) AS cons_count,
-          SUM(${bomKcacAsDecimalSql('d.kcac04')}) AS sum_cons_04,
-          SUM(${bomKcacAsDecimalSql('d.kcac06')}) AS sum_cons_06
-        FROM dbo.[Bom_consumption] AS d
-        WHERE d.pq IN (SELECT p.code FROM page AS p WHERE ${needCalcCondSql})
-        GROUP BY d.pq
       )
       SELECT
+        p.systemcode,
         p.code,
         p.product_name,
         p.spec,
@@ -7285,17 +7417,9 @@ app.get('/api/inv/bom/list', async (req, res) => {
         p.isSelfProduced,
         p.status,
         p.version,
-        p.pass,
-        CASE WHEN ${needCalcCondSql} THEN 1 ELSE 0 END AS need_calc,
-        COALESCE(ac.cost_count, 0) AS cost_count,
-        COALESCE(an.cons_count, 0) AS cons_count,
-        COALESCE(ac.sum_cost_04, CAST(0 AS decimal(18,4))) AS sum_cost_04,
-        COALESCE(ac.sum_cost_06, CAST(0 AS decimal(18,4))) AS sum_cost_06,
-        COALESCE(an.sum_cons_04, CAST(0 AS decimal(18,4))) AS sum_cons_04,
-        COALESCE(an.sum_cons_06, CAST(0 AS decimal(18,4))) AS sum_cons_06
-      FROM page AS p
-      LEFT JOIN agg_cost AS ac ON ac.pq = p.code
-      LEFT JOIN agg_cons AS an ON an.pq = p.code
+        p.pass
+      FROM base AS p
+      WHERE p.rn BETWEEN @startRow AND @endRow
       ORDER BY p.rn
     `)
     const tList1 = Date.now()
@@ -7306,6 +7430,7 @@ app.get('/api/inv/bom/list', async (req, res) => {
     }
 
     const list = (listResult.recordset ?? []).map((row) => ({
+      systemcode: row.systemcode != null ? String(row.systemcode) : '',
       code: row.code != null ? String(row.code) : '',
       name: row.product_name != null ? String(row.product_name) : '',
       spec: row.spec != null ? String(row.spec) : '',
@@ -7319,21 +7444,9 @@ app.get('/api/inv/bom/list', async (req, res) => {
       status: row.status != null ? String(row.status) : '',
       version: row.version != null ? String(row.version) : '',
       pass: row.pass != null ? String(row.pass) : '',
-      needCalc: Number(row.need_calc ?? 0) === 1,
-      calcStatus: (() => {
-        const need = Number(row.need_calc ?? 0) === 1
-        if (!need) return 'not_needed'
-        const c1 = Number(row.cost_count ?? 0)
-        // v1.1.7：按需求「已/未运算」只看 Bom_cost 是否有记录（Bom_consumption 仍参与汇总展示）
-        return c1 > 0 ? 'done' : 'not_done'
-      })(),
-      sumCost04: Number(row.sum_cost_04 ?? 0).toFixed(4),
-      sumCost06: Number(row.sum_cost_06 ?? 0).toFixed(4),
-      sumCons04: Number(row.sum_cons_04 ?? 0).toFixed(4),
-      sumCons06: Number(row.sum_cons_06 ?? 0).toFixed(4),
     }))
 
-    res.json({ code: 200, msg: 'success', data: { total, list } })
+    res.json({ code: 200, msg: 'success', data: { total, list, recycled } })
   } catch (err) {
     console.error('GET /api/inv/bom/list 失败：', err)
     const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
@@ -7383,6 +7496,7 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
       SELECT
         p.id,
         LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) AS kcac01,
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac02, N'')))) AS kcac02,
         LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p.kcaa01, N'')))) AS kcaa01,
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(p.kcaa02, N'')))) AS kcaa02,
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(p.kcaa03, N'')))) AS kcaa03,
@@ -7392,16 +7506,18 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
         ${bomPartsNumericColAsDecimalSql('p.kcac05')} AS kcac05,
         ${bomPartsNumericColAsDecimalSql('p.cost_price')} AS cost_price,
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(p.remark, N'')))) AS remark,
+        p.[Seq] AS seq,
         LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(10), p.del), N''))) AS del
       FROM ${INV_BOM_PARTS_FROM} AS p
       WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) = @sc
         AND (ISNULL(p.del, N'') = N'' OR p.del = N'0')
-      ORDER BY p.id
+      ORDER BY CASE WHEN p.[Seq] IS NULL THEN 1 ELSE 0 END, p.[Seq], p.id
     `)
 
     const list = (r.recordset ?? []).map((row) => ({
       id: row.id != null ? Number(row.id) : null,
       kcac01: row.kcac01 != null ? String(row.kcac01) : '',
+      kcac02: row.kcac02 != null ? String(row.kcac02) : '',
       kcaa01: row.kcaa01 != null ? String(row.kcaa01) : '',
       kcaa02: row.kcaa02 != null ? String(row.kcaa02) : '',
       kcaa03: row.kcaa03 != null ? String(row.kcaa03) : '',
@@ -7411,6 +7527,8 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
       kcac05: Number(row.kcac05 ?? 0),
       cost_price: Number(row.cost_price ?? 0),
       remark: row.remark != null ? String(row.remark) : '',
+      seq:
+        row.seq != null && row.seq !== '' && Number.isFinite(Number(row.seq)) ? Number(row.seq) : null,
       del: row.del != null ? String(row.del) : '0',
     }))
 
@@ -7423,11 +7541,14 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
 })
 
 /**
- * BOM 配件明细批量保存：软删（del=1）+ 更新 + 新增
+ * BOM 配件明细批量保存：物理删除待删行 + 更新 + 新增
  * PUT /api/inventory/bom/parts/:systemcode
- * body: { lines: [{ id?, pendingDelete?, kcaa01, kcaa02, kcaa03, kcaa04, kcaa11, kcac04, kcac05, cost_price, remark }] }
+ * POST /api/inventory/bom/save-parts（body.systemcode + 与 PUT 相同 lines）
+ * body: { lines: [{ id?, pendingDelete?, kcac01?(须与主档 systemcode 一致), kcaa01, kcaa02, kcaa03, kcaa04, kcaa11, kcac04, kcac05, cost_price, remark, seq }] }
  */
-app.put('/api/inventory/bom/parts/:systemcode', async (req, res) => {
+async function handleInventoryBomPartsPut(req, res) {
+  /** @type {{ systemcode: string, kcaa01: string }[]} */
+  const auditPhysicalPartDeletes = []
   try {
     let systemcode = ''
     try {
@@ -7461,53 +7582,117 @@ app.put('/api/inventory/bom/parts/:systemcode', async (req, res) => {
       return
     }
 
+    const partColset = await getInvBomPartsColumnSet(pool)
+    const delColKind = await getInvBomPartsDelColumnKind(pool)
+
     const tx = new sql.Transaction(pool)
     await tx.begin()
     try {
-      let softDeleted = 0
+      let deleted = 0
       let updated = 0
       let inserted = 0
 
-      for (const raw of lines) {
+      /** 先处理 pendingDelete，再更新/新增，避免「未删完就 INSERT」产生重复在册行 */
+      const orderedLines = [...lines].sort((a, b) => {
+        const pa = !!a?.pendingDelete
+        const pb = !!b?.pendingDelete
+        if (pa === pb) return 0
+        return pa ? -1 : 1
+      })
+
+      for (const raw of orderedLines) {
         const pendingDelete = !!raw?.pendingDelete
         const hasId = bomPartLineHasDbId(raw)
 
+        /** 前端传 kcac01 时须与 URL 主档一致，防止误改其它成品下的同名配件行 */
+        if (!pendingDelete) {
+          const lineMaster = String(raw?.kcac01 ?? '').trim()
+          if (lineMaster && lineMaster !== systemcode) {
+            throw new Error(
+              `明细行的 kcac01（所属主档）须与当前主档 systemcode 一致；收到「${lineMaster}」，期望「${systemcode}」`,
+            )
+          }
+        }
+
         if (hasId && pendingDelete) {
+          const qPre = new sql.Request(tx)
+          bomPartsSqlBindId(qPre, raw?.id)
+          qPre.input('kcac01', sql.NVarChar(100), systemcode)
+          const preRs = await qPre.query(`
+            SELECT TOP 1
+              LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p.kcaa01, N'')))) AS kcaa01
+            FROM ${INV_BOM_PARTS_FROM} AS p
+            WHERE p.id = @id
+              AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) =
+                  LTRIM(RTRIM(CONVERT(nvarchar(100), @kcac01)))
+          `)
+          const partCode = String(preRs.recordset?.[0]?.kcaa01 ?? '').trim()
+          if (!partCode) {
+            console.warn(
+              `[BOM配件明细] 物理删跳过：未找到 id=${String(raw?.id ?? '')} 且 kcac01 匹配主档 systemcode=${systemcode} 的行`,
+            )
+            continue
+          }
           const q = new sql.Request(tx)
           bomPartsSqlBindId(q, raw?.id)
           q.input('kcac01', sql.NVarChar(100), systemcode)
+          q.input('kcaa01Del', sql.NVarChar(300), partCode)
           const ur = await q.query(`
-            UPDATE p
-            SET p.del = N'1'
+            DELETE p
             FROM ${INV_BOM_PARTS_FROM} AS p
-            WHERE p.id = @id
-              AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) = @kcac01
+            WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) =
+                  LTRIM(RTRIM(CONVERT(nvarchar(100), @kcac01)))
+              AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p.kcaa01, N'')))) =
+                  LTRIM(RTRIM(CONVERT(nvarchar(300), @kcaa01Del)))
+              AND p.id = @id
           `)
-          softDeleted += Number(ur.rowsAffected?.[0] ?? 0)
+          const aff = Number(ur.rowsAffected?.[0] ?? 0)
+          deleted += aff
+          if (aff > 0) {
+            auditPhysicalPartDeletes.push({ systemcode, kcaa01: partCode })
+          } else {
+            console.warn(
+              `[BOM配件明细] 物理删未命中：id=${String(raw?.id ?? '')} kcaa01=${partCode} systemcode=${systemcode}`,
+            )
+          }
           continue
         }
 
         if (hasId && !pendingDelete) {
+          const kcaa01Up = String(raw?.kcaa01 ?? '').trim()
+          const subSc = await bomPartsLookupSubBomSystemcode(tx, kcaa01Up)
           const kcac04 = bomPartParseDecimal(raw?.kcac04)
           const kcac05 = bomPartParseDecimal(raw?.kcac05)
           const costNum = bomPartParseDecimal(raw?.cost_price)
+          const seqNum = bomPartParseSeq(raw?.seq)
           const q = new sql.Request(tx)
           bomPartsSqlBindId(q, raw?.id)
           q.input('kcac01', sql.NVarChar(100), systemcode)
+          q.input('kcaa01Up', sql.NVarChar(300), kcaa01Up)
           q.input('kcac04', sql.Decimal(18, 4), kcac04)
           q.input('kcac05', sql.Decimal(18, 4), kcac05)
           q.input('cost_price', sql.Decimal(18, 4), costNum)
           q.input('remark', sql.NVarChar(500), raw?.remark != null ? String(raw.remark) : '')
+          q.input('seq', sql.Int, seqNum)
+          const setUp = [
+            'p.kcaa01 = @kcaa01Up',
+            'p.kcac04 = @kcac04',
+            'p.kcac05 = @kcac05',
+            'p.cost_price = @cost_price',
+            'p.remark = @remark',
+            'p.[Seq] = @seq',
+          ]
+          if (partColset.has('kcac02')) {
+            setUp.push('p.kcac02 = @kcac02Sub')
+            q.input('kcac02Sub', sql.NVarChar(100), subSc || '')
+          }
           const ur = await q.query(`
             UPDATE p
-            SET
-              p.kcac04 = @kcac04,
-              p.kcac05 = @kcac05,
-              p.cost_price = @cost_price,
-              p.remark = @remark
+            SET ${setUp.join(', ')}
             FROM ${INV_BOM_PARTS_FROM} AS p
             WHERE p.id = @id
-              AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) = @kcac01
+              AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) =
+                  LTRIM(RTRIM(CONVERT(nvarchar(100), @kcac01)))
               AND (ISNULL(p.del, N'') = N'' OR p.del = N'0')
           `)
           updated += Number(ur.rowsAffected?.[0] ?? 0)
@@ -7519,6 +7704,101 @@ app.put('/api/inventory/bom/parts/:systemcode', async (req, res) => {
           if (!kcaa01) {
             throw new Error('新增行缺少配件编码 kcaa01')
           }
+          const kcac04 = bomPartParseDecimal(raw?.kcac04)
+          const kcac05 = bomPartParseDecimal(raw?.kcac05)
+          const costNum = bomPartParseDecimal(raw?.cost_price)
+          const seqIns = bomPartParseSeq(raw?.seq)
+
+          const existing = await bomPartsFindRowsByScAndPartCode(tx, systemcode, kcaa01)
+          if (existing.length > 0) {
+            const subMerge = await bomPartsLookupSubBomSystemcode(tx, kcaa01)
+            const actives = existing.filter((row) => bomPartsDelLooksActive(row.del_s))
+            const targetId = actives.length
+              ? Math.min(...actives.map((row) => Number(row.id)))
+              : Math.min(...existing.map((row) => Number(row.id)))
+            const allIds = existing
+              .map((row) => Number(row.id))
+              .filter((n) => Number.isFinite(n) && n > 0)
+            const otherIds = allIds.filter((id) => id !== targetId)
+
+            const setPartsMerge = [
+              'p.kcaa01 = @kcaa01Merge',
+              'p.kcaa02 = @kcaa02',
+              'p.kcaa03 = @kcaa03',
+              'p.kcaa04 = @kcaa04',
+              'p.kcaa11 = @kcaa11',
+              'p.kcac04 = @kcac04',
+              'p.kcac05 = @kcac05',
+              'p.cost_price = @cost_price',
+              'p.remark = @remark',
+              'p.[Seq] = @seq',
+            ]
+            if (partColset.has('kcac02')) {
+              setPartsMerge.push('p.kcac02 = @kcac02Merge')
+            }
+            if (delColKind === 'numeric') {
+              setPartsMerge.push('p.del = @delActiveNum')
+            } else {
+              setPartsMerge.push(`p.del = N'0'`)
+            }
+            if (partColset.has('deltime')) {
+              setPartsMerge.push('p.deltime = NULL')
+            }
+
+            const qm = new sql.Request(tx)
+            bomPartsSqlBindId(qm, targetId)
+            qm.input('kcac01', sql.NVarChar(100), systemcode)
+            qm.input('kcaa01Merge', sql.NVarChar(300), kcaa01)
+            qm.input('kcaa02', sql.NVarChar(500), raw?.kcaa02 != null ? String(raw.kcaa02) : '')
+            qm.input('kcaa03', sql.NVarChar(500), raw?.kcaa03 != null ? String(raw.kcaa03) : '')
+            qm.input('kcaa04', sql.NVarChar(100), raw?.kcaa04 != null ? String(raw.kcaa04) : '')
+            qm.input('kcaa11', sql.NVarChar(200), raw?.kcaa11 != null ? String(raw.kcaa11) : '')
+            qm.input('kcac04', sql.Decimal(18, 4), kcac04)
+            qm.input('kcac05', sql.Decimal(18, 4), kcac05)
+            qm.input('cost_price', sql.Decimal(18, 4), costNum)
+            qm.input('remark', sql.NVarChar(500), raw?.remark != null ? String(raw.remark) : '')
+            qm.input('seq', sql.Int, seqIns)
+            if (partColset.has('kcac02')) {
+              qm.input('kcac02Merge', sql.NVarChar(100), subMerge || '')
+            }
+            if (delColKind === 'numeric') {
+              qm.input('delActiveNum', sql.Int, 0)
+            }
+            const um = await qm.query(`
+              UPDATE p
+              SET ${setPartsMerge.join(', ')}
+              FROM ${INV_BOM_PARTS_FROM} AS p
+              WHERE p.id = @id
+                AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) =
+                    LTRIM(RTRIM(CONVERT(nvarchar(100), @kcac01)))
+                AND (ISNULL(p.del, N'') = N'' OR p.del = N'0')
+            `)
+            updated += Number(um.rowsAffected?.[0] ?? 0)
+
+            for (const oid of otherIds) {
+              const qd = new sql.Request(tx)
+              bomPartsSqlBindId(qd, oid)
+              qd.input('kcac01', sql.NVarChar(100), systemcode)
+              qd.input('kcaa01Dedupe', sql.NVarChar(300), kcaa01)
+              const ud = await qd.query(`
+                DELETE p
+                FROM ${INV_BOM_PARTS_FROM} AS p
+                WHERE p.id = @id
+                  AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) =
+                      LTRIM(RTRIM(CONVERT(nvarchar(100), @kcac01)))
+                  AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p.kcaa01, N'')))) =
+                      LTRIM(RTRIM(CONVERT(nvarchar(300), @kcaa01Dedupe)))
+              `)
+              const daff = Number(ud.rowsAffected?.[0] ?? 0)
+              deleted += daff
+              if (daff > 0) {
+                auditPhysicalPartDeletes.push({ systemcode, kcaa01: kcaa01 })
+              }
+            }
+            continue
+          }
+
+          const subIns = await bomPartsLookupSubBomSystemcode(tx, kcaa01)
           const q = new sql.Request(tx)
           q.input('kcac01', sql.NVarChar(100), systemcode)
           q.input('kcaa01', sql.NVarChar(300), kcaa01)
@@ -7526,32 +7806,57 @@ app.put('/api/inventory/bom/parts/:systemcode', async (req, res) => {
           q.input('kcaa03', sql.NVarChar(500), raw?.kcaa03 != null ? String(raw.kcaa03) : '')
           q.input('kcaa04', sql.NVarChar(100), raw?.kcaa04 != null ? String(raw.kcaa04) : '')
           q.input('kcaa11', sql.NVarChar(200), raw?.kcaa11 != null ? String(raw.kcaa11) : '')
-          const kcac04 = bomPartParseDecimal(raw?.kcac04)
-          const kcac05 = bomPartParseDecimal(raw?.kcac05)
-          const costNum = bomPartParseDecimal(raw?.cost_price)
           q.input('kcac04', sql.Decimal(18, 4), kcac04)
           q.input('kcac05', sql.Decimal(18, 4), kcac05)
           q.input('cost_price', sql.Decimal(18, 4), costNum)
           q.input('remark', sql.NVarChar(500), raw?.remark != null ? String(raw.remark) : '')
+          q.input('seq', sql.Int, seqIns)
+          const delValSql = delColKind === 'numeric' ? '@delIns' : `N'0'`
+          if (delColKind === 'numeric') {
+            q.input('delIns', sql.Int, 0)
+          }
+          let insCols =
+            'kcac01, kcaa01, kcaa02, kcaa03, kcaa04, kcaa11, kcac04, kcac05, cost_price, remark, del, [Seq]'
+          let insVals = `@kcac01, @kcaa01, @kcaa02, @kcaa03, @kcaa04, @kcaa11, @kcac04, @kcac05, @cost_price, @remark, ${delValSql}, @seq`
+          if (partColset.has('kcac02')) {
+            q.input('kcac02Ins', sql.NVarChar(100), subIns || '')
+            insCols =
+              'kcac01, kcac02, kcaa01, kcaa02, kcaa03, kcaa04, kcaa11, kcac04, kcac05, cost_price, remark, del, [Seq]'
+            insVals = `@kcac01, @kcac02Ins, @kcaa01, @kcaa02, @kcaa03, @kcaa04, @kcaa11, @kcac04, @kcac05, @cost_price, @remark, ${delValSql}, @seq`
+          }
           await q.query(`
-            INSERT INTO ${INV_BOM_PARTS_FROM} (
-              kcac01, kcaa01, kcaa02, kcaa03, kcaa04, kcaa11,
-              kcac04, kcac05, cost_price, remark, del
-            )
-            VALUES (
-              @kcac01, @kcaa01, @kcaa02, @kcaa03, @kcaa04, @kcaa11,
-              @kcac04, @kcac05, @cost_price, @remark, N'0'
-            )
+            INSERT INTO ${INV_BOM_PARTS_FROM} (${insCols})
+            VALUES (${insVals})
           `)
           inserted += 1
         }
       }
 
       await tx.commit()
+
+      for (const row of auditPhysicalPartDeletes) {
+        try {
+          await writeLog(
+            req,
+            '彻底删除BOM配件',
+            `[彻底删除]了BOM配件，BOM系统编码：[${row.systemcode}]，移除配件编码：[${row.kcaa01}]`,
+            { targetTable: 'Bom_parts' },
+          )
+        } catch (logErr) {
+          console.warn('[BOM配件明细] 审计日志写入失败（不影响保存）：', logErr?.message ?? logErr)
+        }
+      }
+
       res.json({
         code: 200,
         msg: 'success',
-        data: { softDeleted, updated, inserted },
+        data: {
+          deleted,
+          updated,
+          inserted,
+          /** @deprecated 兼容旧前端；数值同 deleted */
+          softDeleted: deleted,
+        },
       })
     } catch (innerErr) {
       try {
@@ -7565,6 +7870,769 @@ app.put('/api/inventory/bom/parts/:systemcode', async (req, res) => {
     console.error('PUT /api/inventory/bom/parts/:systemcode 失败：', err)
     const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
     res.status(500).json({ code: 500, msg: `保存 BOM 配件明细失败：${detail}`, data: null })
+  }
+}
+
+app.put('/api/inventory/bom/parts/:systemcode', handleInventoryBomPartsPut)
+
+/** 与 PUT /parts/:systemcode 相同 body；systemcode 放在 body.systemcode */
+app.post('/api/inventory/bom/save-parts', async (req, res) => {
+  const sc = String(req.body?.systemcode ?? '').trim()
+  if (!sc) {
+    res.status(400).json({ code: 400, msg: 'body.systemcode 不能为空', data: null })
+    return
+  }
+  req.params = { ...req.params, systemcode: sc }
+  return handleInventoryBomPartsPut(req, res)
+})
+
+
+/**
+ * BOM 编码校验 / 版本提示：查询同编码在册行（编辑时可排除自身 systemcode）
+ * GET /api/inventory/bom/check-code?kcaa01=&excludeSystemcode=
+ */
+app.get('/api/inventory/bom/check-code', async (req, res) => {
+  try {
+    const kcaa01 = String(req.query?.kcaa01 ?? '').trim()
+    if (!kcaa01) {
+      res.status(400).json({ code: 400, msg: '参数 kcaa01 不能为空', data: null })
+      return
+    }
+    const exclude = String(req.query?.excludeSystemcode ?? '').trim()
+    const pool = await getPool()
+    const reqQ = pool.request().input('kcaa01', sql.NVarChar(300), kcaa01)
+    let exSql = ''
+    if (exclude) {
+      reqQ.input('exsc', sql.NVarChar(100), exclude)
+      exSql = ` AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) <> @exsc `
+    }
+    const listRs = await reqQ.query(`
+      SELECT TOP 10
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS systemcode,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(40), b.[version]), N''))) AS version,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa02, N'')))) AS kcaa02,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(10), b.pass), N''))) AS pass
+      FROM ${INV_BOM_MASTER_FROM} AS b
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) = @kcaa01
+        AND (ISNULL(b.del, N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.del), N''))) = N'0')
+        ${exSql}
+      ORDER BY b.id DESC
+    `)
+    const rows = (listRs.recordset ?? []).map((row) => ({
+      systemcode: row.systemcode != null ? String(row.systemcode) : '',
+      version: row.version != null ? String(row.version) : '',
+      kcaa02: row.kcaa02 != null ? String(row.kcaa02) : '',
+      pass: row.pass != null ? String(row.pass) : '',
+    }))
+    const dup = await countInvBomDuplicateKcaa01(pool, kcaa01, exclude)
+    res.json({
+      code: 200,
+      msg: 'success',
+      data: { duplicate: dup > 0, count: dup, rows },
+    })
+  } catch (err) {
+    console.error('GET /api/inventory/bom/check-code 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '查询失败')
+    res.status(500).json({ code: 500, msg: detail, data: null })
+  }
+})
+
+/**
+ * 单位换算建议（使用单位 + 采购/报价侧单位）
+ * GET /api/inventory/bom/unit-rate-suggest?useUnit=&otherUnit=
+ */
+app.get('/api/inventory/bom/unit-rate-suggest', async (req, res) => {
+  try {
+    const useUnit = String(req.query?.useUnit ?? '').trim()
+    const otherUnit = String(req.query?.otherUnit ?? '').trim()
+    if (!useUnit || !otherUnit) {
+      res.status(400).json({ code: 400, msg: 'useUnit、otherUnit 均不能为空', data: null })
+      return
+    }
+    const pool = await getPool()
+    const { direction, rate } = await lookupBomUnitChangeDirectionRate(pool, useUnit, otherUnit)
+    res.json({
+      code: 200,
+      msg: 'success',
+      data: {
+        /** 0：对方→使用；1：使用→对方（与主档 kcaa27/kcaa31 一致） */
+        direction,
+        rate,
+      },
+    })
+  } catch (err) {
+    console.error('GET /api/inventory/bom/unit-rate-suggest 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '查询失败')
+    res.status(500).json({ code: 500, msg: detail, data: null })
+  }
+})
+
+/**
+ * BOM 币别下拉：读 bom_currency.cn_name（表名见 INV_BOM_CURRENCY_TABLE）
+ * GET /api/inventory/bom/currency-options
+ */
+app.get('/api/inventory/bom/currency-options', async (req, res) => {
+  try {
+    const pool = await getPool()
+    const rs = await pool.request().query(`
+      SELECT DISTINCT LTRIM(RTRIM(ISNULL([cn_name], N''))) AS cn_name
+      FROM ${INV_BOM_CURRENCY_FROM}
+      WHERE LTRIM(RTRIM(ISNULL([cn_name], N''))) <> N''
+      ORDER BY cn_name
+    `)
+    const rows = (rs.recordset ?? []).map((r) => ({
+      cn_name: String(r.cn_name ?? '').trim(),
+    }))
+    res.json({ code: 200, msg: 'success', data: { rows } })
+  } catch (err) {
+    console.error('GET /api/inventory/bom/currency-options 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '查询失败')
+    res.status(500).json({ code: 500, msg: detail, data: { rows: [] } })
+  }
+})
+
+/**
+ * BOM 主档新增：INSERT bom_000（SQL Server 2008 R2 兼容写法）。
+ * save-main：字段列表须含 systemcode、[GUID]、dr_systemcode，VALUES 三连同为最终 systemcode；[version] 固定 N'100'。
+ * 逻辑位于 server/index.js（本项目无 server/controllers）。
+ * systemcode 可由客户端传入（须库内不存在）；否则服务端生成并重试避免冲突。
+ * POST /api/inventory/bom/save-main — 标准入口；POST /api/inventory/bom — 兼容旧调用。
+ */
+async function handleInvBomMasterSaveMain(req, res) {
+  try {
+    const body = req.body ?? {}
+    const kcaa01 = String(body.kcaa01 ?? '').trim()
+    const kcaa02 = String(body.kcaa02 ?? '').trim()
+    const kcaa05 = String(body.kcaa05 ?? '').trim()
+    const kcaa04 = String(body.kcaa04 ?? '').trim()
+    const kcaa25 = String(body.kcaa25 ?? '').trim()
+    if (!kcaa01 || !kcaa02) {
+      res.status(400).json({ code: 400, msg: '编码与名称不能为空', data: null })
+      return
+    }
+    if (!kcaa05 || !kcaa04 || !kcaa25) {
+      res.status(400).json({ code: 400, msg: '分类、使用单位、采购单位不能为空', data: null })
+      return
+    }
+    if (/\s/.test(kcaa01)) {
+      res.status(400).json({ code: 400, msg: '编码不能包含空格', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    if ((await countInvBomDuplicateKcaa01(pool, kcaa01, '')) > 0) {
+      res.status(400).json({ code: 400, msg: `编码「${kcaa01}」已存在，请勿重复新增`, data: null })
+      return
+    }
+
+    // 刷新 bom_000 列缓存，避免库内新加列后仍按旧清单 INSERT
+    INV_BOM_MASTER_COLSET_PROMISE = null
+    const colset = await getInvBomMasterColumnSet(pool)
+    const actor = getActorAuditTripletFromReq(req)
+
+    /** save-main 三连键 + 版本列缺一不可（列名按 INFORMATION_SCHEMA 转小写匹配：guid ↔ 物理列 GUID） */
+    const saveMainRequired = ['systemcode', 'guid', 'dr_systemcode', 'version']
+    const saveMainMissing = saveMainRequired.filter((c) => !colset.has(c))
+    if (saveMainMissing.length) {
+      res.status(500).json({
+        code: 500,
+        msg: `bom_000 缺少 save-main 必需列（${saveMainMissing.join(', ')}），无法写入三连键与版本`,
+        data: null,
+      })
+      return
+    }
+
+    /** @type {string} */
+    let systemcode = String(body.systemcode ?? '').trim()
+    if (systemcode) {
+      if (await invBomMasterSystemcodeExists(pool, systemcode)) {
+        res.status(400).json({ code: 400, msg: 'systemcode 已存在，无法保存', data: null })
+        return
+      }
+    } else {
+      let resolved = false
+      for (let i = 0; i < 12; i++) {
+        const cand = generateInvBomSystemcode(actor.uidInt ?? actor.uname ?? '')
+        if (!(await invBomMasterSystemcodeExists(pool, cand))) {
+          systemcode = cand
+          resolved = true
+          break
+        }
+      }
+      if (!resolved || !systemcode) {
+        res.status(400).json({ code: 400, msg: 'systemcode 已存在或生成冲突，请稍后重试', data: null })
+        return
+      }
+    }
+
+    const nowStr = formatBomColorcodeTimestamp()
+
+    const str = (k, max = 800) => {
+      let s = String(body[k] ?? '').trim()
+      if (s.length > max) s = s.slice(0, max)
+      return s
+    }
+    const decNum = (k) => {
+      const raw = body[k]
+      if (raw === '' || raw === null || raw === undefined) return null
+      const n = Number(raw)
+      return Number.isFinite(n) ? n : null
+    }
+    const bitInt = (k) => {
+      const v = body[k]
+      if (v === true || v === 1 || v === '1') return 1
+      return 0
+    }
+    const dirInt = (k) => {
+      const n = Number(body[k])
+      if (n === 0 || n === 1) return n
+      return 0
+    }
+
+    /** @type {string[]} */
+    const cols = []
+    /** @type {string[]} */
+    const vals = []
+    const ins = pool.request()
+
+    const pushNvarchar = (col, param, val, len) => {
+      if (!colset.has(col.toLowerCase())) return
+      cols.push(col === 'decimal' ? '[decimal]' : col)
+      vals.push(`@${param}`)
+      ins.input(param, sql.NVarChar(len), val ?? '')
+    }
+
+    // 三连赋值：同一参数绑定三次，保证 systemcode、GUID、dr_systemcode 绝对一致（2008 R2 兼容）
+    ins.input('bom_sc_triple', sql.NVarChar(100), systemcode)
+    cols.push('systemcode', '[GUID]', 'dr_systemcode')
+    vals.push('@bom_sc_triple', '@bom_sc_triple', '@bom_sc_triple')
+    // version：库内多为 int；用数值绑定，避免与 int 列隐式转换歧义
+    ins.input('bom_version_ins', sql.Int, 100)
+    cols.push('[version]')
+    vals.push('@bom_version_ins')
+    // 新增主档默认类型：bom_000.type = 1（列存在时写入；保留字列名须加方括号）
+    if (colset.has('type')) {
+      ins.input('bom_type_default', sql.Int, 1)
+      cols.push('[type]')
+      vals.push('@bom_type_default')
+    }
+    pushNvarchar('kcaa01', 'kcaa01', kcaa01, 300)
+    pushNvarchar('kcaa02', 'kcaa02', kcaa02, 500)
+    pushNvarchar('kcaa02_en', 'kcaa02_en', str('kcaa02_en', 500), 500)
+    pushNvarchar('kpname', 'kpname', str('kpname', 500), 500)
+    pushNvarchar('kcaa03', 'kcaa03', str('kcaa03', 500), 500)
+    pushNvarchar('kcaa05', 'kcaa05', str('kcaa05', 200), 200)
+    pushNvarchar('kcaa06', 'kcaa06', str('kcaa06', 300), 300)
+    pushNvarchar('kcaa09', 'kcaa09', str('kcaa09', 300), 300)
+    pushNvarchar('kcaa10', 'kcaa10', str('kcaa10', 200), 200)
+    pushNvarchar('kcaa11', 'kcaa11', str('kcaa11', 200), 200)
+    pushNvarchar('location', 'location', str('location', 200) || '国内', 200)
+    pushNvarchar('kcaa04', 'kcaa04', str('kcaa04', 100), 100)
+    pushNvarchar('kcaa25', 'kcaa25', str('kcaa25', 100), 100)
+    pushNvarchar('kcaa29', 'kcaa29', str('kcaa29', 100), 100)
+    pushNvarchar('kcaa34', 'kcaa34', str('kcaa34', 80), 80)
+    pushNvarchar('kcaa35', 'kcaa35', str('kcaa35', 80), 80)
+    pushNvarchar('remark', 'remark', str('remark', 2000), 2000)
+    pushNvarchar('Customer_Name', 'Customer_Name', str('Customer_Name', 500), 500)
+    pushNvarchar('decimal', 'bom_decimal', str('decimal', 20) || '2', 20)
+
+    if (colset.has('kcaa15')) {
+      cols.push('kcaa15')
+      vals.push('@kcaa15')
+      ins.input('kcaa15', sql.NVarChar(50), str('kcaa15', 50))
+    }
+
+    const pushInt = (col, param, v) => {
+      if (!colset.has(col.toLowerCase())) return
+      cols.push(col)
+      vals.push(`@${param}`)
+      ins.input(param, sql.Int, v)
+    }
+    pushInt('kcaa12', 'kcaa12', bitInt('kcaa12'))
+    pushInt('kcaa13', 'kcaa13', bitInt('kcaa13'))
+    pushInt('kcaa14', 'kcaa14', body.kcaa14 !== undefined && body.kcaa14 !== null ? bitInt('kcaa14') : 1)
+    pushInt('Customer_supply', 'Customer_supply', bitInt('Customer_supply'))
+    pushInt('kcaa27', 'kcaa27', dirInt('kcaa27'))
+    pushInt('kcaa31', 'kcaa31', dirInt('kcaa31'))
+    pushInt('sign', 'sign', body.sign !== undefined && body.sign !== null ? bitInt('sign') : 0)
+
+    const pushDec = (col, param) => {
+      if (!colset.has(col.toLowerCase())) return
+      const n = decNum(param)
+      cols.push(col)
+      vals.push(`@${param}`)
+      ins.input(param, sql.Decimal(18, 6), n != null ? n : 0)
+    }
+    if (colset.has('sale_price')) {
+      const n = decNum('sale_price')
+      cols.push('sale_price')
+      vals.push('@sale_price')
+      ins.input('sale_price', sql.Decimal(18, 6), n != null ? n : 0)
+    }
+    if (colset.has('cost_price')) {
+      const n = decNum('cost_price')
+      cols.push('cost_price')
+      vals.push('@cost_price')
+      ins.input('cost_price', sql.Decimal(18, 6), n != null ? n : 0)
+    }
+    pushDec('kcaa26', 'kcaa26')
+    pushDec('kcaa30', 'kcaa30')
+    pushDec('kcaa32', 'kcaa32')
+    pushDec('kcaa33', 'kcaa33')
+
+    if (colset.has('pass')) {
+      cols.push('pass')
+      vals.push("N'0'")
+    }
+    if (colset.has('del')) {
+      cols.push('del')
+      vals.push("N'0'")
+    }
+    if (colset.has('uid') && actor.uidInt != null) {
+      cols.push('uid')
+      vals.push('@uid')
+      ins.input('uid', sql.Int, actor.uidInt)
+    }
+    if (colset.has('uname') && actor.uname) {
+      cols.push('uname')
+      vals.push('@uname')
+      ins.input('uname', sql.NVarChar(50), actor.uname)
+    }
+    if (colset.has('utruename') && actor.utruename) {
+      cols.push('utruename')
+      vals.push('@utruename')
+      ins.input('utruename', sql.NVarChar(50), actor.utruename)
+    }
+    if (colset.has('addtime')) {
+      cols.push('addtime')
+      vals.push('@addtime')
+      ins.input('addtime', sql.NVarChar(50), nowStr)
+    }
+    if (colset.has('edittime')) {
+      cols.push('edittime')
+      vals.push('@edittime')
+      ins.input('edittime', sql.NVarChar(50), nowStr)
+    }
+
+    if (!cols.length) {
+      res.status(500).json({ code: 500, msg: '新增失败：未探测到可写入列', data: null })
+      return
+    }
+
+    const qr = await ins.query(`
+      INSERT INTO ${INV_BOM_MASTER_FROM} (${cols.join(', ')})
+      VALUES (${vals.join(', ')})
+    `)
+    if ((qr.rowsAffected?.[0] ?? 0) <= 0) {
+      res.status(500).json({ code: 500, msg: '新增失败：数据库未写入', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: { systemcode } })
+  } catch (err) {
+    console.error('POST BOM 主档新增(save-main) 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库写入失败')
+    res.status(500).json({ code: 500, msg: `新增 BOM 失败：${detail}`, data: null })
+  }
+}
+
+app.post('/api/inventory/bom/save-main', handleInvBomMasterSaveMain)
+app.post('/api/inventory/bom', handleInvBomMasterSaveMain)
+
+/**
+ * BOM 主档保存（未审可改）：按 systemcode 更新
+ * PUT /api/inventory/bom
+ */
+app.put('/api/inventory/bom', async (req, res) => {
+  try {
+    const body = req.body ?? {}
+    const systemcode = String(body.systemcode ?? '').trim()
+    if (!systemcode) {
+      res.status(400).json({ code: 400, msg: 'systemcode 不能为空', data: null })
+      return
+    }
+    const kcaa01 = String(body.kcaa01 ?? '').trim()
+    const kcaa02 = String(body.kcaa02 ?? '').trim()
+    const kcaa05 = String(body.kcaa05 ?? '').trim()
+    const kcaa04 = String(body.kcaa04 ?? '').trim()
+    const kcaa25 = String(body.kcaa25 ?? '').trim()
+    if (!kcaa01 || !kcaa02) {
+      res.status(400).json({ code: 400, msg: '编码与名称不能为空', data: null })
+      return
+    }
+    if (!kcaa05 || !kcaa04 || !kcaa25) {
+      res.status(400).json({ code: 400, msg: '分类、使用单位、采购单位不能为空', data: null })
+      return
+    }
+    if (/\s/.test(kcaa01)) {
+      res.status(400).json({ code: 400, msg: '编码不能包含空格', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    if ((await countInvBomDuplicateKcaa01(pool, kcaa01, systemcode)) > 0) {
+      res.status(400).json({ code: 400, msg: `编码「${kcaa01}」已被其他 BOM 使用`, data: null })
+      return
+    }
+
+    const colset = await getInvBomMasterColumnSet(pool)
+    const actor = getActorAuditTripletFromReq(req)
+    const nowStr = formatBomColorcodeTimestamp()
+
+    const str = (k, max = 800) => {
+      let s = String(body[k] ?? '').trim()
+      if (s.length > max) s = s.slice(0, max)
+      return s
+    }
+    const decNum = (k) => {
+      const raw = body[k]
+      if (raw === '' || raw === null || raw === undefined) return null
+      const n = Number(raw)
+      return Number.isFinite(n) ? n : null
+    }
+    const bitInt = (k) => {
+      const v = body[k]
+      if (v === true || v === 1 || v === '1') return 1
+      return 0
+    }
+    const dirInt = (k) => {
+      const n = Number(body[k])
+      if (n === 0 || n === 1) return n
+      return 0
+    }
+
+    /** @type {string[]} */
+    const setParts = []
+    const upd = pool.request().input('systemcode', sql.NVarChar(100), systemcode)
+
+    const setNvarchar = (col, param, val, len) => {
+      if (!colset.has(col.toLowerCase())) return
+      const csql = col === 'decimal' ? '[decimal]' : col
+      setParts.push(`${csql} = @${param}`)
+      upd.input(param, sql.NVarChar(len), val ?? '')
+    }
+
+    setNvarchar('kcaa01', 'kcaa01', kcaa01, 300)
+    setNvarchar('kcaa02', 'kcaa02', kcaa02, 500)
+    setNvarchar('kcaa02_en', 'kcaa02_en', str('kcaa02_en', 500), 500)
+    setNvarchar('kpname', 'kpname', str('kpname', 500), 500)
+    setNvarchar('kcaa03', 'kcaa03', str('kcaa03', 500), 500)
+    setNvarchar('kcaa05', 'kcaa05', str('kcaa05', 200), 200)
+    setNvarchar('kcaa06', 'kcaa06', str('kcaa06', 300), 300)
+    setNvarchar('kcaa09', 'kcaa09', str('kcaa09', 300), 300)
+    setNvarchar('kcaa10', 'kcaa10', str('kcaa10', 200), 200)
+    setNvarchar('kcaa11', 'kcaa11', str('kcaa11', 200), 200)
+    setNvarchar('location', 'location', str('location', 200) || '国内', 200)
+    setNvarchar('kcaa04', 'kcaa04', str('kcaa04', 100), 100)
+    setNvarchar('kcaa25', 'kcaa25', str('kcaa25', 100), 100)
+    setNvarchar('kcaa29', 'kcaa29', str('kcaa29', 100), 100)
+    setNvarchar('kcaa34', 'kcaa34', str('kcaa34', 80), 80)
+    setNvarchar('kcaa35', 'kcaa35', str('kcaa35', 80), 80)
+    setNvarchar('remark', 'remark', str('remark', 2000), 2000)
+    setNvarchar('Customer_Name', 'Customer_Name', str('Customer_Name', 500), 500)
+    setNvarchar('decimal', 'bom_decimal', str('decimal', 20) || '2', 20)
+
+    if (colset.has('kcaa15')) {
+      setParts.push('kcaa15 = @kcaa15')
+      upd.input('kcaa15', sql.NVarChar(50), str('kcaa15', 50))
+    }
+
+    const setInt = (col, param, v) => {
+      if (!colset.has(col.toLowerCase())) return
+      setParts.push(`${col} = @${param}`)
+      upd.input(param, sql.Int, v)
+    }
+    setInt('kcaa12', 'kcaa12', bitInt('kcaa12'))
+    setInt('kcaa13', 'kcaa13', bitInt('kcaa13'))
+    setInt('kcaa14', 'kcaa14', bitInt('kcaa14'))
+    setInt('Customer_supply', 'Customer_supply', bitInt('Customer_supply'))
+    setInt('kcaa27', 'kcaa27', dirInt('kcaa27'))
+    setInt('kcaa31', 'kcaa31', dirInt('kcaa31'))
+    setInt('sign', 'sign', bitInt('sign'))
+
+    if (colset.has('sale_price')) {
+      const n = decNum('sale_price')
+      setParts.push('sale_price = @sale_price')
+      upd.input('sale_price', sql.Decimal(18, 6), n != null ? n : 0)
+    }
+    if (colset.has('cost_price')) {
+      const n = decNum('cost_price')
+      setParts.push('cost_price = @cost_price')
+      upd.input('cost_price', sql.Decimal(18, 6), n != null ? n : 0)
+    }
+
+    const setDec = (col, param) => {
+      if (!colset.has(col.toLowerCase())) return
+      const n = decNum(param)
+      setParts.push(`${col} = @${param}`)
+      upd.input(param, sql.Decimal(18, 6), n != null ? n : 0)
+    }
+    setDec('kcaa26', 'kcaa26')
+    setDec('kcaa30', 'kcaa30')
+    setDec('kcaa32', 'kcaa32')
+    setDec('kcaa33', 'kcaa33')
+
+    if (colset.has('uid') && actor.uidInt != null) {
+      setParts.push('uid = @uid')
+      upd.input('uid', sql.Int, actor.uidInt)
+    }
+    if (colset.has('uname') && actor.uname) {
+      setParts.push('uname = @uname')
+      upd.input('uname', sql.NVarChar(50), actor.uname)
+    }
+    if (colset.has('utruename') && actor.utruename) {
+      setParts.push('utruename = @utruename')
+      upd.input('utruename', sql.NVarChar(50), actor.utruename)
+    }
+    if (colset.has('edittime')) {
+      setParts.push('edittime = @edittime')
+      upd.input('edittime', sql.NVarChar(50), nowStr)
+    }
+
+    // 保存主档时保持 dr_systemcode、guid 与 systemcode 一致
+    if (colset.has('dr_systemcode')) {
+      setParts.push('dr_systemcode = @sync_dr_systemcode')
+      upd.input('sync_dr_systemcode', sql.NVarChar(100), systemcode)
+    }
+    if (colset.has('guid')) {
+      setParts.push('[GUID] = @sync_guid')
+      upd.input('sync_guid', sql.NVarChar(100), systemcode)
+    }
+
+    if (!setParts.length) {
+      res.status(400).json({ code: 400, msg: '无可更新字段', data: null })
+      return
+    }
+
+    const qr = await upd.query(`
+      UPDATE ${INV_BOM_MASTER_FROM}
+      SET ${setParts.join(', ')}
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(systemcode, N'')))) = @systemcode
+        AND (ISNULL(del, N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), del), N''))) = N'0')
+        AND LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(10), pass), N''))) <> N'1'
+    `)
+    if ((qr.rowsAffected?.[0] ?? 0) <= 0) {
+      res.status(400).json({
+        code: 400,
+        msg: '保存失败：记录不存在、已审核或已删除',
+        data: null,
+      })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: { systemcode } })
+  } catch (err) {
+    console.error('PUT /api/inventory/bom 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `保存 BOM 失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * BOM 主档审核：PUT /api/inventory/bom/audit — body:{ systemcode }
+ */
+app.put('/api/inventory/bom/audit', async (req, res) => {
+  try {
+    const systemcode = String(req.body?.systemcode ?? '').trim()
+    if (!systemcode) {
+      res.status(400).json({ code: 400, msg: 'systemcode 不能为空', data: null })
+      return
+    }
+    const pool = await getPool()
+    const existing = await fetchInvBomMasterRowBySystemcode(pool, systemcode)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该 BOM 或已在回收站', data: null })
+      return
+    }
+    if (legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: '当前已是已审核状态', data: null })
+      return
+    }
+    const edittimeStr = formatBomColorcodeTimestamp()
+    await pool
+      .request()
+      .input('sc', sql.NVarChar(100), systemcode)
+      .input('edittime', sql.NVarChar(50), edittimeStr)
+      .query(`
+        UPDATE ${INV_BOM_MASTER_FROM}
+        SET pass = N'1', edittime = @edittime
+        WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(systemcode, N'')))) = @sc
+          AND (ISNULL(del, N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), del), N''))) = N'0')
+      `)
+    res.json({ code: 200, msg: 'success', data: { systemcode } })
+  } catch (err) {
+    console.error('PUT /api/inventory/bom/audit 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `审核失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * BOM 主档反审：PUT /api/inventory/bom/unaudit — body:{ systemcode }
+ */
+app.put('/api/inventory/bom/unaudit', async (req, res) => {
+  try {
+    const systemcode = String(req.body?.systemcode ?? '').trim()
+    if (!systemcode) {
+      res.status(400).json({ code: 400, msg: 'systemcode 不能为空', data: null })
+      return
+    }
+    const pool = await getPool()
+    const existing = await fetchInvBomMasterRowBySystemcode(pool, systemcode)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该 BOM 或已在回收站', data: null })
+      return
+    }
+    if (!legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: '当前为未审核状态，无需反审', data: null })
+      return
+    }
+    const edittimeStr = formatBomColorcodeTimestamp()
+    await pool
+      .request()
+      .input('sc', sql.NVarChar(100), systemcode)
+      .input('edittime', sql.NVarChar(50), edittimeStr)
+      .query(`
+        UPDATE ${INV_BOM_MASTER_FROM}
+        SET pass = N'0', edittime = @edittime
+        WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(systemcode, N'')))) = @sc
+          AND (ISNULL(del, N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), del), N''))) = N'0')
+      `)
+    res.json({ code: 200, msg: 'success', data: { systemcode } })
+  } catch (err) {
+    console.error('PUT /api/inventory/bom/unaudit 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `反审失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * BOM 主档恢复（回收站）：PUT /api/inventory/bom/restore — body:{ systemcode }
+ */
+app.put('/api/inventory/bom/restore', async (req, res) => {
+  try {
+    const systemcode = String(req.body?.systemcode ?? '').trim()
+    if (!systemcode) {
+      res.status(400).json({ code: 400, msg: 'systemcode 不能为空', data: null })
+      return
+    }
+    const pool = await getPool()
+    const existing = await fetchInvBomMasterRowBySystemcode(pool, systemcode)
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该 BOM', data: null })
+      return
+    }
+    if (legacyDeptRowIsActive(existing)) {
+      res.status(400).json({ code: 400, msg: '当前记录未处于回收站，无需恢复', data: null })
+      return
+    }
+    const edittimeStr = formatBomColorcodeTimestamp()
+    await pool
+      .request()
+      .input('sc', sql.NVarChar(100), systemcode)
+      .input('edittime', sql.NVarChar(50), edittimeStr)
+      .query(`
+        UPDATE ${INV_BOM_MASTER_FROM}
+        SET del = N'0', edittime = @edittime
+        WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(systemcode, N'')))) = @sc
+          AND LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), del), N''))) = N'1'
+      `)
+    res.json({ code: 200, msg: 'success', data: { systemcode } })
+  } catch (err) {
+    console.error('PUT /api/inventory/bom/restore 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `恢复失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * BOM 主档彻底删除：DELETE /api/inventory/bom/systemcode/:systemcode/permanent（仅回收站 del=1）
+ */
+app.delete('/api/inventory/bom/systemcode/:systemcode/permanent', async (req, res) => {
+  try {
+    let systemcode = ''
+    try {
+      systemcode = decodeURIComponent(String(req.params?.systemcode ?? '').trim())
+    } catch {
+      systemcode = String(req.params?.systemcode ?? '').trim()
+    }
+    if (!systemcode) {
+      res.status(400).json({ code: 400, msg: 'systemcode 不能为空', data: null })
+      return
+    }
+    const pool = await getPool()
+    const existing = await fetchInvBomMasterRowBySystemcode(pool, systemcode)
+    if (!existing) {
+      res.status(404).json({ code: 404, msg: '未找到该 BOM', data: null })
+      return
+    }
+    if (legacyDeptRowIsActive(existing)) {
+      res.status(400).json({
+        code: 400,
+        msg: '仅回收站中的记录可彻底删除，请先将记录移入回收站',
+        data: null,
+      })
+      return
+    }
+    const delResult = await pool.request().input('sc', sql.NVarChar(100), systemcode).query(`
+      DELETE FROM ${INV_BOM_MASTER_FROM}
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(systemcode, N'')))) = @sc
+        AND LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), del), N''))) = N'1'
+    `)
+    const affected = Array.isArray(delResult.rowsAffected)
+      ? Number(delResult.rowsAffected[0] ?? 0)
+      : Number(delResult.rowsAffected ?? 0)
+    if (!Number.isFinite(affected) || affected < 1) {
+      res.status(404).json({ code: 404, msg: '未找到可彻底删除的回收站记录', data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: { systemcode } })
+  } catch (err) {
+    console.error('DELETE /api/inventory/bom/systemcode/:systemcode/permanent 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库删除失败')
+    res.status(500).json({ code: 500, msg: `彻底删除失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * BOM 主档逻辑删除：DELETE /api/inventory/bom/systemcode/:systemcode — 已审核禁止
+ */
+app.delete('/api/inventory/bom/systemcode/:systemcode', async (req, res) => {
+  try {
+    let systemcode = ''
+    try {
+      systemcode = decodeURIComponent(String(req.params?.systemcode ?? '').trim())
+    } catch {
+      systemcode = String(req.params?.systemcode ?? '').trim()
+    }
+    if (!systemcode) {
+      res.status(400).json({ code: 400, msg: 'systemcode 不能为空', data: null })
+      return
+    }
+    const pool = await getPool()
+    const existing = await fetchInvBomMasterRowBySystemcode(pool, systemcode)
+    if (!existing || !legacyDeptRowIsActive(existing)) {
+      res.status(404).json({ code: 404, msg: '未找到该 BOM 或已在回收站', data: null })
+      return
+    }
+    if (legacyDeptPassIsAudited(existing.pass)) {
+      res.status(400).json({ code: 400, msg: HR_STAFF_AUDIT_LOCK_MSG, data: null })
+      return
+    }
+    const deltimeStr = formatBomColorcodeTimestamp()
+    await pool
+      .request()
+      .input('sc', sql.NVarChar(100), systemcode)
+      .input('deltime', sql.NVarChar(50), deltimeStr)
+      .query(`
+        UPDATE ${INV_BOM_MASTER_FROM}
+        SET del = N'1', deltime = @deltime
+        WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(systemcode, N'')))) = @sc
+          AND (ISNULL(del, N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), del), N''))) = N'0')
+      `)
+    res.json({ code: 200, msg: 'success', data: { systemcode } })
+  } catch (err) {
+    console.error('DELETE /api/inventory/bom/systemcode/:systemcode 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
+    res.status(500).json({ code: 500, msg: `删除失败：${detail}`, data: null })
   }
 })
 
@@ -7617,22 +8685,27 @@ app.get('/api/inventory/bom/:id', async (req, res) => {
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.remark, N'')))) AS remark,
         LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(80), b.kcaa32), N''))) AS kcaa32,
         LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(80), b.kcaa33), N''))) AS kcaa33,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(80), b.kcaa26), N''))) AS kcaa26,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.kcaa27), N''))) AS kcaa27,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(80), b.kcaa30), N''))) AS kcaa30,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.kcaa31), N''))) AS kcaa31,
         LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.kcaa12), N''))) AS kcaa12,
         LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.kcaa13), N''))) AS kcaa13,
         LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.kcaa14), N''))) AS kcaa14,
         LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.kcaa15), N''))) AS kcaa15,
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(ws.name, N'')))) AS workshopName,
-        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.Customer_supply), N''))) AS Customer_supply
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.Customer_supply), N''))) AS Customer_supply,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.Customer_Name, N'')))) AS Customer_Name,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(sup.s_name, N'')))) AS supplierName,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.sign), N''))) AS sign
       FROM ${INV_BOM_MASTER_FROM} AS b
       LEFT JOIN ${BOM_MATERIAL_FROM} AS cat
         ON LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(200), b.kcaa05), N''))) = LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(200), cat.code), N'')))
       LEFT JOIN ${BOM_STOCKS_WORKSHOP_FROM} AS ws
         ON LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(200), b.kcaa15), N''))) = LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(200), ws.code), N'')))
+      LEFT JOIN ${SYS_SUPPLIER_FROM} AS sup
+        ON LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(500), b.Customer_Name), N''))) = LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(100), sup.s_code), N'')))
       WHERE LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) = @code
-        AND (
-          ISNULL(CONVERT(nvarchar(20), b.del), N'') = N''
-          OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.del), N''))) = N'0'
-        )
     `)
 
     const row = r.recordset?.[0] ?? null
@@ -7654,7 +8727,17 @@ app.get('/api/inventory/bom/:id', async (req, res) => {
           ? Number(csRaw) === 1
           : flagChecked(row.Customer_supply)
 
-    const unit_conversion = await fetchBomUnitConversionDetail(pool, row.kcaa04, row.kcaa25, row.kcaa29)
+    let unit_conversion = await fetchBomUnitConversionDetail(pool, row.kcaa04, row.kcaa25, row.kcaa29)
+    const k26s = str(row.kcaa26).trim()
+    const k30s = str(row.kcaa30).trim()
+    if (k26s) unit_conversion = { ...unit_conversion, purchase_rate: k26s }
+    if (k30s) unit_conversion = { ...unit_conversion, quote_rate: k30s }
+    const k27s = str(row.kcaa27).trim()
+    if (k27s === '0') unit_conversion = { ...unit_conversion, purchase_direction: 'po_to_use' }
+    else if (k27s === '1') unit_conversion = { ...unit_conversion, purchase_direction: 'use_to_po' }
+    const k31s = str(row.kcaa31).trim()
+    if (k31s === '0') unit_conversion = { ...unit_conversion, quote_direction: 'qt_to_use' }
+    else if (k31s === '1') unit_conversion = { ...unit_conversion, quote_direction: 'use_to_qt' }
 
     /** BOM 币别 kcaa34：测试期固定码表；未知编码原样返回便于核对库值 */
     const kcaa34Raw = str(row.kcaa34).trim()
@@ -7663,6 +8746,7 @@ app.get('/api/inventory/bom/:id', async (req, res) => {
       kcaa34Raw === '' ? '' : Object.prototype.hasOwnProperty.call(kcaa34DisplayMap, kcaa34Raw) ? kcaa34DisplayMap[kcaa34Raw] : kcaa34Raw
 
     const workshop_display = buildBomWorkshopDisplay(row.kcaa15, row.workshopName)
+    const supplier_display = buildBomWorkshopDisplay(row.Customer_Name, row.supplierName)
 
     const basic = {
       systemcode: str(row.systemcode),
@@ -7691,12 +8775,19 @@ app.get('/api/inventory/bom/:id', async (req, res) => {
       remark: str(row.remark),
       kcaa32: str(row.kcaa32),
       kcaa33: str(row.kcaa33),
+      kcaa26: str(row.kcaa26),
+      kcaa27: str(row.kcaa27),
+      kcaa30: str(row.kcaa30),
+      kcaa31: str(row.kcaa31),
+      Customer_Name: str(row.Customer_Name),
+      supplier_display,
+      sign: str(row.sign),
       unit_conversion,
       workshop_display,
+      kcaa15: str(row.kcaa15),
       kcaa12_checked: flagChecked(row.kcaa12),
       kcaa13_checked: flagChecked(row.kcaa13),
       kcaa14_checked: flagChecked(row.kcaa14),
-      kcaa15_checked: flagChecked(row.kcaa15),
       customer_supply_checked,
     }
 
@@ -12827,12 +13918,14 @@ app.listen(port, () => {
   console.log(`Report-Dept-Name-Mapping-v1.1.6 ${bootAt}`)
   console.log(`Dorm-Electric-Context-MonthFilter-Fixed-v1.1.7 ${bootAt}`)
   console.log(`BOM-List-Initial-v1.1.7 ${bootAt} table=${INV_BOM_MASTER_TABLE}`)
+  console.log(`BOM-SaveMain-Route-Active ${bootAt} POST /api/inventory/bom/save-main`)
   console.log(`BOM-SUM-Statistical-Column-v1.1.7 ${bootAt}`)
   console.log(`BOM-Dynamic-Rules-From-BomCode-v1.1.7 ${bootAt}`)
   console.log(`BOM-UI-Optimization-v1.1.7-Final ${bootAt}`)
   console.log(`BOM-Search-Filter-DefaultExcludeCUT-v1.1.7 ${bootAt}`)
   console.log(`BOM-Search-Core-Link-v1.1.7 ${bootAt}`)
   console.log(`BOM-Search-CUT-Suffix-Link-v1.1.7 ${bootAt}`)
+  console.log(`BOM-Parts-Seq-Persist ${bootAt} GET/PUT Bom_parts.[Seq]`)
   console.log(`ColorCode-Module-Initial-v1.0.0 ${bootAt}`)
   console.log(`ColorCode-Add-DirectMode-v1.1.0 ${bootAt}`)
   console.log(`ColorCode-Audit-Fields-Correction-v1.1.1 ${bootAt}`)
