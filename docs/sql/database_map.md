@@ -233,6 +233,7 @@
 - **模块/页面**
   - 前端：`src/views/inv/bom/index.vue` 详情弹窗 **Tab「配件明细」**（与 `inventory/basic/bom-data` 内嵌复用同一页）
 - **接口（后端：`server/index.js`）**
+  - **`GET /api/bom/tree?systemcode=...`**（**v1.2.7+**，用量表运算 Tab）：按 **`kcac01` → `kcac02`** 递归读 **`Bom_parts`**；**`WHERE` 仅按 `kcac01` 匹配**（与 **`GET /api/inventory/bom/parts`** 一致，**不在 SQL 中按 `del` 剔除**，避免旧库 `del` 为 NULL/空时子层查成 0 行）；**`kcac01`/`kcac02` 比较用 `CAST(… nvarchar(500))`**，避免 `CONVERT(100)` 截断长 `systemcode`；每层 **`ORDER BY Seq`**；返回 **嵌套 `children`** 树；**不写入** `bom_cost` / `Bom_consumption`；循环引用 **409**「检测到BOM循环引用」；权限同配件 **`view`**
   - `GET /api/inventory/bom/parts/:systemcode`：先 **TOP 1** 判断主档 `bom_000.systemcode` 存在且在册，再查 `Bom_parts`（`WHERE kcac01=@systemcode`，子行在册 `del`）；列表字段 **`kcaa01`/`kcaa02`/`kcaa03`/`kcaa11`** 优先通过 **`OUTER APPLY`**（按 `Bom_parts.kcaa01` = `bom_000.kcaa01` 匹配在册主档，`ORDER BY b.id DESC` **TOP 1**）取自 **`bom_000`**，无匹配时回退配件表同行；**不**对整表 `bom_000` 做大 JOIN；返回 **`kcac06`**（用量合计）
   - `PUT /api/inventory/bom/parts/:systemcode`：body `{ lines: [...] }` 批量处理；`id`+`pendingDelete=true` → 满足 **`id` + `kcac01`=主档 `systemcode`** 时物理删行；有 `id` 且未标记删除 → **`UPDATE … WHERE p.id=@id AND kcac01 匹配`**，写入 **`kcac04`/`kcac05`/`kcac06`**（若物理表存在 **`kcac06`** 列）及单价/备注等；无 `id` → `INSERT`。写入前 Node 侧对 **`kcac04`/`kcac05`/`kcac06`** 做 **6 位小数规整**（与 **decimal(18,6)** 对齐，§2）。成功更新用量类字段后写审计：`[更新]了配件用量，BOM：[主档 kcaa01]，配件：[kcaa01]，用量：[kcac04]，损耗：[kcac05]`
 - **关键字段（与当前接口一致）**
@@ -243,7 +244,7 @@
 
 ### 3.6.2 `Bom_cost` / `Bom_consumption`（历史表：曾用于用量运算）
 
-- **说明**：部分库中仍存在上述物理表及历史数据。**当前版本已移除** BOM 用量运算的前端 Tab 与对应接口（原 `usage-calc` / `usage-result`），应用层不再读写这两张表。
+- **说明**：部分库中仍存在上述物理表及历史数据。用量表 Tab 已恢复 **只读递归树**（`GET /api/bom/tree`，见 §3.6.1），**仍不读写** `Bom_cost` / `Bom_consumption`。
 - **备注**：若需清理数据或重新规划功能，请在库侧另行评估；旧版算法说明曾归档于 [`docs/bom运算需求文档.md`](../bom运算需求文档.md)（仅供参考，与现行代码可能不一致）。
 
 ### 3.7 `Bom_colorcode`（颜色编码，v1.0.0+）

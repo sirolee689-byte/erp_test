@@ -11,6 +11,12 @@
 - **稳定键**：`systemcode`（配件 `Bom_parts.kcac01` 等关联此字段）
 - **业务编码**：`kcaa01`（列表 `code`）；状态：`pass`（审核）、`del`（逻辑删除）
 
+## 详情弹窗标签页
+
+- **基础资料 / 配件明细**：既有功能。
+- **BOM用量表运算**：「运算」/「刷新」请求 **`GET /api/bom/tree?systemcode=`**，返回 **嵌套 `children` 的树**；单层 SQL **只按 `kcac01` 匹配**（不按 `del` 过滤，与配件 GET 一致，避免旧库 `del` 空值导致子层 0 行）；**`kcac01`/`kcac02` 用 500 长 nvarchar 比较**防截断。前端 **`el-table` 树形表** + 展开/关闭全部。
+- **成本BOM用量表 / 成本BOM真实用量表**：占位页，后续迭代。
+
 ## 配件明细（`Bom_parts`）
 
 - **`GET /api/inventory/bom/parts/:systemcode`**：`kcaa01`/`kcaa02`/`kcaa03`/`kcaa11` 优先按 **`bom_000.kcaa01`**（在册主档，`OUTER APPLY` **TOP 1**）展示；无匹配则用配件表原列。

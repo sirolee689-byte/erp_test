@@ -614,6 +614,90 @@
                 </div>
                 <MaterialSelector v-model="materialSelectorVisible" @picked="onMaterialPicked" />
               </el-tab-pane>
+              <el-tab-pane label="BOM用量表运算" name="usageCalc" :disabled="!bomBasic">
+                <div class="bom-parts-toolbar bom-usage-calc-toolbar">
+                  <el-button
+                    v-if="detailDrillStack.length"
+                    type="primary"
+                    link
+                    class="bom-detail-drill-bar__btn--toolbar"
+                    @click="goBackDetailDrill"
+                  >
+                    ← 返回上一层
+                  </el-button>
+                  <el-button
+                    type="primary"
+                    :loading="bomUsageTreeLoading"
+                    :disabled="!bomSystemcode || bomUsageTreeLoading"
+                    @click="onBomUsageTableCalc"
+                  >
+                    运算
+                  </el-button>
+                  <el-button :disabled="!bomUsageTreeData.length" @click="expandAllBomUsageTree">展开全部</el-button>
+                  <el-button :disabled="!bomUsageTreeData.length" @click="collapseAllBomUsageTree">关闭全部</el-button>
+                  <el-button :disabled="!bomSystemcode || bomUsageTreeLoading" @click="onBomUsageTableCalc">
+                    刷新
+                  </el-button>
+                  <span class="bom-usage-calc-toolbar__hint">树形表格数据源：嵌套 children，只读 Bom_parts</span>
+                </div>
+                <el-alert
+                  v-if="bomUsageTreeError"
+                  :title="bomUsageTreeError"
+                  type="error"
+                  show-icon
+                  class="bom-parts-alert"
+                />
+                <div v-loading="bomUsageTreeLoading" class="bom-usage-tree-wrap">
+                  <div v-if="bomUsageTreeData.length" class="bom-usage-table-outer">
+                    <el-table
+                      ref="bomUsageTableRef"
+                      :data="bomUsageTreeData"
+                      row-key="id"
+                      border
+                      stripe
+                      size="small"
+                      class="bom-usage-tree-table"
+                      :tree-props="{ children: 'children' }"
+                      default-expand-all
+                      max-height="calc(100vh - 280px)"
+                    >
+                      <el-table-column prop="kcaa01" label="编码" min-width="200" fixed="left" show-overflow-tooltip />
+                      <el-table-column prop="kcaa02" label="名称" min-width="120" show-overflow-tooltip />
+                      <el-table-column prop="kcaa03" label="规格" min-width="120" show-overflow-tooltip />
+                      <el-table-column prop="kcaa04" label="单位" width="72" align="center" show-overflow-tooltip />
+                      <el-table-column label="用量(kcac04)" width="118" align="right">
+                        <template #default="{ row }">{{ formatQty(row.kcac04) }}</template>
+                      </el-table-column>
+                      <el-table-column label="损耗(kcac05)" width="118" align="right">
+                        <template #default="{ row }">{{ formatQty(row.kcac05) }}</template>
+                      </el-table-column>
+                      <el-table-column label="备用损耗(kcaa33)" width="132" align="right">
+                        <template #default="{ row }">{{ formatQty(row.kcaa33) }}</template>
+                      </el-table-column>
+                      <el-table-column prop="Describe" label="备注" min-width="100" show-overflow-tooltip />
+                      <el-table-column prop="Seq" label="Seq" width="64" align="center" />
+                      <el-table-column prop="level" label="层级" width="64" align="center" />
+                      <el-table-column prop="kcac02" label="下层BOM(kcac02)" min-width="160" show-overflow-tooltip />
+                      <el-table-column prop="systemcode" label="行systemcode" min-width="160" show-overflow-tooltip />
+                    </el-table>
+                  </div>
+                  <el-empty
+                    v-else-if="!bomUsageTreeLoading && !bomUsageTreeError"
+                    description="点击「运算」加载树形表格（嵌套 children）"
+                    :image-size="72"
+                  />
+                </div>
+              </el-tab-pane>
+              <el-tab-pane label="成本BOM用量表" name="costBomUsage" :disabled="!bomBasic">
+                <div class="bom-detail-tab-placeholder">
+                  <el-empty description="功能开发中" :image-size="80" />
+                </div>
+              </el-tab-pane>
+              <el-tab-pane label="成本BOM真实用量表" name="costBomRealUsage" :disabled="!bomBasic">
+                <div class="bom-detail-tab-placeholder">
+                  <el-empty description="功能开发中" :image-size="80" />
+                </div>
+              </el-tab-pane>
             </el-tabs>
           </template>
         </template>
@@ -1175,6 +1259,49 @@ const bomBasic = ref(null)
 const detailListRow = ref(null)
 const detailActiveTab = ref('basic')
 
+/** BOM用量表运算：树形表格数据源（GET /api/bom/tree，嵌套 children） */
+const bomUsageTreeLoading = ref(false)
+const bomUsageTreeError = ref('')
+const bomUsageTreeData = ref([])
+const bomUsageTableRef = ref(null)
+
+/** 遍历树（先序），供展开/折叠 */
+function walkBomUsageTree(rows, fn) {
+  if (!Array.isArray(rows)) return
+  for (const row of rows) {
+    fn(row)
+    if (row.children?.length) walkBomUsageTree(row.children, fn)
+  }
+}
+
+function expandAllBomUsageTree() {
+  nextTick(() => {
+    const t = bomUsageTableRef.value
+    if (!t) return
+    walkBomUsageTree(bomUsageTreeData.value, (row) => {
+      if (row.children?.length) t.toggleRowExpansion(row, true)
+    })
+  })
+}
+
+function collapseAllBomUsageTree() {
+  nextTick(() => {
+    const t = bomUsageTableRef.value
+    if (!t) return
+    walkBomUsageTree(bomUsageTreeData.value, (row) => {
+      if (row.children?.length) t.toggleRowExpansion(row, false)
+    })
+  })
+}
+
+/** 详情弹窗 Tab 名集合（钻取返回时校验恢复） */
+const DETAIL_VALID_TABS = new Set(['basic', 'parts', 'usageCalc', 'costBomUsage', 'costBomRealUsage'])
+
+function normalizeRestoredDetailTab(name) {
+  const n = String(name ?? '').trim()
+  return DETAIL_VALID_TABS.has(n) ? n : 'basic'
+}
+
 /** 配件明细 Tab */
 const partsList = ref([])
 const partsLoading = ref(false)
@@ -1188,7 +1315,7 @@ const partsPendingDeleteIds = ref([])
 
 /**
  * 从配件「查看/查看配件」钻取下一层 BOM 时的返回栈（不含当前层）
- * @typedef {{ code: string, titleCode: string, listRow: { code: string, pass: unknown } | null, activeTab: string, partsPendingDeleteIds: number[] }} DetailDrillFrame
+ * @typedef {{ code: string, titleCode: string, listRow: { code: string, pass: unknown } | null, activeTab: 'basic'|'parts'|'usageCalc'|'costBomUsage'|'costBomRealUsage'|string, partsPendingDeleteIds: number[] }} DetailDrillFrame
  */
 /** @type {import('vue').Ref<DetailDrillFrame[]>} */
 const detailDrillStack = ref([])
@@ -1241,7 +1368,7 @@ async function goBackDetailDrill() {
     bomBasic.value = basic
     detailTitleCode.value = String(prev.titleCode ?? basic.kcaa01 ?? '').trim() || String(basic.kcaa01 ?? '').trim()
     detailListRow.value = { code: String(basic.kcaa01 ?? '').trim(), pass: basic.pass }
-    detailActiveTab.value = prev.activeTab === 'parts' ? 'parts' : 'basic'
+    detailActiveTab.value = normalizeRestoredDetailTab(prev.activeTab)
     partsPendingDeleteIds.value = [...(prev.partsPendingDeleteIds ?? [])]
     partsError.value = ''
     partsList.value = []
@@ -1254,6 +1381,35 @@ async function goBackDetailDrill() {
     detailDrillStack.value.push(prev)
   } finally {
     detailLoading.value = false
+  }
+}
+
+/** BOM用量表运算：仅请求后端递归读取 Bom_parts 树（不写库、不做用量计算） */
+async function onBomUsageTableCalc() {
+  if (!bomSystemcode.value) {
+    ElMessage.warning('主档缺少 systemcode，无法运算')
+    return
+  }
+  bomUsageTreeLoading.value = true
+  bomUsageTreeError.value = ''
+  try {
+    const res = await axios.get('/api/bom/tree', { params: { systemcode: bomSystemcode.value } })
+    const body = res.data
+    if (!body?.success) {
+      const msg = String(body?.msg ?? '加载失败')
+      bomUsageTreeError.value = msg
+      bomUsageTreeData.value = []
+      ElMessage.error(msg)
+      return
+    }
+    bomUsageTreeData.value = Array.isArray(body.data) ? body.data : []
+  } catch (e) {
+    const msg = String(e?.response?.data?.msg ?? e?.message ?? '网络错误')
+    bomUsageTreeError.value = msg
+    bomUsageTreeData.value = []
+    ElMessage.error(msg)
+  } finally {
+    bomUsageTreeLoading.value = false
   }
 }
 
@@ -2339,6 +2495,9 @@ function onDetailClosed() {
   partsLoadedToken.value = ''
   partsLoadGeneration.value += 1
   materialSelectorVisible.value = false
+  bomUsageTreeLoading.value = false
+  bomUsageTreeError.value = ''
+  bomUsageTreeData.value = []
 }
 
 const hintShort = computed(() => {
@@ -2935,6 +3094,39 @@ loadData()
   color: var(--el-text-color-regular);
   margin: 10px 0 6px;
 }
+.bom-usage-calc-toolbar__hint {
+  margin-left: 8px;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+.bom-detail-tab-placeholder {
+  min-height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 0;
+}
+
+.bom-usage-tree-wrap {
+  min-height: 240px;
+  margin-top: 8px;
+  padding: 8px 4px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+}
+
+/* 树形表：横向字段多，外层横向滚动 + 视口限高（.cursorrules 超长表格约定） */
+.bom-usage-table-outer {
+  width: 100%;
+  overflow-x: auto;
+  max-height: calc(100vh - 260px);
+}
+
+.bom-usage-tree-table {
+  min-width: 1100px;
+}
+
 .bom-parts-toolbar {
   display: flex;
   flex-wrap: wrap;

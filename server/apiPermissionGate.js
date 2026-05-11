@@ -254,6 +254,16 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'hr/dormitory/lodging-records', action: 'audit' }
   }
 
+  /* BOM 用量树：仅递归读取 Bom_parts（只读；须先于其它 /api/bom/* 若有扩展） */
+  if (m === 'GET' && path === '/api/bom/tree') {
+    return {
+      anyOf: [
+        { menuPath: 'inv/bom', action: 'view' },
+        { menuPath: 'inventory/basic/bom-data', action: 'view' },
+      ],
+    }
+  }
+
   /* BOM 配件明细（须先于泛化 GET /api/inventory/bom/:id，否则会被 /.+/ 误匹配；权限仍与详情 view / 保存 edit 一致） */
   if (m === 'GET' && /^\/api\/inventory\/bom\/parts\/.+$/.test(path)) {
     return {

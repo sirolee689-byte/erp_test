@@ -7612,6 +7612,116 @@ app.get('/api/inv/bom/list', async (req, res) => {
 })
 
 /**
+ * 用量表运算：单层 Bom_parts 读取（白名单列；按 Seq 排序）
+ * - kcac01 匹配须用足够长的 nvarchar，避免 systemcode 被 CONVERT(100) 截断导致下层 0 行
+ * - 不在 WHERE 中过滤 del（与 GET /api/inventory/bom/parts 一致）：旧库大量在册行 del 为 NULL/空，严格 del='0' 会把整层子件查成 0 行
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {string} kcac01Parent 父级 systemcode（匹配 kcac01）
+ */
+async function fetchBomPartsLayerForUsageTree(pool, kcac01Parent) {
+  const parent = String(kcac01Parent ?? '').trim()
+  if (!parent) return []
+  const r = await pool
+    .request()
+    .input('kcac01', sql.NVarChar(500), parent)
+    .query(`
+      SELECT
+        p.id,
+        LTRIM(RTRIM(ISNULL(CAST(p.kcac01 AS nvarchar(500)), N''))) AS kcac01,
+        LTRIM(RTRIM(ISNULL(CAST(p.kcac02 AS nvarchar(500)), N''))) AS kcac02,
+        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p.kcaa01, N'')))) AS kcaa01,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(p.kcaa02, N'')))) AS kcaa02,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(p.kcaa03, N'')))) AS kcaa03,
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcaa04, N'')))) AS kcaa04,
+        ${bomPartsNumericColAsDecimalSql('p.kcac04')} AS kcac04,
+        ${bomPartsNumericColAsDecimalSql('p.kcac05')} AS kcac05,
+        ${bomPartsNumericColAsDecimalSql('p.kcaa33')} AS kcaa33,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(p.[Describe], N'')))) AS [Describe],
+        p.[Seq] AS [Seq],
+        LTRIM(RTRIM(ISNULL(CAST(p.systemcode AS nvarchar(500)), N''))) AS systemcode
+      FROM ${INV_BOM_PARTS_FROM} AS p
+      WHERE LTRIM(RTRIM(ISNULL(CAST(p.kcac01 AS nvarchar(500)), N''))) = @kcac01
+      ORDER BY CASE WHEN p.[Seq] IS NULL THEN 1 ELSE 0 END, p.[Seq], p.id
+    `)
+  return r.recordset ?? []
+}
+
+/**
+ * 递归构建 Bom_parts 树形节点（嵌套 children）：下一层 kcac01 = 当前行 kcac02；防循环；不写库、不做用量公式运算。
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {string} kcac01Parent
+ * @param {number} level 根层为 1
+ * @param {Set<string>} bomHeadStack 从根到当前父级链路上的子 BOM systemcode（含根入参），用于检测 A→B→A
+ */
+async function buildBomPartsUsageTreeNodes(pool, kcac01Parent, level, bomHeadStack) {
+  const rows = await fetchBomPartsLayerForUsageTree(pool, kcac01Parent)
+  const out = []
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]
+    const childSc = String(row.kcac02 ?? '').trim()
+    /** @type {any[]} 子层树节点（嵌套 children） */
+    let children = []
+    if (childSc) {
+      if (bomHeadStack.has(childSc)) {
+        const err = new Error('检测到BOM循环引用')
+        err.code = 'BOM_CYCLE'
+        throw err
+      }
+      const nextStack = new Set(bomHeadStack)
+      nextStack.add(childSc)
+      children = await buildBomPartsUsageTreeNodes(pool, childSc, level + 1, nextStack)
+    }
+    const dVal = row.Describe != null ? String(row.Describe) : row.describe != null ? String(row.describe) : ''
+    const seqRaw = row.Seq != null ? row.Seq : row.seq
+    const seqNum = seqRaw != null && seqRaw !== '' && Number.isFinite(Number(seqRaw)) ? Number(seqRaw) : null
+    out.push({
+      id: row.id != null ? Number(row.id) : null,
+      kcaa01: row.kcaa01 != null ? String(row.kcaa01) : '',
+      kcaa02: row.kcaa02 != null ? String(row.kcaa02) : '',
+      kcaa03: row.kcaa03 != null ? String(row.kcaa03) : '',
+      kcaa04: row.kcaa04 != null ? String(row.kcaa04) : '',
+      kcac01: row.kcac01 != null ? String(row.kcac01) : '',
+      kcac02: row.kcac02 != null ? String(row.kcac02) : '',
+      kcac04: Number(row.kcac04 ?? 0),
+      kcac05: Number(row.kcac05 ?? 0),
+      kcaa33: Number(row.kcaa33 ?? 0),
+      Describe: dVal,
+      Seq: seqNum,
+      level,
+      systemcode: row.systemcode != null ? String(row.systemcode) : '',
+      children,
+    })
+  }
+  return out
+}
+
+/**
+ * BOM 用量表 — 仅递归读取 Bom_parts 树（不写 bom_cost / Bom_consumption，不做用量汇总）
+ * GET /api/bom/tree?systemcode=xxx
+ */
+app.get('/api/bom/tree', async (req, res) => {
+  try {
+    const systemcode = String(req.query?.systemcode ?? '').trim()
+    if (!systemcode) {
+      res.status(400).json({ success: false, msg: '参数错误：systemcode 不能为空', data: null })
+      return
+    }
+    const pool = await getPool()
+    const bomHeadStack = new Set([systemcode])
+    const data = await buildBomPartsUsageTreeNodes(pool, systemcode, 1, bomHeadStack)
+    res.json({ success: true, data })
+  } catch (err) {
+    if (err?.code === 'BOM_CYCLE') {
+      res.status(409).json({ success: false, msg: String(err.message ?? '检测到BOM循环引用'), data: null })
+      return
+    }
+    console.error('GET /api/bom/tree 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ success: false, msg: `读取 BOM 树失败：${detail}`, data: null })
+  }
+})
+
+/**
  * BOM 配件明细列表（Tab 配件明细）
  * GET /api/inventory/bom/parts/:systemcode — :systemcode 为主档 systemcode（URL 编码）
  * - 单次往返：EXISTS 与旧版「先 TOP 1 主档」等价（无主档则 0 行 → 空列表）；含 del=1 等配件行
@@ -14156,6 +14266,7 @@ app.listen(port, () => {
   console.log(
     `BOM-Parts-Save-Sync-Kcaa01-35-v1.2.6 ${bootAt} PUT parts: id+kcac01 lock; sync kcaa01-35/kcac02/systemcode from bom_000; audit [同步]`,
   )
+  console.log(`BOM-Tree-TreeGrid-Data ${bootAt} GET /api/bom/tree kcac01 nvarchar(500) match; no-del-WHERE`)
   console.log(`ColorCode-Module-Initial-v1.0.0 ${bootAt}`)
   console.log(`ColorCode-Add-DirectMode-v1.1.0 ${bootAt}`)
   console.log(`ColorCode-Audit-Fields-Correction-v1.1.1 ${bootAt}`)

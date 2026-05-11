@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:all": "concurrently -k -n vite,api -c cyan,magenta \"npm run dev\" \"npm run dev:server:watch\"",
     "build": "vite build",
     "preview": "vite preview",
     "gen:views": "node scripts/generate-views.mjs",
@@ -51,6 +52,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",
+    "concurrently": "^9.1.2",
     "nodemon": "^3.1.14",
     "playwright": "1.49",
     "vite": "^6.0.3"
