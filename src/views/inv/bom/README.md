@@ -11,6 +11,13 @@
 - **稳定键**：`systemcode`（配件 `Bom_parts.kcac01` 等关联此字段）
 - **业务编码**：`kcaa01`（列表 `code`）；状态：`pass`（审核）、`del`（逻辑删除）
 
+## 配件明细（`Bom_parts`）
+
+- **`GET /api/inventory/bom/parts/:systemcode`**：`kcaa01`/`kcaa02`/`kcaa03`/`kcaa11` 优先按 **`bom_000.kcaa01`**（在册主档，`OUTER APPLY` **TOP 1**）展示；无匹配则用配件表原列。
+- **`PUT /api/inventory/bom/parts/:systemcode`**（及 **`POST /api/inventory/bom/save-parts`**）：保存时每行 **UPDATE** 使用 **`id` + `kcac01`（主档 `systemcode`）** 双重锁定；按配件 **`kcaa01`** 关联 **`bom_000`** 最新在册行，将表中存在的 **`kcaa01`～`kcaa35`**、**`kcac02`** 与 **`systemcode`**（若明细表有该列，同子 BOM `systemcode`）从主档写回明细；用量/单价/备注/排序仍以请求为准。新增行先 **INSERT OUTPUT id** 再执行同一套 UPDATE。详见 `docs/sql/database_map.md`（`Bom_parts` 条目）。
+- **`kcac06`**：用量合计 = **`kcac04 × (1 + kcac05)`**；前端损耗按 **百分比** 编辑，库内 **`kcac05`** 为小数；保存时写入 **`kcac04`/`kcac05`/`kcac06`**（若库中存在 **`kcac06`** 列）。
+- **审计**：用量变更成功：`[更新]了配件用量，BOM：[主档 kcaa01]，配件：[kcaa01]，用量：[kcac04]，损耗：[kcac05]`。若配件在 **`bom_000`** 存在子档，另记：`[同步]了BOM配件属性，主BOM：[systemcode]，配件：[kcaa01]，已同步kcaa01-kcaa35共35个字段。`
+
 ## 接口一览（`server/index.js`）
 
 | 方法 | 路径 | 说明 |

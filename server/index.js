@@ -3439,6 +3439,20 @@ function bomPartParseDecimal(raw) {
   return Number.isFinite(n) ? n : 0
 }
 
+/** 配件用量类字段写入前规整（§2：与 decimal(18,6) 对齐，降低 JS 浮点误差） */
+function bomPartRoundDecimal6(raw) {
+  const n = bomPartParseDecimal(raw)
+  if (!Number.isFinite(n)) return 0
+  return Math.round(n * 1e6) / 1e6
+}
+
+/** 用量合计：kcac04 * (1 + kcac05)，与前端公式一致 */
+function bomPartComputeKcac06(qtyRaw, lossRaw) {
+  const q = bomPartRoundDecimal6(qtyRaw)
+  const l = bomPartRoundDecimal6(lossRaw)
+  return bomPartRoundDecimal6(q * (1 + l))
+}
+
 /**
  * Bom_parts：`kcac04`/`kcac05`/`cost_price` 库类型为 numeric/decimal（见 docs/bom_parts.txt）。
  * 禁止使用 bomKcacAsDecimalSql（内部 ISNULL(列, N'')），numeric 列与 nvarchar 字面量混用会触发转换异常。
@@ -3536,6 +3550,140 @@ async function bomPartsLookupSubBomSystemcode(poolOrTx, partMaterialCode) {
       ORDER BY b.id DESC
     `)
   return String(r.recordset?.[0]?.sub_sc ?? '').trim()
+}
+
+/** 保存明细时从 bom_000 同步至 Bom_parts 的 kcaa 列（kcaa01～kcaa35，以库内实际存在列为准） */
+/** 物理列名为 kcaa01～kcaa35（不足两位须补零，禁止生成 kcaa1/kcaa9） */
+const BOM_PARTS_KCAA_SYNC_NAMES = Array.from({ length: 35 }, (_, i) => `kcaa${String(i + 1).padStart(2, '0')}`)
+
+/**
+ * 无子档 BOM 时：这些列用请求体写回；其余 kcaa 列保持行内原值（避免误清空历史扩展字段）
+ * @type {ReadonlySet<string>}
+ */
+const BOM_PARTS_KCAA_PAYLOAD_FALLBACK = new Set(['kcaa02', 'kcaa03', 'kcaa04', 'kcaa11'])
+
+/**
+ * 按配件行 p.kcaa01 匹配 bom_000 在册最新行（TOP 1 ORDER BY b.id DESC，与 GET 配件明细一致）
+ * @param {string} alias
+ */
+function bomPartsSqlOuterApplyLatestBom000ByPartKcaa01(alias = 'b0') {
+  const kcaaSelect = BOM_PARTS_KCAA_SYNC_NAMES.map((c) => `b.[${c}]`).join(',\n          ')
+  return (
+    `OUTER APPLY (
+      SELECT TOP 1
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS sub_systemcode,
+        ${kcaaSelect}
+      FROM ${INV_BOM_MASTER_FROM} AS b
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) =
+            LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p.kcaa01, N''))))
+        AND (ISNULL(b.del, N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.del), N''))) = N'0')
+      ORDER BY b.id DESC
+    ) AS ${alias}`
+  )
+}
+
+/**
+ * UPDATE SET：kcaa 优先取自 OUTER APPLY 子 BOM；无匹配时 kcaa01 用 @kcaa01Up，kcaa02/03/04/11 用请求参数，其余保持原列
+ * @param {Set<string>} partColset getInvBomPartsColumnSet
+ * @param {string} alias
+ * @returns {string[]}
+ */
+function bomPartsBuildKcaaSyncAssignments(partColset, alias = 'b0') {
+  const parts = []
+  for (const col of BOM_PARTS_KCAA_SYNC_NAMES) {
+    if (!partColset.has(col)) continue
+    if (col === 'kcaa01') {
+      parts.push(`p.[kcaa01] = ISNULL(${alias}.[kcaa01], @kcaa01Up)`)
+      continue
+    }
+    if (BOM_PARTS_KCAA_PAYLOAD_FALLBACK.has(col)) {
+      parts.push(`p.[${col}] = ISNULL(${alias}.[${col}], @${col})`)
+    } else {
+      parts.push(`p.[${col}] = ISNULL(${alias}.[${col}], p.[${col}])`)
+    }
+  }
+  return parts
+}
+
+/** 子 BOM 在 bom_000 的 systemcode（与 kcac02 同源） */
+function bomPartsSqlSubSystemcodeIsnullPreserve(partsCol, alias = 'b0') {
+  return `p.[${partsCol}] = ISNULL(NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(${alias}.sub_systemcode, N'')))), N''), p.[${partsCol}])`
+}
+
+/** kcac02：子 BOM systemcode；无子档时保留行内原值 */
+function bomPartsBuildKcac02Assignment(partColset, alias = 'b0') {
+  if (!partColset.has('kcac02')) return null
+  return bomPartsSqlSubSystemcodeIsnullPreserve('kcac02', alias)
+}
+
+/** systemcode：与 kcac02 一致，写入配件行上的子 BOM 身份证号（库内有该列时） */
+function bomPartsBuildPartsSystemcodeAssignment(partColset, alias = 'b0') {
+  if (!partColset.has('systemcode')) return null
+  return bomPartsSqlSubSystemcodeIsnullPreserve('systemcode', alias)
+}
+
+/**
+ * 单行保存 UPDATE：WHERE id + kcac01（主档 systemcode）双重锁定；kcaa01～35、kcac02、systemcode（若存在列）从 bom_000 同步；kcac04/05/06、cost_price、remark、Seq 来自请求体
+ * @param {import('mssql').Transaction} tx
+ * @param {Set<string>} partColset
+ * @param {string} systemcode 主档 systemcode（即明细 kcac01）
+ * @param {unknown} rawId 行 id
+ * @param {Record<string, unknown>} raw 单行 lines[]
+ */
+async function bomPartsApplyFullLineUpdate(tx, partColset, systemcode, rawId, raw) {
+  const kcaa01Up = String(raw?.kcaa01 ?? '').trim()
+  const kcac04 = bomPartRoundDecimal6(raw?.kcac04)
+  const kcac05 = bomPartRoundDecimal6(raw?.kcac05)
+  const kcac06 = bomPartRoundDecimal6(
+    raw?.kcac06 !== undefined && raw?.kcac06 !== null
+      ? raw.kcac06
+      : bomPartComputeKcac06(kcac04, kcac05),
+  )
+  const costNum = bomPartParseDecimal(raw?.cost_price)
+  const seqNum = bomPartParseSeq(raw?.seq)
+
+  const q = new sql.Request(tx)
+  bomPartsSqlBindId(q, rawId)
+  q.input('kcac01', sql.NVarChar(100), systemcode)
+  q.input('kcaa01Up', sql.NVarChar(300), kcaa01Up)
+  q.input('kcaa02', sql.NVarChar(500), raw?.kcaa02 != null ? String(raw.kcaa02) : '')
+  q.input('kcaa03', sql.NVarChar(500), raw?.kcaa03 != null ? String(raw.kcaa03) : '')
+  q.input('kcaa04', sql.NVarChar(100), raw?.kcaa04 != null ? String(raw.kcaa04) : '')
+  q.input('kcaa11', sql.NVarChar(200), raw?.kcaa11 != null ? String(raw.kcaa11) : '')
+  q.input('kcac04', sql.Decimal(18, 6), kcac04)
+  q.input('kcac05', sql.Decimal(18, 6), kcac05)
+  q.input('cost_price', sql.Decimal(18, 4), costNum)
+  q.input('remark', sql.NVarChar(500), raw?.remark != null ? String(raw.remark) : '')
+  q.input('seq', sql.Int, seqNum)
+  if (partColset.has('kcac06')) {
+    q.input('kcac06', sql.Decimal(18, 6), kcac06)
+  }
+
+  const applySql = bomPartsSqlOuterApplyLatestBom000ByPartKcaa01('b0')
+  const setParts = []
+  const kcac02Sql = bomPartsBuildKcac02Assignment(partColset, 'b0')
+  if (kcac02Sql) setParts.push(kcac02Sql)
+  const partsScSql = bomPartsBuildPartsSystemcodeAssignment(partColset, 'b0')
+  if (partsScSql) setParts.push(partsScSql)
+  setParts.push(...bomPartsBuildKcaaSyncAssignments(partColset, 'b0'))
+  setParts.push('p.kcac04 = @kcac04', 'p.kcac05 = @kcac05')
+  if (partColset.has('kcac06')) {
+    setParts.push('p.kcac06 = @kcac06')
+  }
+  setParts.push('p.cost_price = @cost_price', 'p.remark = @remark', 'p.[Seq] = @seq')
+
+  const ur = await q.query(`
+    UPDATE p
+    SET ${setParts.join(', ')}
+    FROM ${INV_BOM_PARTS_FROM} AS p
+    ${applySql}
+    WHERE p.id = @id
+      AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) =
+          LTRIM(RTRIM(CONVERT(nvarchar(100), @kcac01)))
+      AND (ISNULL(p.del, N'') = N'' OR p.del = N'0')
+  `)
+  const rowsAffected = Number(ur.rowsAffected?.[0] ?? 0)
+  return { rowsAffected, kcaa01Up, kcac04, kcac05 }
 }
 
 /**
@@ -7497,18 +7645,43 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
         p.id,
         LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) AS kcac01,
         LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac02, N'')))) AS kcac02,
-        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p.kcaa01, N'')))) AS kcaa01,
-        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(p.kcaa02, N'')))) AS kcaa02,
-        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(p.kcaa03, N'')))) AS kcaa03,
+        CASE
+          WHEN bh.j01 IS NOT NULL AND LTRIM(RTRIM(bh.j01)) <> N'' THEN bh.j01
+          ELSE LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p.kcaa01, N''))))
+        END AS kcaa01,
+        CASE
+          WHEN bh.j02 IS NOT NULL AND LTRIM(RTRIM(bh.j02)) <> N'' THEN bh.j02
+          ELSE LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(p.kcaa02, N''))))
+        END AS kcaa02,
+        CASE
+          WHEN bh.j03 IS NOT NULL AND LTRIM(RTRIM(bh.j03)) <> N'' THEN bh.j03
+          ELSE LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(p.kcaa03, N''))))
+        END AS kcaa03,
         LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcaa04, N'')))) AS kcaa04,
-        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(p.kcaa11, N'')))) AS kcaa11,
+        CASE
+          WHEN bh.j11 IS NOT NULL AND LTRIM(RTRIM(bh.j11)) <> N'' THEN bh.j11
+          ELSE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(p.kcaa11, N''))))
+        END AS kcaa11,
         ${bomPartsNumericColAsDecimalSql('p.kcac04')} AS kcac04,
         ${bomPartsNumericColAsDecimalSql('p.kcac05')} AS kcac05,
+        ${bomPartsNumericColAsDecimalSql('p.kcac06')} AS kcac06,
         ${bomPartsNumericColAsDecimalSql('p.cost_price')} AS cost_price,
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(p.remark, N'')))) AS remark,
         p.[Seq] AS seq,
         LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(10), p.del), N''))) AS del
       FROM ${INV_BOM_PARTS_FROM} AS p
+      OUTER APPLY (
+        SELECT TOP 1
+          LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) AS j01,
+          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa02, N'')))) AS j02,
+          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa03, N'')))) AS j03,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.kcaa11, N'')))) AS j11
+        FROM ${INV_BOM_MASTER_FROM} AS b
+        WHERE LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) =
+              LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p.kcaa01, N''))))
+          AND (ISNULL(b.del, N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.del), N''))) = N'0')
+        ORDER BY b.id DESC
+      ) AS bh
       WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) = @sc
         AND (ISNULL(p.del, N'') = N'' OR p.del = N'0')
       ORDER BY CASE WHEN p.[Seq] IS NULL THEN 1 ELSE 0 END, p.[Seq], p.id
@@ -7525,6 +7698,7 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
       kcaa11: row.kcaa11 != null ? String(row.kcaa11) : '',
       kcac04: Number(row.kcac04 ?? 0),
       kcac05: Number(row.kcac05 ?? 0),
+      kcac06: Number(row.kcac06 ?? 0),
       cost_price: Number(row.cost_price ?? 0),
       remark: row.remark != null ? String(row.remark) : '',
       seq:
@@ -7544,11 +7718,16 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
  * BOM 配件明细批量保存：物理删除待删行 + 更新 + 新增
  * PUT /api/inventory/bom/parts/:systemcode
  * POST /api/inventory/bom/save-parts（body.systemcode + 与 PUT 相同 lines）
- * body: { lines: [{ id?, pendingDelete?, kcac01?(须与主档 systemcode 一致), kcaa01, kcaa02, kcaa03, kcaa04, kcaa11, kcac04, kcac05, cost_price, remark, seq }] }
+ * body: { lines: [{ id?, pendingDelete?, kcac01?, kcaa01, kcaa02, kcaa03, kcaa04, kcaa11, kcac04, kcac05, kcac06?, cost_price, remark, seq }] }
+ * 保存逻辑：`UPDATE` 双重锁定 `id` + `kcac01`；`kcaa01`～`kcaa35`/`kcac02` 由 `bom_000` OUTER APPLY 同步（见 bomPartsApplyFullLineUpdate）。
  */
 async function handleInventoryBomPartsPut(req, res) {
   /** @type {{ systemcode: string, kcaa01: string }[]} */
   const auditPhysicalPartDeletes = []
+  /** @type {{ part: string, qty: string, loss: string }[]} */
+  const auditUsageUpdates = []
+  /** @type {{ master: string, part: string }[]} */
+  const auditKcaaSync = []
   try {
     let systemcode = ''
     try {
@@ -7581,6 +7760,7 @@ async function handleInventoryBomPartsPut(req, res) {
       res.status(404).json({ code: 404, msg: '未找到对应主档或主档缺少 systemcode', data: null })
       return
     }
+    const bomHeadKcaa01 = String(head.kcaa01 ?? '').trim() || systemcode
 
     const partColset = await getInvBomPartsColumnSet(pool)
     const delColKind = await getInvBomPartsDelColumnKind(pool)
@@ -7661,41 +7841,19 @@ async function handleInventoryBomPartsPut(req, res) {
         if (hasId && !pendingDelete) {
           const kcaa01Up = String(raw?.kcaa01 ?? '').trim()
           const subSc = await bomPartsLookupSubBomSystemcode(tx, kcaa01Up)
-          const kcac04 = bomPartParseDecimal(raw?.kcac04)
-          const kcac05 = bomPartParseDecimal(raw?.kcac05)
-          const costNum = bomPartParseDecimal(raw?.cost_price)
-          const seqNum = bomPartParseSeq(raw?.seq)
-          const q = new sql.Request(tx)
-          bomPartsSqlBindId(q, raw?.id)
-          q.input('kcac01', sql.NVarChar(100), systemcode)
-          q.input('kcaa01Up', sql.NVarChar(300), kcaa01Up)
-          q.input('kcac04', sql.Decimal(18, 4), kcac04)
-          q.input('kcac05', sql.Decimal(18, 4), kcac05)
-          q.input('cost_price', sql.Decimal(18, 4), costNum)
-          q.input('remark', sql.NVarChar(500), raw?.remark != null ? String(raw.remark) : '')
-          q.input('seq', sql.Int, seqNum)
-          const setUp = [
-            'p.kcaa01 = @kcaa01Up',
-            'p.kcac04 = @kcac04',
-            'p.kcac05 = @kcac05',
-            'p.cost_price = @cost_price',
-            'p.remark = @remark',
-            'p.[Seq] = @seq',
-          ]
-          if (partColset.has('kcac02')) {
-            setUp.push('p.kcac02 = @kcac02Sub')
-            q.input('kcac02Sub', sql.NVarChar(100), subSc || '')
+          const upRes = await bomPartsApplyFullLineUpdate(tx, partColset, systemcode, raw?.id, raw)
+          const affUp = upRes.rowsAffected
+          updated += affUp
+          if (affUp > 0) {
+            auditUsageUpdates.push({
+              part: kcaa01Up,
+              qty: String(upRes.kcac04),
+              loss: String(upRes.kcac05),
+            })
+            if (subSc) {
+              auditKcaaSync.push({ master: systemcode, part: kcaa01Up })
+            }
           }
-          const ur = await q.query(`
-            UPDATE p
-            SET ${setUp.join(', ')}
-            FROM ${INV_BOM_PARTS_FROM} AS p
-            WHERE p.id = @id
-              AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) =
-                  LTRIM(RTRIM(CONVERT(nvarchar(100), @kcac01)))
-              AND (ISNULL(p.del, N'') = N'' OR p.del = N'0')
-          `)
-          updated += Number(ur.rowsAffected?.[0] ?? 0)
           continue
         }
 
@@ -7704,8 +7862,13 @@ async function handleInventoryBomPartsPut(req, res) {
           if (!kcaa01) {
             throw new Error('新增行缺少配件编码 kcaa01')
           }
-          const kcac04 = bomPartParseDecimal(raw?.kcac04)
-          const kcac05 = bomPartParseDecimal(raw?.kcac05)
+          const kcac04 = bomPartRoundDecimal6(raw?.kcac04)
+          const kcac05 = bomPartRoundDecimal6(raw?.kcac05)
+          const kcac06Ins = bomPartRoundDecimal6(
+            raw?.kcac06 !== undefined && raw?.kcac06 !== null
+              ? raw.kcac06
+              : bomPartComputeKcac06(kcac04, kcac05),
+          )
           const costNum = bomPartParseDecimal(raw?.cost_price)
           const seqIns = bomPartParseSeq(raw?.seq)
 
@@ -7721,59 +7884,53 @@ async function handleInventoryBomPartsPut(req, res) {
               .filter((n) => Number.isFinite(n) && n > 0)
             const otherIds = allIds.filter((id) => id !== targetId)
 
-            const setPartsMerge = [
-              'p.kcaa01 = @kcaa01Merge',
-              'p.kcaa02 = @kcaa02',
-              'p.kcaa03 = @kcaa03',
-              'p.kcaa04 = @kcaa04',
-              'p.kcaa11 = @kcaa11',
-              'p.kcac04 = @kcac04',
-              'p.kcac05 = @kcac05',
-              'p.cost_price = @cost_price',
-              'p.remark = @remark',
-              'p.[Seq] = @seq',
-            ]
-            if (partColset.has('kcac02')) {
-              setPartsMerge.push('p.kcac02 = @kcac02Merge')
-            }
+            /** 合并保留行：先恢复 del/deltime，再统一走「子 BOM 全字段同步」UPDATE */
+            const setRevive = []
             if (delColKind === 'numeric') {
-              setPartsMerge.push('p.del = @delActiveNum')
+              setRevive.push('p.del = @delActiveNum')
             } else {
-              setPartsMerge.push(`p.del = N'0'`)
+              setRevive.push(`p.del = N'0'`)
             }
             if (partColset.has('deltime')) {
-              setPartsMerge.push('p.deltime = NULL')
+              setRevive.push('p.deltime = NULL')
+            }
+            if (setRevive.length) {
+              const qr = new sql.Request(tx)
+              bomPartsSqlBindId(qr, targetId)
+              qr.input('kcac01', sql.NVarChar(100), systemcode)
+              if (delColKind === 'numeric') {
+                qr.input('delActiveNum', sql.Int, 0)
+              }
+              await qr.query(`
+                UPDATE p
+                SET ${setRevive.join(', ')}
+                FROM ${INV_BOM_PARTS_FROM} AS p
+                WHERE p.id = @id
+                  AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) =
+                      LTRIM(RTRIM(CONVERT(nvarchar(100), @kcac01)))
+              `)
             }
 
-            const qm = new sql.Request(tx)
-            bomPartsSqlBindId(qm, targetId)
-            qm.input('kcac01', sql.NVarChar(100), systemcode)
-            qm.input('kcaa01Merge', sql.NVarChar(300), kcaa01)
-            qm.input('kcaa02', sql.NVarChar(500), raw?.kcaa02 != null ? String(raw.kcaa02) : '')
-            qm.input('kcaa03', sql.NVarChar(500), raw?.kcaa03 != null ? String(raw.kcaa03) : '')
-            qm.input('kcaa04', sql.NVarChar(100), raw?.kcaa04 != null ? String(raw.kcaa04) : '')
-            qm.input('kcaa11', sql.NVarChar(200), raw?.kcaa11 != null ? String(raw.kcaa11) : '')
-            qm.input('kcac04', sql.Decimal(18, 4), kcac04)
-            qm.input('kcac05', sql.Decimal(18, 4), kcac05)
-            qm.input('cost_price', sql.Decimal(18, 4), costNum)
-            qm.input('remark', sql.NVarChar(500), raw?.remark != null ? String(raw.remark) : '')
-            qm.input('seq', sql.Int, seqIns)
-            if (partColset.has('kcac02')) {
-              qm.input('kcac02Merge', sql.NVarChar(100), subMerge || '')
+            const mergeUp = await bomPartsApplyFullLineUpdate(tx, partColset, systemcode, targetId, {
+              ...raw,
+              kcaa01,
+              kcac04,
+              kcac05,
+              kcac06: kcac06Ins,
+              seq: seqIns,
+            })
+            const affM = mergeUp.rowsAffected
+            updated += affM
+            if (affM > 0) {
+              auditUsageUpdates.push({
+                part: kcaa01,
+                qty: String(kcac04),
+                loss: String(kcac05),
+              })
+              if (subMerge) {
+                auditKcaaSync.push({ master: systemcode, part: kcaa01 })
+              }
             }
-            if (delColKind === 'numeric') {
-              qm.input('delActiveNum', sql.Int, 0)
-            }
-            const um = await qm.query(`
-              UPDATE p
-              SET ${setPartsMerge.join(', ')}
-              FROM ${INV_BOM_PARTS_FROM} AS p
-              WHERE p.id = @id
-                AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) =
-                    LTRIM(RTRIM(CONVERT(nvarchar(100), @kcac01)))
-                AND (ISNULL(p.del, N'') = N'' OR p.del = N'0')
-            `)
-            updated += Number(um.rowsAffected?.[0] ?? 0)
 
             for (const oid of otherIds) {
               const qd = new sql.Request(tx)
@@ -7806,8 +7963,8 @@ async function handleInventoryBomPartsPut(req, res) {
           q.input('kcaa03', sql.NVarChar(500), raw?.kcaa03 != null ? String(raw.kcaa03) : '')
           q.input('kcaa04', sql.NVarChar(100), raw?.kcaa04 != null ? String(raw.kcaa04) : '')
           q.input('kcaa11', sql.NVarChar(200), raw?.kcaa11 != null ? String(raw.kcaa11) : '')
-          q.input('kcac04', sql.Decimal(18, 4), kcac04)
-          q.input('kcac05', sql.Decimal(18, 4), kcac05)
+          q.input('kcac04', sql.Decimal(18, 6), kcac04)
+          q.input('kcac05', sql.Decimal(18, 6), kcac05)
           q.input('cost_price', sql.Decimal(18, 4), costNum)
           q.input('remark', sql.NVarChar(500), raw?.remark != null ? String(raw.remark) : '')
           q.input('seq', sql.Int, seqIns)
@@ -7818,17 +7975,43 @@ async function handleInventoryBomPartsPut(req, res) {
           let insCols =
             'kcac01, kcaa01, kcaa02, kcaa03, kcaa04, kcaa11, kcac04, kcac05, cost_price, remark, del, [Seq]'
           let insVals = `@kcac01, @kcaa01, @kcaa02, @kcaa03, @kcaa04, @kcaa11, @kcac04, @kcac05, @cost_price, @remark, ${delValSql}, @seq`
+          if (partColset.has('kcac06')) {
+            q.input('kcac06', sql.Decimal(18, 6), kcac06Ins)
+            insCols =
+              'kcac01, kcaa01, kcaa02, kcaa03, kcaa04, kcaa11, kcac04, kcac05, kcac06, cost_price, remark, del, [Seq]'
+            insVals = `@kcac01, @kcaa01, @kcaa02, @kcaa03, @kcaa04, @kcaa11, @kcac04, @kcac05, @kcac06, @cost_price, @remark, ${delValSql}, @seq`
+          }
           if (partColset.has('kcac02')) {
             q.input('kcac02Ins', sql.NVarChar(100), subIns || '')
-            insCols =
-              'kcac01, kcac02, kcaa01, kcaa02, kcaa03, kcaa04, kcaa11, kcac04, kcac05, cost_price, remark, del, [Seq]'
-            insVals = `@kcac01, @kcac02Ins, @kcaa01, @kcaa02, @kcaa03, @kcaa04, @kcaa11, @kcac04, @kcac05, @cost_price, @remark, ${delValSql}, @seq`
+            insCols = partColset.has('kcac06')
+              ? 'kcac01, kcac02, kcaa01, kcaa02, kcaa03, kcaa04, kcaa11, kcac04, kcac05, kcac06, cost_price, remark, del, [Seq]'
+              : 'kcac01, kcac02, kcaa01, kcaa02, kcaa03, kcaa04, kcaa11, kcac04, kcac05, cost_price, remark, del, [Seq]'
+            insVals = partColset.has('kcac06')
+              ? `@kcac01, @kcac02Ins, @kcaa01, @kcaa02, @kcaa03, @kcaa04, @kcaa11, @kcac04, @kcac05, @kcac06, @cost_price, @remark, ${delValSql}, @seq`
+              : `@kcac01, @kcac02Ins, @kcaa01, @kcaa02, @kcaa03, @kcaa04, @kcaa11, @kcac04, @kcac05, @cost_price, @remark, ${delValSql}, @seq`
           }
-          await q.query(`
+          const ir = await q.query(`
             INSERT INTO ${INV_BOM_PARTS_FROM} (${insCols})
+            OUTPUT INSERTED.id AS inserted_id
             VALUES (${insVals})
           `)
+          const newId = Number(ir.recordset?.[0]?.inserted_id)
+          if (!Number.isFinite(newId) || newId < 1) {
+            throw new Error('新增配件明细失败：未取得有效的 INSERTED.id')
+          }
+          /** 插入后再 UPDATE：与编辑行一致，按 bom_000 同步 kcaa01～35 及 kcac02 */
+          const insUp = await bomPartsApplyFullLineUpdate(tx, partColset, systemcode, newId, {
+            ...raw,
+            kcaa01,
+            kcac04,
+            kcac05,
+            kcac06: kcac06Ins,
+            seq: seqIns,
+          })
           inserted += 1
+          if (insUp.rowsAffected > 0 && subIns) {
+            auditKcaaSync.push({ master: systemcode, part: kcaa01 })
+          }
         }
       }
 
@@ -7844,6 +8027,32 @@ async function handleInventoryBomPartsPut(req, res) {
           )
         } catch (logErr) {
           console.warn('[BOM配件明细] 审计日志写入失败（不影响保存）：', logErr?.message ?? logErr)
+        }
+      }
+
+      for (const u of auditUsageUpdates) {
+        try {
+          await writeLog(
+            req,
+            '更新BOM配件用量',
+            `[更新]了配件用量，BOM：[${bomHeadKcaa01}]，配件：[${u.part}]，用量：[${u.qty}]，损耗：[${u.loss}]`,
+            { targetTable: 'Bom_parts' },
+          )
+        } catch (logErr) {
+          console.warn('[BOM配件明细] 用量审计写入失败（不影响保存）：', logErr?.message ?? logErr)
+        }
+      }
+
+      for (const s of auditKcaaSync) {
+        try {
+          await writeLog(
+            req,
+            '同步BOM配件属性',
+            `[同步]了BOM配件属性，主BOM：[${s.master}]，配件：[${s.part}]，已同步kcaa01-kcaa35共35个字段。`,
+            { targetTable: 'Bom_parts' },
+          )
+        } catch (logErr) {
+          console.warn('[BOM配件明细] 同步属性审计写入失败（不影响保存）：', logErr?.message ?? logErr)
         }
       }
 
@@ -13926,6 +14135,12 @@ app.listen(port, () => {
   console.log(`BOM-Search-Core-Link-v1.1.7 ${bootAt}`)
   console.log(`BOM-Search-CUT-Suffix-Link-v1.1.7 ${bootAt}`)
   console.log(`BOM-Parts-Seq-Persist ${bootAt} GET/PUT Bom_parts.[Seq]`)
+  console.log(
+    `BOM-Parts-Kcac06-JoinBom000-v1.2.4 ${bootAt} GET parts OUTER APPLY bom_000; PUT kcac04/05/06; audit usage`,
+  )
+  console.log(
+    `BOM-Parts-Save-Sync-Kcaa01-35-v1.2.6 ${bootAt} PUT parts: id+kcac01 lock; sync kcaa01-35/kcac02/systemcode from bom_000; audit [同步]`,
+  )
   console.log(`ColorCode-Module-Initial-v1.0.0 ${bootAt}`)
   console.log(`ColorCode-Add-DirectMode-v1.1.0 ${bootAt}`)
   console.log(`ColorCode-Audit-Fields-Correction-v1.1.1 ${bootAt}`)

@@ -234,7 +234,7 @@
     <el-dialog
       v-model="detailVisible"
       :title="detailDialogTitle"
-      width="900px"
+      width="min(1120px, 96vw)"
       top="4vh"
       destroy-on-close
       class="bom-detail-dialog"
@@ -525,25 +525,27 @@
                         </el-button>
                       </template>
                     </el-table-column>
-                    <el-table-column prop="kcaa01" label="配件编码" min-width="120" fixed="left" show-overflow-tooltip />
-                    <el-table-column prop="kcaa02" label="名称" min-width="120" show-overflow-tooltip />
-                    <el-table-column prop="kcaa03" label="规格" min-width="100" show-overflow-tooltip />
-                    <el-table-column prop="kcaa04" label="单位" width="72" show-overflow-tooltip />
-                    <el-table-column prop="kcaa11" label="颜色" width="88" show-overflow-tooltip />
-                    <el-table-column label="单位用量" width="120">
+                    <!-- 编码/名称/规格/颜色：GET 已按 bom_000.kcaa01 关联优先取主档 -->
+                    <el-table-column prop="kcaa01" label="编码" min-width="120" fixed="left" show-overflow-tooltip />
+                    <el-table-column prop="kcaa02" label="名称" min-width="108" show-overflow-tooltip />
+                    <el-table-column prop="kcaa03" label="规格" min-width="92" show-overflow-tooltip />
+                    <el-table-column prop="kcaa11" label="颜色" width="80" show-overflow-tooltip />
+                    <el-table-column prop="kcaa04" label="单位" width="64" show-overflow-tooltip />
+                    <el-table-column label="单位用量" width="118">
                       <template #default="{ row }">
                         <el-input-number
                           v-model="row.kcac04"
                           :disabled="partsReadOnly"
                           :min="0"
-                          :precision="4"
-                          :step="0.0001"
+                          :precision="6"
+                          :step="0.000001"
                           controls-position="right"
                           class="bom-parts-num"
+                          @change="() => syncPartKcac06(row)"
                         />
                       </template>
                     </el-table-column>
-                    <el-table-column label="损耗率(%)" width="120">
+                    <el-table-column label="损耗率(%)" width="108">
                       <template #default="{ row }">
                         <el-input-number
                           :model-value="lossPctDisplay(row)"
@@ -557,7 +559,11 @@
                         />
                       </template>
                     </el-table-column>
-                    <el-table-column label="单价" width="120">
+                    <!-- 用量合计紧跟用量/损耗，避免窄屏需滚过单价才可见 -->
+                    <el-table-column label="用量合计(kcac06)" width="124" align="right">
+                      <template #default="{ row }">{{ formatUsageTotal(row) }}</template>
+                    </el-table-column>
+                    <el-table-column label="单价" width="112">
                       <template #default="{ row }">
                         <el-input-number
                           v-model="row.cost_price"
@@ -569,9 +575,6 @@
                           class="bom-parts-num"
                         />
                       </template>
-                    </el-table-column>
-                    <el-table-column label="用量合计" width="110" align="right">
-                      <template #default="{ row }">{{ formatQty(partUsageSum(row)) }}</template>
                     </el-table-column>
                     <el-table-column label="成本合计" width="110" align="right">
                       <template #default="{ row }">{{ formatMoney(partCostSum(row)) }}</template>
@@ -589,7 +592,7 @@
                   </el-table>
                 </div>
                 <div class="bom-parts-sum-row">
-                  <span>实际用量总和：<strong>{{ formatQty(partsSumActualUsage) }}</strong></span>
+                  <span>实际用量总和：<strong>{{ formatQtySumFooter(partsSumActualUsage) }}</strong></span>
                   <span class="bom-parts-sum-gap">总成本：<strong>{{ formatMoney(partsSumCost) }}</strong></span>
                 </div>
                 <MaterialSelector v-model="materialSelectorVisible" @picked="onMaterialPicked" />
@@ -1019,18 +1022,19 @@
                   <el-table-column prop="kcaa01" label="编码" min-width="150" fixed="left" show-overflow-tooltip />
                   <el-table-column prop="kcaa02" label="名称" min-width="120" show-overflow-tooltip />
                   <el-table-column prop="kcaa03" label="规格" min-width="100" show-overflow-tooltip />
-                  <el-table-column prop="kcaa04" label="单位" width="72" show-overflow-tooltip />
                   <el-table-column prop="kcaa11" label="颜色" width="88" show-overflow-tooltip />
-                  <el-table-column label="用量" width="105">
+                  <el-table-column prop="kcaa04" label="单位" width="72" show-overflow-tooltip />
+                  <el-table-column label="单位用量" width="118">
                     <template #default="{ row }">
                       <el-input-number
                         v-model="row.kcac04"
                         :disabled="editPartsReadOnly"
                         :min="0"
-                        :precision="4"
-                        :step="0.0001"
+                        :precision="6"
+                        :step="0.000001"
                         controls-position="right"
                         class="bom-parts-num"
+                        @change="() => syncPartKcac06(row)"
                       />
                     </template>
                   </el-table-column>
@@ -1048,8 +1052,8 @@
                       />
                     </template>
                   </el-table-column>
-                  <el-table-column label="用量合计" width="105" align="right">
-                    <template #default="{ row }">{{ formatQty(partUsageSum(row)) }}</template>
+                  <el-table-column label="用量合计(kcac06)" width="128" align="right">
+                    <template #default="{ row }">{{ formatUsageTotal(row) }}</template>
                   </el-table-column>
                   <el-table-column label="说明" min-width="105">
                     <template #default="{ row }">
@@ -1093,7 +1097,7 @@
                 </el-table>
               </div>
               <div class="bom-parts-sum-row">
-                <span>实际用量总和：<strong>{{ formatQty(editPartsSumActualUsage) }}</strong></span>
+                <span>实际用量总和：<strong>{{ formatQtySumFooter(editPartsSumActualUsage) }}</strong></span>
                 <span class="bom-parts-sum-gap">总成本：<strong>{{ formatMoney(editPartsSumCost) }}</strong></span>
               </div>
               <MaterialSelector v-model="editPartsMaterialSelectorVisible" @picked="onEditMaterialPicked" />
@@ -1803,11 +1807,29 @@ function partUsageSum(row) {
   return qq * (1 + ll)
 }
 
-/** 成本合计 = 用量合计 * 单价 */
+/** 与后端 bomPartRoundDecimal6 一致，降低浮点误差 */
+function bomRound6(n) {
+  const x = Number(n)
+  if (!Number.isFinite(x)) return 0
+  return Math.round(x * 1e6) / 1e6
+}
+
+/** 同步写入行上 kcac06，供保存入 SQL */
+function syncPartKcac06(row) {
+  if (!row) return
+  row.kcac06 = bomRound6(partUsageSum(row))
+}
+
+/** 界面展示用量合计（kcac06） */
+function formatUsageTotal(row) {
+  return bomRound6(partUsageSum(row)).toFixed(6)
+}
+
+/** 成本合计 = 用量合计(kcac06 规整后) * 单价 */
 function partCostSum(row) {
   const p = Number(row?.cost_price)
   const price = Number.isFinite(p) ? p : 0
-  return partUsageSum(row) * price
+  return bomRound6(partUsageSum(row)) * price
 }
 
 /** 底部汇总：未标记删除的行 */
@@ -1833,6 +1855,11 @@ function formatQty(n) {
   return x.toFixed(4)
 }
 
+/** 底部「实际用量总和」等与 kcac06 精度一致 */
+function formatQtySumFooter(n) {
+  return bomRound6(n).toFixed(6)
+}
+
 function formatMoney(n) {
   const x = Number(n)
   if (!Number.isFinite(x)) return '0.00'
@@ -1849,6 +1876,7 @@ function lossPctDisplay(row) {
 function onLossPctChange(row, pctVal) {
   const p = Number(pctVal)
   row.kcac05 = Number.isFinite(p) ? p / 100 : 0
+  syncPartKcac06(row)
 }
 
 function genLocalKey() {
@@ -1911,6 +1939,7 @@ function appendEditPartBlankRow() {
     kcaa11: '',
     kcac04: 0,
     kcac05: 0,
+    kcac06: 0,
     cost_price: 0,
     remark: '',
     part_seq: maxSeq + 1,
@@ -1946,7 +1975,7 @@ async function removeDetailPartRow(row) {
 function onMaterialPicked(payload) {
   const kcaa01 = String(payload?.kcaa01 ?? '').trim()
   if (!kcaa01) return
-  partsList.value.push({
+  const row = {
     _localKey: genLocalKey(),
     id: null,
     kcaa01,
@@ -1956,9 +1985,12 @@ function onMaterialPicked(payload) {
     kcaa11: String(payload?.kcaa11 ?? '').trim(),
     kcac04: 1,
     kcac05: 0,
+    kcac06: 1,
     cost_price: 0,
     remark: '',
-  })
+  }
+  syncPartKcac06(row)
+  partsList.value.push(row)
 }
 
 async function loadBomParts() {
@@ -1984,10 +2016,11 @@ async function loadBomParts() {
     const list = Array.isArray(body?.data?.list) ? body.data.list : []
     if (partsLoadedToken.value !== token) return
     partsPendingDeleteIds.value = []
-    partsList.value = list.map((r) => ({
-      ...r,
-      _localKey: genLocalKey(),
-    }))
+    partsList.value = list.map((r) => {
+      const row = { ...r, _localKey: genLocalKey() }
+      syncPartKcac06(row)
+      return row
+    })
   } catch (e) {
     if (partsLoadedToken.value !== token) return
     partsError.value = String(e?.response?.data?.msg ?? e?.message ?? '网络错误')
@@ -2008,21 +2041,25 @@ async function saveBomParts() {
     return
   }
   try {
-    const kept = (partsList.value ?? []).map((r) => ({
-      id: r.id != null && Number(r.id) > 0 ? Number(r.id) : undefined,
-      pendingDelete: false,
-      kcac01: sc,
-      kcaa01: String(r.kcaa01 ?? '').trim(),
-      kcaa02: r.kcaa02,
-      kcaa03: r.kcaa03,
-      kcaa04: r.kcaa04,
-      kcaa11: r.kcaa11,
-      kcac04: r.kcac04,
-      kcac05: r.kcac05,
-      cost_price: r.cost_price,
-      remark: r.remark,
-      seq: Number.isFinite(Number(r.seq)) ? Number(r.seq) : 0,
-    }))
+    const kept = (partsList.value ?? []).map((r) => {
+      syncPartKcac06(r)
+      return {
+        id: r.id != null && Number(r.id) > 0 ? Number(r.id) : undefined,
+        pendingDelete: false,
+        kcac01: sc,
+        kcaa01: String(r.kcaa01 ?? '').trim(),
+        kcaa02: r.kcaa02,
+        kcaa03: r.kcaa03,
+        kcaa04: r.kcaa04,
+        kcaa11: r.kcaa11,
+        kcac04: r.kcac04,
+        kcac05: r.kcac05,
+        kcac06: r.kcac06,
+        cost_price: r.cost_price,
+        remark: r.remark,
+        seq: Number.isFinite(Number(r.seq)) ? Number(r.seq) : 0,
+      }
+    })
     const dels = (partsPendingDeleteIds.value ?? []).map((pid) => ({
       id: Number(pid),
       pendingDelete: true,
@@ -2074,12 +2111,14 @@ async function loadEditBomParts() {
     editPartsPendingDeleteIds.value = []
     editPartsList.value = list.map((r, idx) => {
       const seqFromDb = r.seq != null && Number.isFinite(Number(r.seq)) ? Number(r.seq) : null
-      return {
+      const row = {
         ...r,
         _localKey: genLocalKey(),
         part_seq: seqFromDb != null ? seqFromDb : idx + 1,
         _partsMarkSelected: false,
       }
+      syncPartKcac06(row)
+      return row
     })
   } catch (e) {
     if (editPartsLoadedToken.value !== token) return
@@ -2104,21 +2143,25 @@ async function saveEditBomParts() {
   try {
     const kept = (editPartsList.value ?? [])
       .filter((r) => String(r.kcaa01 ?? '').trim())
-      .map((r) => ({
-        id: r.id != null && Number(r.id) > 0 ? Number(r.id) : undefined,
-        pendingDelete: false,
-        kcac01: sc,
-        kcaa01: String(r.kcaa01 ?? '').trim(),
-        kcaa02: r.kcaa02,
-        kcaa03: r.kcaa03,
-        kcaa04: r.kcaa04,
-        kcaa11: r.kcaa11,
-        kcac04: r.kcac04,
-        kcac05: r.kcac05,
-        cost_price: r.cost_price,
-        remark: r.remark,
-        seq: Number.isFinite(Number(r.part_seq)) ? Number(r.part_seq) : 0,
-      }))
+      .map((r) => {
+        syncPartKcac06(r)
+        return {
+          id: r.id != null && Number(r.id) > 0 ? Number(r.id) : undefined,
+          pendingDelete: false,
+          kcac01: sc,
+          kcaa01: String(r.kcaa01 ?? '').trim(),
+          kcaa02: r.kcaa02,
+          kcaa03: r.kcaa03,
+          kcaa04: r.kcaa04,
+          kcaa11: r.kcaa11,
+          kcac04: r.kcac04,
+          kcac05: r.kcac05,
+          kcac06: r.kcac06,
+          cost_price: r.cost_price,
+          remark: r.remark,
+          seq: Number.isFinite(Number(r.part_seq)) ? Number(r.part_seq) : 0,
+        }
+      })
     const dels = (editPartsPendingDeleteIds.value ?? []).map((pid) => ({
       id: Number(pid),
       pendingDelete: true,
@@ -2157,6 +2200,7 @@ function onEditMaterialPicked(payload) {
     target.kcaa04 = String(payload?.kcaa05 ?? payload?.kcaa04 ?? '').trim()
     target.kcaa11 = String(payload?.kcaa11 ?? '').trim()
     if (!(Number(target.kcac04) > 0)) target.kcac04 = 1
+    syncPartKcac06(target)
     return
   }
   let maxSeq = 0
@@ -2164,7 +2208,7 @@ function onEditMaterialPicked(payload) {
     const ps = Number(r.part_seq)
     if (Number.isFinite(ps) && ps > maxSeq) maxSeq = ps
   }
-  editPartsList.value.push({
+  const row = {
     _localKey: genLocalKey(),
     id: null,
     kcac01: '',
@@ -2175,11 +2219,14 @@ function onEditMaterialPicked(payload) {
     kcaa11: String(payload?.kcaa11 ?? '').trim(),
     kcac04: 1,
     kcac05: 0,
+    kcac06: 1,
     cost_price: 0,
     remark: '',
     part_seq: maxSeq + 1,
     _partsMarkSelected: false,
-  })
+  }
+  syncPartKcac06(row)
+  editPartsList.value.push(row)
 }
 
 watch(
@@ -2757,6 +2804,7 @@ loadData()
 }
 .bom-detail-body {
   max-height: calc(92vh - 160px);
+  overflow-x: hidden;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -2768,6 +2816,8 @@ loadData()
 }
 .bom-detail-dialog :deep(.el-dialog__body) {
   padding-top: 8px;
+  /* 避免与 el-table 内部横向滚动条重复：宽表仅由表格自身滚动 */
+  overflow-x: hidden;
 }
 .bom-section-title {
   font-size: 14px;
@@ -2794,7 +2844,7 @@ loadData()
 }
 .bom-parts-table-wrap {
   width: 100%;
-  overflow-x: auto;
+  overflow-x: hidden;
 }
 .bom-parts-table {
   min-width: 1100px;
@@ -2836,9 +2886,11 @@ loadData()
 }
 .bom-edit-dialog :deep(.el-dialog__body) {
   padding-top: 8px;
+  overflow-x: hidden;
 }
 .bom-edit-body {
   max-height: calc(92vh - 160px);
+  overflow-x: hidden;
   overflow-y: auto;
   padding-right: 4px;
 }

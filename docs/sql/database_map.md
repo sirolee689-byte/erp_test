@@ -233,10 +233,10 @@
 - **模块/页面**
   - 前端：`src/views/inv/bom/index.vue` 详情弹窗 **Tab「配件明细」**（与 `inventory/basic/bom-data` 内嵌复用同一页）
 - **接口（后端：`server/index.js`）**
-  - `GET /api/inventory/bom/parts/:systemcode`：先 **TOP 1** 判断主档 `bom_000.systemcode` 存在且在册，再仅查 `Bom_parts`（`WHERE kcac01=@systemcode`），避免与子表 **JOIN 大表**导致超时；子行 `del=0`（或空）在册；无主档时返回空列表
-  - `PUT /api/inventory/bom/parts/:systemcode`：body `{ lines: [...] }` 批量处理；`id`+`pendingDelete=true` → `UPDATE del=1`；有 `id` 且未标记删除 → 更新单位用量/损耗/单价/备注；无 `id` 且未标记删除 → `INSERT`（`kcac01` 填主档 `systemcode`，子行物料编码等为 body 字段）
+  - `GET /api/inventory/bom/parts/:systemcode`：先 **TOP 1** 判断主档 `bom_000.systemcode` 存在且在册，再查 `Bom_parts`（`WHERE kcac01=@systemcode`，子行在册 `del`）；列表字段 **`kcaa01`/`kcaa02`/`kcaa03`/`kcaa11`** 优先通过 **`OUTER APPLY`**（按 `Bom_parts.kcaa01` = `bom_000.kcaa01` 匹配在册主档，`ORDER BY b.id DESC` **TOP 1**）取自 **`bom_000`**，无匹配时回退配件表同行；**不**对整表 `bom_000` 做大 JOIN；返回 **`kcac06`**（用量合计）
+  - `PUT /api/inventory/bom/parts/:systemcode`：body `{ lines: [...] }` 批量处理；`id`+`pendingDelete=true` → 满足 **`id` + `kcac01`=主档 `systemcode`** 时物理删行；有 `id` 且未标记删除 → **`UPDATE … WHERE p.id=@id AND kcac01 匹配`**，写入 **`kcac04`/`kcac05`/`kcac06`**（若物理表存在 **`kcac06`** 列）及单价/备注等；无 `id` → `INSERT`。写入前 Node 侧对 **`kcac04`/`kcac05`/`kcac06`** 做 **6 位小数规整**（与 **decimal(18,6)** 对齐，§2）。成功更新用量类字段后写审计：`[更新]了配件用量，BOM：[主档 kcaa01]，配件：[kcaa01]，用量：[kcac04]，损耗：[kcac05]`
 - **关键字段（与当前接口一致）**
-  - `kcac01`：父级主档 `systemcode`；**`kcac02`**：子件关联编码（匹配下层 BOM 时优先用于关联 `bom_000.kcaa01`，空则回退 `kcaa01`）；`kcaa01`～`kcaa04`/`kcaa11`：配件编码、名称、规格、单位、颜色；`kcac04` 单位用量；`kcac05` 损耗率（**小数**，如 5% 存 `0.05`）；`cost_price` 单价；`[Describe]` 行备注；`Seq` 排序；`del` 逻辑删除
+  - `kcac01`：父级主档 `systemcode`；**`kcac02`**：子件关联编码（匹配下层 BOM 时优先用于关联 `bom_000.kcaa01`，空则回退 `kcaa01`）；`kcaa01`～`kcaa04`/`kcaa11`：配件编码、名称、规格、单位、颜色（GET 展示优先 **bom_000**）；`kcac04` 单位用量；`kcac05` 损耗率（**小数**，如 5% 存 `0.05`）；**`kcac06`** 用量合计（**kcac04 × (1 + kcac05)**，与前端一致）；`cost_price` 单价；`[Describe]` 行备注；`Seq` 排序；`del` 逻辑删除
 - **权限（按钮级）**
   - `GET`：与 `GET /api/inventory/bom/:id` 相同（`view`）
   - `PUT`：菜单 `inv/bom` 或 `inventory/basic/bom-data` 的 `edit`
@@ -513,7 +513,9 @@
 - **`dbo.[bom_000]`（表名可由环境变量 `INV_BOM_MASTER_TABLE` 覆盖）**
   - 来源：`server/index.js`（`GET /api/inv/bom/list`、`GET /api/inventory/bom/:id`、`POST /api/inventory/bom/usage-calc/:systemcode`）
 - **`dbo.[Bom_parts]`（表名可由 `INV_BOM_PARTS_TABLE` 覆盖）**
-  - 来源：`server/index.js`（`GET`/`PUT /api/inventory/bom/parts/:systemcode`、`POST /api/inventory/bom/usage-calc/:systemcode`）
+  - 来源：`server/index.js`（`GET`/`PUT /api/inventory/bom/parts/:systemcode`、`POST /api/inventory/bom/save-parts`、`POST /api/inventory/bom/usage-calc/:systemcode`）
+  - **保存配件明细（PUT/POST）**：对每一行在事务内执行统一 **UPDATE**——**双重锁定** `p.id` + `p.kcac01`（当前主 BOM 的 `systemcode`）；通过 **`OUTER APPLY`** 按 `p.kcaa01` 关联 **`bom_000`** 在册最新一行（`ORDER BY b.id DESC`，与 GET 明细一致），将 **`kcaa01`～`kcaa35`**（仅写入表中存在的列）、**`kcac02`** 及 **`systemcode`**（若明细表存在该列，值同子 BOM `bom_000.systemcode`）从主档同步；**`kcac04`/`kcac05`/`kcac06`、`cost_price`、`remark`、`Seq`** 仍以请求体为准。无匹配子 BOM 时：`kcaa02`/`kcaa03`/`kcaa04`/`kcaa11` 回落到请求体，其余 `kcaa` 保留行内原值。新增行：`INSERT … OUTPUT INSERTED.id` 后立即同上 UPDATE。物理删除逻辑未改。
+  - **审计**：若配件编码在 `bom_000` 存在在册子档，保存成功后额外写日志：`[同步]了BOM配件属性，主BOM：[systemcode]，配件：[kcaa01]，已同步kcaa01-kcaa35共35个字段。`（动作名：`同步BOM配件属性`）
 - **`dbo.[Bom_cost]` / `dbo.[Bom_consumption]`**
   - 来源：`server/index.js`（`GET /api/inv/bom/list` 汇总、`GET /api/inventory/bom/usage-result/:systemcode`、`POST /api/inventory/bom/usage-calc/:systemcode`）
 - **`dbo.[Bom_code]`**
