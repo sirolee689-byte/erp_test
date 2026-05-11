@@ -7740,6 +7740,7 @@ function flattenBomPartsCostUsageFlat(treeNodes, parentYl, acc) {
 /**
  * BOM 用量表 — 仅递归读取 Bom_parts 树（不写 bom_cost / Bom_consumption，不做用量汇总）
  * GET /api/bom/tree?systemcode=xxx
+ * - flatCostUsageRaw：成本展开原始平铺（DFS）；前缀筛选与按编码+备注合并由前端在「运算」后本地计算
  */
 app.get('/api/bom/tree', async (req, res) => {
   try {
@@ -7751,8 +7752,8 @@ app.get('/api/bom/tree', async (req, res) => {
     const pool = await getPool()
     const bomHeadStack = new Set([systemcode])
     const data = await buildBomPartsUsageTreeNodes(pool, systemcode, 1, bomHeadStack)
-    const flatCostUsage = flattenBomPartsCostUsageFlat(data, null, [])
-    res.json({ success: true, data, flatCostUsage })
+    const flatCostUsageRaw = flattenBomPartsCostUsageFlat(data, null, [])
+    res.json({ success: true, data, flatCostUsageRaw })
   } catch (err) {
     if (err?.code === 'BOM_CYCLE') {
       res.status(409).json({ success: false, msg: String(err.message ?? '检测到BOM循环引用'), data: null })
@@ -14310,7 +14311,7 @@ app.listen(port, () => {
     `BOM-Parts-Save-Sync-Kcaa01-35-v1.2.6 ${bootAt} PUT parts: id+kcac01 lock; sync kcaa01-35/kcac02/systemcode from bom_000; audit [同步]`,
   )
   console.log(
-    `BOM-Tree-CostUsage-Flat ${bootAt} GET /api/bom/tree + flatCostUsage(+Describe; yl×父级; loss; total; DFS)`,
+    `BOM-Tree-CostUsage-Flat ${bootAt} GET /api/bom/tree + flatCostUsageRaw(前端筛选合并; DFS)`,
   )
   console.log(`ColorCode-Module-Initial-v1.0.0 ${bootAt}`)
   console.log(`ColorCode-Add-DirectMode-v1.1.0 ${bootAt}`)

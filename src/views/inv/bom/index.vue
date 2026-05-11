@@ -690,8 +690,20 @@
               </el-tab-pane>
               <el-tab-pane label="成本BOM用量表" name="costBomUsage" :disabled="!bomBasic">
                 <div class="bom-cost-usage-toolbar bom-parts-toolbar">
-                  <span class="bom-usage-calc-toolbar__hint">
-                    与「BOM用量表运算」中「运算」结果同步：展开后的平铺表（只读、不落 bom_cost）
+                  <template v-if="bomCostUsageRawRows.length">
+                    <div class="bom-cost-hide-prefix-bar">
+                      <span class="bom-cost-hide-prefix-bar__label">隐藏编码前缀</span>
+                      <el-button size="small" type="primary" plain @click="openBomCostHidePrefixDialog">
+                        配置前缀…
+                      </el-button>
+                      <span class="bom-cost-hide-prefix-bar__summary">{{ bomCostHidePrefixSummaryText }}</span>
+                    </div>
+                    <span class="bom-usage-calc-toolbar__hint bom-cost-usage-toolbar__hint">
+                      本地筛选：匹配前缀的行不出现在下表（子件用量已在运算结果中）；确定配置后立即重算合并（只读、不落 bom_cost）
+                    </span>
+                  </template>
+                  <span v-else class="bom-usage-calc-toolbar__hint bom-cost-usage-toolbar__hint">
+                    请先在「BOM用量表运算」点击「运算」，加载完成后可在此筛选前缀并查看合并后的成本用量
                   </span>
                 </div>
                 <div v-loading="bomUsageTreeLoading" class="bom-cost-usage-wrap">
@@ -704,6 +716,8 @@
                       class="bom-cost-usage-table"
                       max-height="calc(100vh - 280px)"
                       row-key="__bomCostRowKey"
+                      show-summary
+                      :summary-method="bomCostUsageSummaryMethod"
                     >
                       <el-table-column label="编码" min-width="200" fixed="left" show-overflow-tooltip>
                         <template #default="{ row }">
@@ -733,9 +747,13 @@
                       <el-table-column label="合计" width="110" align="right">
                         <template #default="{ row }">{{ formatQty(row.total_qty) }}</template>
                       </el-table-column>
-                      <el-table-column prop="level" label="层级" width="72" align="center" />
                     </el-table>
                   </div>
+                  <el-empty
+                    v-else-if="!bomUsageTreeLoading && bomCostUsageRawRows.length"
+                    description="当前前缀筛选已隐藏全部行，请点击「配置前缀…」减少或清空条目"
+                    :image-size="72"
+                  />
                   <el-empty
                     v-else-if="!bomUsageTreeLoading"
                     :description="
@@ -756,6 +774,55 @@
           </template>
         </template>
       </el-skeleton>
+    </el-dialog>
+
+    <!-- 成本 BOM：隐藏编码前缀（逐行编辑） -->
+    <el-dialog
+      v-model="bomCostHidePrefixDialogVisible"
+      title="配置隐藏编码前缀"
+      width="520px"
+      append-to-body
+      destroy-on-close
+      class="bom-cost-hide-prefix-dialog"
+      @closed="onBomCostHidePrefixDialogClosed"
+    >
+      <p class="bom-cost-hide-prefix-dialog__tip">
+        物料编码以任一前缀开头（忽略大小写）的行不出现在成本表中；子件用量已在运算结果中。
+      </p>
+      <div class="bom-cost-hide-prefix-dialog__rows">
+        <div
+          v-for="(dRow, dIdx) in bomCostHidePrefixDraftRows"
+          :key="dRow._key"
+          class="bom-cost-hide-prefix-dialog__row"
+        >
+          <el-input
+            v-model="dRow.text"
+            placeholder="例如 CUT-、BAG-"
+            :maxlength="BOM_COST_HIDE_PREFIX_LEN"
+            clearable
+            size="small"
+          />
+          <el-button
+            size="small"
+            type="danger"
+            link
+            :disabled="bomCostHidePrefixDraftRows.length <= 1"
+            @click="removeBomCostHidePrefixDraftRow(dIdx)"
+          >
+            删除
+          </el-button>
+        </div>
+      </div>
+      <div class="bom-cost-hide-prefix-dialog__actions">
+        <el-button size="small" type="primary" link @click="addBomCostHidePrefixDraftRow">+ 添加一行</el-button>
+        <span class="bom-cost-hide-prefix-dialog__quick-label">常用：</span>
+        <el-button size="small" link type="primary" @click="appendQuickHidePrefix('CUT-')">CUT-</el-button>
+        <el-button size="small" link type="primary" @click="appendQuickHidePrefix('BAG-')">BAG-</el-button>
+      </div>
+      <template #footer>
+        <el-button size="small" @click="bomCostHidePrefixDialogVisible = false">取消</el-button>
+        <el-button size="small" type="primary" @click="confirmBomCostHidePrefixDialog">确定</el-button>
+      </template>
     </el-dialog>
 
     <!-- BOM 主档新增/编辑（bom_000） -->
@@ -1318,14 +1385,251 @@ const bomUsageTreeLoading = ref(false)
 const bomUsageTreeError = ref('')
 const bomUsageTreeData = ref([])
 const bomUsageTableRef = ref(null)
-/** 成本 BOM 用量平铺（GET /api/bom/tree 的 flatCostUsage；与树同次运算） */
+/** 成本 BOM 用量表展示行（本地：前缀筛选 + 按编码+备注合并） */
 const bomCostUsageFlatRows = ref([])
+/** 「运算」返回的原始成本平铺（未筛选）；前缀改动仅据此内存重算，不再请求接口 */
+const bomCostUsageRawRows = ref([])
+
+/** 成本表不展示的物料编码前缀；由「配置前缀」弹窗确定后写入，变更后本地重算 */
+const bomCostHidePrefixes = ref(['CUT-', 'BAG-'])
+
+const BOM_COST_HIDE_PREFIX_CAP = 20
+const BOM_COST_HIDE_PREFIX_LEN = 80
+
+let bomCostHidePrefixDraftUid = 0
+function newBomCostHidePrefixDraftKey() {
+  bomCostHidePrefixDraftUid += 1
+  return bomCostHidePrefixDraftUid
+}
+
+const bomCostHidePrefixDialogVisible = ref(false)
+/** @type {import('vue').Ref<{ _key: number, text: string }[]>} */
+const bomCostHidePrefixDraftRows = ref([])
+
+/** 工具栏摘要：完整列表在弹窗内编辑 */
+const bomCostHidePrefixSummaryText = computed(() => {
+  const arr = normalizeBomCostHidePrefixes(bomCostHidePrefixes.value)
+  if (!arr.length) return '当前未配置隐藏前缀'
+  const maxShow = 8
+  const head = arr.slice(0, maxShow).join('、')
+  if (arr.length <= maxShow) return `已配置 ${arr.length} 项：${head}`
+  return `已配置 ${arr.length} 项：${head}…`
+})
+
+function openBomCostHidePrefixDialog() {
+  const cur = normalizeBomCostHidePrefixes(bomCostHidePrefixes.value)
+  if (cur.length) {
+    bomCostHidePrefixDraftRows.value = cur.map((t) => ({
+      _key: newBomCostHidePrefixDraftKey(),
+      text: t,
+    }))
+  } else {
+    bomCostHidePrefixDraftRows.value = [{ _key: newBomCostHidePrefixDraftKey(), text: '' }]
+  }
+  bomCostHidePrefixDialogVisible.value = true
+}
+
+function onBomCostHidePrefixDialogClosed() {
+  bomCostHidePrefixDraftRows.value = []
+}
+
+function addBomCostHidePrefixDraftRow() {
+  if (bomCostHidePrefixDraftRows.value.length >= BOM_COST_HIDE_PREFIX_CAP) {
+    ElMessage.warning(`最多添加 ${BOM_COST_HIDE_PREFIX_CAP} 条前缀`)
+    return
+  }
+  bomCostHidePrefixDraftRows.value.push({ _key: newBomCostHidePrefixDraftKey(), text: '' })
+}
+
+function removeBomCostHidePrefixDraftRow(idx) {
+  if (bomCostHidePrefixDraftRows.value.length <= 1) return
+  bomCostHidePrefixDraftRows.value.splice(idx, 1)
+}
+
+/** 弹窗内是否已有相同前缀（忽略大小写） */
+function bomCostHidePrefixDraftHasText(prefix) {
+  const k = String(prefix ?? '').trim().toLowerCase()
+  if (!k) return false
+  for (const r of bomCostHidePrefixDraftRows.value) {
+    if (String(r.text ?? '').trim().toLowerCase() === k) return true
+  }
+  return false
+}
+
+/** 常用前缀一键填入（不重复则新增一行） */
+function appendQuickHidePrefix(prefix) {
+  const p = String(prefix ?? '').trim().slice(0, BOM_COST_HIDE_PREFIX_LEN)
+  if (!p) return
+  if (bomCostHidePrefixDraftHasText(p)) {
+    ElMessage.info('列表中已有该前缀')
+    return
+  }
+  if (bomCostHidePrefixDraftRows.value.length >= BOM_COST_HIDE_PREFIX_CAP) {
+    ElMessage.warning(`最多 ${BOM_COST_HIDE_PREFIX_CAP} 条前缀`)
+    return
+  }
+  const rows = bomCostHidePrefixDraftRows.value
+  if (rows.length === 1 && !String(rows[0].text ?? '').trim()) {
+    rows[0].text = p
+    return
+  }
+  rows.push({ _key: newBomCostHidePrefixDraftKey(), text: p })
+}
+
+function confirmBomCostHidePrefixDialog() {
+  const texts = bomCostHidePrefixDraftRows.value.map((r) => r.text)
+  bomCostHidePrefixes.value = normalizeBomCostHidePrefixes(texts)
+  bomCostHidePrefixDialogVisible.value = false
+  ElMessage.success('已更新隐藏前缀')
+}
+
+/** @param {unknown[]} list */
+function normalizeBomCostHidePrefixes(list) {
+  const arr = Array.isArray(list) ? list : []
+  const seen = new Set()
+  const out = []
+  for (const item of arr) {
+    const t = String(item ?? '').trim().slice(0, BOM_COST_HIDE_PREFIX_LEN)
+    if (!t) continue
+    const k = t.toLowerCase()
+    if (seen.has(k)) continue
+    seen.add(k)
+    out.push(t)
+    if (out.length >= BOM_COST_HIDE_PREFIX_CAP) break
+  }
+  return out
+}
+
+/** @param {string} kcaa01 @param {string[]} hidePrefixes */
+function bomCostUsageMatchesHidePrefix(kcaa01, hidePrefixes) {
+  if (!hidePrefixes || !hidePrefixes.length) return false
+  const code = String(kcaa01 ?? '').trim().toLowerCase()
+  if (!code) return false
+  for (let i = 0; i < hidePrefixes.length; i++) {
+    const pre = String(hidePrefixes[i] ?? '').trim().toLowerCase()
+    if (pre && code.startsWith(pre)) return true
+  }
+  return false
+}
+
+/**
+ * 与后端 flatten 之后逻辑一致：剔除前缀行后按 kcaa01+Describe 合并
+ * @param {Record<string, unknown>[]} flatRows
+ * @param {string[]} hidePrefixes
+ */
+function aggregateBomCostUsageFlatForDisplay(flatRows, hidePrefixes) {
+  if (!Array.isArray(flatRows) || !flatRows.length) return []
+  /** @type {Map<string, { kcaa01: string, kcaa02: string, kcaa03: string, kcaa04: string, Describe: string, sumYl: number, sumTotal: number }>} */
+  const map = new Map()
+  for (let i = 0; i < flatRows.length; i++) {
+    const r = flatRows[i]
+    const code = String(r?.kcaa01 ?? '').trim()
+    if (!code || bomCostUsageMatchesHidePrefix(code, hidePrefixes)) continue
+    const remark = String(r?.Describe ?? '').trim()
+    const key = `${code}\u0000${remark}`
+    const yl = Number(r?.yl ?? 0)
+    const loss = Number(r?.loss_rate ?? 0)
+    const rowTotal = Number.isFinite(Number(r?.total_qty)) ? Number(r.total_qty) : yl * (1 + loss)
+    let g = map.get(key)
+    if (!g) {
+      g = {
+        kcaa01: code,
+        kcaa02: r?.kcaa02 != null ? String(r.kcaa02) : '',
+        kcaa03: r?.kcaa03 != null ? String(r.kcaa03) : '',
+        kcaa04: r?.kcaa04 != null ? String(r.kcaa04) : '',
+        Describe: remark,
+        sumYl: 0,
+        sumTotal: 0,
+      }
+      map.set(key, g)
+    } else {
+      if (!g.kcaa02 && r?.kcaa02) g.kcaa02 = String(r.kcaa02)
+      if (!g.kcaa03 && r?.kcaa03) g.kcaa03 = String(r.kcaa03)
+      if (!g.kcaa04 && r?.kcaa04) g.kcaa04 = String(r.kcaa04)
+    }
+    g.sumYl += yl
+    g.sumTotal += rowTotal
+  }
+  const out = []
+  for (const g of map.values()) {
+    const sumYl = g.sumYl
+    let loss_rate = 0
+    if (sumYl > 0) loss_rate = g.sumTotal / sumYl - 1
+    const total_qty = sumYl * (1 + loss_rate)
+    out.push({
+      kcaa01: g.kcaa01,
+      kcaa02: g.kcaa02,
+      kcaa03: g.kcaa03,
+      kcaa04: g.kcaa04,
+      Describe: g.Describe,
+      yl: sumYl,
+      loss_rate,
+      total_qty,
+      level: 1,
+    })
+  }
+  out.sort((a, b) => {
+    const c = a.kcaa01.localeCompare(b.kcaa01, 'zh-Hans-CN', { sensitivity: 'accent' })
+    if (c !== 0) return c
+    return a.Describe.localeCompare(b.Describe, 'zh-Hans-CN', { sensitivity: 'accent' })
+  })
+  return out
+}
+
+function recomputeBomCostUsageDisplay() {
+  const raw = bomCostUsageRawRows.value
+  if (!Array.isArray(raw) || !raw.length) {
+    bomCostUsageFlatRows.value = []
+    return
+  }
+  const prefixes = normalizeBomCostHidePrefixes(bomCostHidePrefixes.value)
+  const merged = aggregateBomCostUsageFlatForDisplay(raw, prefixes)
+  bomCostUsageFlatRows.value = merged.map((r, i) => ({
+    ...r,
+    __bomCostRowKey: `bom-cost-flat-${i}`,
+  }))
+}
+
+watch(
+  () => [bomCostHidePrefixes.value, bomCostUsageRawRows.value],
+  () => {
+    recomputeBomCostUsageDisplay()
+  },
+  { deep: true },
+)
 
 /** 编码列按 level 预留缩进（与旧 ERP 展开表层次一致） */
 function bomCostUsageCodeCellStyle(row) {
   const lv = Number(row?.level)
   const pad = Number.isFinite(lv) && lv > 1 ? (lv - 1) * 14 : 0
   return pad > 0 ? { paddingLeft: `${pad}px`, display: 'inline-block' } : {}
+}
+
+/**
+ * 成本 BOM 用量表底部合计：SUM 用量、SUM 合计（与 formatQty 小数位一致）
+ * @param {{ columns: import('element-plus').TableColumnCtx<unknown>[], data: Record<string, unknown>[] }} param0
+ */
+function bomCostUsageSummaryMethod({ columns, data }) {
+  const rows = Array.isArray(data) ? data : []
+  let sumYl = 0
+  let sumTotalQty = 0
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]
+    const yl = Number(row?.yl ?? 0)
+    const tq = Number(row?.total_qty ?? 0)
+    if (Number.isFinite(yl)) sumYl += yl
+    if (Number.isFinite(tq)) sumTotalQty += tq
+  }
+  /** @type {string[]} */
+  const sums = []
+  columns.forEach((column, index) => {
+    const lab = String(column.label ?? '')
+    if (lab === '编码') sums[index] = '合计'
+    else if (lab === '用量') sums[index] = formatQty(sumYl)
+    else if (lab === '合计') sums[index] = formatQty(sumTotalQty)
+    else sums[index] = ''
+  })
+  return sums
 }
 
 /** 遍历树（先序），供展开/折叠 */
@@ -1438,6 +1742,7 @@ async function goBackDetailDrill() {
     partsLoadedToken.value = ''
     bomUsageTreeError.value = ''
     bomUsageTreeData.value = []
+    bomCostUsageRawRows.value = []
     bomCostUsageFlatRows.value = []
     if (detailActiveTab.value === 'parts' && String(basic.systemcode ?? '').trim()) {
       await loadBomParts()
@@ -1450,7 +1755,7 @@ async function goBackDetailDrill() {
   }
 }
 
-/** BOM用量表运算：请求后端递归 Bom_parts 树 + 内存平铺成本用量（不落库） */
+/** BOM用量表运算：请求后端树 + 原始成本平铺；成本表前缀筛选在本地即时生效 */
 async function onBomUsageTableCalc() {
   if (!bomSystemcode.value) {
     ElMessage.warning('主档缺少 systemcode，无法运算')
@@ -1465,22 +1770,21 @@ async function onBomUsageTableCalc() {
       const msg = String(body?.msg ?? '加载失败')
       bomUsageTreeError.value = msg
       bomUsageTreeData.value = []
+      bomCostUsageRawRows.value = []
       bomCostUsageFlatRows.value = []
       ElMessage.error(msg)
       return
     }
     bomUsageTreeData.value = Array.isArray(body.data) ? body.data : []
-    const flatRaw = Array.isArray(body.flatCostUsage) ? body.flatCostUsage : []
-    bomCostUsageFlatRows.value = flatRaw.map((r, i) => ({
-      ...r,
-      __bomCostRowKey: `bom-cost-flat-${i}`,
-    }))
-    ElMessage.success('已生成成本 BOM 用量平铺表（仅展示）')
+    bomCostUsageRawRows.value = Array.isArray(body.flatCostUsageRaw) ? body.flatCostUsageRaw : []
+    recomputeBomCostUsageDisplay()
+    ElMessage.success('运算完成；成本表可在此调整前缀筛选（即时生效）')
     detailActiveTab.value = 'costBomUsage'
   } catch (e) {
     const msg = String(e?.response?.data?.msg ?? e?.message ?? '网络错误')
     bomUsageTreeError.value = msg
     bomUsageTreeData.value = []
+    bomCostUsageRawRows.value = []
     bomCostUsageFlatRows.value = []
     ElMessage.error(msg)
   } finally {
@@ -2573,6 +2877,7 @@ function onDetailClosed() {
   bomUsageTreeLoading.value = false
   bomUsageTreeError.value = ''
   bomUsageTreeData.value = []
+  bomCostUsageRawRows.value = []
   bomCostUsageFlatRows.value = []
 }
 
@@ -3221,6 +3526,63 @@ loadData()
 }
 .bom-cost-usage-toolbar {
   margin-bottom: 0;
+}
+
+.bom-cost-hide-prefix-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.bom-cost-hide-prefix-bar__label {
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+  white-space: nowrap;
+}
+.bom-cost-hide-prefix-bar__summary {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  flex: 1 1 200px;
+  min-width: 0;
+  line-height: 1.4;
+}
+.bom-cost-hide-prefix-dialog__tip {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.5;
+}
+.bom-cost-hide-prefix-dialog__rows {
+  max-height: min(52vh, 360px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.bom-cost-hide-prefix-dialog__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.bom-cost-hide-prefix-dialog__row .el-input {
+  flex: 1;
+  min-width: 0;
+}
+.bom-cost-hide-prefix-dialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 4px;
+}
+.bom-cost-hide-prefix-dialog__quick-label {
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+  margin-left: 4px;
+}
+.bom-cost-usage-toolbar__hint {
+  margin-left: 0;
+  flex-basis: 100%;
 }
 
 .bom-parts-toolbar {
