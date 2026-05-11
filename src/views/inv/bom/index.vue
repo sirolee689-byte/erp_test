@@ -244,6 +244,14 @@
         <template #default>
           <el-alert v-if="detailError" :title="detailError" type="error" show-icon class="bom-detail-alert" />
           <template v-else-if="bomBasic">
+            <div v-if="detailDrillStack.length" class="bom-detail-drill-bar">
+              <el-button type="primary" link @click="goBackDetailDrill">
+                ← 返回上一层
+              </el-button>
+              <span v-if="detailDrillBackHint" class="bom-detail-drill-bar__hint">
+                来自：{{ detailDrillBackHint }}
+              </span>
+            </div>
             <el-tabs v-model="detailActiveTab">
               <el-tab-pane label="基础资料" name="basic">
                 <div class="bom-detail-body">
@@ -465,6 +473,15 @@
                 />
                 <div v-else class="bom-parts-toolbar">
                   <el-button
+                    v-if="detailDrillStack.length"
+                    type="primary"
+                    link
+                    class="bom-detail-drill-bar__btn--toolbar"
+                    @click="goBackDetailDrill"
+                  >
+                    ← 返回上一层
+                  </el-button>
+                  <el-button
                     type="primary"
                     :disabled="partsReadOnly || !bomSystemcode"
                     @click="materialSelectorVisible = true"
@@ -518,7 +535,7 @@
                           type="danger"
                           link
                           size="small"
-                          :disabled="partsReadOnly"
+                          :disabled="partLineReadonly(row)"
                           @click="removeDetailPartRow(row)"
                         >
                           删除
@@ -535,7 +552,7 @@
                       <template #default="{ row }">
                         <el-input-number
                           v-model="row.kcac04"
-                          :disabled="partsReadOnly"
+                          :disabled="partLineReadonly(row)"
                           :min="0"
                           :precision="6"
                           :step="0.000001"
@@ -549,7 +566,7 @@
                       <template #default="{ row }">
                         <el-input-number
                           :model-value="lossPctDisplay(row)"
-                          :disabled="partsReadOnly"
+                          :disabled="partLineReadonly(row)"
                           :min="0"
                           :precision="2"
                           :step="0.1"
@@ -567,7 +584,7 @@
                       <template #default="{ row }">
                         <el-input-number
                           v-model="row.cost_price"
-                          :disabled="partsReadOnly"
+                          :disabled="partLineReadonly(row)"
                           :min="0"
                           :precision="4"
                           :step="0.0001"
@@ -583,7 +600,7 @@
                       <template #default="{ row }">
                         <el-input
                           v-model="row.remark"
-                          :disabled="partsReadOnly"
+                          :disabled="partLineReadonly(row)"
                           maxlength="500"
                           show-word-limit
                         />
@@ -967,7 +984,7 @@
               <div class="bom-parts-table-wrap">
                 <el-table
                   v-loading="editPartsLoading"
-                  :data="sortedEditPartsList"
+                  :data="editPartsList"
                   border
                   stripe
                   size="small"
@@ -982,7 +999,7 @@
                         size="small"
                         class="bom-part-mark-btn"
                         :class="{ 'bom-part-mark-btn--on': row._partsMarkSelected }"
-                        :disabled="editPartsReadOnly"
+                        :disabled="editPartLineReadonly(row)"
                         @click="toggleEditPartSelect(row)"
                       >
                         {{ row._partsMarkSelected ? '已选择' : '删除' }}
@@ -1003,7 +1020,7 @@
                         type="primary"
                         link
                         size="small"
-                        :disabled="editPartsReadOnly"
+                        :disabled="editPartLineReadonly(row)"
                         @click="openEditPartMaterialPicker(row)"
                       >
                         添加配件
@@ -1028,7 +1045,7 @@
                     <template #default="{ row }">
                       <el-input-number
                         v-model="row.kcac04"
-                        :disabled="editPartsReadOnly"
+                        :disabled="editPartLineReadonly(row)"
                         :min="0"
                         :precision="6"
                         :step="0.000001"
@@ -1042,7 +1059,7 @@
                     <template #default="{ row }">
                       <el-input-number
                         :model-value="lossPctDisplay(row)"
-                        :disabled="editPartsReadOnly"
+                        :disabled="editPartLineReadonly(row)"
                         :min="0"
                         :precision="2"
                         :step="0.1"
@@ -1059,7 +1076,7 @@
                     <template #default="{ row }">
                       <el-input
                         v-model="row.remark"
-                        :disabled="editPartsReadOnly"
+                        :disabled="editPartLineReadonly(row)"
                         maxlength="500"
                         show-word-limit
                       />
@@ -1069,7 +1086,7 @@
                     <template #default="{ row }">
                       <el-input-number
                         v-model="row.cost_price"
-                        :disabled="editPartsReadOnly"
+                        :disabled="editPartLineReadonly(row)"
                         :min="0"
                         :precision="4"
                         :step="0.0001"
@@ -1080,19 +1097,6 @@
                   </el-table-column>
                   <el-table-column label="成本合计" width="105" align="right">
                     <template #default="{ row }">{{ formatMoney(partCostSum(row)) }}</template>
-                  </el-table-column>
-                  <el-table-column label="排序" width="88" align="center">
-                    <template #default="{ row }">
-                      <el-input-number
-                        v-model="row.part_seq"
-                        :disabled="editPartsReadOnly"
-                        :min="0"
-                        :precision="0"
-                        :step="1"
-                        controls-position="right"
-                        class="bom-parts-num"
-                      />
-                    </template>
                   </el-table-column>
                 </el-table>
               </div>
@@ -1181,6 +1185,77 @@ const materialSelectorVisible = ref(false)
 const partsLoadGeneration = ref(0)
 /** 详情弹窗：待保存的配件行软删 */
 const partsPendingDeleteIds = ref([])
+
+/**
+ * 从配件「查看/查看配件」钻取下一层 BOM 时的返回栈（不含当前层）
+ * @typedef {{ code: string, titleCode: string, listRow: { code: string, pass: unknown } | null, activeTab: string, partsPendingDeleteIds: number[] }} DetailDrillFrame
+ */
+/** @type {import('vue').Ref<DetailDrillFrame[]>} */
+const detailDrillStack = ref([])
+
+/** 栈顶即「返回后」要恢复的上一层标题（kcaa01） */
+const detailDrillBackHint = computed(() => {
+  const arr = detailDrillStack.value
+  if (!arr.length) return ''
+  const top = arr[arr.length - 1]
+  return String(top?.titleCode ?? top?.code ?? '').trim()
+})
+
+/** 钻取前压入当前详情状态 */
+function pushDetailDrillSnapshot() {
+  const code = String(bomBasic.value?.kcaa01 ?? '').trim()
+  if (!code) return
+  detailDrillStack.value.push({
+    code,
+    titleCode: String(detailTitleCode.value ?? '').trim() || code,
+    listRow: detailListRow.value
+      ? { code: String(detailListRow.value.code ?? '').trim(), pass: detailListRow.value.pass }
+      : null,
+    activeTab: String(detailActiveTab.value ?? 'basic'),
+    partsPendingDeleteIds: [...(partsPendingDeleteIds.value ?? [])],
+  })
+}
+
+/** 弹出栈顶并恢复上一层 BOM 与 Tab */
+async function goBackDetailDrill() {
+  const prev = detailDrillStack.value.pop()
+  if (!prev?.code) return
+  detailLoading.value = true
+  detailError.value = ''
+  try {
+    const res = await axios.get(`/api/inventory/bom/${encodeURIComponent(prev.code)}`)
+    const body = res.data
+    if (body?.code !== 200) {
+      const msg = body?.msg || '加载失败'
+      detailError.value = msg
+      ElMessage.error(msg)
+      detailDrillStack.value.push(prev)
+      return
+    }
+    const basic = body?.data?.basic ?? null
+    if (!basic) {
+      detailError.value = '未返回基础资料数据'
+      detailDrillStack.value.push(prev)
+      return
+    }
+    bomBasic.value = basic
+    detailTitleCode.value = String(prev.titleCode ?? basic.kcaa01 ?? '').trim() || String(basic.kcaa01 ?? '').trim()
+    detailListRow.value = { code: String(basic.kcaa01 ?? '').trim(), pass: basic.pass }
+    detailActiveTab.value = prev.activeTab === 'parts' ? 'parts' : 'basic'
+    partsPendingDeleteIds.value = [...(prev.partsPendingDeleteIds ?? [])]
+    partsError.value = ''
+    partsList.value = []
+    partsLoadedToken.value = ''
+    if (detailActiveTab.value === 'parts' && String(basic.systemcode ?? '').trim()) {
+      await loadBomParts()
+    }
+  } catch (e) {
+    detailError.value = String(e?.response?.data?.msg ?? e?.message ?? '网络错误')
+    detailDrillStack.value.push(prev)
+  } finally {
+    detailLoading.value = false
+  }
+}
 
 const detailDialogTitle = computed(() => {
   const c = String(detailTitleCode.value ?? '').trim()
@@ -1310,23 +1385,6 @@ const editPartsSumCost = computed(() => {
     s += partCostSum(row)
   }
   return s
-})
-
-/** 按排序字段展示明细（业务文档：保存 Seq 后下次加载顺序一致） */
-const sortedEditPartsList = computed(() => {
-  const arr = [...(editPartsList.value ?? [])]
-  arr.sort((a, b) => {
-    const sa = Number(a.part_seq)
-    const sb = Number(b.part_seq)
-    const na = Number.isFinite(sa) ? sa : 2147483647
-    const nb = Number.isFinite(sb) ? sb : 2147483647
-    if (na !== nb) return na - nb
-    const ia = a.id != null && Number(a.id) > 0 ? Number(a.id) : 0
-    const ib = b.id != null && Number(b.id) > 0 ? Number(b.id) : 0
-    if (ia !== ib) return ia - ib
-    return String(a._localKey ?? '').localeCompare(String(b._localKey ?? ''))
-  })
-  return arr
 })
 
 /** bom_currency.cn_name 列表（下拉）；编辑时合并当前 kcaa34/kcaa35 防旧值不在表内无法展示 */
@@ -1788,12 +1846,31 @@ const bomSystemcode = computed(() => String(bomBasic.value?.systemcode ?? '').tr
 /** 已审核主档：配件只读（与列表「编辑」禁用一致） */
 const partsReadOnly = computed(() => rowIsAudited(detailListRow.value))
 
+/** 与 server bomPartsDelLooksActive 一致：空 / '0' / 数值 0 视为在册可编辑 */
+function bomPartDelLooksActive(delVal) {
+  const s = String(delVal ?? '').trim().toLowerCase()
+  if (!s) return true
+  if (s === '0') return true
+  const n = Number(s.replace(/^'+|'+$/g, ''))
+  return Number.isFinite(n) && n === 0
+}
+
+/** 详情配件行：主档已审 或 该行 del 非在册（如 del=1）时只读 */
+function partLineReadonly(row) {
+  return partsReadOnly.value || !bomPartDelLooksActive(row?.del)
+}
+
+/** 编辑弹窗配件行：主档已审 或 该行 del 非在册时只读 */
+function editPartLineReadonly(row) {
+  return editPartsReadOnly.value || !bomPartDelLooksActive(row?.del)
+}
+
 function partsRowKey(row) {
   if (row?.id != null && Number(row.id) > 0) return `id-${row.id}`
   return String(row?._localKey ?? '')
 }
 
-/** 序号列：从 1 连续递增 */
+/** 序号列：仅展示用；保存时按当前列表顺序写入 Bom_parts.[Seq]（1 起连续递增） */
 function partsRowIndex(i) {
   return i + 1
 }
@@ -1891,7 +1968,7 @@ function pushPendingDeleteId(idsRef, rawId) {
 }
 
 function toggleEditPartSelect(row) {
-  if (editPartsReadOnly.value) return
+  if (editPartLineReadonly(row)) return
   row._partsMarkSelected = !row._partsMarkSelected
 }
 
@@ -1922,12 +1999,6 @@ async function batchRemoveEditPartsSelected() {
 
 function appendEditPartBlankRow() {
   if (editPartsReadOnly.value || !editBomSystemcode.value) return
-  const rows = editPartsList.value ?? []
-  let maxSeq = 0
-  for (const r of rows) {
-    const ps = Number(r.part_seq)
-    if (Number.isFinite(ps) && ps > maxSeq) maxSeq = ps
-  }
   editPartsList.value.push({
     _localKey: genLocalKey(),
     id: null,
@@ -1942,19 +2013,22 @@ function appendEditPartBlankRow() {
     kcac06: 0,
     cost_price: 0,
     remark: '',
-    part_seq: maxSeq + 1,
     _partsMarkSelected: false,
   })
 }
 
 function openEditPartMaterialPicker(row) {
-  if (editPartsReadOnly.value) return
+  if (editPartLineReadonly(row)) return
   editPartsPickerTargetKey.value = row?._localKey ?? null
   editPartsMaterialSelectorVisible.value = true
 }
 
 /** 详情弹窗配件表：同上 */
 async function removeDetailPartRow(row) {
+  if (!bomPartDelLooksActive(row?.del)) {
+    ElMessage.warning('该行已删除标记，不可从列表移除')
+    return
+  }
   if (partsReadOnly.value) return
   try {
     await ElMessageBox.confirm(
@@ -2041,7 +2115,9 @@ async function saveBomParts() {
     return
   }
   try {
-    const kept = (partsList.value ?? []).map((r) => {
+    // 仅提交在册行（del 空/0）；历史 del=1 行不写入，避免 UPDATE 命中 0 行导致 Seq 错乱
+    const activeRows = (partsList.value ?? []).filter((r) => bomPartDelLooksActive(r?.del))
+    const kept = activeRows.map((r, idx) => {
       syncPartKcac06(r)
       return {
         id: r.id != null && Number(r.id) > 0 ? Number(r.id) : undefined,
@@ -2057,7 +2133,7 @@ async function saveBomParts() {
         kcac06: r.kcac06,
         cost_price: r.cost_price,
         remark: r.remark,
-        seq: Number.isFinite(Number(r.seq)) ? Number(r.seq) : 0,
+        seq: idx + 1,
       }
     })
     const dels = (partsPendingDeleteIds.value ?? []).map((pid) => ({
@@ -2109,12 +2185,10 @@ async function loadEditBomParts() {
     const list = Array.isArray(body?.data?.list) ? body.data.list : []
     if (editPartsLoadedToken.value !== token) return
     editPartsPendingDeleteIds.value = []
-    editPartsList.value = list.map((r, idx) => {
-      const seqFromDb = r.seq != null && Number.isFinite(Number(r.seq)) ? Number(r.seq) : null
+    editPartsList.value = list.map((r) => {
       const row = {
         ...r,
         _localKey: genLocalKey(),
-        part_seq: seqFromDb != null ? seqFromDb : idx + 1,
         _partsMarkSelected: false,
       }
       syncPartKcac06(row)
@@ -2141,27 +2215,30 @@ async function saveEditBomParts() {
     return
   }
   try {
-    const kept = (editPartsList.value ?? [])
-      .filter((r) => String(r.kcaa01 ?? '').trim())
-      .map((r) => {
-        syncPartKcac06(r)
-        return {
-          id: r.id != null && Number(r.id) > 0 ? Number(r.id) : undefined,
-          pendingDelete: false,
-          kcac01: sc,
-          kcaa01: String(r.kcaa01 ?? '').trim(),
-          kcaa02: r.kcaa02,
-          kcaa03: r.kcaa03,
-          kcaa04: r.kcaa04,
-          kcaa11: r.kcaa11,
-          kcac04: r.kcac04,
-          kcac05: r.kcac05,
-          kcac06: r.kcac06,
-          cost_price: r.cost_price,
-          remark: r.remark,
-          seq: Number.isFinite(Number(r.part_seq)) ? Number(r.part_seq) : 0,
-        }
+    let seqAcc = 0
+    const kept = []
+    for (const r of editPartsList.value ?? []) {
+      if (!String(r.kcaa01 ?? '').trim()) continue
+      if (!bomPartDelLooksActive(r?.del)) continue
+      syncPartKcac06(r)
+      seqAcc += 1
+      kept.push({
+        id: r.id != null && Number(r.id) > 0 ? Number(r.id) : undefined,
+        pendingDelete: false,
+        kcac01: sc,
+        kcaa01: String(r.kcaa01 ?? '').trim(),
+        kcaa02: r.kcaa02,
+        kcaa03: r.kcaa03,
+        kcaa04: r.kcaa04,
+        kcaa11: r.kcaa11,
+        kcac04: r.kcac04,
+        kcac05: r.kcac05,
+        kcac06: r.kcac06,
+        cost_price: r.cost_price,
+        remark: r.remark,
+        seq: seqAcc,
       })
+    }
     const dels = (editPartsPendingDeleteIds.value ?? []).map((pid) => ({
       id: Number(pid),
       pendingDelete: true,
@@ -2194,6 +2271,10 @@ function onEditMaterialPicked(payload) {
   editPartsPickerTargetKey.value = null
   const target = key ? editPartsList.value.find((r) => r._localKey === key) : null
   if (target) {
+    if (editPartLineReadonly(target)) {
+      ElMessage.warning('该行已删除标记，不可修改')
+      return
+    }
     target.kcaa01 = kcaa01
     target.kcaa02 = String(payload?.kcaa02 ?? '').trim()
     target.kcaa03 = String(payload?.kcaa03 ?? '').trim()
@@ -2202,11 +2283,6 @@ function onEditMaterialPicked(payload) {
     if (!(Number(target.kcac04) > 0)) target.kcac04 = 1
     syncPartKcac06(target)
     return
-  }
-  let maxSeq = 0
-  for (const r of editPartsList.value ?? []) {
-    const ps = Number(r.part_seq)
-    if (Number.isFinite(ps) && ps > maxSeq) maxSeq = ps
   }
   const row = {
     _localKey: genLocalKey(),
@@ -2222,7 +2298,6 @@ function onEditMaterialPicked(payload) {
     kcac06: 1,
     cost_price: 0,
     remark: '',
-    part_seq: maxSeq + 1,
     _partsMarkSelected: false,
   }
   syncPartKcac06(row)
@@ -2253,6 +2328,7 @@ function dVal(v) {
 
 function onDetailClosed() {
   detailError.value = ''
+  detailDrillStack.value = []
   bomBasic.value = null
   detailTitleCode.value = ''
   detailActiveTab.value = 'basic'
@@ -2377,6 +2453,7 @@ async function openDetail(row) {
     ElMessage.warning('当前行无编码，无法查看详情')
     return
   }
+  detailDrillStack.value = []
   detailTitleCode.value = code
   detailListRow.value = row
   detailVisible.value = true
@@ -2408,6 +2485,14 @@ async function openLinkedBomDetailFromPart(partRow) {
   if (!code) {
     ElMessage.warning('请先选择配件')
     return
+  }
+  const curCode = String(bomBasic.value?.kcaa01 ?? '').trim()
+  if (curCode && curCode === code) {
+    ElMessage.warning('已在当前 BOM')
+    return
+  }
+  if (bomBasic.value && curCode) {
+    pushDetailDrillSnapshot()
   }
   detailLoading.value = true
   detailError.value = ''
@@ -2798,6 +2883,23 @@ loadData()
 }
 .bom-detail-alert {
   margin-bottom: 12px;
+}
+.bom-detail-drill-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-bottom: 10px;
+  padding: 6px 10px;
+  border-radius: var(--el-border-radius-base);
+  background: var(--el-fill-color-light);
+}
+.bom-detail-drill-bar__hint {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.bom-detail-drill-bar__btn--toolbar {
+  margin-right: 4px;
 }
 .bom-detail-form {
   padding-top: 4px;

@@ -7176,14 +7176,15 @@ async function fetchBomUnitConversionDetail(pool, uUse, uPo, uQt) {
 
   const str = (v) => (v == null ? '' : String(v))
 
-  let purchase_direction = ''
-  let purchase_rate = ''
+  /** 采购 / 报价两条 TOP 1 互不依赖，并行以降低 BOM 详情 GET 尾延迟 */
+  const tasks = []
   if (po) {
-    const r1 = await pool
-      .request()
-      .input('uUse', sql.NVarChar(200), use)
-      .input('uPo', sql.NVarChar(200), po)
-      .query(`
+    tasks.push(
+      pool
+        .request()
+        .input('uUse', sql.NVarChar(200), use)
+        .input('uPo', sql.NVarChar(200), po)
+        .query(`
         SELECT TOP 1
           LTRIM(RTRIM(CONVERT(nvarchar(80), ISNULL(c.change_bl, N'')))) AS rate,
           CASE
@@ -7206,21 +7207,16 @@ async function fetchBomUnitConversionDetail(pool, uUse, uPo, uQt) {
               AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name_tow, N'')))) = @uPo)
           )
       `)
-    const row1 = r1.recordset?.[0]
-    if (row1) {
-      purchase_direction = str(row1.dir).trim()
-      purchase_rate = str(row1.rate).trim()
-    }
+        .then((r) => ({ kind: 'purchase', row: r.recordset?.[0] })),
+    )
   }
-
-  let quote_direction = ''
-  let quote_rate = ''
   if (qt) {
-    const r2 = await pool
-      .request()
-      .input('uUse', sql.NVarChar(200), use)
-      .input('uQt', sql.NVarChar(200), qt)
-      .query(`
+    tasks.push(
+      pool
+        .request()
+        .input('uUse', sql.NVarChar(200), use)
+        .input('uQt', sql.NVarChar(200), qt)
+        .query(`
         SELECT TOP 1
           LTRIM(RTRIM(CONVERT(nvarchar(80), ISNULL(c.change_bl, N'')))) AS rate,
           CASE
@@ -7243,10 +7239,23 @@ async function fetchBomUnitConversionDetail(pool, uUse, uPo, uQt) {
               AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.unit_name_tow, N'')))) = @uQt)
           )
       `)
-    const row2 = r2.recordset?.[0]
-    if (row2) {
-      quote_direction = str(row2.dir).trim()
-      quote_rate = str(row2.rate).trim()
+        .then((r) => ({ kind: 'quote', row: r.recordset?.[0] })),
+    )
+  }
+
+  let purchase_direction = ''
+  let purchase_rate = ''
+  let quote_direction = ''
+  let quote_rate = ''
+  const settled = await Promise.all(tasks)
+  for (const item of settled) {
+    if (item.kind === 'purchase' && item.row) {
+      purchase_direction = str(item.row.dir).trim()
+      purchase_rate = str(item.row.rate).trim()
+    }
+    if (item.kind === 'quote' && item.row) {
+      quote_direction = str(item.row.dir).trim()
+      quote_rate = str(item.row.rate).trim()
     }
   }
 
@@ -7605,8 +7614,8 @@ app.get('/api/inv/bom/list', async (req, res) => {
 /**
  * BOM 配件明细列表（Tab 配件明细）
  * GET /api/inventory/bom/parts/:systemcode — :systemcode 为主档 systemcode（URL 编码）
- * - 先 TOP 1 校验主档存在（避免与子表 JOIN 扫整表 bom_000 导致超时）
- * - 再仅查配件表 WHERE kcac01=@sc；排除 del=1；孤儿行（主档已不存在）因前置校验不会误展示他人数据
+ * - 单次往返：EXISTS 与旧版「先 TOP 1 主档」等价（无主档则 0 行 → 空列表）；含 del=1 等配件行
+ * - bom_000 展示列：原逐行 OUTER APPLY 改为「本单 distinct kcaa01 + ROW_NUMBER」再 LEFT JOIN，语义同 TOP 1 ORDER BY id DESC
  */
 app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
   try {
@@ -7622,25 +7631,36 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
     }
 
     const pool = await getPool()
-    const headReq = pool.request().input('sc', sql.NVarChar(100), systemcode)
-    const headRow = await headReq.query(`
-      SELECT TOP 1
-        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS systemcode
-      FROM ${INV_BOM_MASTER_FROM} AS b
-      WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) = @sc
-        AND (ISNULL(b.del, N'') = N'' OR b.del = N'0')
-    `)
-    const head = headRow.recordset?.[0] ?? null
-    if (!head || !String(head.systemcode ?? '').trim()) {
-      // 与旧版 INNER JOIN 行为一致：无主档行则返回空列表（前端不按异常处理）
-      res.json({ code: 200, msg: 'success', data: { list: [] } })
-      return
-    }
-
     const r = await pool
       .request()
       .input('sc', sql.NVarChar(100), systemcode)
       .query(`
+      WITH part_keys AS (
+        SELECT DISTINCT LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p0.kcaa01, N'')))) AS kcaa01_key
+        FROM ${INV_BOM_PARTS_FROM} AS p0
+        WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p0.kcac01, N'')))) = @sc
+      ),
+      bh_ranked AS (
+        SELECT
+          LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) AS kcaa01_key,
+          LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) AS j01,
+          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa02, N'')))) AS j02,
+          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa03, N'')))) AS j03,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.kcaa11, N'')))) AS j11,
+          ROW_NUMBER() OVER (
+            PARTITION BY LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N''))))
+            ORDER BY b.id DESC
+          ) AS rn
+        FROM ${INV_BOM_MASTER_FROM} AS b
+        INNER JOIN part_keys AS pk
+          ON LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) = pk.kcaa01_key
+        WHERE (ISNULL(b.del, N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.del), N''))) = N'0')
+      ),
+      bh AS (
+        SELECT kcaa01_key, j01, j02, j03, j11
+        FROM bh_ranked
+        WHERE rn = 1
+      )
       SELECT
         p.id,
         LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) AS kcac01,
@@ -7670,20 +7690,15 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
         p.[Seq] AS seq,
         LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(10), p.del), N''))) AS del
       FROM ${INV_BOM_PARTS_FROM} AS p
-      OUTER APPLY (
-        SELECT TOP 1
-          LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) AS j01,
-          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa02, N'')))) AS j02,
-          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa03, N'')))) AS j03,
-          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.kcaa11, N'')))) AS j11
-        FROM ${INV_BOM_MASTER_FROM} AS b
-        WHERE LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) =
-              LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p.kcaa01, N''))))
-          AND (ISNULL(b.del, N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.del), N''))) = N'0')
-        ORDER BY b.id DESC
-      ) AS bh
+      LEFT OUTER JOIN bh
+        ON LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p.kcaa01, N'')))) = bh.kcaa01_key
       WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) = @sc
-        AND (ISNULL(p.del, N'') = N'' OR p.del = N'0')
+        AND EXISTS (
+          SELECT 1
+          FROM ${INV_BOM_MASTER_FROM} AS h
+          WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.systemcode, N'')))) = @sc
+            AND (ISNULL(h.del, N'') = N'' OR h.del = N'0')
+        )
       ORDER BY CASE WHEN p.[Seq] IS NULL THEN 1 ELSE 0 END, p.[Seq], p.id
     `)
 
@@ -14136,7 +14151,7 @@ app.listen(port, () => {
   console.log(`BOM-Search-CUT-Suffix-Link-v1.1.7 ${bootAt}`)
   console.log(`BOM-Parts-Seq-Persist ${bootAt} GET/PUT Bom_parts.[Seq]`)
   console.log(
-    `BOM-Parts-Kcac06-JoinBom000-v1.2.4 ${bootAt} GET parts OUTER APPLY bom_000; PUT kcac04/05/06; audit usage`,
+    `BOM-Parts-Kcac06-JoinBom000-v1.2.5 ${bootAt} GET parts CTE+JOIN bom_000（同 TOP1 id）; PUT kcac04/05/06; audit usage`,
   )
   console.log(
     `BOM-Parts-Save-Sync-Kcaa01-35-v1.2.6 ${bootAt} PUT parts: id+kcac01 lock; sync kcaa01-35/kcac02/systemcode from bom_000; audit [同步]`,
