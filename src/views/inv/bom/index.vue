@@ -689,8 +689,62 @@
                 </div>
               </el-tab-pane>
               <el-tab-pane label="成本BOM用量表" name="costBomUsage" :disabled="!bomBasic">
-                <div class="bom-detail-tab-placeholder">
-                  <el-empty description="功能开发中" :image-size="80" />
+                <div class="bom-cost-usage-toolbar bom-parts-toolbar">
+                  <span class="bom-usage-calc-toolbar__hint">
+                    与「BOM用量表运算」中「运算」结果同步：展开后的平铺表（只读、不落 bom_cost）
+                  </span>
+                </div>
+                <div v-loading="bomUsageTreeLoading" class="bom-cost-usage-wrap">
+                  <div v-if="bomCostUsageFlatRows.length" class="bom-cost-usage-table-outer">
+                    <el-table
+                      :data="bomCostUsageFlatRows"
+                      border
+                      stripe
+                      size="small"
+                      class="bom-cost-usage-table"
+                      max-height="calc(100vh - 280px)"
+                      row-key="__bomCostRowKey"
+                    >
+                      <el-table-column label="编码" min-width="200" fixed="left" show-overflow-tooltip>
+                        <template #default="{ row }">
+                          <span class="bom-cost-usage-code" :style="bomCostUsageCodeCellStyle(row)">{{
+                            dVal(row.kcaa01)
+                          }}</span>
+                        </template>
+                      </el-table-column>
+                      <el-table-column prop="kcaa02" label="名称" min-width="140" show-overflow-tooltip>
+                        <template #default="{ row }">{{ dVal(row.kcaa02) }}</template>
+                      </el-table-column>
+                      <el-table-column prop="kcaa03" label="规格" min-width="160" show-overflow-tooltip>
+                        <template #default="{ row }">{{ dVal(row.kcaa03) }}</template>
+                      </el-table-column>
+                      <el-table-column prop="kcaa04" label="单位" width="80" align="center" show-overflow-tooltip>
+                        <template #default="{ row }">{{ dVal(row.kcaa04) }}</template>
+                      </el-table-column>
+                      <el-table-column prop="Describe" label="备注" min-width="120" show-overflow-tooltip>
+                        <template #default="{ row }">{{ dVal(row.Describe) }}</template>
+                      </el-table-column>
+                      <el-table-column label="用量" width="110" align="right">
+                        <template #default="{ row }">{{ formatQty(row.yl) }}</template>
+                      </el-table-column>
+                      <el-table-column label="损耗" width="100" align="right">
+                        <template #default="{ row }">{{ formatQty(row.loss_rate) }}</template>
+                      </el-table-column>
+                      <el-table-column label="合计" width="110" align="right">
+                        <template #default="{ row }">{{ formatQty(row.total_qty) }}</template>
+                      </el-table-column>
+                      <el-table-column prop="level" label="层级" width="72" align="center" />
+                    </el-table>
+                  </div>
+                  <el-empty
+                    v-else-if="!bomUsageTreeLoading"
+                    :description="
+                      bomUsageTreeError
+                        ? '运算失败，请返回「BOM用量表运算」查看错误'
+                        : '请先在「BOM用量表运算」点击「运算」生成平铺结果'
+                    "
+                    :image-size="72"
+                  />
                 </div>
               </el-tab-pane>
               <el-tab-pane label="成本BOM真实用量表" name="costBomRealUsage" :disabled="!bomBasic">
@@ -1264,6 +1318,15 @@ const bomUsageTreeLoading = ref(false)
 const bomUsageTreeError = ref('')
 const bomUsageTreeData = ref([])
 const bomUsageTableRef = ref(null)
+/** 成本 BOM 用量平铺（GET /api/bom/tree 的 flatCostUsage；与树同次运算） */
+const bomCostUsageFlatRows = ref([])
+
+/** 编码列按 level 预留缩进（与旧 ERP 展开表层次一致） */
+function bomCostUsageCodeCellStyle(row) {
+  const lv = Number(row?.level)
+  const pad = Number.isFinite(lv) && lv > 1 ? (lv - 1) * 14 : 0
+  return pad > 0 ? { paddingLeft: `${pad}px`, display: 'inline-block' } : {}
+}
 
 /** 遍历树（先序），供展开/折叠 */
 function walkBomUsageTree(rows, fn) {
@@ -1373,6 +1436,9 @@ async function goBackDetailDrill() {
     partsError.value = ''
     partsList.value = []
     partsLoadedToken.value = ''
+    bomUsageTreeError.value = ''
+    bomUsageTreeData.value = []
+    bomCostUsageFlatRows.value = []
     if (detailActiveTab.value === 'parts' && String(basic.systemcode ?? '').trim()) {
       await loadBomParts()
     }
@@ -1384,7 +1450,7 @@ async function goBackDetailDrill() {
   }
 }
 
-/** BOM用量表运算：仅请求后端递归读取 Bom_parts 树（不写库、不做用量计算） */
+/** BOM用量表运算：请求后端递归 Bom_parts 树 + 内存平铺成本用量（不落库） */
 async function onBomUsageTableCalc() {
   if (!bomSystemcode.value) {
     ElMessage.warning('主档缺少 systemcode，无法运算')
@@ -1399,14 +1465,23 @@ async function onBomUsageTableCalc() {
       const msg = String(body?.msg ?? '加载失败')
       bomUsageTreeError.value = msg
       bomUsageTreeData.value = []
+      bomCostUsageFlatRows.value = []
       ElMessage.error(msg)
       return
     }
     bomUsageTreeData.value = Array.isArray(body.data) ? body.data : []
+    const flatRaw = Array.isArray(body.flatCostUsage) ? body.flatCostUsage : []
+    bomCostUsageFlatRows.value = flatRaw.map((r, i) => ({
+      ...r,
+      __bomCostRowKey: `bom-cost-flat-${i}`,
+    }))
+    ElMessage.success('已生成成本 BOM 用量平铺表（仅展示）')
+    detailActiveTab.value = 'costBomUsage'
   } catch (e) {
     const msg = String(e?.response?.data?.msg ?? e?.message ?? '网络错误')
     bomUsageTreeError.value = msg
     bomUsageTreeData.value = []
+    bomCostUsageFlatRows.value = []
     ElMessage.error(msg)
   } finally {
     bomUsageTreeLoading.value = false
@@ -2498,6 +2573,7 @@ function onDetailClosed() {
   bomUsageTreeLoading.value = false
   bomUsageTreeError.value = ''
   bomUsageTreeData.value = []
+  bomCostUsageFlatRows.value = []
 }
 
 const hintShort = computed(() => {
@@ -3125,6 +3201,26 @@ loadData()
 
 .bom-usage-tree-table {
   min-width: 1100px;
+}
+
+/* 成本 BOM 用量：普通表 + 横向滚动 + 限高（与超长表约定一致） */
+.bom-cost-usage-wrap {
+  min-height: 240px;
+  margin-top: 8px;
+  padding: 8px 4px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+}
+.bom-cost-usage-table-outer {
+  width: 100%;
+  overflow-x: auto;
+  max-height: calc(100vh - 260px);
+}
+.bom-cost-usage-table {
+  min-width: 920px;
+}
+.bom-cost-usage-toolbar {
+  margin-bottom: 0;
 }
 
 .bom-parts-toolbar {

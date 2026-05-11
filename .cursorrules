@@ -117,8 +117,36 @@
         - **示例**：`录入了供应商，编号为：SUP001，名称为：测试供应商。`
     - **后端实现**：在 Service 层构建 SQL 前，手动拼接该中文描述字符串存入日志表。
 
-## 17. 运维守则升级
-- **杀进程命令**：`taskkill /F /IM node.exe /T` (确保清理 3001)。
+## 17. 运维守则升级（写死命令流程）
+
+> 说明：`taskkill` 会结束本机 **所有** `node.exe`（含 Vite 前端、其它 Node 工具）。若前端也要跑，杀完后在 **另一终端** 再执行 `npm run dev`。
+
+### 17.1 仅重启 API（端口 3001，仓库根目录）
+
+**PowerShell（推荐，与 Cursor 终端一致）：**
+
+```powershell
+Set-Location D:\my_projects\ERP_TEST
+taskkill /F /IM node.exe /T
+npm run dev:server
+```
+
+**CMD：**
+
+```bat
+cd /d D:\my_projects\ERP_TEST
+taskkill /F /IM node.exe /T
+npm run dev:server
+```
+
+### 17.2 自检
+
+- 控制台应出现 **`[启动指纹] bootAt=...`** 及与本次改动相关的 **指纹行**（如 `BOM-Tree-...`）。
+- 后端重启后须 **重新登录**（`erp_token` 失效），见 §14.1。
+
+### 17.3 核心杀进程命令（单独执行亦可）
+
+`taskkill /F /IM node.exe /T` — 确保释放 3001 等被 Node 占用的端口后再起 `dev:server`。
 
 
 - ##18.**超长表格滚动优化**：

@@ -7696,6 +7696,48 @@ async function buildBomPartsUsageTreeNodes(pool, kcac01Parent, level, bomHeadSta
 }
 
 /**
+ * 成本 BOM 用量平铺：深度优先与树构建顺序一致；不落库。
+ * - 顶层 yl = kcac04；下级 yl = 父节点已算 yl × 当前 kcac04
+ * - loss_rate：kcac05>0 用 kcac05；否则 kcaa33>0 用 kcaa33；否则 0
+ * - total_qty = yl × (1 + loss_rate)
+ * @param {any[]} treeNodes buildBomPartsUsageTreeNodes 返回值
+ * @param {number|null|undefined} parentYl 父行已算出的 yl；根层为 null/undefined
+ * @param {any[]} [acc]
+ * @returns {{ kcaa01: string, kcaa02: string, kcaa03: string, kcaa04: string, Describe: string, yl: number, loss_rate: number, total_qty: number, level: number }[]}
+ */
+function flattenBomPartsCostUsageFlat(treeNodes, parentYl, acc) {
+  const out = acc ?? []
+  if (!Array.isArray(treeNodes) || !treeNodes.length) return out
+  for (let i = 0; i < treeNodes.length; i++) {
+    const node = treeNodes[i]
+    const kcac04 = Number(node?.kcac04 ?? 0)
+    const yl = parentYl == null || parentYl === undefined ? kcac04 : Number(parentYl) * kcac04
+    const kcac05 = Number(node?.kcac05 ?? 0)
+    const kcaa33 = Number(node?.kcaa33 ?? 0)
+    let loss_rate = 0
+    if (kcac05 > 0) loss_rate = kcac05
+    else if (kcaa33 > 0) loss_rate = kcaa33
+    const total_qty = yl * (1 + loss_rate)
+    const lv = node?.level != null && Number.isFinite(Number(node.level)) ? Number(node.level) : 1
+    const describeVal = String(node?.Describe ?? node?.describe ?? '')
+    out.push({
+      kcaa01: node?.kcaa01 != null ? String(node.kcaa01) : '',
+      kcaa02: node?.kcaa02 != null ? String(node.kcaa02) : '',
+      kcaa03: node?.kcaa03 != null ? String(node.kcaa03) : '',
+      kcaa04: node?.kcaa04 != null ? String(node.kcaa04) : '',
+      Describe: describeVal,
+      yl,
+      loss_rate,
+      total_qty,
+      level: lv,
+    })
+    const ch = node?.children
+    if (Array.isArray(ch) && ch.length) flattenBomPartsCostUsageFlat(ch, yl, out)
+  }
+  return out
+}
+
+/**
  * BOM 用量表 — 仅递归读取 Bom_parts 树（不写 bom_cost / Bom_consumption，不做用量汇总）
  * GET /api/bom/tree?systemcode=xxx
  */
@@ -7709,7 +7751,8 @@ app.get('/api/bom/tree', async (req, res) => {
     const pool = await getPool()
     const bomHeadStack = new Set([systemcode])
     const data = await buildBomPartsUsageTreeNodes(pool, systemcode, 1, bomHeadStack)
-    res.json({ success: true, data })
+    const flatCostUsage = flattenBomPartsCostUsageFlat(data, null, [])
+    res.json({ success: true, data, flatCostUsage })
   } catch (err) {
     if (err?.code === 'BOM_CYCLE') {
       res.status(409).json({ success: false, msg: String(err.message ?? '检测到BOM循环引用'), data: null })
@@ -14266,7 +14309,9 @@ app.listen(port, () => {
   console.log(
     `BOM-Parts-Save-Sync-Kcaa01-35-v1.2.6 ${bootAt} PUT parts: id+kcac01 lock; sync kcaa01-35/kcac02/systemcode from bom_000; audit [同步]`,
   )
-  console.log(`BOM-Tree-TreeGrid-Data ${bootAt} GET /api/bom/tree kcac01 nvarchar(500) match; no-del-WHERE`)
+  console.log(
+    `BOM-Tree-CostUsage-Flat ${bootAt} GET /api/bom/tree + flatCostUsage(+Describe; yl×父级; loss; total; DFS)`,
+  )
   console.log(`ColorCode-Module-Initial-v1.0.0 ${bootAt}`)
   console.log(`ColorCode-Add-DirectMode-v1.1.0 ${bootAt}`)
   console.log(`ColorCode-Audit-Fields-Correction-v1.1.1 ${bootAt}`)

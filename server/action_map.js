@@ -83,7 +83,12 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
     targetTable: 'bom_000',
   },
   { method: 'DELETE', path: /^\/api\/inventory\/bom\/systemcode\/[^/]+$/, action: '删除BOM主档', targetTable: 'bom_000' },
-  { method: 'GET', path: '/api/bom/tree', action: '查询BOM用量树(只读递归)', targetTable: 'Bom_parts' },
+  {
+    method: 'GET',
+    path: '/api/bom/tree',
+    action: '查询BOM用量树(只读递归)+成本用量平铺(内存不落库)',
+    targetTable: 'Bom_parts',
+  },
   { method: 'GET', path: /^\/api\/inventory\/bom\/parts\/.+$/, action: '查询BOM配件明细', targetTable: 'Bom_parts' },
   { method: 'PUT', path: /^\/api\/inventory\/bom\/parts\/.+$/, action: '保存BOM配件明细', targetTable: 'Bom_parts' },
   { method: 'POST', path: '/api/inventory/bom/save-parts', action: '保存BOM配件明细(save-parts)', targetTable: 'Bom_parts' },
