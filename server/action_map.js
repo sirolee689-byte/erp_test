@@ -84,6 +84,12 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   },
   { method: 'DELETE', path: /^\/api\/inventory\/bom\/systemcode\/[^/]+$/, action: '删除BOM主档', targetTable: 'bom_000' },
   {
+    method: 'POST',
+    path: '/api/bom/usage-calc',
+    action: 'BOM用量运算并写入bom_cost明细与Bom_consumption汇总',
+    targetTable: 'bom_cost',
+  },
+  {
     method: 'GET',
     path: '/api/bom/tree',
     action: '查询BOM用量树(只读递归)+成本用量平铺(内存不落库)',

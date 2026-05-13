@@ -18,6 +18,8 @@
     "migrate:hr-staff-leave-fields": "node scripts/run-migration-sqlserver_v1.1.2_hr_staff_leave_fields.mjs",
     "migrate:hr-staff-leave-blacklist-fields": "node scripts/run-migration-sqlserver_v1.1.2_hr_staff_leave_blacklist_fields.mjs",
     "migrate:v1.1.1-db-opt": "node scripts/run-migration-sqlserver_v1.1.1_sys_users_account_is_active_and_staff_status.mjs",
+    "migrate:bom-consumption": "node scripts/run-migration-sqlserver_v1.1.3_bom_consumption.mjs",
+    "migrate:bom-cost": "node scripts/run-migration-sqlserver_v1.1.4_bom_cost.mjs",
     "e2e:dept-office": "node scripts/e2e-dept-office.mjs",
     "e2e:dept-batch-audit": "node scripts/e2e-dept-batch-audit.mjs",
     "e2e:staff-form-ui": "node scripts/e2e-staff-form-ui.mjs",

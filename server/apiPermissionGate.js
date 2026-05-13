@@ -254,6 +254,15 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'hr/dormitory/lodging-records', action: 'audit' }
   }
 
+  /* BOM 用量运算：写 bom_cost + Bom_consumption（须先于 GET /api/bom/tree） */
+  if (m === 'POST' && path === '/api/bom/usage-calc') {
+    return {
+      anyOf: [
+        { menuPath: 'inv/bom', action: 'edit' },
+        { menuPath: 'inventory/basic/bom-data', action: 'edit' },
+      ],
+    }
+  }
   /* BOM 用量树：仅递归读取 Bom_parts（只读；须先于其它 /api/bom/* 若有扩展） */
   if (m === 'GET' && path === '/api/bom/tree') {
     return {
