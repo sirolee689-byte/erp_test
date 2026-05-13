@@ -8030,6 +8030,64 @@ async function insertBomConsumptionBulk(tx, pq, sid, rows) {
   }
 }
 
+/** 按主档 systemcode 解析 pq（成品编码）、sid（主档 systemcode），供 bom_cost / Bom_consumption */
+async function fetchBomUsageHeadBySystemcode(pool, systemcode) {
+  const sc = String(systemcode ?? '').trim()
+  if (!sc) return null
+  const headRs = await pool
+    .request()
+    .input('sc', sql.NVarChar(100), sc)
+    .query(`
+      SELECT TOP 1
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS systemcode,
+        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) AS kcaa01
+      FROM ${INV_BOM_MASTER_FROM} AS b
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) = @sc
+        AND (ISNULL(b.del, N'') = N'' OR b.del = N'0')
+    `)
+  const head = headRs.recordset?.[0] ?? null
+  const sid = String(head?.systemcode ?? '').trim()
+  const pq = String(head?.kcaa01 ?? '').trim() || sc
+  if (!sid) return null
+  return { sid, pq }
+}
+
+/** 查询行 → 前端 bom_cost DTO */
+function mapBomCostRecordToDto(r) {
+  return {
+    id: r.id,
+    pq: r.pq != null ? String(r.pq) : '',
+    sid: r.sid != null ? String(r.sid) : '',
+    kcaa01: r.kcaa01 != null ? String(r.kcaa01) : '',
+    kcaa02: r.kcaa02 != null ? String(r.kcaa02) : '',
+    kcaa03: r.kcaa03 != null ? String(r.kcaa03) : '',
+    kcaa04: r.kcaa04 != null ? String(r.kcaa04) : '',
+    kcac04: r.kcac04 != null ? Number(r.kcac04) : 0,
+    kcac05: r.kcac05 != null ? Number(r.kcac05) : 0,
+    kcac06: r.kcac06 != null ? Number(r.kcac06) : 0,
+    kcac07: r.kcac07 != null ? Number(r.kcac07) : null,
+    kcac08: r.kcac08 != null ? Number(r.kcac08) : null,
+    Describe: r.Describe != null ? String(r.Describe) : '',
+    isok: r.isok != null ? Number(r.isok) : 0,
+  }
+}
+
+/** 查询行 → 前端 Bom_consumption DTO */
+function mapBomConsumptionRecordToDto(r) {
+  return {
+    id: r.id,
+    pq: r.pq != null ? String(r.pq) : '',
+    sid: r.sid != null ? String(r.sid) : '',
+    kcaa01: r.kcaa01 != null ? String(r.kcaa01) : '',
+    kcaa02: r.kcaa02 != null ? String(r.kcaa02) : '',
+    kcaa03: r.kcaa03 != null ? String(r.kcaa03) : '',
+    kcaa04: r.kcaa04 != null ? String(r.kcaa04) : '',
+    sumay: r.sumay != null ? Number(r.sumay) : 0,
+    sumby: r.sumby != null ? Number(r.sumby) : 0,
+    kcac05: r.kcac05 != null ? Number(r.kcac05) : 0,
+  }
+}
+
 /**
  * BOM 用量运算：递归 Bom_parts + 成本平铺 + 单事务覆盖写入 bom_cost（明细 isok）与 Bom_consumption（合并）
  * POST /api/bom/usage-calc
@@ -8048,24 +8106,12 @@ app.post('/api/bom/usage-calc', async (req, res) => {
     )
 
     const pool = await getPool()
-    const headRs = await pool
-      .request()
-      .input('sc', sql.NVarChar(100), systemcode)
-      .query(`
-        SELECT TOP 1
-          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS systemcode,
-          LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) AS kcaa01
-        FROM ${INV_BOM_MASTER_FROM} AS b
-        WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) = @sc
-          AND (ISNULL(b.del, N'') = N'' OR b.del = N'0')
-      `)
-    const head = headRs.recordset?.[0] ?? null
-    const sid = String(head?.systemcode ?? '').trim()
-    const pq = String(head?.kcaa01 ?? '').trim() || systemcode
-    if (!sid) {
+    const head = await fetchBomUsageHeadBySystemcode(pool, systemcode)
+    if (!head) {
       res.status(404).json({ success: false, msg: '未找到对应主档或主档缺少 systemcode', total: 0 })
       return
     }
+    const { sid, pq } = head
 
     const bomHeadStack = new Set([systemcode])
     const data = await buildBomPartsUsageTreeNodes(pool, systemcode, 1, bomHeadStack)
@@ -8132,22 +8178,7 @@ app.post('/api/bom/usage-calc', async (req, res) => {
         ORDER BY id ASC
       `)
 
-    const bomCost = (selBc.recordset ?? []).map((r) => ({
-      id: r.id,
-      pq: r.pq != null ? String(r.pq) : '',
-      sid: r.sid != null ? String(r.sid) : '',
-      kcaa01: r.kcaa01 != null ? String(r.kcaa01) : '',
-      kcaa02: r.kcaa02 != null ? String(r.kcaa02) : '',
-      kcaa03: r.kcaa03 != null ? String(r.kcaa03) : '',
-      kcaa04: r.kcaa04 != null ? String(r.kcaa04) : '',
-      kcac04: r.kcac04 != null ? Number(r.kcac04) : 0,
-      kcac05: r.kcac05 != null ? Number(r.kcac05) : 0,
-      kcac06: r.kcac06 != null ? Number(r.kcac06) : 0,
-      kcac07: r.kcac07 != null ? Number(r.kcac07) : null,
-      kcac08: r.kcac08 != null ? Number(r.kcac08) : null,
-      Describe: r.Describe != null ? String(r.Describe) : '',
-      isok: r.isok != null ? Number(r.isok) : 0,
-    }))
+    const bomCost = (selBc.recordset ?? []).map(mapBomCostRecordToDto)
 
     const sel = await pool
       .request()
@@ -8160,18 +8191,7 @@ app.post('/api/bom/usage-calc', async (req, res) => {
         ORDER BY id ASC
       `)
 
-    const consumption = (sel.recordset ?? []).map((r) => ({
-      id: r.id,
-      pq: r.pq != null ? String(r.pq) : '',
-      sid: r.sid != null ? String(r.sid) : '',
-      kcaa01: r.kcaa01 != null ? String(r.kcaa01) : '',
-      kcaa02: r.kcaa02 != null ? String(r.kcaa02) : '',
-      kcaa03: r.kcaa03 != null ? String(r.kcaa03) : '',
-      kcaa04: r.kcaa04 != null ? String(r.kcaa04) : '',
-      sumay: r.sumay != null ? Number(r.sumay) : 0,
-      sumby: r.sumby != null ? Number(r.sumby) : 0,
-      kcac05: r.kcac05 != null ? Number(r.kcac05) : 0,
-    }))
+    const consumption = (sel.recordset ?? []).map(mapBomConsumptionRecordToDto)
 
     res.json({
       success: true,
@@ -8193,30 +8213,114 @@ app.post('/api/bom/usage-calc', async (req, res) => {
 })
 
 /**
- * BOM 用量表 — 仅递归读取 Bom_parts 树（bom_cost / Bom_consumption 由 POST /api/bom/usage-calc 事务写入）
- * GET /api/bom/tree?systemcode=xxx
- * - flatCostUsageRaw：成本展开原始平铺（DFS）；成本表前端可本地筛选合并预览；落库以 POST 为准
+ * BOM 用量表：GET /api/bom/tree?systemcode=xxx
+ * - 若 bom_cost 已有 pq+sid 缓存：hasCache=true，直接返回 bom_cost + consumption，不递归 Bom_parts、不平铺 flatCostUsageRaw
+ * - 否则：hasCache=false，递归树 data + flatCostUsageRaw（前端本地筛选合并预览；首次落库用 POST /api/bom/usage-calc）
  */
 app.get('/api/bom/tree', async (req, res) => {
   try {
     const systemcode = String(req.query?.systemcode ?? '').trim()
+    const emptyPayload = {
+      success: false,
+      msg: '',
+      data: null,
+      hasCache: false,
+      bom_cost: [],
+      consumption: [],
+      flatCostUsageRaw: [],
+    }
     if (!systemcode) {
-      res.status(400).json({ success: false, msg: '参数错误：systemcode 不能为空', data: null })
+      res.status(400).json({ ...emptyPayload, success: false, msg: '参数错误：systemcode 不能为空', data: null })
       return
     }
     const pool = await getPool()
+    const head = await fetchBomUsageHeadBySystemcode(pool, systemcode)
+    if (!head) {
+      res
+        .status(404)
+        .json({ ...emptyPayload, success: false, msg: '未找到对应主档或主档缺少 systemcode', data: null })
+      return
+    }
+    const { pq, sid } = head
+
+    const cntRs = await pool
+      .request()
+      .input('pq', sql.NVarChar(300), pq)
+      .input('sid', sql.NVarChar(100), sid)
+      .query(`SELECT COUNT_BIG(*) AS c FROM ${BOM_COST_FROM} WHERE pq = @pq AND sid = @sid`)
+    const cacheCount = Number(cntRs.recordset?.[0]?.c ?? 0)
+
+    if (cacheCount > 0) {
+      const selBc = await pool
+        .request()
+        .input('pq', sql.NVarChar(300), pq)
+        .input('sid', sql.NVarChar(100), sid)
+        .query(`
+          SELECT id, pq, sid, kcaa01, kcaa02, kcaa03, kcaa04, kcac04, kcac05, kcac06, kcac07, kcac08, [Describe], isok
+          FROM ${BOM_COST_FROM}
+          WHERE pq = @pq AND sid = @sid
+          ORDER BY id ASC
+        `)
+      const bomCost = (selBc.recordset ?? []).map(mapBomCostRecordToDto)
+
+      const sel = await pool
+        .request()
+        .input('pq', sql.NVarChar(300), pq)
+        .input('sid', sql.NVarChar(100), sid)
+        .query(`
+          SELECT id, pq, sid, kcaa01, kcaa02, kcaa03, kcaa04, sumay, sumby, kcac05
+          FROM ${BOM_CONSUMPTION_FROM}
+          WHERE pq = @pq AND sid = @sid
+          ORDER BY id ASC
+        `)
+      const consumption = (sel.recordset ?? []).map(mapBomConsumptionRecordToDto)
+
+      res.json({
+        success: true,
+        hasCache: true,
+        data: [],
+        flatCostUsageRaw: [],
+        bom_cost: bomCost,
+        consumption,
+      })
+      return
+    }
+
     const bomHeadStack = new Set([systemcode])
     const data = await buildBomPartsUsageTreeNodes(pool, systemcode, 1, bomHeadStack)
     const flatCostUsageRaw = flattenBomPartsCostUsageFlat(data, null, [])
-    res.json({ success: true, data, flatCostUsageRaw })
+    res.json({
+      success: true,
+      hasCache: false,
+      data,
+      flatCostUsageRaw,
+      bom_cost: [],
+      consumption: [],
+    })
   } catch (err) {
     if (err?.code === 'BOM_CYCLE') {
-      res.status(409).json({ success: false, msg: String(err.message ?? '检测到BOM循环引用'), data: null })
+      res.status(409).json({
+        success: false,
+        msg: String(err.message ?? '检测到BOM循环引用'),
+        data: null,
+        hasCache: false,
+        bom_cost: [],
+        consumption: [],
+        flatCostUsageRaw: [],
+      })
       return
     }
     console.error('GET /api/bom/tree 失败：', err)
     const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
-    res.status(500).json({ success: false, msg: `读取 BOM 树失败：${detail}`, data: null })
+    res.status(500).json({
+      success: false,
+      msg: `读取 BOM 树失败：${detail}`,
+      data: null,
+      hasCache: false,
+      bom_cost: [],
+      consumption: [],
+      flatCostUsageRaw: [],
+    })
   }
 })
 
@@ -14766,7 +14870,7 @@ app.listen(port, () => {
     `BOM-Parts-Save-Sync-Kcaa01-35-v1.2.6 ${bootAt} PUT parts: id+kcac01 lock; sync kcaa01-35/kcac02/systemcode from bom_000; audit [同步]`,
   )
   console.log(
-    `BOM-Tree-CostUsage-Flat ${bootAt} GET /api/bom/tree + flatCostUsageRaw(前端筛选合并; DFS)`,
+    `BOM-Tree-v1.2.7-Cache ${bootAt} GET /api/bom/tree：bom_cost 命中则 hasCache 直读；否则 DFS+flatCostUsageRaw`,
   )
   console.log(
     `BOM-Usage-Calc-bom_cost-Consumption ${bootAt} POST /api/bom/usage-calc → bom_cost(tx DELETE+批量INSERT+isok)+Bom_consumption`,

@@ -263,7 +263,7 @@ export function matchApiPermissionRule(method, path, body, params) {
       ],
     }
   }
-  /* BOM 用量树：仅递归读取 Bom_parts（只读；须先于其它 /api/bom/* 若有扩展） */
+  /* BOM 用量树：无 bom_cost 缓存时递归 Bom_parts；有缓存时直读 bom_cost+Bom_consumption（只读） */
   if (m === 'GET' && path === '/api/bom/tree') {
     return {
       anyOf: [
