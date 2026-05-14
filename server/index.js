@@ -7,6 +7,9 @@
 import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
+import fs from 'node:fs'
+import path from 'node:path'
+import multer from 'multer'
 import { getPool, sql } from './db.js'
 import crypto from 'node:crypto'
 import bcrypt from 'bcrypt'
@@ -41,6 +44,14 @@ import {
 } from './operatorUsersHandlers.js'
 import { registerPurchaseQuotationRoutes } from './purchaseQuotationHandlers.js'
 import { registerOutsourcingQuotationRoutes } from './outsourcingQuotationHandlers.js'
+import {
+  ensurePaperPatternImportTmpDir,
+  handlePaperPatternImportPreviewGet,
+  PAPER_PATTERN_IMPORT_TMP_DIR,
+} from './paperPatternImportPreview.js'
+import { handleGetPaperPatternMapping, handleSavePaperPatternMapping } from './paperPatternImportMapping.js'
+import { handlePaperPatternImportValidateGet } from './paperPatternImportValidate.js'
+import { parsePaperPatternImportTreeFromBuffer } from './paperPatternImportParse.js'
 
 dotenv.config()
 
@@ -3210,6 +3221,13 @@ const INV_BOM_CURRENCY_TABLE = (() => {
   return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'bom_currency'
 })()
 const INV_BOM_CURRENCY_FROM = `dbo.[${INV_BOM_CURRENCY_TABLE}]`
+
+/** BOM 分类表（默认 Bom_code）：copen=1 且 flag5 非空为「需用量运算」物料编码前缀；INV_BOM_CODE_TABLE 可覆盖 */
+const INV_BOM_CODE_TABLE = (() => {
+  const raw = String(process.env.INV_BOM_CODE_TABLE ?? 'Bom_code').trim()
+  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'Bom_code'
+})()
+const INV_BOM_CODE_FROM = `dbo.[${INV_BOM_CODE_TABLE}]`
 
 /** 库存基本资料：颜色编码（物理表 Bom_colorcode） */
 const BOM_COLORCODE_FROM = 'dbo.[Bom_colorcode]'
@@ -7412,6 +7430,121 @@ async function lookupBomUnitChangeDirectionRate(pool, useName, otherName) {
   return { direction, rate }
 }
 
+/** bom_cost 是否含 del 列（进程内缓存；列表用量聚合可选过滤） */
+let BOM_COST_DEL_COLUMN_PROMISE = null
+async function getBomCostHasDelColumn(pool) {
+  if (BOM_COST_DEL_COLUMN_PROMISE) return BOM_COST_DEL_COLUMN_PROMISE
+  BOM_COST_DEL_COLUMN_PROMISE = (async () => {
+    try {
+      const r = await pool.request().input('tn', sql.NVarChar(128), BOM_COST_TABLE).query(`
+        SELECT 1 AS x
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = @tn AND COLUMN_NAME = N'del'
+      `)
+      return (r.recordset?.length ?? 0) > 0
+    } catch {
+      return false
+    }
+  })()
+  return BOM_COST_DEL_COLUMN_PROMISE
+}
+
+/** Map 键：sid + "\\x1f" + pq */
+function bomCostSidPqMapKey(sid, pq) {
+  return `${String(sid ?? '').trim()}\x1f${String(pq ?? '').trim()}`
+}
+
+/**
+ * 本页「需运算」行去重后的 (sid,pq)，供单次 GROUP BY 聚合（禁止逐行查 bom_cost）
+ * @param {{ is_need_calc?: any, code?: any, systemcode?: any, master_guid?: any }[]} rows
+ */
+function collectDistinctBomCostSidPqPairsFromListRows(rows) {
+  /** @type {{ sid: string, pq: string }[]} */
+  const out = []
+  const seen = new Set()
+  if (!Array.isArray(rows)) return out
+  for (const row of rows) {
+    if (Number(row?.is_need_calc ?? 0) !== 1) continue
+    const pq = row.code != null ? String(row.code).trim() : ''
+    if (!pq) continue
+    const sc = row.systemcode != null ? String(row.systemcode).trim() : ''
+    const guid = row.master_guid != null ? String(row.master_guid).trim() : ''
+    for (const sid of [sc, guid]) {
+      if (!sid) continue
+      const k = bomCostSidPqMapKey(sid, pq)
+      if (seen.has(k)) continue
+      seen.add(k)
+      out.push({ sid, pq })
+    }
+  }
+  return out
+}
+
+/**
+ * 单次 GROUP BY 聚合 bom_cost（第二步；禁止对 pairs 循环 await query）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {{ sid: string, pq: string }[]} pairs
+ * @returns {Promise<Map<string, { cnt: number, total4: number, total6: number }>>}
+ */
+async function fetchBomCostAggregatesMapBySidPqPairs(pool, pairs) {
+  const map = new Map()
+  if (!pairs.length) return map
+  const hasDel = await getBomCostHasDelColumn(pool)
+  const delFrag = hasDel ? ` AND (ISNULL(c.del, N'') = N'' OR c.del = N'0')` : ''
+
+  const req = pool.request()
+  const orParts = []
+  for (let i = 0; i < pairs.length; i += 1) {
+    req.input(`bc_agg_sid_${i}`, sql.NVarChar(200), pairs[i].sid)
+    req.input(`bc_agg_pq_${i}`, sql.NVarChar(300), pairs[i].pq)
+    orParts.push(
+      `(LTRIM(RTRIM(CONVERT(nvarchar(200), c.sid))) = @bc_agg_sid_${i} AND LTRIM(RTRIM(CONVERT(nvarchar(300), c.pq))) = @bc_agg_pq_${i})`,
+    )
+  }
+  const r = await req.query(`
+    SELECT
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.sid, N'')))) AS sid,
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.pq, N'')))) AS pq,
+      COUNT_BIG(1) AS cnt,
+      ISNULL(SUM(ISNULL(CONVERT(decimal(18, 6), c.kcac04), 0)), 0) AS total_kcac04,
+      ISNULL(SUM(ISNULL(CONVERT(decimal(18, 6), c.kcac06), 0)), 0) AS total_kcac06
+    FROM ${BOM_COST_FROM} AS c
+    WHERE (${orParts.join(' OR ')})
+    ${delFrag}
+    GROUP BY
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.sid, N'')))),
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.pq, N''))))
+  `)
+  for (const row of r.recordset ?? []) {
+    const sid = row.sid != null ? String(row.sid).trim() : ''
+    const pq = row.pq != null ? String(row.pq).trim() : ''
+    if (!sid || !pq) continue
+    map.set(bomCostSidPqMapKey(sid, pq), {
+      cnt: Number(row.cnt ?? 0),
+      total4: Number(row.total_kcac04 ?? 0),
+      total6: Number(row.total_kcac06 ?? 0),
+    })
+  }
+  return map
+}
+
+/** 从聚合 Map 取本行（优先 systemcode，其次 GUID） */
+function lookupBomCostAggregateForMasterRow(row, aggMap) {
+  const pq = row.code != null ? String(row.code).trim() : ''
+  const sc = row.systemcode != null ? String(row.systemcode).trim() : ''
+  const guid = row.master_guid != null ? String(row.master_guid).trim() : ''
+  if (!pq) return null
+  if (sc) {
+    const hit = aggMap.get(bomCostSidPqMapKey(sc, pq))
+    if (hit && hit.cnt > 0) return hit
+  }
+  if (guid && guid !== sc) {
+    const hit2 = aggMap.get(bomCostSidPqMapKey(guid, pq))
+    if (hit2 && hit2.cnt > 0) return hit2
+  }
+  return null
+}
+
 /**
  * v1.1.8：BOM 主档分页列表（SQL Server 2008 R2：仅 ROW_NUMBER 分页，禁用 OFFSET-FETCH）
  * GET /api/inv/bom/list
@@ -7424,6 +7557,9 @@ async function lookupBomUnitChangeDirectionRate(pool, useName, otherName) {
  * - 过滤：del 在册 + pass（与项目列表页「显示未审核」一致）
  * - 裁片：bom_cut=0 时默认 `kcaa01 NOT LIKE N'CUT-%'`（除非显式 CUT- 搜索）；bom_cut=1 时仅保留 CUT- 前缀行
  * - recycled=1：仅查 del=1（回收站），不按 pass 过滤
+ * - v1.2.8+：每行返回用量运算列 `usageCalcLabel`（不需运算/未运算/已运算）：`Bom_code`（copen=1 且 flag5 非空）为前缀集，
+ *   主档 kcaa01 以任一 flag5 开头且 del=0 为需运算；已运算判定为 bom_cost（表名见 BOM_COST_TABLE）存在 pq=kcaa01 且 sid 为主档 [GUID] 或 systemcode（与现行 POST /api/bom/usage-calc 落库 sid 一致并兼容 GUID）
+ * - v1.3.0+：用量（成本）列 — 禁止 OUTER APPLY 逐行扫 bom_cost；第二步对「本页需运算行」去重 (sid,pq) 后 **单次** `GROUP BY sid,pq` 聚合，内存 `Map(sid+'\\x1f'+pq)` 回填；若物理表含 `del` 列则附加在册条件（与 INFORMATION_SCHEMA 探测一致）
  */
 app.get('/api/inv/bom/list', async (req, res) => {
   try {
@@ -7549,6 +7685,7 @@ app.get('/api/inv/bom/list', async (req, res) => {
       ;WITH base AS (
         SELECT
           LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS systemcode,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.[GUID], N'')))) AS master_guid,
           b.kcaa01 AS code,
           b.kcaa02 AS product_name,
           b.kcaa03 AS spec,
@@ -7562,6 +7699,41 @@ app.get('/api/inv/bom/list', async (req, res) => {
           b.sign AS status,
           b.[version] AS version,
           b.pass AS pass,
+          CASE
+            WHEN LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.del), N''))) = N'1' THEN 0
+            WHEN EXISTS (
+              SELECT 1
+              FROM ${INV_BOM_CODE_FROM} AS bc
+              WHERE LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(bc.copen, N'')))) = N'1'
+                AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc.flag5, N'')))) <> N''
+                AND LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa01, N'')))) LIKE (
+                  LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc.flag5, N'')))) + N'%'
+                )
+            ) THEN 1
+            ELSE 0
+          END AS is_need_calc,
+          CASE
+            WHEN LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.del), N''))) = N'1' THEN 0
+            WHEN NOT EXISTS (
+              SELECT 1
+              FROM ${INV_BOM_CODE_FROM} AS bc2
+              WHERE LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(bc2.copen, N'')))) = N'1'
+                AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc2.flag5, N'')))) <> N''
+                AND LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa01, N'')))) LIKE (
+                  LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc2.flag5, N'')))) + N'%'
+                )
+            ) THEN 0
+            WHEN EXISTS (
+              SELECT 1
+              FROM ${BOM_COST_FROM} AS c
+              WHERE LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.pq, N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N''))))
+                AND (
+                  LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.sid, N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.[GUID], N''))))
+                  OR LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.sid, N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.systemcode, N''))))
+                )
+            ) THEN 1
+            ELSE 0
+          END AS has_bom_cost_cached,
           ROW_NUMBER() OVER (
             ORDER BY
               CASE
@@ -7576,6 +7748,7 @@ app.get('/api/inv/bom/list', async (req, res) => {
       )
       SELECT
         p.systemcode,
+        p.master_guid,
         p.code,
         p.product_name,
         p.spec,
@@ -7588,7 +7761,9 @@ app.get('/api/inv/bom/list', async (req, res) => {
         p.isSelfProduced,
         p.status,
         p.version,
-        p.pass
+        p.pass,
+        p.is_need_calc,
+        p.has_bom_cost_cached
       FROM base AS p
       WHERE p.rn BETWEEN @startRow AND @endRow
       ORDER BY p.rn
@@ -7600,22 +7775,61 @@ app.get('/api/inv/bom/list', async (req, res) => {
       )
     }
 
-    const list = (listResult.recordset ?? []).map((row) => ({
-      systemcode: row.systemcode != null ? String(row.systemcode) : '',
-      code: row.code != null ? String(row.code) : '',
-      name: row.product_name != null ? String(row.product_name) : '',
-      spec: row.spec != null ? String(row.spec) : '',
-      unit: row.unit != null ? String(row.unit) : '',
-      addtime: row.addtime != null ? String(row.addtime) : '',
-      edittime: row.edittime != null ? String(row.edittime) : '',
-      remark: row.remark != null ? String(row.remark) : '',
-      isPurchase: row.isPurchase != null ? String(row.isPurchase) : '',
-      isSubcontract: row.isSubcontract != null ? String(row.isSubcontract) : '',
-      isSelfProduced: row.isSelfProduced != null ? String(row.isSelfProduced) : '',
-      status: row.status != null ? String(row.status) : '',
-      version: row.version != null ? String(row.version) : '',
-      pass: row.pass != null ? String(row.pass) : '',
-    }))
+    const rawRows = listResult.recordset ?? []
+    const bomCostPairs = collectDistinctBomCostSidPqPairsFromListRows(rawRows)
+    const bomCostAggMap = await fetchBomCostAggregatesMapBySidPqPairs(pool, bomCostPairs)
+
+    const list = rawRows.map((row) => {
+      const isNeedCalc = Number(row.is_need_calc ?? 0) === 1
+      const hasBomCostCached = Number(row.has_bom_cost_cached ?? 0) === 1
+      let usageCalcLabel = '不需运算'
+      let usageCalcStatus = 'none'
+      if (isNeedCalc) {
+        if (hasBomCostCached) {
+          usageCalcLabel = '已运算'
+          usageCalcStatus = 'done'
+        } else {
+          usageCalcLabel = '未运算'
+          usageCalcStatus = 'pending'
+        }
+      }
+      const aggHit = lookupBomCostAggregateForMasterRow(row, bomCostAggMap)
+      const bomCostAggCnt = aggHit && Number(aggHit.cnt) > 0 ? Number(aggHit.cnt) : 0
+      /** 用量（成本）：仅需运算行展示；库内列为 kcac04/kcac06 */
+      let bomCostUsageCostText = ''
+      if (isNeedCalc) {
+        if (!bomCostAggCnt) {
+          bomCostUsageCostText = '-'
+        } else {
+          const sum4 = Number(aggHit?.total4 ?? 0)
+          const sum6 = Number(aggHit?.total6 ?? 0)
+          bomCostUsageCostText = `${Number.isFinite(sum4) ? sum4.toFixed(4) : '0.0000'} , ${
+            Number.isFinite(sum6) ? sum6.toFixed(4) : '0.0000'
+          }`
+        }
+      }
+      return {
+        systemcode: row.systemcode != null ? String(row.systemcode) : '',
+        code: row.code != null ? String(row.code) : '',
+        name: row.product_name != null ? String(row.product_name) : '',
+        spec: row.spec != null ? String(row.spec) : '',
+        unit: row.unit != null ? String(row.unit) : '',
+        addtime: row.addtime != null ? String(row.addtime) : '',
+        edittime: row.edittime != null ? String(row.edittime) : '',
+        remark: row.remark != null ? String(row.remark) : '',
+        isPurchase: row.isPurchase != null ? String(row.isPurchase) : '',
+        isSubcontract: row.isSubcontract != null ? String(row.isSubcontract) : '',
+        isSelfProduced: row.isSelfProduced != null ? String(row.isSelfProduced) : '',
+        status: row.status != null ? String(row.status) : '',
+        version: row.version != null ? String(row.version) : '',
+        pass: row.pass != null ? String(row.pass) : '',
+        isNeedCalc,
+        hasBomCostCache: hasBomCostCached,
+        usageCalcLabel,
+        usageCalcStatus,
+        bomCostUsageCostText,
+      }
+    })
 
     res.json({ code: 200, msg: 'success', data: { total, list, recycled } })
   } catch (err) {
@@ -14819,6 +15033,168 @@ app.delete('/api/dorm/delete-checkin', async (req, res) => {
   }
 })
 
+/** 纸格资料导入：临时目录（不写 Bom_000 等业务表） */
+ensurePaperPatternImportTmpDir()
+
+const paperPatternImportUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      ensurePaperPatternImportTmpDir()
+      cb(null, PAPER_PATTERN_IMPORT_TMP_DIR)
+    },
+    filename: (_req, file, cb) => {
+      const ext = path.extname(String(file.originalname || '')).toLowerCase()
+      const fileId = crypto.randomUUID()
+      cb(null, `${fileId}${ext}`)
+    },
+  }),
+  limits: { files: 1, fileSize: 50 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(String(file.originalname || '')).toLowerCase()
+    if (ext === '.xls' || ext === '.xlsx') {
+      cb(null, true)
+    } else {
+      cb(new Error('仅支持 Excel 文件'))
+    }
+  },
+})
+
+/**
+ * POST /api/paper-pattern/import/upload
+ * 与需求文档路径对应：工程内统一加 /api 前缀；multipart 字段名 file。
+ */
+app.post('/api/paper-pattern/import/upload', (req, res) => {
+  paperPatternImportUpload.single('file')(req, res, (err) => {
+    if (err) {
+      const msg = String(err?.message ?? '')
+      const excelOnly = msg.includes('仅支持 Excel')
+      res.status(400).json({
+        success: false,
+        message: excelOnly ? '仅支持 Excel 文件' : msg || '上传失败',
+      })
+      return
+    }
+    if (!req.file) {
+      res.json({ success: false, message: '请选择文件' })
+      return
+    }
+    const storedName = req.file.filename
+    const fileId = path.basename(storedName, path.extname(storedName))
+    const fileName = String(req.file.originalname || storedName)
+    res.json({
+      success: true,
+      fileId,
+      fileName,
+    })
+  })
+})
+
+/** 纸格导入：.xlsx / .xls，内存解析，返回临时 BOM 树（不写业务表） */
+const paperPatternExcelMemoryUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { files: 1, fileSize: 50 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(String(file.originalname || '')).toLowerCase()
+    if (ext === '.xlsx' || ext === '.xls') {
+      cb(null, true)
+    } else {
+      cb(new Error('仅允许上传 .xlsx 或 .xls 文件'))
+    }
+  },
+})
+
+/**
+ * GET /api/paper-pattern/import-types
+ * 纸格导入「导入类型」下拉：Bom_code（排除 id=1），展示 flag1(flag5)，取值为 flag5。
+ */
+app.get('/api/paper-pattern/import-types', async (req, res) => {
+  try {
+    const pool = await getPool()
+    const r = await pool.request().query(`
+      SELECT
+        bc.id,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc.flag1, N'')))) AS flag1,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc.flag5, N'')))) AS flag5
+      FROM ${INV_BOM_CODE_FROM} AS bc
+      WHERE bc.id <> 1
+        AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc.flag5, N'')))) <> N''
+      ORDER BY bc.id
+    `)
+    res.json({ success: true, items: r.recordset ?? [] })
+  } catch (e) {
+    console.error('GET /api/paper-pattern/import-types 失败：', e)
+    res.status(500).json({ success: false, message: '读取导入类型失败' })
+  }
+})
+
+/**
+ * POST /api/paper-pattern/upload
+ * 与需求路径一致（工程内统一 /api 前缀）；multipart：file、importTypeFlag5（Bom_code.flag5）；允许 .xlsx / .xls。
+ */
+app.post('/api/paper-pattern/upload', (req, res) => {
+  paperPatternExcelMemoryUpload.single('file')(req, res, async (err) => {
+    if (err) {
+      const msg = String(err?.message ?? '')
+      const excelTypeReject = msg.includes('仅允许上传 .xlsx 或 .xls') || msg.includes('仅允许上传 .xlsx 文件')
+      res.status(400).json({
+        success: false,
+        message: excelTypeReject ? '仅允许上传 .xlsx 或 .xls 文件' : msg || '上传失败',
+      })
+      return
+    }
+    if (!req.file?.buffer) {
+      res.status(400).json({ success: false, message: '请选择文件' })
+      return
+    }
+    const importTypeFlag5Raw = String(req.body?.importTypeFlag5 ?? '').trim()
+    if (!importTypeFlag5Raw) {
+      res.status(400).json({ success: false, message: '请先选择导入类型' })
+      return
+    }
+    try {
+      const pool = await getPool()
+      const vreq = pool.request()
+      vreq.input('flag5', sql.NVarChar(200), importTypeFlag5Raw)
+      const vr = await vreq.query(`
+        SELECT TOP (1)
+          bc.id,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc.flag1, N'')))) AS flag1,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc.flag5, N'')))) AS flag5
+        FROM ${INV_BOM_CODE_FROM} AS bc
+        WHERE bc.id <> 1
+          AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc.flag5, N'')))) = @flag5
+      `)
+      const codeRow = vr.recordset?.[0]
+      if (!codeRow) {
+        res.status(400).json({ success: false, message: '导入类型无效或不可用' })
+        return
+      }
+      const flag1 = String(codeRow.flag1 ?? '').trim()
+      const flag5 = String(codeRow.flag5 ?? '').trim()
+      const tree = parsePaperPatternImportTreeFromBuffer(req.file.buffer, {
+        importTypeFlag5: flag5,
+        importTypeFlag1: flag1,
+      })
+      res.json({
+        success: true,
+        mainBom: tree.mainBom,
+        cuts: tree.cuts,
+        materials: tree.materials,
+        accessories: tree.accessories,
+        warnings: tree.warnings,
+      })
+    } catch (e) {
+      console.error('POST /api/paper-pattern/upload 解析失败：', e)
+      res.status(500).json({ success: false, message: 'Excel 解析失败' })
+    }
+  })
+})
+
+app.get('/api/paper-pattern/import/preview', handlePaperPatternImportPreviewGet)
+app.get('/api/paper-pattern/import/mapping', handleGetPaperPatternMapping)
+app.post('/api/paper-pattern/import/save-mapping', handleSavePaperPatternMapping)
+app.get('/api/paper-pattern/import/validate', handlePaperPatternImportValidateGet)
+
 registerPurchaseQuotationRoutes(app, {
   getPool,
   formatBomColorcodeTimestamp,
@@ -14854,7 +15230,7 @@ app.listen(port, () => {
   console.log(`Electric-Report-Tabs-v1.1.6-Ready ${bootAt}`)
   console.log(`Report-Dept-Name-Mapping-v1.1.6 ${bootAt}`)
   console.log(`Dorm-Electric-Context-MonthFilter-Fixed-v1.1.7 ${bootAt}`)
-  console.log(`BOM-List-Initial-v1.1.7 ${bootAt} table=${INV_BOM_MASTER_TABLE}`)
+    console.log(`BOM-List-Initial-v1.3.0-BomCostBatchAgg ${bootAt} table=${INV_BOM_MASTER_TABLE} code=${INV_BOM_CODE_TABLE} cost=${BOM_COST_TABLE}`)
   console.log(`BOM-SaveMain-Route-Active ${bootAt} POST /api/inventory/bom/save-main`)
   console.log(`BOM-SUM-Statistical-Column-v1.1.7 ${bootAt}`)
   console.log(`BOM-Dynamic-Rules-From-BomCode-v1.1.7 ${bootAt}`)
@@ -14896,5 +15272,15 @@ app.listen(port, () => {
   console.log(
     '[宿舍管理] v1.1.10 电费：tj_date=yyyy-m/yy-mm 字符串匹配 + MAX(c_sum_money) 防重复累加；含 lodging-overview/history、入住单 audit*',
   )
+  console.log(`PaperPattern-Import-Upload-Tmp ${bootAt} POST /api/paper-pattern/import/upload`)
+  console.log(
+    `PaperPattern-Import-Types-List ${bootAt} GET /api/paper-pattern/import-types（Bom_code，排除 id=1）`,
+  )
+  console.log(
+    `PaperPattern-Upload-Parse-Tree ${bootAt} POST /api/paper-pattern/upload（.xlsx/.xls，importTypeFlag5+Bom_code 校验）`,
+  )
+  console.log(`PaperPattern-Import-Preview-Read ${bootAt} GET /api/paper-pattern/import/preview`)
+  console.log(`PaperPattern-Import-Mapping-DB ${bootAt} GET/POST /api/paper-pattern/import/mapping|save-mapping`)
+  console.log(`PaperPattern-Import-Validate ${bootAt} GET /api/paper-pattern/import/validate`)
 })
 

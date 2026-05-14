@@ -178,6 +178,32 @@
                 <span class="bom-list-cell-wrap">{{ row.code }}</span>
               </template>
             </el-table-column>
+            <el-table-column label="运算" width="100" align="center">
+              <template #default="{ row }">
+                <el-tag
+                  v-if="row.usageCalcStatus === 'done'"
+                  type="success"
+                  size="small"
+                  effect="plain"
+                >
+                  {{ row.usageCalcLabel }}
+                </el-tag>
+                <el-tag
+                  v-else-if="row.usageCalcStatus === 'pending'"
+                  type="warning"
+                  size="small"
+                  effect="plain"
+                >
+                  {{ row.usageCalcLabel }}
+                </el-tag>
+                <el-tag v-else type="info" size="small" effect="plain">{{ row.usageCalcLabel }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="用量（成本）" min-width="148" align="right" header-align="center">
+              <template #default="{ row }">
+                <span v-if="row.isNeedCalc" class="bom-list-usage-cost-cell">{{ row.bomCostUsageCostText }}</span>
+              </template>
+            </el-table-column>
             <el-table-column label="名称" min-width="140">
               <template #default="{ row }">
                 <span class="bom-list-cell-wrap">{{ row.name }}</span>
@@ -3703,6 +3729,12 @@ loadData()
   line-height: 1.35;
   font-size: 12px;
   vertical-align: top;
+}
+/* 用量（成本）：SUM(kcac04) , SUM(kcac06)，等宽数字便于对齐 */
+.bom-list-usage-cost-cell {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', monospace;
 }
 .pagination-row {
   margin-top: 14px;

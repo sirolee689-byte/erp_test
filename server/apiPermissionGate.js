@@ -390,7 +390,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     }
   }
 
-  /* v1.1.7：BOM 列表（菜单在「存货 inv/bom」与「库存管理 inventory/basic/bom-data」两处均可调） */
+  /* v1.3.0+：BOM 列表（bom_cost 用量聚合改为单次 GROUP BY，非逐行 SQL） */
   if (m === 'GET' && path === '/api/inv/bom/list') {
     return {
       anyOf: [
@@ -742,6 +742,29 @@ export function matchApiPermissionRule(method, path, body, params) {
   }
   if (m === 'DELETE' && /^\/api\/inventory\/workshop-dept\/\d+$/.test(path)) {
     return { menuPath: 'inventory/basic/workshop-dept', action: 'delete' }
+  }
+
+  /* 纸格资料导入：临时 Excel 上传（不写业务表） */
+  if (m === 'POST' && path === '/api/paper-pattern/import/upload') {
+    return { menuPath: 'paper-pattern/import', action: 'add' }
+  }
+  if (m === 'POST' && path === '/api/paper-pattern/upload') {
+    return { menuPath: 'paper-pattern/import', action: 'add' }
+  }
+  if (m === 'GET' && path === '/api/paper-pattern/import-types') {
+    return { menuPath: 'paper-pattern/import', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/paper-pattern/import/preview') {
+    return { menuPath: 'paper-pattern/import', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/paper-pattern/import/mapping') {
+    return { menuPath: 'paper-pattern/import', action: 'view' }
+  }
+  if (m === 'POST' && path === '/api/paper-pattern/import/save-mapping') {
+    return { menuPath: 'paper-pattern/import', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/paper-pattern/import/validate') {
+    return { menuPath: 'paper-pattern/import', action: 'view' }
   }
 
   return null

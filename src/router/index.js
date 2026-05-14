@@ -42,7 +42,28 @@ const exception403Route = {
   meta: { title: '无权限' },
 }
 
-const childRoutes = [...walkRoutes(menuStructure), exception403Route]
+/** 预览页不在菜单树中，单独注册；权限沿用父级 paper-pattern/import */
+const paperPatternImportPreviewRoute = {
+  path: 'paper-pattern/import/preview',
+  name: 'paper-pattern-import-preview',
+  component: () => import('@/views/paper-pattern/import/preview/index.vue'),
+  meta: { title: '纸格资料导入预览' },
+}
+
+/** 数据校验步骤占位（不在菜单中） */
+const paperPatternImportCheckRoute = {
+  path: 'paper-pattern/import/check',
+  name: 'paper-pattern-import-check',
+  component: () => import('@/views/paper-pattern/import/check/index.vue'),
+  meta: { title: '纸格资料导入数据校验' },
+}
+
+const childRoutes = [
+  ...walkRoutes(menuStructure),
+  paperPatternImportPreviewRoute,
+  paperPatternImportCheckRoute,
+  exception403Route,
+]
 
 /**
  * 登录态判断（前端最简版）

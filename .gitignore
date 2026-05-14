@@ -27,6 +27,7 @@ Thumbs.db
 
 # --- 临时文件 ---
 temp/
+server/tmp/
 logs/
 e2e-output/
 

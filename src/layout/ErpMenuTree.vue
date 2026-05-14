@@ -63,6 +63,8 @@ function iconFor(node) {
     canteen: Tickets,
     'supply-chain': Connection,
     inventory: Box,
+    inv: Document,
+    'paper-pattern': Document,
     production: Management,
     hr: User,
     assets: OfficeBuilding,
