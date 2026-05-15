@@ -11,6 +11,7 @@
         <div class="toolbar">
           <el-button type="primary" link @click="goPreview">返回修改映射</el-button>
           <el-button :loading="loading" @click="loadValidate">重新校验</el-button>
+          <el-button type="success" plain @click="goErpWorkbench">ERP 物料校验工作台</el-button>
           <el-button
             type="primary"
             :disabled="!canStartImport"
@@ -160,6 +161,11 @@ function rowClassGetter({ rowData }) {
 
 function goPreview() {
   router.push({ path: '/paper-pattern/import/preview', query: { fileId: fileId.value } })
+}
+
+function goErpWorkbench() {
+  if (!fileId.value) return
+  router.push({ path: '/paper-pattern/import/erp-workbench', query: { fileId: fileId.value } })
 }
 
 function onStartImport() {

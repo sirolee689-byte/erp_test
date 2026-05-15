@@ -12,6 +12,7 @@
           <el-button type="primary" link @click="goBackImport">返回导入页</el-button>
           <el-button :loading="loading" @click="loadPreview">重新加载</el-button>
           <el-button type="primary" :disabled="!canProceed" @click="goCheck">下一步：数据校验</el-button>
+          <el-button type="success" @click="goErpWorkbench">ERP 物料校验工作台</el-button>
           <span v-if="metaLine" class="meta">{{ metaLine }}</span>
           <span v-if="savePending" class="save-hint">正在保存映射…</span>
         </div>
@@ -167,6 +168,11 @@ function goBackImport() {
 function goCheck() {
   if (!canProceed.value || !fileId.value) return
   router.push({ path: '/paper-pattern/import/check', query: { fileId: fileId.value } })
+}
+
+function goErpWorkbench() {
+  if (!fileId.value) return
+  router.push({ path: '/paper-pattern/import/erp-workbench', query: { fileId: fileId.value } })
 }
 
 function isOptionDisabledForCol(fieldValue, currentColIndex) {

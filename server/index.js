@@ -51,6 +51,9 @@ import {
 } from './paperPatternImportPreview.js'
 import { handleGetPaperPatternMapping, handleSavePaperPatternMapping } from './paperPatternImportMapping.js'
 import { handlePaperPatternImportValidateGet } from './paperPatternImportValidate.js'
+import { handlePostPaperPatternCheckMaterial } from './paperPatternCheckMaterial.js'
+import { handlePostPaperPatternMaterialBomFields } from './paperPatternMaterialBomFields.js'
+import { handleGetPaperPatternImportParseTree } from './paperPatternImportParseTreeGet.js'
 import { parsePaperPatternImportTreeFromBuffer } from './paperPatternImportParse.js'
 
 dotenv.config()
@@ -15129,7 +15132,7 @@ app.get('/api/paper-pattern/import-types', async (req, res) => {
 
 /**
  * POST /api/paper-pattern/upload
- * 与需求路径一致（工程内统一 /api 前缀）；multipart：file、importTypeFlag5（Bom_code.flag5）；允许 .xlsx / .xls。
+ * multipart：file；importTypeFlag5（Bom_code.flag5）可选，未传时解析仍进行但 BOM 前缀为空，由前端「基础资料确认区」补选后实时生成编码。
  */
 app.post('/api/paper-pattern/upload', (req, res) => {
   paperPatternExcelMemoryUpload.single('file')(req, res, async (err) => {
@@ -15147,15 +15150,14 @@ app.post('/api/paper-pattern/upload', (req, res) => {
       return
     }
     const importTypeFlag5Raw = String(req.body?.importTypeFlag5 ?? '').trim()
-    if (!importTypeFlag5Raw) {
-      res.status(400).json({ success: false, message: '请先选择导入类型' })
-      return
-    }
     try {
       const pool = await getPool()
-      const vreq = pool.request()
-      vreq.input('flag5', sql.NVarChar(200), importTypeFlag5Raw)
-      const vr = await vreq.query(`
+      let flag1 = ''
+      let flag5 = ''
+      if (importTypeFlag5Raw) {
+        const vreq = pool.request()
+        vreq.input('flag5', sql.NVarChar(200), importTypeFlag5Raw)
+        const vr = await vreq.query(`
         SELECT TOP (1)
           bc.id,
           LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc.flag1, N'')))) AS flag1,
@@ -15164,13 +15166,14 @@ app.post('/api/paper-pattern/upload', (req, res) => {
         WHERE bc.id <> 1
           AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc.flag5, N'')))) = @flag5
       `)
-      const codeRow = vr.recordset?.[0]
-      if (!codeRow) {
-        res.status(400).json({ success: false, message: '导入类型无效或不可用' })
-        return
+        const codeRow = vr.recordset?.[0]
+        if (!codeRow) {
+          res.status(400).json({ success: false, message: '导入类型无效或不可用' })
+          return
+        }
+        flag1 = String(codeRow.flag1 ?? '').trim()
+        flag5 = String(codeRow.flag5 ?? '').trim()
       }
-      const flag1 = String(codeRow.flag1 ?? '').trim()
-      const flag5 = String(codeRow.flag5 ?? '').trim()
       const tree = parsePaperPatternImportTreeFromBuffer(req.file.buffer, {
         importTypeFlag5: flag5,
         importTypeFlag1: flag1,
@@ -15194,6 +15197,9 @@ app.get('/api/paper-pattern/import/preview', handlePaperPatternImportPreviewGet)
 app.get('/api/paper-pattern/import/mapping', handleGetPaperPatternMapping)
 app.post('/api/paper-pattern/import/save-mapping', handleSavePaperPatternMapping)
 app.get('/api/paper-pattern/import/validate', handlePaperPatternImportValidateGet)
+app.post('/api/paper-pattern/check-material', handlePostPaperPatternCheckMaterial)
+app.post('/api/paper-pattern/material-bom-fields', handlePostPaperPatternMaterialBomFields)
+app.get('/api/paper-pattern/import/parse-tree', handleGetPaperPatternImportParseTree)
 
 registerPurchaseQuotationRoutes(app, {
   getPool,
@@ -15277,10 +15283,13 @@ app.listen(port, () => {
     `PaperPattern-Import-Types-List ${bootAt} GET /api/paper-pattern/import-types（Bom_code，排除 id=1）`,
   )
   console.log(
-    `PaperPattern-Upload-Parse-Tree ${bootAt} POST /api/paper-pattern/upload（.xlsx/.xls，importTypeFlag5+Bom_code 校验）`,
+    `PaperPattern-Upload-Parse-Tree ${bootAt} POST /api/paper-pattern/upload（.xlsx/.xls；importTypeFlag5 可选，有则校验 Bom_code）`,
   )
   console.log(`PaperPattern-Import-Preview-Read ${bootAt} GET /api/paper-pattern/import/preview`)
   console.log(`PaperPattern-Import-Mapping-DB ${bootAt} GET/POST /api/paper-pattern/import/mapping|save-mapping`)
   console.log(`PaperPattern-Import-Validate ${bootAt} GET /api/paper-pattern/import/validate`)
+  console.log(
+    `PaperPattern-ErpCheck-Material ${bootAt} POST /api/paper-pattern/check-material；GET /api/paper-pattern/import/parse-tree；POST /api/paper-pattern/material-bom-fields`,
+  )
 })
 

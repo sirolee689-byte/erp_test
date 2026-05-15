@@ -766,6 +766,25 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'GET' && path === '/api/paper-pattern/import/validate') {
     return { menuPath: 'paper-pattern/import', action: 'view' }
   }
+  if (m === 'POST' && path === '/api/paper-pattern/check-material') {
+    return {
+      anyOf: [
+        { menuPath: 'paper-pattern/import', action: 'view' },
+        { menuPath: 'paper-pattern/import', action: 'add' },
+      ],
+    }
+  }
+  if (m === 'POST' && path === '/api/paper-pattern/material-bom-fields') {
+    return {
+      anyOf: [
+        { menuPath: 'paper-pattern/import', action: 'view' },
+        { menuPath: 'paper-pattern/import', action: 'add' },
+      ],
+    }
+  }
+  if (m === 'GET' && path === '/api/paper-pattern/import/parse-tree') {
+    return { menuPath: 'paper-pattern/import', action: 'view' }
+  }
 
   return null
 }
