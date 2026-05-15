@@ -205,6 +205,7 @@ function isTopAreaLabelCell(v) {
   if (x.includes('组别')) return true
   if (x.includes('色号')) return true
   if (x.includes('颜色编码')) return true
+  if (x.includes('样品名称')) return true
   return false
 }
 
@@ -260,13 +261,14 @@ function topAreaDataFieldFromLabelCell(cell) {
   if (v.includes('颜色编码')) return 'colorNo'
   if (v.includes('色号')) return 'colorNo'
   if (v.includes('组别')) return 'groupLabel'
+  if (v.includes('样品名称')) return 'sampleName'
   return null
 }
 
 /**
  * 前 10 行：客款号、颜色编码、组别（关键词右侧）；厂款号不从此处取；客款号最终以 L2 为准（若有值）；组别最终以 M2 为准（若有值）
  * @param {string[]} vals
- * @param {{ customerStyleNo: string, colorNo: string, groupLabel: string }} main
+ * @param {{ customerStyleNo: string, colorNo: string, groupLabel: string, sampleName: string }} main
  */
 function extractTopAreaBomFromRow(vals, main) {
   for (let i = 0; i < vals.length; i++) {
@@ -290,6 +292,12 @@ function extractTopAreaBomFromRow(vals, main) {
       if (main.groupLabel) continue
       const val = readRightNonEmpty(vals, i + 1)
       if (val) main.groupLabel = norm(val)
+      continue
+    }
+    if (key === 'sampleName') {
+      if (main.sampleName) continue
+      const val = readRightNonEmpty(vals, i + 1)
+      if (val) main.sampleName = norm(val)
     }
   }
 }
@@ -353,7 +361,7 @@ export function buildCutCode(p) {
 /**
  * Material 行：分组/名称/末格 ERP；备注为 Excel 绝对第 12 列（旧系统 rs(11)）
  * @param {{ rowIndex: number, cells: Array<{ colIndex: number, value: string }> }} row
- * @returns {{ groupNo: string, materialName: string, materialCode: string, remark: string } | null}
+ * @returns {{ groupNo: string, materialName: string, materialCode: string, remark: string, usageQty: string } | null}
  */
 function tryParseMaterialRow(row) {
   const vals = rowCellValues(row)
@@ -364,7 +372,8 @@ function tryParseMaterialRow(row) {
   const materialName = cells.length >= 2 ? norm(cells[1].v) : ''
   const materialCode = norm(cells[cells.length - 1].v)
   const remark = readExcelColNorm(row, 12)
-  return { groupNo, materialName, materialCode, remark }
+  const usageQty = readExcelColNorm(row, 5)
+  return { groupNo, materialName, materialCode, remark, usageQty }
 }
 
 /**
@@ -410,6 +419,7 @@ function tryParseCutRow(row) {
  *     styleNoNormalized: string,
  *     customerStyleNo: string,
  *     groupLabel: string,
+ *     sampleName: string,
  *     colorNo: string,
  *     bomCode: string
  *   },
@@ -429,7 +439,7 @@ function tryParseCutRow(row) {
  *     matching: string,
  *     unit: string
  *   }>,
- *   materials: Array<{ groupNo: string, materialName: string, materialCode: string, remark: string }>,
+ *   materials: Array<{ groupNo: string, materialName: string, materialCode: string, remark: string, usageQty: string }>,
  *   accessories: Array<{ erpCode: string }>,
  *   warnings: string[]
  * }}
@@ -444,18 +454,19 @@ export function parsePaperPatternImportTreeFromBuffer(buf, options = {}) {
       ? `${importTypeFlag1}(${importTypeFlag5})`
       : importTypeFlag5 || importTypeFlag1
 
-  /** @type {{ styleNoRaw: string, styleNoNormalized: string, customerStyleNo: string, colorNo: string, groupLabel: string }} */
+  /** @type {{ styleNoRaw: string, styleNoNormalized: string, customerStyleNo: string, colorNo: string, groupLabel: string, sampleName: string }} */
   const main = {
     styleNoRaw: '',
     styleNoNormalized: '',
     customerStyleNo: '',
     colorNo: '',
     groupLabel: '',
+    sampleName: '',
   }
 
   /** @type {Array<{ cutSeq: string, cutName: string, length: string, width: string, quantity: string, fabricWidth: string, unitConsumption: string, wastage: string, actualConsumption: string, unitPrice: string, totalAmount: string, matching: string, unit: string }>} */
   const cutRows = []
-  /** @type {Array<{ groupNo: string, materialName: string, materialCode: string, remark: string }>} */
+  /** @type {Array<{ groupNo: string, materialName: string, materialCode: string, remark: string, usageQty: string }>} */
   const materials = []
   /** @type {Array<{ erpCode: string }>} */
   const accessories = []
@@ -574,6 +585,7 @@ export function parsePaperPatternImportTreeFromBuffer(buf, options = {}) {
     styleNoNormalized,
     customerStyleNo,
     groupLabel: main.groupLabel,
+    sampleName: main.sampleName,
     colorNo,
     bomCode,
   }

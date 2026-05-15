@@ -54,6 +54,7 @@ import { handlePaperPatternImportValidateGet } from './paperPatternImportValidat
 import { handlePostPaperPatternCheckMaterial } from './paperPatternCheckMaterial.js'
 import { handlePostPaperPatternMaterialBomFields } from './paperPatternMaterialBomFields.js'
 import { handleGetPaperPatternImportParseTree } from './paperPatternImportParseTreeGet.js'
+import { handlePostPaperPatternImportCommitBom000 } from './paperPatternImportCommitBom000.js'
 import { parsePaperPatternImportTreeFromBuffer } from './paperPatternImportParse.js'
 
 dotenv.config()
@@ -15200,6 +15201,7 @@ app.get('/api/paper-pattern/import/validate', handlePaperPatternImportValidateGe
 app.post('/api/paper-pattern/check-material', handlePostPaperPatternCheckMaterial)
 app.post('/api/paper-pattern/material-bom-fields', handlePostPaperPatternMaterialBomFields)
 app.get('/api/paper-pattern/import/parse-tree', handleGetPaperPatternImportParseTree)
+app.post('/api/paper-pattern/import/commit-bom000', handlePostPaperPatternImportCommitBom000)
 
 registerPurchaseQuotationRoutes(app, {
   getPool,
@@ -15289,7 +15291,7 @@ app.listen(port, () => {
   console.log(`PaperPattern-Import-Mapping-DB ${bootAt} GET/POST /api/paper-pattern/import/mapping|save-mapping`)
   console.log(`PaperPattern-Import-Validate ${bootAt} GET /api/paper-pattern/import/validate`)
   console.log(
-    `PaperPattern-ErpCheck-Material ${bootAt} POST /api/paper-pattern/check-material；GET /api/paper-pattern/import/parse-tree；POST /api/paper-pattern/material-bom-fields`,
+    `PaperPattern-ErpCheck-Material ${bootAt} POST /api/paper-pattern/check-material；GET /api/paper-pattern/import/parse-tree；POST /api/paper-pattern/material-bom-fields；POST /api/paper-pattern/import/commit-bom000`,
   )
 })
 

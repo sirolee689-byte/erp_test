@@ -7,8 +7,8 @@
       <p class="page-desc">
         流程：选择 Excel → 上传并解析 → 顶部在「基础资料确认区」核对或修改导入类型、厂款号、组别、客款号、颜色编码 → 可查看
         <strong>Material 列表</strong>（材料单位、损耗等）并进入 <strong>ERP 物料校验工作台</strong> →
-        系统根据「导入类型 + 厂款号 + 颜色编码」实时生成主 BOM 与 CUT 编码预览（当前不写数据库）。客款号默认读
-        L2；组别优先读 M2，若 M2 为空则在前 10 行识别「组别」标签并取右侧单元格。
+        系统根据「导入类型 + 厂款号 + 颜色编码」实时生成主 BOM 与 CUT 编码预览。确认无误后可<strong>正式导入</strong>写入
+        Bom_000（主 BOM + CUT，事务）。客款号默认读 L2；组别优先读 M2，若 M2 为空则在前 10 行识别「组别」标签并取右侧单元格。
       </p>
 
       <el-divider content-position="left">模板下载</el-divider>
@@ -111,12 +111,31 @@
               <el-input v-model="basicForm.colorNo" clearable class="field-control" placeholder="如 N-TEST" />
             </div>
           </el-col>
+          <el-col :xs="24" :sm="12" :md="16" :lg="12">
+            <div class="form-field">
+              <div class="form-label">样品名称（仅资料确认，不写入 Bom_000）</div>
+              <el-input
+                v-model="basicForm.sampleName"
+                clearable
+                class="field-control"
+                placeholder="默认取 Excel「样品名称」；正式导入时主 BOM 的 kcaa02 为导入类型名称（Bom_code.flag1）"
+              />
+            </div>
+          </el-col>
         </el-row>
         <p class="norm-hint">
           编码用厂款号（已去掉 *、空格、中划线）：<code>{{ styleNoNormalizedForCode || '—' }}</code>
         </p>
 
         <div class="fold-toolbar">
+          <el-button
+            type="primary"
+            :disabled="!liveMainBomCode || commitLoading"
+            :loading="commitLoading"
+            @click="onCommitBom000"
+          >
+            正式导入
+          </el-button>
           <el-button plain @click="hideMaterialTable = !hideMaterialTable">
             {{ hideMaterialTable ? '显示物料信息' : '隐藏物料信息' }}
           </el-button>
@@ -200,7 +219,7 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   buildCutCode,
   buildMainBomCode,
@@ -248,6 +267,8 @@ const basicForm = reactive({
   customerStyleNo: '',
   /** 颜色编码（参与 BOM/CUT；原「色号」逻辑） */
   colorNo: '',
+  /** Excel 样品名称，仅页面参考；正式导入主 BOM kcaa02 使用 Bom_code.flag1 */
+  sampleName: '',
 })
 
 /** @type {import('vue').Ref<null | { mainBom: object, cuts: any[], materials: any[], accessories: any[], warnings: string[] }>} */
@@ -256,6 +277,7 @@ const parseResult = ref(null)
 const hideMaterialTable = ref(false)
 /** 折叠：仅隐藏 CUT 预览标题与表格（主 BOM 编码行仍显示） */
 const hideCutPreviewTable = ref(false)
+const commitLoading = ref(false)
 
 function formatImportTypeLabel(it) {
   const f1 = String(it?.flag1 ?? '').trim()
@@ -296,6 +318,7 @@ function hydrateBasicFormFromParseMain(main) {
   basicForm.groupLabel = String(m.groupLabel ?? '').trim()
   basicForm.customerStyleNo = String(m.customerStyleNo ?? '').trim()
   basicForm.colorNo = String(m.colorNo ?? '').trim()
+  basicForm.sampleName = String(m.sampleName ?? '').trim()
 }
 
 const styleNoNormalizedForCode = computed(() => normalizeFactoryStyleForEncoding(basicForm.factoryStyleNo))
@@ -502,6 +525,76 @@ function goErpWorkbenchFromParse() {
 function triggerPickFile() {
   errorMessage.value = ''
   fileInputRef.value?.click()
+}
+
+function resolveImportTypeFlag1ForCommit() {
+  const f5 = String(basicForm.importTypeFlag5 ?? '').trim()
+  const hit = importTypeOptions.value.find((it) => String(it?.flag5 ?? '').trim() === f5)
+  return String(hit?.flag1 ?? '').trim()
+}
+
+function buildMaterialsPayloadForCommit() {
+  const base = parseResult.value?.materials
+  const preview = materialPreviewRows.value
+  if (Array.isArray(preview) && preview.length > 0 && Array.isArray(base)) {
+    return preview.map((row) => {
+      const b = base[row.rowIndex] || {}
+      return {
+        groupNo: row.groupNo,
+        materialName: row.materialName,
+        materialCode: row.materialCode,
+        remark: b.remark ?? '',
+        usageQty: b.usageQty ?? '',
+        wastageFraction: row.wastageFraction,
+      }
+    })
+  }
+  return Array.isArray(base) ? base.map((m) => ({ ...m })) : []
+}
+
+async function onCommitBom000() {
+  if (!parseResult.value || !liveMainBomCode.value) {
+    ElMessage.warning('请先完成解析，并确保导入类型、厂款号、颜色编码可生成主 BOM 编码')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      '将把主 BOM、全部 CUT 写入 Bom_000，并写入 Bom_parts（单事务，失败全部回滚）。是否继续？',
+      '正式导入',
+      { type: 'warning', confirmButtonText: '确定导入', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  commitLoading.value = true
+  try {
+    const res = await axios.post('/api/paper-pattern/import/commit-bom000', {
+      importTypeFlag5: basicForm.importTypeFlag5,
+      importTypeFlag1: resolveImportTypeFlag1ForCommit(),
+      factoryStyleNo: basicForm.factoryStyleNo,
+      colorNo: basicForm.colorNo,
+      customerStyleNo: basicForm.customerStyleNo,
+      groupLabel: basicForm.groupLabel,
+      cuts: parseResult.value.cuts,
+      materials: buildMaterialsPayloadForCommit(),
+      accessories: parseResult.value.accessories || [],
+    })
+    const data = res?.data
+    if (!data?.success) {
+      ElMessage.error(String(data?.message || '导入失败'))
+      return
+    }
+    const code = data.data?.mainBomCode ?? ''
+    const nCut = data.data?.cutCount ?? 0
+    const nPart = data.data?.bomPartsInserted ?? 0
+    ElMessage.success(`导入成功。主 BOM：${code}；CUT 数量：${nCut}；Bom_parts：${nPart} 行`)
+  } catch (e) {
+    const d = e?.response?.data
+    const msg = d?.message || e?.message || '导入失败'
+    ElMessage.error(String(msg))
+  } finally {
+    commitLoading.value = false
+  }
 }
 
 function onFileChange(ev) {

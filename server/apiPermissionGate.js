@@ -785,6 +785,9 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'GET' && path === '/api/paper-pattern/import/parse-tree') {
     return { menuPath: 'paper-pattern/import', action: 'view' }
   }
+  if (m === 'POST' && path === '/api/paper-pattern/import/commit-bom000') {
+    return { menuPath: 'paper-pattern/import', action: 'add' }
+  }
 
   return null
 }

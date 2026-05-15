@@ -14,11 +14,11 @@ const INV_BOM_MASTER_TABLE = (() => {
 const INV_BOM_MASTER_FROM = `dbo.[${INV_BOM_MASTER_TABLE}]`
 
 /**
- * @param {import('mssql').ConnectionPool} pool
+ * @param {import('mssql').ConnectionPool | import('mssql').Transaction} poolOrTx
  * @param {string[]} erpDisplays 归一化后的 ERP 展示串（去重、非空），与 Excel Material 列一致，如 NN-0021/580
  * @returns {Promise<Map<string, { kcaa04: string, kcaa33: number | null }>>} key = erpCodeLookupKey(库内 kcaa01)
  */
-async function fetchKcaa04Kcaa33ByKcaa01In(pool, erpDisplays) {
+export async function fetchKcaa04Kcaa33ByKcaa01In(poolOrTx, erpDisplays) {
   /** @type {Map<string, { kcaa04: string, kcaa33: number | null }>} */
   const out = new Map()
   const uniq = [...new Set(erpDisplays.map((d) => normalizeErpCodeDisplay(d)).filter(Boolean))]
@@ -27,7 +27,7 @@ async function fetchKcaa04Kcaa33ByKcaa01In(pool, erpDisplays) {
   const chunkSize = 80
   for (let i = 0; i < uniq.length; i += chunkSize) {
     const chunk = uniq.slice(i, i + chunkSize)
-    const rq = pool.request()
+    const rq = new sql.Request(poolOrTx)
     const partsDisp = []
     const partsLow = []
     for (let j = 0; j < chunk.length; j++) {

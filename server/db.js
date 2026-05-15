@@ -23,10 +23,10 @@ export async function getPool() {
     password: process.env.DB_PASSWORD,
     port: process.env.DB_PORT ? Number(process.env.DB_PORT) : 1433,
     options: {
-      // tedious 默认 requestTimeout=15000ms，复杂查询或大表 JOIN 易误判超时；可用 DB_REQUEST_TIMEOUT_MS 覆盖
+      // tedious 默认 requestTimeout=15000ms；纸格 commit 等大批 INSERT 易超 60s。可用 DB_REQUEST_TIMEOUT_MS 覆盖
       requestTimeout: (() => {
-        const n = Number(process.env.DB_REQUEST_TIMEOUT_MS ?? 60000)
-        return Number.isFinite(n) && n > 0 ? n : 60000
+        const n = Number(process.env.DB_REQUEST_TIMEOUT_MS ?? 180000)
+        return Number.isFinite(n) && n > 0 ? n : 180000
       })(),
       // 是否启用加密连接（encrypt）
       // - 如果你的 SQL Server 未启用/不支持对应 TLS 协议，开启加密可能出现 “unsupported protocol”

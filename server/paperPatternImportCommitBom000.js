@@ -1,0 +1,605 @@
+/**
+ * 纸格导入：正式写入 Bom_000（主 BOM + 各 CUT）与 Bom_parts，单事务
+ */
+import crypto from 'node:crypto'
+import sql from 'mssql'
+import { getPool } from './db.js'
+import { getActorAuditTripletFromReq } from './businessAuditFields.js'
+import { getRequestIp } from './operationAuditMiddleware.js'
+import {
+  buildCutCode,
+  buildMainBomCode,
+  normalizeFactoryStyleForEncoding,
+} from './paperPatternImportParse.js'
+import { classifyErpCodesAgainstBom000 } from './paperPatternCheckMaterial.js'
+import { normalizeErpCodeDisplay } from './paperPatternErpCodeNormalize.js'
+import { writePaperPatternBomPartsInTx } from './paperPatternImportCommitBomParts.js'
+
+const INV_BOM_MASTER_TABLE = (() => {
+  const raw = String(process.env.INV_BOM_MASTER_TABLE ?? 'bom_000').trim()
+  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'bom_000'
+})()
+const INV_BOM_MASTER_FROM = `dbo.[${INV_BOM_MASTER_TABLE}]`
+
+/** 与 index.js 纸格导入一致：Bom_code 表名可由环境变量覆盖 */
+const INV_BOM_CODE_TABLE = (() => {
+  const raw = String(process.env.INV_BOM_CODE_TABLE ?? 'Bom_code').trim()
+  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'Bom_code'
+})()
+const INV_BOM_CODE_FROM = `dbo.[${INV_BOM_CODE_TABLE}]`
+
+/** 与 index.js 中 formatBomColorcodeTimestamp 一致 */
+function formatBomColorcodeTimestamp(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date)
+  const pad2 = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
+}
+
+/** 与 index.js 中 generateInvBomSystemcode 一致 */
+function generateInvBomSystemcode(uidPart) {
+  const uid = String(uidPart ?? '').trim() || '0'
+  const d = new Date()
+  const pad = (n) => String(n).padStart(2, '0')
+  const ymd = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`
+  const rnd = `${Date.now()}_${crypto.randomBytes(12).toString('hex')}_${uid}`
+  const md5 = crypto.createHash('md5').update(rnd, 'utf8').digest('hex')
+  const tail = (uid.replace(/\D/g, '').slice(-6) || uid.slice(0, 8)).replace(/\s+/g, '')
+  const raw = `${ymd}${md5.slice(0, 22)}${tail}`
+  return raw.slice(0, 88)
+}
+
+/**
+ * CUT 规格 kcaa03：长*宽，各保留 3 位小数
+ * @param {string|number|null|undefined} lenStr
+ * @param {string|number|null|undefined} widStr
+ */
+export function formatPaperPatternCutKcaa03(lenStr, widStr) {
+  const parseN = (x) => {
+    const n = Number(String(x ?? '').replace(/,/g, '').trim())
+    return Number.isFinite(n) ? n : 0
+  }
+  const L = parseN(lenStr)
+  const W = parseN(widStr)
+  return `${L.toFixed(3)}*${W.toFixed(3)}`
+}
+
+/**
+ * 主 BOM / 裁片 kcaa03（主袋「款色路径」）与 kcaa09 用：保留厂款号中的横线（与 kcaa01 编码用去横线不同）。
+ * 规则：去 *、去空白；不去横线。
+ * @param {string|number|null|undefined} s
+ */
+export function normalizeFactoryStyleForBomPathDisplay(s) {
+  return String(s ?? '')
+    .replace(/\uFEFF/g, '')
+    .replace(/\*/g, '')
+    .replace(/\s+/g, '')
+    .trim()
+}
+
+/**
+ * 按 Bom_code.flag5 取 flag1（导入类型中文名，写入主 BOM kcaa02）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {string} flag5
+ */
+async function fetchBomCodeFlag1ByFlag5(pool, flag5) {
+  const f5 = String(flag5 ?? '').trim()
+  if (!f5) return ''
+  const r = await pool.request().input('flag5', sql.NVarChar(200), f5).query(`
+    SELECT TOP (1)
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc.flag1, N'')))) AS flag1
+    FROM ${INV_BOM_CODE_FROM} AS bc
+    WHERE bc.id <> 1
+      AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc.flag5, N'')))) = @flag5
+  `)
+  return String(r.recordset?.[0]?.flag1 ?? '').trim()
+}
+
+async function getInvBomMasterColumnSetForCommit(pool) {
+  const r = await pool.request().input('tn', sql.NVarChar(128), INV_BOM_MASTER_TABLE).query(`
+    SELECT COLUMN_NAME AS name
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = @tn
+  `)
+  const set = new Set()
+  for (const row of r.recordset ?? []) {
+    const n = String(row?.name ?? '').trim()
+    if (n) set.add(n.toLowerCase())
+  }
+  return set
+}
+
+/**
+ * 生成 Bom_000 三连键用 systemcode（与 GUID、dr_systemcode 同值）。
+ * 不再对每条 CUT 查库验重：MD5+时间+随机+序号碰撞概率可忽略，且避免 CUT 多时触发 requestTimeout。
+ * @param {string|number|null|undefined} actorUidPart
+ * @param {number} seq 本次导入内递增序号（主 BOM=1，CUT 自 2 起）
+ */
+function allocatePaperPatternBomSystemcode(actorUidPart, seq) {
+  const uid = String(actorUidPart ?? '').trim() || '0'
+  const salt = `${Date.now()}_${seq}_${process.hrtime.bigint()}_${crypto.randomBytes(8).toString('hex')}`
+  return generateInvBomSystemcode(`${uid}_${salt}`)
+}
+
+/** 在册：del 为空或 0 */
+const ACTIVE_DEL_WHERE = `(ISNULL(b.del, N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.del), N''))) = N'0')`
+
+/**
+ * @param {import('mssql').Transaction} tx
+ * @param {string} kcaa01
+ */
+async function countActiveKcaa01InTx(tx, kcaa01) {
+  const code = String(kcaa01 ?? '').trim()
+  if (!code) return 0
+  const r = await new sql.Request(tx).input('kcaa01', sql.NVarChar(300), code).query(`
+    SELECT COUNT(1) AS cnt
+    FROM ${INV_BOM_MASTER_FROM} AS b
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) = @kcaa01
+      AND ${ACTIVE_DEL_WHERE}
+  `)
+  return Number(r.recordset?.[0]?.cnt ?? 0)
+}
+
+/**
+ * @param {import('mssql').Transaction} tx
+ * @param {string[]} codes 已 trim 的 kcaa01
+ * @returns {Promise<string[]>} 已存在（在册）的编码列表（原样显示顺序按输入首次出现）
+ */
+async function findExistingKcaa01AmongInTx(tx, codes) {
+  const uniq = [...new Set(codes.map((c) => String(c ?? '').trim()).filter(Boolean))]
+  if (uniq.length === 0) return []
+  const existing = []
+  const seen = new Set()
+  const chunk = 60
+  for (let off = 0; off < uniq.length; off += chunk) {
+    const slice = uniq.slice(off, off + chunk)
+    const rq = new sql.Request(tx)
+    const parts = []
+    for (let j = 0; j < slice.length; j++) {
+      const pname = `c${off}_${j}`
+      rq.input(pname, sql.NVarChar(300), slice[j])
+      parts.push(`@${pname}`)
+    }
+    const rs = await rq.query(`
+      SELECT LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) AS k1
+      FROM ${INV_BOM_MASTER_FROM} AS b
+      WHERE ${ACTIVE_DEL_WHERE}
+        AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) IN (${parts.join(', ')})
+    `)
+    for (const row of rs.recordset ?? []) {
+      const k1 = String(row.k1 ?? '').trim()
+      if (k1 && !seen.has(k1)) {
+        seen.add(k1)
+        existing.push(k1)
+      }
+    }
+  }
+  return existing
+}
+
+/**
+ * @param {import('mssql').Transaction} tx
+ * @param {Set<string>} colset
+ * @param {{
+ *   systemcodeTriple: string,
+ *   kcaa01: string,
+ *   kcaa02: string,
+ *   kcaa03: string,
+ *   kcaa04: string,
+ *   kcaa05: string,
+ *   kcaa06: string,
+ *   kcaa07: string,
+ *   kcaa08: string,
+ *   kcaa09: string,
+ *   kcaa10: string,
+ *   kcaa11: string,
+ *   kcaa14: number,
+ *   kcaa15: string,
+ *   kcaa25: string,
+ *   kcaa26: number,
+ *   kcaa27: number,
+ *   passChar: '0' | '1',
+ *   remark: string,
+ *   addtime: string,
+ *   ip: string,
+ *   actor: { uidInt: number | null, uname: string | null, utruename: string | null },
+ * }} row
+ */
+async function insertBom000PaperPatternRow(tx, colset, row) {
+  const cols = []
+  const vals = []
+  const ins = new sql.Request(tx)
+
+  ins.input('bom_sc_triple', sql.NVarChar(100), row.systemcodeTriple)
+  cols.push('systemcode', '[GUID]', 'dr_systemcode')
+  vals.push('@bom_sc_triple', '@bom_sc_triple', '@bom_sc_triple')
+
+  if (colset.has('version')) {
+    ins.input('bom_version_ins', sql.Int, 100)
+    cols.push('[version]')
+    vals.push('@bom_version_ins')
+  }
+  // 纸格导入：Bom_000.[type] 显式写入 NULL，不使用默认 1
+  if (colset.has('type')) {
+    ins.input('bom_type_ins', sql.Int, null)
+    cols.push('[type]')
+    vals.push('@bom_type_ins')
+  }
+
+  const pushNv = (col, param, val, len) => {
+    if (!colset.has(col.toLowerCase())) return
+    const phys = col === 'decimal' ? '[decimal]' : col
+    cols.push(phys)
+    vals.push(`@${param}`)
+    ins.input(param, sql.NVarChar(len), val ?? '')
+  }
+
+  pushNv('kcaa01', 'ins_kcaa01', row.kcaa01, 300)
+  pushNv('kcaa02', 'ins_kcaa02', row.kcaa02, 500)
+  pushNv('kcaa03', 'ins_kcaa03', row.kcaa03, 500)
+  pushNv('kcaa04', 'ins_kcaa04', row.kcaa04, 100)
+  pushNv('kcaa05', 'ins_kcaa05', row.kcaa05, 200)
+  pushNv('kcaa06', 'ins_kcaa06', row.kcaa06, 300)
+  pushNv('kcaa09', 'ins_kcaa09', row.kcaa09, 300)
+  pushNv('kcaa10', 'ins_kcaa10', row.kcaa10, 200)
+  pushNv('kcaa11', 'ins_kcaa11', row.kcaa11, 200)
+  pushNv('kcaa15', 'ins_kcaa15', row.kcaa15, 50)
+  pushNv('kcaa25', 'ins_kcaa25', row.kcaa25, 100)
+  pushNv('remark', 'ins_remark', row.remark, 2000)
+  pushNv('decimal', 'ins_bom_decimal', row.decimalStr || '3', 20)
+
+  if (colset.has('kcaa07')) {
+    cols.push('kcaa07')
+    vals.push('@ins_kcaa07')
+    ins.input('ins_kcaa07', sql.NVarChar(50), row.kcaa07)
+  }
+  if (colset.has('kcaa08')) {
+    cols.push('kcaa08')
+    vals.push('@ins_kcaa08')
+    ins.input('ins_kcaa08', sql.NVarChar(50), row.kcaa08)
+  }
+
+  if (colset.has('kcaa14')) {
+    cols.push('kcaa14')
+    vals.push('@ins_kcaa14')
+    ins.input('ins_kcaa14', sql.Int, row.kcaa14)
+  }
+  if (colset.has('kcaa26')) {
+    cols.push('kcaa26')
+    vals.push('@ins_kcaa26')
+    ins.input('ins_kcaa26', sql.Decimal(18, 6), row.kcaa26)
+  }
+  if (colset.has('kcaa27')) {
+    cols.push('kcaa27')
+    vals.push('@ins_kcaa27')
+    ins.input('ins_kcaa27', sql.Int, row.kcaa27)
+  }
+
+  if (colset.has('pass')) {
+    cols.push('pass')
+    vals.push('@ins_pass')
+    ins.input('ins_pass', sql.NVarChar(10), row.passChar)
+  }
+  if (colset.has('del')) {
+    cols.push('del')
+    vals.push("N'0'")
+  }
+  if (colset.has('back')) {
+    cols.push('back')
+    vals.push('@ins_back')
+    ins.input('ins_back', sql.Int, 0)
+  }
+  if (colset.has('is_pur')) {
+    cols.push('is_pur')
+    vals.push('@ins_is_pur')
+    ins.input('ins_is_pur', sql.Int, 0)
+  }
+
+  if (colset.has('uid') && row.actor.uidInt != null) {
+    cols.push('uid')
+    vals.push('@ins_uid')
+    ins.input('ins_uid', sql.Int, row.actor.uidInt)
+  }
+  if (colset.has('uname') && row.actor.uname) {
+    cols.push('uname')
+    vals.push('@ins_uname')
+    ins.input('ins_uname', sql.NVarChar(50), row.actor.uname)
+  }
+  if (colset.has('utruename') && row.actor.utruename) {
+    cols.push('utruename')
+    vals.push('@ins_utruename')
+    ins.input('ins_utruename', sql.NVarChar(50), row.actor.utruename)
+  }
+  if (colset.has('addtime')) {
+    cols.push('addtime')
+    vals.push('@ins_addtime')
+    ins.input('ins_addtime', sql.NVarChar(50), row.addtime)
+  }
+  if (colset.has('edittime')) {
+    cols.push('edittime')
+    vals.push('@ins_edittime')
+    ins.input('ins_edittime', sql.NVarChar(50), row.addtime)
+  }
+  if (colset.has('ip')) {
+    cols.push('ip')
+    vals.push('@ins_ip')
+    ins.input('ins_ip', sql.NVarChar(80), row.ip ?? '')
+  }
+
+  if (!cols.length) {
+    throw new Error('bom_000 无可用插入列')
+  }
+
+  const qr = await ins.query(`
+    INSERT INTO ${INV_BOM_MASTER_FROM} (${cols.join(', ')})
+    VALUES (${vals.join(', ')})
+  `)
+  if ((qr.rowsAffected?.[0] ?? 0) <= 0) {
+    throw new Error('INSERT bom_000 未写入行')
+  }
+}
+
+/**
+ * POST /api/paper-pattern/import/commit-bom000
+ * body: { importTypeFlag5, importTypeFlag1?, factoryStyleNo, colorNo, customerStyleNo, groupLabel, cuts[], materials[], accessories? }
+ */
+export async function handlePostPaperPatternImportCommitBom000(req, res) {
+  try {
+    const body = req.body ?? {}
+    const importTypeFlag5 = String(body.importTypeFlag5 ?? '').trim()
+    const factoryStyleNo = String(body.factoryStyleNo ?? '').trim()
+    const colorNo = String(body.colorNo ?? '').trim()
+    const customerStyleNo = String(body.customerStyleNo ?? '').trim()
+    const groupLabel = String(body.groupLabel ?? '').trim()
+    const cutsIn = Array.isArray(body.cuts) ? body.cuts : []
+    const accessoriesIn = Array.isArray(body.accessories) ? body.accessories : []
+    const materialsIn = Array.isArray(body.materials) ? body.materials : []
+
+    if (!importTypeFlag5) {
+      res.status(400).json({ success: false, message: '缺少导入类型 importTypeFlag5' })
+      return
+    }
+    const styleNo = normalizeFactoryStyleForEncoding(factoryStyleNo)
+    if (!styleNo) {
+      res.status(400).json({ success: false, message: '厂款号无效或为空（编码用）' })
+      return
+    }
+    if (!colorNo) {
+      res.status(400).json({ success: false, message: '缺少颜色编码' })
+      return
+    }
+    if (cutsIn.length > 5000 || materialsIn.length > 8000 || accessoriesIn.length > 2000) {
+      res.status(400).json({ success: false, message: 'cuts / materials / accessories 数量超出限制' })
+      return
+    }
+
+    const mainKcaa01 = buildMainBomCode({ importTypeFlag5, styleNo, colorNo })
+    if (!mainKcaa01) {
+      res.status(400).json({ success: false, message: '无法生成主 BOM 编码' })
+      return
+    }
+
+    const pool = await getPool()
+
+    let importTypeFlag1 = String(body.importTypeFlag1 ?? '').trim()
+    if (!importTypeFlag1) {
+      importTypeFlag1 = await fetchBomCodeFlag1ByFlag5(pool, importTypeFlag5)
+    }
+    if (!importTypeFlag1) {
+      res.status(400).json({
+        success: false,
+        message: '无法读取导入类型名称（Bom_code.flag1），请检查导入类型是否有效',
+      })
+      return
+    }
+
+    const stylePathDisplay = normalizeFactoryStyleForBomPathDisplay(factoryStyleNo)
+    if (!stylePathDisplay) {
+      res.status(400).json({ success: false, message: '厂款号无效或为空（款色路径用）' })
+      return
+    }
+    const kcaa03PathDisplay = `${stylePathDisplay}/${colorNo}`
+
+    const cutsResolved = cutsIn.map((c) => {
+      const cutSeq = String(c?.cutSeq ?? '').trim()
+      const cutName = String(c?.cutName ?? '').trim()
+      const cutCode = buildCutCode({ importTypeFlag5, styleNo, colorNo, cutSeq })
+      const kcaa03Cut = formatPaperPatternCutKcaa03(c?.length, c?.width)
+      return {
+        cutSeq,
+        cutName,
+        cutCode,
+        kcaa03Cut,
+        length: c?.length,
+        width: c?.width,
+        quantity: c?.quantity,
+        wastage: c?.wastage,
+        matching: c?.matching,
+      }
+    })
+
+    const badCut = cutsResolved.find((x) => !x.cutCode || !x.cutSeq)
+    if (badCut) {
+      res.status(400).json({ success: false, message: '存在无效的 CUT 行（缺少序号或无法生成 CUT 编码）' })
+      return
+    }
+
+    const erpCodesToVerify = []
+    for (const m of materialsIn) {
+      const code = normalizeErpCodeDisplay(m?.materialCode ?? '')
+      if (code) erpCodesToVerify.push(code)
+    }
+    for (const a of accessoriesIn) {
+      const code = normalizeErpCodeDisplay(a?.erpCode ?? '')
+      if (code) erpCodesToVerify.push(code)
+    }
+
+    const matCheck = await classifyErpCodesAgainstBom000(pool, erpCodesToVerify)
+    if (matCheck.failed.length > 0) {
+      const failedNonEmpty = matCheck.failed.filter((x) => String(x ?? '').trim())
+      const msg =
+        failedNonEmpty.length > 0
+          ? `以下 ERP 编码在 Bom_000 中不存在：${failedNonEmpty.join('、')}`
+          : '存在无效的物料或 Accessory 编码'
+      res.status(400).json({
+        success: false,
+        code: 'MATERIAL_OR_ACCESSORY_MISSING',
+        message: msg,
+        data: { missing: failedNonEmpty },
+      })
+      return
+    }
+
+    const colset = await getInvBomMasterColumnSetForCommit(pool)
+    const needCols = ['systemcode', 'guid', 'dr_systemcode', 'version']
+    const miss = needCols.filter((c) => !colset.has(c))
+    if (miss.length) {
+      res.status(500).json({
+        success: false,
+        message: `bom_000 缺少必需列：${miss.join(', ')}，无法写入`,
+      })
+      return
+    }
+
+    const actor = getActorAuditTripletFromReq(req)
+    const addtime = formatBomColorcodeTimestamp()
+    const clientIp = String(getRequestIp(req) ?? '').trim()
+
+    const transaction = new sql.Transaction(pool)
+    await transaction.begin()
+    try {
+      if ((await countActiveKcaa01InTx(transaction, mainKcaa01)) > 0) {
+        await transaction.rollback()
+        res.status(400).json({
+          success: false,
+          code: 'MAIN_BOM_EXISTS',
+          message: `主BOM已存在：${mainKcaa01}`,
+          data: { mainBomCode: mainKcaa01 },
+        })
+        return
+      }
+
+      const cutCodes = cutsResolved.map((c) => c.cutCode)
+      const existingCuts = await findExistingKcaa01AmongInTx(transaction, cutCodes)
+      if (existingCuts.length > 0) {
+        await transaction.rollback()
+        res.status(400).json({
+          success: false,
+          code: 'CUT_EXISTS',
+          message: `以下CUT编码已存在：${existingCuts.join('、')}`,
+          data: { existingCuts },
+        })
+        return
+      }
+
+      let systemcodeSeq = 0
+      const nextSystemcode = () => {
+        systemcodeSeq += 1
+        return allocatePaperPatternBomSystemcode(actor.uidInt ?? actor.uname ?? '', systemcodeSeq)
+      }
+      const mainTriple = nextSystemcode()
+
+      const kcaa02Main = importTypeFlag1
+
+      const mainLogObj = {
+        kcaa01: mainKcaa01,
+        kcaa02: kcaa02Main,
+        kcaa03: kcaa03PathDisplay,
+        kcaa11: colorNo,
+        kcaa04: 'PC',
+        kcaa05: '02',
+        pass: '0',
+      }
+      console.log('[paper-pattern-import-commit] mainBomInsert', JSON.stringify(mainLogObj))
+
+      await insertBom000PaperPatternRow(transaction, colset, {
+        systemcodeTriple: mainTriple,
+        kcaa01: mainKcaa01,
+        kcaa02: kcaa02Main,
+        kcaa03: kcaa03PathDisplay,
+        kcaa04: 'PC',
+        kcaa05: '02',
+        kcaa06: customerStyleNo,
+        kcaa07: '0',
+        kcaa08: '0',
+        kcaa09: kcaa03PathDisplay,
+        kcaa10: groupLabel,
+        kcaa11: colorNo,
+        kcaa14: 1,
+        kcaa15: '',
+        kcaa25: 'PC',
+        kcaa26: 1,
+        kcaa27: 0,
+        passChar: '0',
+        remark: '纸格系统导入',
+        addtime,
+        ip: clientIp,
+        decimalStr: '3',
+        actor,
+      })
+
+      const cutSystemcodeByCutCode = new Map()
+      for (const c of cutsResolved) {
+        const cutTriple = nextSystemcode()
+        cutSystemcodeByCutCode.set(c.cutCode, cutTriple)
+        const cutLog = { kcaa01: c.cutCode, kcaa03: c.kcaa03Cut }
+        console.log('[paper-pattern-import-commit] cutInsert', JSON.stringify(cutLog))
+
+        await insertBom000PaperPatternRow(transaction, colset, {
+          systemcodeTriple: cutTriple,
+          kcaa01: c.cutCode,
+          kcaa02: c.cutName || c.cutCode,
+          kcaa03: c.kcaa03Cut,
+          kcaa04: '张',
+          kcaa05: '02',
+          kcaa06: customerStyleNo,
+          kcaa07: '0',
+          kcaa08: '0',
+          kcaa09: kcaa03PathDisplay,
+          kcaa10: groupLabel,
+          kcaa11: '-',
+          kcaa14: 1,
+          kcaa15: '04',
+          kcaa25: '张',
+          kcaa26: 1,
+          kcaa27: 0,
+          passChar: '1',
+          remark: '纸格系统导入',
+          addtime,
+          ip: '',
+          decimalStr: '3',
+          actor,
+        })
+      }
+
+      const partsInserted = await writePaperPatternBomPartsInTx(transaction, pool, {
+        mainSystemcode: mainTriple,
+        cutsResolved,
+        cutSystemcodeByCutCode,
+        accessories: accessoriesIn,
+        materials: materialsIn,
+      })
+
+      await transaction.commit()
+      res.json({
+        success: true,
+        message: '导入成功',
+        data: {
+          mainBomCode: mainKcaa01,
+          cutCount: cutsResolved.length,
+          bomPartsInserted: partsInserted,
+        },
+      })
+    } catch (e) {
+      try {
+        await transaction.rollback()
+      } catch (rb) {
+        console.error('[paper-pattern-import-commit] rollback 失败：', rb)
+      }
+      throw e
+    }
+  } catch (e) {
+    console.error('POST /api/paper-pattern/import/commit-bom000 失败：', e)
+    const detail = String(e?.message ?? e?.originalError?.message ?? '写入失败')
+    res.status(500).json({ success: false, message: detail })
+  }
+}
