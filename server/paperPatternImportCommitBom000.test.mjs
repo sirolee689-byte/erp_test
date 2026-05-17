@@ -1,8 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  appendBom000PaperPatternAuditColumns,
   formatPaperPatternCutKcaa03,
   normalizeFactoryStyleForBomPathDisplay,
+  PAPER_PATTERN_BOM000_PASS_DEFAULT,
+  PAPER_PATTERN_BOM000_PASS_MAIN,
 } from './paperPatternImportCommitBom000.js'
 
 test('formatPaperPatternCutKcaa03 三位小数与乘号', () => {
@@ -18,4 +21,36 @@ test('formatPaperPatternCutKcaa03 非法为空按 0', () => {
 test('normalizeFactoryStyleForBomPathDisplay 保留横线、去星与空白', () => {
   assert.equal(normalizeFactoryStyleForBomPathDisplay('PQ-2803H1'), 'PQ-2803H1')
   assert.equal(normalizeFactoryStyleForBomPathDisplay(' PQ-*2803H1 '), 'PQ-2803H1')
+})
+
+test('PAPER_PATTERN_BOM000_PASS_DEFAULT', () => {
+  assert.equal(PAPER_PATTERN_BOM000_PASS_DEFAULT, '1')
+})
+
+test('PAPER_PATTERN_BOM000_PASS_MAIN', () => {
+  assert.equal(PAPER_PATTERN_BOM000_PASS_MAIN, '0')
+})
+
+test('appendBom000PaperPatternAuditColumns 列存在时写入审计字段', () => {
+  const colset = new Set(['uid', 'uname', 'utruename', 'addtime', 'edittime', 'ip'])
+  const cols = []
+  const vals = []
+  const inputs = new Map()
+  const ins = {
+    input(name, _type, value) {
+      inputs.set(name, value)
+    },
+  }
+  appendBom000PaperPatternAuditColumns(colset, ins, cols, vals, {
+    actor: { uidInt: 42, uname: 'u01', utruename: '张三' },
+    addtime: '2026-05-17 10:00:00',
+    ip: '127.0.0.1',
+  })
+  assert.deepEqual(cols, ['uid', 'uname', 'utruename', 'addtime', 'edittime', 'ip'])
+  assert.equal(inputs.get('ins_uid'), 42)
+  assert.equal(inputs.get('ins_uname'), 'u01')
+  assert.equal(inputs.get('ins_utruename'), '张三')
+  assert.equal(inputs.get('ins_addtime'), '2026-05-17 10:00:00')
+  assert.equal(inputs.get('ins_edittime'), '2026-05-17 10:00:00')
+  assert.equal(inputs.get('ins_ip'), '127.0.0.1')
 })

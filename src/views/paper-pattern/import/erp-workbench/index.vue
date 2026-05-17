@@ -53,11 +53,16 @@
 
         <el-divider content-position="left">Accessory</el-divider>
         <el-table :data="accessoryRows" border size="small" class="data-table" empty-text="无 Accessory 行">
-          <el-table-column label="ERP 编码" min-width="240">
+          <el-table-column prop="accessoryName" label="名称" min-width="140" show-overflow-tooltip />
+          <el-table-column label="ERP 编码" min-width="220">
             <template #default="{ row }">
               <el-input v-model="row.erpCode" clearable size="small" @input="onCodeEdited" />
             </template>
           </el-table-column>
+          <el-table-column prop="usageQty" label="用量" width="100" align="right" />
+          <el-table-column prop="wastage" label="损耗" width="100" align="right" />
+          <el-table-column prop="lineTotal" label="合计" width="100" align="right" />
+          <el-table-column prop="matching" label="搭配" min-width="120" show-overflow-tooltip />
           <el-table-column label="状态" width="120" align="center">
             <template #default="{ row }">
               <span :class="statusClass(accessoryRowStatus(row))">{{ accessoryRowStatus(row).text }}</span>
@@ -90,7 +95,7 @@ const checkedOnce = ref(false)
 
 /** @type {import('vue').Ref<{ groupNo: string, materialName: string, materialCode: string }[]>} */
 const materialRows = ref([])
-/** @type {import('vue').Ref<{ erpCode: string }[]>} */
+/** @type {import('vue').Ref<{ erpCode: string, accessoryName: string, usageQty: string, wastage: string, lineTotal: string, matching: string }[]>} */
 const accessoryRows = ref([])
 
 let hydrating = false
@@ -123,7 +128,7 @@ function materialRowStatus(row) {
 }
 
 /**
- * @param {{ erpCode: string }} row
+ * @param {{ erpCode: string, accessoryName?: string, usageQty?: string, wastage?: string, lineTotal?: string, matching?: string }} row
  */
 function accessoryRowStatus(row) {
   const d = normalizeErpCodeDisplay(row.erpCode)
@@ -159,6 +164,11 @@ function cloneRowsFromPayload(materials, accessories) {
   }))
   accessoryRows.value = a.map((x) => ({
     erpCode: String(x?.erpCode ?? '').trim(),
+    accessoryName: String(x?.accessoryName ?? '').trim(),
+    usageQty: String(x?.usageQty ?? '').trim(),
+    wastage: String(x?.wastage ?? '').trim(),
+    lineTotal: String(x?.lineTotal ?? '').trim(),
+    matching: String(x?.matching ?? '').trim(),
   }))
 }
 

@@ -1,8 +1,12 @@
 /**
- * 纸格资料导入：厂款号/颜色编码/组别前 10 行辅助解析；厂款号固定 N2、组别优先 M2 否则「组别」标签右侧、客款号固定 L2（优先）；Material/CUT/副料为全文状态机；CUT 明细列按 Excel 第 3～13 列（长/宽/数量等）读取
+ * 纸格资料导入：厂款号/颜色编码/组别前 10 行辅助解析；厂款号固定 N2、组别优先 M2 否则「组别」标签右侧、客款号固定 L2（优先）；Material/CUT/副料为全文状态机；CUT 明细列按 Excel 第 3～13 列读取，其中「搭配」输出由同分组 Material 备注（第 12 列）汇总，不再沿用 CUT 区第 12 列；Accessory 明细按 B 名称、E 用量、H 损耗、I 合计、L 搭配、ERP 仍取行末最后一个非空格
  */
 import { parsePaperPatternExcelFromBuffer, readFirstSheetCellA1FromBuffer } from './paperPatternImportPreview.js'
 import { readCutMetricColumnsByExcelCol, readExcelColNorm } from './paperPatternImportCutRow.js'
+import {
+  buildGroupMatchingMapFromMaterialRemarks,
+  cutSeqMajorForMaterialGroup,
+} from './paperPatternMaterialGroupMatching.js'
 
 /** 主 BOM（客款号/颜色编码等，Excel 内）允许辅助解析的最大行号（含），与 Excel 行号一致（从 1 起）；厂款号固定读 N2 */
 const MAIN_BOM_MAX_ROW_INDEX = 10
@@ -440,7 +444,14 @@ function tryParseCutRow(row) {
  *     unit: string
  *   }>,
  *   materials: Array<{ groupNo: string, materialName: string, materialCode: string, remark: string, usageQty: string }>,
- *   accessories: Array<{ erpCode: string }>,
+ *   accessories: Array<{
+ *     erpCode: string,
+ *     accessoryName: string,
+ *     usageQty: string,
+ *     wastage: string,
+ *     lineTotal: string,
+ *     matching: string
+ *   }>,
  *   warnings: string[]
  * }}
  */
@@ -468,7 +479,7 @@ export function parsePaperPatternImportTreeFromBuffer(buf, options = {}) {
   const cutRows = []
   /** @type {Array<{ groupNo: string, materialName: string, materialCode: string, remark: string, usageQty: string }>} */
   const materials = []
-  /** @type {Array<{ erpCode: string }>} */
+  /** @type {Array<{ erpCode: string, accessoryName: string, usageQty: string, wastage: string, lineTotal: string, matching: string }>} */
   const accessories = []
 
   /** @type {'normal' | 'accessory'} */
@@ -494,7 +505,17 @@ export function parsePaperPatternImportTreeFromBuffer(buf, options = {}) {
       }
       accessoryEmptyStreak = 0
       const code = lastNonEmptyValue(vals)
-      if (code) accessories.push({ erpCode: norm(code) })
+      if (code) {
+        accessories.push({
+          erpCode: norm(code),
+          // Accessory 区：B 名称、E 用量、H 损耗、I 合计、L 搭配（Excel 绝对列号，与模板列一致）
+          accessoryName: readExcelColNorm(row, 2),
+          usageQty: readExcelColNorm(row, 5),
+          wastage: readExcelColNorm(row, 8),
+          lineTotal: readExcelColNorm(row, 9),
+          matching: readExcelColNorm(row, 12),
+        })
+      }
       continue
     }
 
@@ -542,27 +563,33 @@ export function parsePaperPatternImportTreeFromBuffer(buf, options = {}) {
 
   const bomCode = buildMainBomCode({ importTypeFlag5, styleNo: styleNoNormalized, colorNo })
 
-  const cuts = cutRows.map((c) => ({
-    cutSeq: c.cutSeq,
-    cutName: c.cutName,
-    cutCode: buildCutCode({
-      importTypeFlag5,
-      styleNo: styleNoNormalized,
-      colorNo,
+  // CUT 预览「搭配」：与同分组 Material 备注（第 12 列）一致；无备注的分组搭配为空（不再用 CUT 区原第 12 列）
+  const groupMatching = buildGroupMatchingMapFromMaterialRemarks(materials)
+  const cuts = cutRows.map((c) => {
+    const major = cutSeqMajorForMaterialGroup(c.cutSeq)
+    const matchingFromMaterial = major ? (groupMatching.get(major) ?? '') : ''
+    return {
       cutSeq: c.cutSeq,
-    }),
-    length: c.length,
-    width: c.width,
-    quantity: c.quantity,
-    fabricWidth: c.fabricWidth,
-    unitConsumption: c.unitConsumption,
-    wastage: c.wastage,
-    actualConsumption: c.actualConsumption,
-    unitPrice: c.unitPrice,
-    totalAmount: c.totalAmount,
-    matching: c.matching,
-    unit: c.unit,
-  }))
+      cutName: c.cutName,
+      cutCode: buildCutCode({
+        importTypeFlag5,
+        styleNo: styleNoNormalized,
+        colorNo,
+        cutSeq: c.cutSeq,
+      }),
+      length: c.length,
+      width: c.width,
+      quantity: c.quantity,
+      fabricWidth: c.fabricWidth,
+      unitConsumption: c.unitConsumption,
+      wastage: c.wastage,
+      actualConsumption: c.actualConsumption,
+      unitPrice: c.unitPrice,
+      totalAmount: c.totalAmount,
+      matching: matchingFromMaterial,
+      unit: c.unit,
+    }
+  })
 
   /** @type {string[]} */
   const warnings = []
@@ -626,7 +653,14 @@ export function parsePaperPatternImportTreeFromBuffer(buf, options = {}) {
         width: c.width,
         quantity: c.quantity,
       })),
-      accessories: accessories.map((a) => ({ erpCode: a.erpCode })),
+      accessories: accessories.map((a) => ({
+        erpCode: a.erpCode,
+        accessoryName: a.accessoryName,
+        usageQty: a.usageQty,
+        wastage: a.wastage,
+        lineTotal: a.lineTotal,
+        matching: a.matching,
+      })),
     }),
   )
 

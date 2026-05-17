@@ -98,6 +98,12 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   { method: 'GET', path: /^\/api\/inventory\/bom\/parts\/.+$/, action: '查询BOM配件明细', targetTable: 'Bom_parts' },
   { method: 'PUT', path: /^\/api\/inventory\/bom\/parts\/.+$/, action: '保存BOM配件明细', targetTable: 'Bom_parts' },
   { method: 'POST', path: '/api/inventory/bom/save-parts', action: '保存BOM配件明细(save-parts)', targetTable: 'Bom_parts' },
+  {
+    method: 'POST',
+    path: '/api/paper-pattern/import/delete-bom-tree',
+    action: '纸格导入按主BOM物理删除Bom_000与Bom_parts',
+    targetTable: 'bom_000',
+  },
   { method: 'GET', path: /^\/api\/inventory\/bom\/.+$/, action: '查看BOM主档详情', targetTable: 'bom_000' },
 
   { method: 'GET', path: '/api/supply-chain/suppliers/list', action: '查询供应商资料列表', targetTable: 'System_supplier' },

@@ -38,7 +38,7 @@
     "smoke:login": "node scripts/login-smoke-with-fresh-server.mjs",
     "smoke:login:pw": "node scripts/playwright-login-api-with-server.mjs",
     "smoke:login:admin:shot": "node scripts/playwright-login-admin-screenshot.mjs",
-    "test:paper-pattern-erp": "node --test server/paperPatternErpCodeNormalize.test.mjs server/paperPatternCheckMaterial.classify.test.mjs server/paperPatternImportCutRow.test.mjs server/paperPatternCutDisplayFormat.test.mjs server/paperPatternMaterialWastageInput.test.mjs server/paperPatternMaterialWastagePolicy.test.mjs server/paperPatternImportCommitBom000.test.mjs server/paperPatternImportCommitBomParts.test.mjs"
+    "test:paper-pattern-erp": "node --test server/paperPatternErpCodeNormalize.test.mjs server/paperPatternCheckMaterial.classify.test.mjs server/paperPatternImportCutRow.test.mjs server/paperPatternCutDisplayFormat.test.mjs server/paperPatternMaterialWastageInput.test.mjs server/paperPatternMaterialWastagePolicy.test.mjs server/paperPatternImportCommitBom000.test.mjs server/paperPatternImportCommitBomParts.test.mjs server/paperPatternImportDeleteBomTree.test.mjs server/paperPatternMaterialGroupMatching.test.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",

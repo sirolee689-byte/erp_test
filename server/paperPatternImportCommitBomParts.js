@@ -5,19 +5,61 @@ import { erpCodeLookupKey, normalizeErpCodeDisplay } from './paperPatternErpCode
 import { fetchKcaa04Kcaa33ByKcaa01In } from './paperPatternMaterialBomFields.js'
 import {
   getBomPartsColumnSetForPaperPattern,
+  getBomPartsColumnDataKindForPaperPattern,
   getBomPartsDelColumnKindForPaperPattern,
   insertBomPartsLinePaperPattern,
+  PAPER_PATTERN_BOM_PARTS_PASS_DEFAULT,
 } from './bomPartsLinePersist.js'
+
+import { cutSeqMajorForMaterialGroup } from './paperPatternMaterialGroupMatching.js'
+
+/** CUT 预览行写入 Bom_parts.remark（纸格导入裁片） */
+export const PAPER_PATTERN_CUT_BOM_PARTS_REMARK = '纸格系统导入'
+
+/** 纸格 Bom_parts 默认版本号 */
+export const PAPER_PATTERN_BOM_PARTS_VERSION = 100
+
+/** 与 bomPartsLinePersist 一致：纸格写入 Bom_parts.pass 默认已审核 */
+export { PAPER_PATTERN_BOM_PARTS_PASS_DEFAULT }
 
 /**
  * @param {string} cutSeq 如 3-1
  * @returns {string} 段号 3
  */
 export function cutMajorFromCutSeq(cutSeq) {
-  const s = String(cutSeq ?? '').trim()
-  const i = s.indexOf('-')
-  if (i <= 0) return ''
-  return s.slice(0, i)
+  return cutSeqMajorForMaterialGroup(cutSeq)
+}
+
+/**
+ * 同一主段号（如 4-1、4-2 的 4）下：取 CUT 列表中首条非空「搭配」，供子序号行与物料子件同步 Describe
+ * @param {Array<{ cutSeq?: string, matching?: string }>} cuts
+ * @returns {Map<string, string>}
+ */
+export function buildCutMatchingByMajorFirstNonEmpty(cuts) {
+  /** @type {Map<string, string>} */
+  const map = new Map()
+  if (!Array.isArray(cuts)) return map
+  for (const c of cuts) {
+    const maj = cutMajorFromCutSeq(String(c?.cutSeq ?? '').trim())
+    if (!maj) continue
+    const m = String(c?.matching ?? '').trim()
+    if (m && !map.has(maj)) map.set(maj, m)
+  }
+  return map
+}
+
+/**
+ * CUT 行写入 Bom_parts.Describe：优先本行搭配；空则同步同主段号下父级（首条非空搭配）
+ * @param {string} cutSeq
+ * @param {unknown} directMatching
+ * @param {Map<string, string>} matchingByMajor
+ */
+export function resolveCutDescribeForBomParts(cutSeq, directMatching, matchingByMajor) {
+  const dm = String(directMatching ?? '').trim()
+  if (dm) return dm
+  const maj = cutMajorFromCutSeq(String(cutSeq ?? '').trim())
+  if (!maj || !(matchingByMajor instanceof Map)) return ''
+  return String(matchingByMajor.get(maj) ?? '').trim()
 }
 
 /**
@@ -34,10 +76,89 @@ export function parsePaperPatternQty(raw) {
   return Number.isFinite(n) ? n : 0
 }
 
-/** @param {unknown} raw */
-function parseWastageFraction(raw) {
-  const n = Number(String(raw ?? '').replace(/,/g, '').trim())
+/**
+ * 纸格单元格：非空则解析为数字，否则 null（用于 I 列合计是否覆盖 kcac06）
+ * @param {unknown} raw
+ * @returns {number|null}
+ */
+function parseOptionalDecimalCell(raw) {
+  const s = String(raw ?? '').replace(/,/g, '').trim()
+  if (s === '') return null
+  const n = Number(s)
+  return Number.isFinite(n) ? n : null
+}
+
+/**
+ * Accessory E 列用量：空则沿用旧默认 1
+ * @param {unknown} raw
+ */
+function accessoryUsageQtyForKcac04(raw) {
+  const s = String(raw ?? '').replace(/,/g, '').trim()
+  if (s === '') return 1
+  return parsePaperPatternQty(raw)
+}
+
+function bomPartRound6(n) {
+  if (!Number.isFinite(n)) return 0
+  return Math.round(n * 1e6) / 1e6
+}
+
+/**
+ * Bom_000 采购价/BOM价 → Bom_parts：六位小数；库内空/无效为 null（不写 0）
+ * @param {number|null|undefined} raw
+ * @returns {number|null}
+ */
+export function bom000PriceToBomPartsOrNull(raw) {
+  if (raw === null || raw === undefined) return null
+  const n = Number(raw)
+  if (!Number.isFinite(n)) return null
+  return bomPartRound6(n)
+}
+
+/** Excel 单元格视为空 */
+function isExcelCellEmpty(raw) {
+  const s = String(raw ?? '').replace(/,/g, '').trim()
+  return s === ''
+}
+
+/**
+ * 辅料 H 列损耗：空为 0；末尾带 % 按百分比为小数；否则按小数比例解析
+ * @param {unknown} raw
+ */
+export function parseAccessoryWastageFraction(raw) {
+  const s = String(raw ?? '').replace(/,/g, '').trim()
+  if (s === '') return 0
+  if (/%\s*$/.test(s)) {
+    const n = Number(s.replace(/%\s*$/, '').trim())
+    return Number.isFinite(n) ? n / 100 : 0
+  }
+  const n = Number(s)
   return Number.isFinite(n) ? n : 0
+}
+
+/**
+ * 辅料 E/H/I 与 Bom_000.kcaa33 得到 kcac04/kcac05/kcac06FromExcel（六位小数）
+ * 损耗与合计皆空时：kcac05=库内 kcaa33（缺省 0），kcac06 由插入层按 kcac04*(1+kcac05) 计算
+ * @param {unknown} usageRaw
+ * @param {unknown} wastageRaw
+ * @param {unknown} lineTotalRaw
+ * @param {number|null|undefined} dbKcaa33
+ */
+export function resolveAccessoryKcac456(usageRaw, wastageRaw, lineTotalRaw, dbKcaa33) {
+  const kcac04 = bomPartRound6(accessoryUsageQtyForKcac04(usageRaw))
+  const wEmpty = isExcelCellEmpty(wastageRaw)
+  const iEmpty = isExcelCellEmpty(lineTotalRaw)
+  if (wEmpty && iEmpty) {
+    const dbLoss =
+      dbKcaa33 !== null && dbKcaa33 !== undefined && Number.isFinite(Number(dbKcaa33))
+        ? Number(dbKcaa33)
+        : 0
+    return { kcac04, kcac05: bomPartRound6(dbLoss), kcac06FromExcel: undefined }
+  }
+  const kcac05 = bomPartRound6(parseAccessoryWastageFraction(wastageRaw))
+  const lt = parseOptionalDecimalCell(lineTotalRaw)
+  const kcac06FromExcel = lt != null ? bomPartRound6(lt) : undefined
+  return { kcac04, kcac05, kcac06FromExcel }
 }
 
 /**
@@ -53,7 +174,14 @@ function parseWastageFraction(raw) {
  *     matching?: string,
  *   }>,
  *   cutSystemcodeByCutCode: Map<string, string>,
- *   accessories: Array<{ erpCode?: string }>,
+ *   accessories: Array<{
+ *     erpCode?: string,
+ *     accessoryName?: string,
+ *     usageQty?: string|number,
+ *     wastage?: string|number,
+ *     lineTotal?: string|number,
+ *     matching?: string,
+ *   }>,
  *   materials: Array<{
  *     groupNo?: string|number,
  *     materialCode?: string,
@@ -61,6 +189,8 @@ function parseWastageFraction(raw) {
  *     usageQty?: string|number,
  *     wastageFraction?: number | null,
  *   }>,
+ *   actor: { uidInt: number | null, uname: string | null, utruename: string | null },
+ *   addtime: string,
  * }} p
  * @returns {Promise<number>} 写入行数
  */
@@ -70,9 +200,15 @@ export async function writePaperPatternBomPartsInTx(tx, pool, p) {
     throw new Error('Bom_parts 表缺少必需列 kcac01/kcaa01，无法写入纸格配件')
   }
   const delColKind = await getBomPartsDelColumnKindForPaperPattern(pool)
+  const passColKind = await getBomPartsColumnDataKindForPaperPattern(pool, 'pass')
 
   const mainSc = String(p.mainSystemcode ?? '').trim()
   if (!mainSc) throw new Error('主 BOM systemcode 为空')
+
+  const partsAudit = {
+    actor: p.actor ?? { uidInt: null, uname: null, utruename: null },
+    addtime: String(p.addtime ?? '').trim(),
+  }
 
   const cuts = Array.isArray(p.cutsResolved) ? p.cutsResolved : []
   const acc = Array.isArray(p.accessories) ? p.accessories : []
@@ -98,42 +234,77 @@ export async function writePaperPatternBomPartsInTx(tx, pool, p) {
 
   let inserted = 0
 
+  const cutMatchingByMajor = buildCutMatchingByMajorFirstNonEmpty(cuts)
+
   // 主 BOM：CUT 预览每行 → 子件为裁片 BOM 编码；Seq=0
   for (const c of cuts) {
     const cutCode = String(c.cutCode ?? '').trim()
     if (!cutCode) continue
     const qty = parsePaperPatternQty(c.quantity)
-    const loss = parseWastageFraction(c.wastage)
-    const matching = String(c.matching ?? '').trim()
+    const describeCut = resolveCutDescribeForBomParts(c.cutSeq, c.matching, cutMatchingByMajor)
     const kcaa04Cut = '张'
-    await insertBomPartsLinePaperPattern(tx, partColset, delColKind, mainSc, {
-      kcaa01: cutCode,
-      kcac04: qty,
-      kcac05: loss,
-      remark: '',
-      seq: 0,
-      describe: matching,
-      kcac03FromMaster: kcaa04Cut,
-    })
+    await insertBomPartsLinePaperPattern(
+      tx,
+      partColset,
+      delColKind,
+      passColKind,
+      mainSc,
+      {
+        kcaa01: cutCode,
+        kcac04: qty,
+        remark: PAPER_PATTERN_CUT_BOM_PARTS_REMARK,
+        seq: 0,
+        describe: describeCut,
+        kcac03FromMaster: kcaa04Cut,
+        useNullKcac05AndKcac06: true,
+        nullPrices: true,
+        version: PAPER_PATTERN_BOM_PARTS_VERSION,
+      },
+      partsAudit,
+    )
     inserted += 1
   }
 
-  // 主 BOM：Accessory；Seq 自 1 递增
+  // 主 BOM：Accessory；Seq 自 1 递增（E/H/I 来自纸格解析；I 空则 kcac06 按公式）
   let accSeq = 1
   for (const a of acc) {
     const code = normalizeErpCodeDisplay(a?.erpCode ?? '')
     if (!code) continue
     const key = erpCodeLookupKey(code)
     const row = key ? bomMap.get(key) : null
-    await insertBomPartsLinePaperPattern(tx, partColset, delColKind, mainSc, {
-      kcaa01: code,
-      kcac04: 1,
-      kcac05: 0,
-      remark: '',
-      seq: accSeq,
-      describe: '',
-      kcac03FromMaster: row?.kcaa04 ?? '',
-    })
+    const { kcac04, kcac05, kcac06FromExcel } = resolveAccessoryKcac456(
+      a?.usageQty,
+      a?.wastage,
+      a?.lineTotal,
+      row?.kcaa33,
+    )
+    const accDescribe = String(a?.matching ?? '').trim()
+    const accRemark = row ? String(row.remark ?? '').trim() : ''
+    const accCost = row ? bom000PriceToBomPartsOrNull(row.cost_price) : null
+    const accSale = row ? bom000PriceToBomPartsOrNull(row.sale_price) : null
+    await insertBomPartsLinePaperPattern(
+      tx,
+      partColset,
+      delColKind,
+      passColKind,
+      mainSc,
+      {
+        kcaa01: code,
+        kcac04,
+        kcac05,
+        kcac06FromExcel,
+        remark: accRemark,
+        cost_price: accCost,
+        sale_price: accSale,
+        seq: accSeq,
+        describe: accDescribe,
+        kcac03FromMaster: row?.kcaa04 ?? '',
+        kcaa02EnFromBom000: String(row?.kcaa02_en ?? '').trim(),
+        locationFromBom000: String(row?.location ?? '').trim(),
+        version: PAPER_PATTERN_BOM_PARTS_VERSION,
+      },
+      partsAudit,
+    )
     accSeq += 1
     inserted += 1
   }
@@ -158,20 +329,39 @@ export async function writePaperPatternBomPartsInTx(tx, pool, p) {
         wf !== undefined && wf !== null && Number.isFinite(Number(wf)) ? Number(wf) : dbLoss
       const qty = parsePaperPatternQty(m.usageQty)
       const remark = String(m.remark ?? '').trim()
-      await insertBomPartsLinePaperPattern(tx, partColset, delColKind, parentSc, {
-        kcaa01: code,
-        kcac04: qty,
-        kcac05: loss,
-        remark,
-        seq: mSeq,
-        describe: remark,
-        kcac03FromMaster: row?.kcaa04 ?? '',
-      })
+      const describeMat = resolveCutDescribeForBomParts(cutSeq, c.matching, cutMatchingByMajor)
+      await insertBomPartsLinePaperPattern(
+        tx,
+        partColset,
+        delColKind,
+        passColKind,
+        parentSc,
+        {
+          kcaa01: code,
+          kcac04: qty,
+          kcac05: loss,
+          remark,
+          seq: mSeq,
+          describe: describeMat,
+          kcac03FromMaster: row?.kcaa04 ?? '',
+          version: PAPER_PATTERN_BOM_PARTS_VERSION,
+        },
+        partsAudit,
+      )
       mSeq += 1
       inserted += 1
     }
   }
 
-  console.log('[paper-pattern-import-commit] bomPartsInserted', inserted)
+  console.log(
+    '[paper-pattern-import-commit] bomPartsInserted',
+    inserted,
+    JSON.stringify({
+      uid: partsAudit.actor.uidInt,
+      uname: partsAudit.actor.uname,
+      utruename: partsAudit.actor.utruename,
+      addtime: partsAudit.addtime,
+    }),
+  )
   return inserted
 }

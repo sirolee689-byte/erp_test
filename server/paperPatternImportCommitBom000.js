@@ -13,6 +13,7 @@ import {
 } from './paperPatternImportParse.js'
 import { classifyErpCodesAgainstBom000 } from './paperPatternCheckMaterial.js'
 import { normalizeErpCodeDisplay } from './paperPatternErpCodeNormalize.js'
+import { deletePaperPatternBomTreeByMainKcaa01InTx } from './paperPatternImportDeleteBomTree.js'
 import { writePaperPatternBomPartsInTx } from './paperPatternImportCommitBomParts.js'
 
 const INV_BOM_MASTER_TABLE = (() => {
@@ -123,6 +124,63 @@ function allocatePaperPatternBomSystemcode(actorUidPart, seq) {
 /** 在册：del 为空或 0 */
 const ACTIVE_DEL_WHERE = `(ISNULL(b.del, N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.del), N''))) = N'0')`
 
+/** 纸格导入 Bom_000：CUT 等子档 pass 默认已审核 */
+export const PAPER_PATTERN_BOM000_PASS_DEFAULT = '1'
+/** 纸格导入主 BOM：未审核 */
+export const PAPER_PATTERN_BOM000_PASS_MAIN = '0'
+
+/**
+ * Bom_000 审计列：列存在则写入（uid 无有效登录时为 NULL；uname/utruename 允许空串）
+ * @param {Set<string>} colset
+ * @param {import('mssql').Request} ins
+ * @param {string[]} cols
+ * @param {string[]} vals
+ * @param {{ actor: { uidInt: number | null, uname: string | null, utruename: string | null }, addtime: string, ip?: string }} audit
+ */
+export function appendBom000PaperPatternAuditColumns(colset, ins, cols, vals, audit) {
+  const actor = audit?.actor ?? { uidInt: null, uname: null, utruename: null }
+  const addtime = String(audit?.addtime ?? '').trim()
+  const ip = String(audit?.ip ?? '').trim()
+
+  if (colset.has('uid')) {
+    cols.push('uid')
+    vals.push('@ins_uid')
+    const uidRaw = actor.uidInt
+    const uidInt =
+      uidRaw != null && Number.isFinite(Number(uidRaw)) && Number(uidRaw) > 0
+        ? Math.trunc(Number(uidRaw))
+        : null
+    ins.input('ins_uid', sql.Int, uidInt)
+  }
+  if (colset.has('uname')) {
+    cols.push('uname')
+    vals.push('@ins_uname')
+    const uname = String(actor.uname ?? '').trim()
+    ins.input('ins_uname', sql.NVarChar(50), uname || null)
+  }
+  if (colset.has('utruename')) {
+    cols.push('utruename')
+    vals.push('@ins_utruename')
+    const utruename = String(actor.utruename ?? '').trim()
+    ins.input('ins_utruename', sql.NVarChar(50), utruename || null)
+  }
+  if (colset.has('addtime') && addtime) {
+    cols.push('addtime')
+    vals.push('@ins_addtime')
+    ins.input('ins_addtime', sql.NVarChar(50), addtime)
+  }
+  if (colset.has('edittime') && addtime) {
+    cols.push('edittime')
+    vals.push('@ins_edittime')
+    ins.input('ins_edittime', sql.NVarChar(50), addtime)
+  }
+  if (colset.has('ip')) {
+    cols.push('ip')
+    vals.push('@ins_ip')
+    ins.input('ins_ip', sql.NVarChar(80), ip)
+  }
+}
+
 /**
  * @param {import('mssql').Transaction} tx
  * @param {string} kcaa01
@@ -197,7 +255,9 @@ async function findExistingKcaa01AmongInTx(tx, codes) {
  *   kcaa25: string,
  *   kcaa26: number,
  *   kcaa27: number,
- *   passChar: '0' | '1',
+ *   cost_price?: number|null,
+ *   sale_price?: number|null,
+ *   passChar?: '0' | '1',
  *   remark: string,
  *   addtime: string,
  *   ip: string,
@@ -205,6 +265,7 @@ async function findExistingKcaa01AmongInTx(tx, codes) {
  * }} row
  */
 async function insertBom000PaperPatternRow(tx, colset, row) {
+  const passVal = row.passChar != null && row.passChar !== '' ? String(row.passChar) : PAPER_PATTERN_BOM000_PASS_DEFAULT
   const cols = []
   const vals = []
   const ins = new sql.Request(tx)
@@ -273,11 +334,29 @@ async function insertBom000PaperPatternRow(tx, colset, row) {
     vals.push('@ins_kcaa27')
     ins.input('ins_kcaa27', sql.Int, row.kcaa27)
   }
+  if (colset.has('cost_price')) {
+    cols.push('cost_price')
+    vals.push('@ins_cost_price')
+    const cp =
+      row.cost_price === null || row.cost_price === undefined
+        ? null
+        : Number(row.cost_price)
+    ins.input('ins_cost_price', sql.Decimal(18, 6), Number.isFinite(cp) ? cp : null)
+  }
+  if (colset.has('sale_price')) {
+    cols.push('sale_price')
+    vals.push('@ins_sale_price')
+    const sp =
+      row.sale_price === null || row.sale_price === undefined
+        ? null
+        : Number(row.sale_price)
+    ins.input('ins_sale_price', sql.Decimal(18, 6), Number.isFinite(sp) ? sp : null)
+  }
 
   if (colset.has('pass')) {
     cols.push('pass')
     vals.push('@ins_pass')
-    ins.input('ins_pass', sql.NVarChar(10), row.passChar)
+    ins.input('ins_pass', sql.NVarChar(10), passVal)
   }
   if (colset.has('del')) {
     cols.push('del')
@@ -294,36 +373,11 @@ async function insertBom000PaperPatternRow(tx, colset, row) {
     ins.input('ins_is_pur', sql.Int, 0)
   }
 
-  if (colset.has('uid') && row.actor.uidInt != null) {
-    cols.push('uid')
-    vals.push('@ins_uid')
-    ins.input('ins_uid', sql.Int, row.actor.uidInt)
-  }
-  if (colset.has('uname') && row.actor.uname) {
-    cols.push('uname')
-    vals.push('@ins_uname')
-    ins.input('ins_uname', sql.NVarChar(50), row.actor.uname)
-  }
-  if (colset.has('utruename') && row.actor.utruename) {
-    cols.push('utruename')
-    vals.push('@ins_utruename')
-    ins.input('ins_utruename', sql.NVarChar(50), row.actor.utruename)
-  }
-  if (colset.has('addtime')) {
-    cols.push('addtime')
-    vals.push('@ins_addtime')
-    ins.input('ins_addtime', sql.NVarChar(50), row.addtime)
-  }
-  if (colset.has('edittime')) {
-    cols.push('edittime')
-    vals.push('@ins_edittime')
-    ins.input('ins_edittime', sql.NVarChar(50), row.addtime)
-  }
-  if (colset.has('ip')) {
-    cols.push('ip')
-    vals.push('@ins_ip')
-    ins.input('ins_ip', sql.NVarChar(80), row.ip ?? '')
-  }
+  appendBom000PaperPatternAuditColumns(colset, ins, cols, vals, {
+    actor: row.actor,
+    addtime: row.addtime,
+    ip: row.ip,
+  })
 
   if (!cols.length) {
     throw new Error('bom_000 无可用插入列')
@@ -340,11 +394,13 @@ async function insertBom000PaperPatternRow(tx, colset, row) {
 
 /**
  * POST /api/paper-pattern/import/commit-bom000
- * body: { importTypeFlag5, importTypeFlag1?, factoryStyleNo, colorNo, customerStyleNo, groupLabel, cuts[], materials[], accessories? }
+ * body: { importTypeFlag5, importTypeFlag1?, factoryStyleNo, colorNo, customerStyleNo, groupLabel, cuts[], materials[], accessories?, overwrite?: boolean }
+ * overwrite 为 true 时：单事务内先按主 BOM 物理清理旧 Bom_000/Bom_parts（与同路径 delete-bom-tree 一致），再写入新数据。
  */
 export async function handlePostPaperPatternImportCommitBom000(req, res) {
   try {
     const body = req.body ?? {}
+    const overwrite = body.overwrite === true || body.overwrite === 'true' || body.overwrite === 1
     const importTypeFlag5 = String(body.importTypeFlag5 ?? '').trim()
     const factoryStyleNo = String(body.factoryStyleNo ?? '').trim()
     const colorNo = String(body.colorNo ?? '').trim()
@@ -467,15 +523,23 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
     const transaction = new sql.Transaction(pool)
     await transaction.begin()
     try {
-      if ((await countActiveKcaa01InTx(transaction, mainKcaa01)) > 0) {
+      const mainExists = (await countActiveKcaa01InTx(transaction, mainKcaa01)) > 0
+      if (mainExists && !overwrite) {
         await transaction.rollback()
         res.status(400).json({
           success: false,
           code: 'MAIN_BOM_EXISTS',
-          message: `主BOM已存在：${mainKcaa01}`,
+          message: `主BOM已存在：${mainKcaa01}。如需覆盖请先确认（将删除旧主 BOM、相关 CUT 及 Bom_parts 后重新导入）。`,
           data: { mainBomCode: mainKcaa01 },
         })
         return
+      }
+
+      /** @type {null | { mainKcaa01: string, cutKcaa01Like: string, bomPartsDeleted: number, bom000Deleted: number }} */
+      let overwriteReplaced = null
+      if (overwrite) {
+        overwriteReplaced = await deletePaperPatternBomTreeByMainKcaa01InTx(transaction, mainKcaa01)
+        console.log('[paper-pattern-import-commit] overwriteDeleted', JSON.stringify(overwriteReplaced))
       }
 
       const cutCodes = cutsResolved.map((c) => c.cutCode)
@@ -507,7 +571,11 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
         kcaa11: colorNo,
         kcaa04: 'PC',
         kcaa05: '02',
-        pass: '0',
+        pass: PAPER_PATTERN_BOM000_PASS_MAIN,
+        uid: actor.uidInt,
+        uname: actor.uname,
+        utruename: actor.utruename,
+        addtime,
       }
       console.log('[paper-pattern-import-commit] mainBomInsert', JSON.stringify(mainLogObj))
 
@@ -529,7 +597,7 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
         kcaa25: 'PC',
         kcaa26: 1,
         kcaa27: 0,
-        passChar: '0',
+        passChar: PAPER_PATTERN_BOM000_PASS_MAIN,
         remark: '纸格系统导入',
         addtime,
         ip: clientIp,
@@ -562,10 +630,12 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
           kcaa25: '张',
           kcaa26: 1,
           kcaa27: 0,
-          passChar: '1',
+          cost_price: null,
+          sale_price: null,
+          passChar: PAPER_PATTERN_BOM000_PASS_DEFAULT,
           remark: '纸格系统导入',
           addtime,
-          ip: '',
+          ip: clientIp,
           decimalStr: '3',
           actor,
         })
@@ -577,6 +647,8 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
         cutSystemcodeByCutCode,
         accessories: accessoriesIn,
         materials: materialsIn,
+        actor,
+        addtime,
       })
 
       await transaction.commit()
@@ -587,6 +659,8 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
           mainBomCode: mainKcaa01,
           cutCount: cutsResolved.length,
           bomPartsInserted: partsInserted,
+          overwrite: Boolean(overwrite),
+          overwriteReplaced,
         },
       })
     } catch (e) {

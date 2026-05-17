@@ -144,6 +144,35 @@
           </el-button>
         </div>
 
+        <el-alert type="error" show-icon :closable="false" class="danger-zone">
+          <template #title>测试：按主 BOM 物理清理库内数据</template>
+          <div class="danger-zone-body">
+            <p>
+              将<strong>物理删除</strong>指定主 BOM（Bom_000.kcaa01）及所有下属 CUT（<code>CUT-类型厂款号/颜色&lt;…&gt;</code>）对应的
+              <strong>Bom_parts</strong> 与 <strong>Bom_000</strong> 行（先删明细再删主档；与纸格生成编码规则一致）。不涉及 bom_cost
+              等其它表；若外键阻止删除，请根据报错在库中处理依赖。
+            </p>
+            <div class="danger-row">
+              <el-input
+                v-model="deleteMainKcaa01Input"
+                clearable
+                class="danger-input"
+                placeholder="主 BOM 编码，如 BAG-PQ2803H1/R-TEST"
+              />
+              <el-button text type="primary" @click="fillDeleteMainKcaa01FromPreview">填入当前主 BOM</el-button>
+              <el-button
+                type="danger"
+                plain
+                :disabled="deleteBomTreeLoading || !String(deleteMainKcaa01Input || '').trim()"
+                :loading="deleteBomTreeLoading"
+                @click="onDeleteBomTree"
+              >
+                物理删除该主 BOM 及下属 CUT
+              </el-button>
+            </div>
+          </div>
+        </el-alert>
+
         <div class="material-top-block">
           <div class="material-top-head">
             <h3 class="sub-title material-top-title">Material 列表</h3>
@@ -208,7 +237,12 @@
 
         <h3 class="sub-title">Accessory 列表</h3>
         <el-table :data="parseResult.accessories" border size="small" class="preview-table" empty-text="无">
-          <el-table-column prop="erpCode" label="ERP 编码" min-width="240" />
+          <el-table-column prop="accessoryName" label="名称" min-width="140" show-overflow-tooltip />
+          <el-table-column prop="erpCode" label="ERP 编码" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="usageQty" label="用量" min-width="100" align="right" />
+          <el-table-column prop="wastage" label="损耗" min-width="100" align="right" />
+          <el-table-column prop="lineTotal" label="合计" min-width="100" align="right" />
+          <el-table-column prop="matching" label="搭配" min-width="120" show-overflow-tooltip />
         </el-table>
       </template>
     </el-card>
@@ -278,6 +312,48 @@ const hideMaterialTable = ref(false)
 /** 折叠：仅隐藏 CUT 预览标题与表格（主 BOM 编码行仍显示） */
 const hideCutPreviewTable = ref(false)
 const commitLoading = ref(false)
+/** 测试：按主 BOM 物理删除 */
+const deleteMainKcaa01Input = ref('')
+const deleteBomTreeLoading = ref(false)
+
+function fillDeleteMainKcaa01FromPreview() {
+  deleteMainKcaa01Input.value = liveMainBomCode.value || ''
+}
+
+async function onDeleteBomTree() {
+  const code = String(deleteMainKcaa01Input.value ?? '').trim()
+  if (!code) {
+    ElMessage.warning('请填写主 BOM 编码')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `将物理删除主 BOM「${code}」及所有匹配的 CUT 主档与全部 Bom_parts 明细（不可恢复）。是否继续？`,
+      '危险操作',
+      { type: 'error', confirmButtonText: '确定删除', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  deleteBomTreeLoading.value = true
+  try {
+    const res = await axios.post('/api/paper-pattern/import/delete-bom-tree', { mainKcaa01: code })
+    const data = res?.data
+    if (!data?.success) {
+      ElMessage.error(String(data?.message || '删除失败'))
+      return
+    }
+    const d = data.data || {}
+    ElMessage.success(
+      `已删除：Bom_parts ${d.bomPartsDeleted ?? 0} 行，Bom_000 ${d.bom000Deleted ?? 0} 行（CUT 匹配：${d.cutKcaa01Like ?? '—'}）`,
+    )
+  } catch (e) {
+    const msg = e?.response?.data?.message || e?.message || '删除失败'
+    ElMessage.error(String(msg))
+  } finally {
+    deleteBomTreeLoading.value = false
+  }
+}
 
 function formatImportTypeLabel(it) {
   const f1 = String(it?.flag1 ?? '').trim()
@@ -552,6 +628,33 @@ function buildMaterialsPayloadForCommit() {
   return Array.isArray(base) ? base.map((m) => ({ ...m })) : []
 }
 
+/** 正式导入请求体（不含 overwrite） */
+function buildCommitPayloadBody() {
+  return {
+    importTypeFlag5: basicForm.importTypeFlag5,
+    importTypeFlag1: resolveImportTypeFlag1ForCommit(),
+    factoryStyleNo: basicForm.factoryStyleNo,
+    colorNo: basicForm.colorNo,
+    customerStyleNo: basicForm.customerStyleNo,
+    groupLabel: basicForm.groupLabel,
+    cuts: parseResult.value.cuts,
+    materials: buildMaterialsPayloadForCommit(),
+    accessories: parseResult.value.accessories || [],
+  }
+}
+
+function showCommitSuccessMessage(data) {
+  const code = data?.mainBomCode ?? ''
+  const nCut = data?.cutCount ?? 0
+  const nPart = data?.bomPartsInserted ?? 0
+  const rep = data?.overwriteReplaced
+  let extra = ''
+  if (rep && (rep.bom000Deleted > 0 || rep.bomPartsDeleted > 0)) {
+    extra = `（已覆盖旧数据：删除 Bom_000 ${rep.bom000Deleted} 条、Bom_parts ${rep.bomPartsDeleted} 行）`
+  }
+  ElMessage.success(`导入成功。主 BOM：${code}；CUT 数量：${nCut}；Bom_parts：${nPart} 行${extra}`)
+}
+
 async function onCommitBom000() {
   if (!parseResult.value || !liveMainBomCode.value) {
     ElMessage.warning('请先完成解析，并确保导入类型、厂款号、颜色编码可生成主 BOM 编码')
@@ -567,31 +670,47 @@ async function onCommitBom000() {
     return
   }
   commitLoading.value = true
-  try {
-    const res = await axios.post('/api/paper-pattern/import/commit-bom000', {
-      importTypeFlag5: basicForm.importTypeFlag5,
-      importTypeFlag1: resolveImportTypeFlag1ForCommit(),
-      factoryStyleNo: basicForm.factoryStyleNo,
-      colorNo: basicForm.colorNo,
-      customerStyleNo: basicForm.customerStyleNo,
-      groupLabel: basicForm.groupLabel,
-      cuts: parseResult.value.cuts,
-      materials: buildMaterialsPayloadForCommit(),
-      accessories: parseResult.value.accessories || [],
+  const postCommit = (overwrite) =>
+    axios.post('/api/paper-pattern/import/commit-bom000', {
+      ...buildCommitPayloadBody(),
+      ...(overwrite ? { overwrite: true } : {}),
     })
+  try {
+    const res = await postCommit(false)
     const data = res?.data
     if (!data?.success) {
       ElMessage.error(String(data?.message || '导入失败'))
       return
     }
-    const code = data.data?.mainBomCode ?? ''
-    const nCut = data.data?.cutCount ?? 0
-    const nPart = data.data?.bomPartsInserted ?? 0
-    ElMessage.success(`导入成功。主 BOM：${code}；CUT 数量：${nCut}；Bom_parts：${nPart} 行`)
+    showCommitSuccessMessage(data.data)
   } catch (e) {
     const d = e?.response?.data
-    const msg = d?.message || e?.message || '导入失败'
-    ElMessage.error(String(msg))
+    if (d?.code === 'MAIN_BOM_EXISTS') {
+      const codeHint = String(d?.data?.mainBomCode ?? liveMainBomCode.value ?? '').trim()
+      try {
+        await ElMessageBox.confirm(
+          `Bom_000 在册记录中已存在主 BOM「${codeHint}」。是否覆盖？\n将先物理删除该主 BOM、同批纸格 CUT 及关联 Bom_parts，再重新导入（仍为单事务，失败全部回滚）。`,
+          '主 BOM 已存在',
+          { type: 'warning', confirmButtonText: '覆盖并导入', cancelButtonText: '取消' },
+        )
+      } catch {
+        return
+      }
+      try {
+        const res2 = await postCommit(true)
+        const data2 = res2?.data
+        if (!data2?.success) {
+          ElMessage.error(String(data2?.message || '导入失败'))
+          return
+        }
+        showCommitSuccessMessage(data2.data)
+      } catch (e2) {
+        const d2 = e2?.response?.data
+        ElMessage.error(String(d2?.message || e2?.message || '导入失败'))
+      }
+    } else {
+      ElMessage.error(String(d?.message || e?.message || '导入失败'))
+    }
   } finally {
     commitLoading.value = false
   }
@@ -738,6 +857,25 @@ async function onUploadParse() {
   align-items: center;
   gap: 10px;
   margin: 0 0 16px;
+}
+.danger-zone {
+  margin: 0 0 20px;
+}
+.danger-zone-body p {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.danger-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.danger-input {
+  flex: 1;
+  min-width: 220px;
+  max-width: 420px;
 }
 .material-top-block {
   margin-bottom: 20px;

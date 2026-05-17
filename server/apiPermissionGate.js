@@ -788,6 +788,9 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'POST' && path === '/api/paper-pattern/import/commit-bom000') {
     return { menuPath: 'paper-pattern/import', action: 'add' }
   }
+  if (m === 'POST' && path === '/api/paper-pattern/import/delete-bom-tree') {
+    return { menuPath: 'paper-pattern/import', action: 'add' }
+  }
 
   return null
 }
