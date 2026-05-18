@@ -62,7 +62,15 @@ import {
   bomCostUsageMatchesHidePrefix,
   buildBomCostInsertPayloadFromFlatUsage,
   computeBomUsageYlFromParent,
+  resolveBomCostTopFields,
 } from './bomUsageYl.js'
+import {
+  applyBomCostAuditToRows,
+  enrichBomCostInsertRowsFromBom000,
+  fetchBom000ForBomCostEnrich,
+  formatBomCostAuditTimestamp,
+  insertBomCostBulkEnriched,
+} from './bomCostEnrichFromBom000.js'
 
 dotenv.config()
 
@@ -7945,13 +7953,32 @@ async function buildBomPartsUsageTreeNodes(pool, kcac01Parent, level, bomHeadSta
  * @param {number|null|undefined} parentYl 父行已算出的 yl；根层为 null/undefined
  * @param {any[]} [acc]
  * @param {boolean} [parentIsCut] 父行是否为 CUT- 裁片
- * @returns {{ kcaa01: string, kcaa02: string, kcaa03: string, kcaa04: string, Describe: string, yl: number, loss_rate: number, total_qty: number, level: number }[]}
+ * @param {string} [parentTopKcaa01] 直接父行 kcaa01（供子行 top_*）
+ * @param {string} [parentTopKcaa02] 直接父行 kcaa02
+ * @returns {{ kcaa01: string, kcaa02: string, top_kcaa01: string, top_kcaa02: string, kcaa03: string, kcaa04: string, Describe: string, yl: number, loss_rate: number, total_qty: number, level: number }[]}
  */
-function flattenBomPartsCostUsageFlat(treeNodes, parentYl, acc, parentIsCut = false) {
+function flattenBomPartsCostUsageFlat(
+  treeNodes,
+  parentYl,
+  acc,
+  parentIsCut = false,
+  parentTopKcaa01 = '',
+  parentTopKcaa02 = '',
+) {
   const out = acc ?? []
   if (!Array.isArray(treeNodes) || !treeNodes.length) return out
+  const isRootLevel = parentYl == null || parentYl === undefined
   for (let i = 0; i < treeNodes.length; i++) {
     const node = treeNodes[i]
+    const selfCode = node?.kcaa01 != null ? String(node.kcaa01) : ''
+    const selfName = node?.kcaa02 != null ? String(node.kcaa02) : ''
+    const topFields = resolveBomCostTopFields(
+      isRootLevel,
+      selfCode,
+      selfName,
+      parentTopKcaa01,
+      parentTopKcaa02,
+    )
     const kcac04 = Number(node?.kcac04 ?? 0)
     const yl = computeBomUsageYlFromParent(kcac04, parentYl, parentIsCut)
     const kcac05 = Number(node?.kcac05 ?? 0)
@@ -7963,8 +7990,10 @@ function flattenBomPartsCostUsageFlat(treeNodes, parentYl, acc, parentIsCut = fa
     const lv = node?.level != null && Number.isFinite(Number(node.level)) ? Number(node.level) : 1
     const describeVal = String(node?.Describe ?? node?.describe ?? '')
     out.push({
-      kcaa01: node?.kcaa01 != null ? String(node.kcaa01) : '',
-      kcaa02: node?.kcaa02 != null ? String(node.kcaa02) : '',
+      kcaa01: selfCode,
+      kcaa02: selfName,
+      top_kcaa01: topFields.top_kcaa01,
+      top_kcaa02: topFields.top_kcaa02,
       kcaa03: node?.kcaa03 != null ? String(node.kcaa03) : '',
       kcaa04: node?.kcaa04 != null ? String(node.kcaa04) : '',
       Describe: describeVal,
@@ -7975,7 +8004,9 @@ function flattenBomPartsCostUsageFlat(treeNodes, parentYl, acc, parentIsCut = fa
     })
     const ch = node?.children
     const thisIsCut = bomCostMaterialStartsWithCutPrefix(node?.kcaa01)
-    if (Array.isArray(ch) && ch.length) flattenBomPartsCostUsageFlat(ch, yl, out, thisIsCut)
+    if (Array.isArray(ch) && ch.length) {
+      flattenBomPartsCostUsageFlat(ch, yl, out, thisIsCut, selfCode, selfName)
+    }
   }
   return out
 }
@@ -7998,58 +8029,6 @@ function normalizeBomCostHidePrefixesServer(list) {
     if (out.length >= BOM_COST_HIDE_PREFIX_CAP_SERVER) break
   }
   return out
-}
-
-/**
- * 批量 INSERT bom_cost（isok=0；事务内随后 UPDATE isok=1）
- * @param {import('mssql').Transaction} tx
- * @param {string} pq
- * @param {string} sid
- * @param {{ kcaa01: string, kcaa02: string, kcaa03: string, kcaa04: string, Describe: string, kcac04: number, kcac05: number, kcac06: number, kcac07: number|null, kcac08: number|null }[]} rows
- */
-async function insertBomCostBulk(tx, pq, sid, rows) {
-  if (!rows.length) return
-  const pqV = String(pq ?? '').trim()
-  const sidV = String(sid ?? '').trim()
-  const DEC = sql.Decimal(28, 10)
-  const NV300 = sql.NVarChar(300)
-  const NV80 = sql.NVarChar(80)
-  const NV500 = sql.NVarChar(500)
-  const ROW_PARAMS = 10
-  const maxRowsPerChunk = Math.min(100, Math.floor((2000 - 2) / ROW_PARAMS))
-
-  for (let off = 0; off < rows.length; off += maxRowsPerChunk) {
-    const slice = rows.slice(off, off + maxRowsPerChunk)
-    const req = new sql.Request(tx)
-    req.input('pq', sql.NVarChar(300), pqV)
-    req.input('sid', sql.NVarChar(100), sidV)
-    const valueTuples = []
-    for (let i = 0; i < slice.length; i++) {
-      const row = slice[i]
-      const pre = `bc${off}_${i}_`
-      const k2 = String(row.kcaa02 ?? '').trim()
-      const k3 = String(row.kcaa03 ?? '').trim()
-      const k4 = String(row.kcaa04 ?? '').trim()
-      const d0 = String(row.Describe ?? '').trim()
-      req.input(`${pre}k1`, NV300, String(row.kcaa01 ?? '').trim())
-      req.input(`${pre}k2`, NV300, k2 || null)
-      req.input(`${pre}k3`, NV300, k3 || null)
-      req.input(`${pre}k4`, NV80, k4 || null)
-      req.input(`${pre}c4`, DEC, Number.isFinite(Number(row.kcac04)) ? Number(row.kcac04) : 0)
-      req.input(`${pre}c5`, DEC, Number.isFinite(Number(row.kcac05)) ? Number(row.kcac05) : 0)
-      req.input(`${pre}c6`, DEC, Number.isFinite(Number(row.kcac06)) ? Number(row.kcac06) : 0)
-      req.input(`${pre}c7`, DEC, row.kcac07 == null ? null : Number(row.kcac07))
-      req.input(`${pre}c8`, DEC, row.kcac08 == null ? null : Number(row.kcac08))
-      req.input(`${pre}ds`, NV500, d0 || null)
-      valueTuples.push(
-        `(@pq, @sid, @${pre}k1, @${pre}k2, @${pre}k3, @${pre}k4, @${pre}c4, @${pre}c5, @${pre}c6, @${pre}c7, @${pre}c8, @${pre}ds, 0)`,
-      )
-    }
-    await req.query(`
-      INSERT INTO ${BOM_COST_FROM} (pq, sid, kcaa01, kcaa02, kcaa03, kcaa04, kcac04, kcac05, kcac06, kcac07, kcac08, [Describe], isok)
-      VALUES ${valueTuples.join(',\n')}
-    `)
-  }
 }
 
 /**
@@ -8248,6 +8227,16 @@ app.post('/api/bom/usage-calc', async (req, res) => {
     const flatCostUsageRaw = flattenBomPartsCostUsageFlat(data, null, [])
     /** bom_cost：剔除隐藏前缀 + 跳过主档 pq 根行，平铺不合并（Bom_consumption 已停用，历史数据不维护） */
     const bomCostInsertPayload = buildBomCostInsertPayloadFromFlatUsage(flatCostUsageRaw, hidePrefixes, pq)
+    const bom000Map = await fetchBom000ForBomCostEnrich(
+      pool,
+      bomCostInsertPayload.map((r) => r.kcaa01),
+    )
+    const bomCostRowsEnriched = enrichBomCostInsertRowsFromBom000(bomCostInsertPayload, bom000Map)
+    const actor = getActorAuditTripletFromReq(req)
+    const bomCostRowsFinal = applyBomCostAuditToRows(bomCostRowsEnriched, {
+      actor,
+      addtime: formatBomCostAuditTimestamp(),
+    })
 
     const tx = new sql.Transaction(pool)
     await tx.begin()
@@ -8257,7 +8246,9 @@ app.post('/api/bom/usage-calc', async (req, res) => {
       delBc.input('sid', sql.NVarChar(100), sid)
       await delBc.query(`DELETE FROM ${BOM_COST_FROM} WHERE pq = @pq AND sid = @sid`)
 
-      if (bomCostInsertPayload.length) await insertBomCostBulk(tx, pq, sid, bomCostInsertPayload)
+      if (bomCostRowsFinal.length) {
+        await insertBomCostBulkEnriched(pool, tx, pq, sid, bomCostRowsFinal)
+      }
 
       const upOk = new sql.Request(tx)
       upOk.input('pq', sql.NVarChar(300), pq)
@@ -15117,7 +15108,7 @@ app.listen(port, () => {
     `BOM-Tree-v1.2.7-Cache ${bootAt} GET /api/bom/tree：bom_cost 命中则 hasCache 直读；否则 DFS+flatCostUsageRaw`,
   )
   console.log(
-    `BOM-Usage-Calc-bom_cost ${bootAt} POST /api/bom/usage-calc → bom_cost(tx DELETE+批量INSERT+isok；Bom_consumption 已停用)`,
+    `BOM-Usage-Calc-bom_cost ${bootAt} POST /api/bom/usage-calc → bom_cost(tx DELETE+bom_000补全+binfo/GUID/审计+isok；Bom_consumption 已停用)`,
   )
   console.log(`ColorCode-Module-Initial-v1.0.0 ${bootAt}`)
   console.log(`ColorCode-Add-DirectMode-v1.1.0 ${bootAt}`)

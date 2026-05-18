@@ -107,6 +107,28 @@
 - **无子档 BOM 时兜底**：`kcaa02` / `kcaa03` / `kcaa04` / `kcaa11` 可用请求体；其余 `kcaa` 列保持行内原值（避免清空历史扩展字段）。
 - **新增行**：先 `INSERT` 得 `id`，再执行同一套同步 UPDATE。
 
+**纸格导入扩展列**（库存配件 Tab 不展示；列存在才写入）
+
+| 列 | 典型取值 / 来源 | 说明 |
+|---|---|---|
+| `type` | 缺省 `1` | 行类型标记；未传时 INSERT 默认 1 |
+| `version` | `100` | 纸格批次版本常量 |
+| `pass` | `'1'` | **仅纸格落库**：明细行默认已审；库存界面仍以**父 BOM `pass`** 控制能否编辑，不读明细 `pass` |
+| `remark` | CUT：`纸格系统导入`；辅料：子件主档 `remark`；物料：Excel 备注 | CUT 固定文案见常量 |
+| `Describe` | Excel「搭配」 | CUT/物料：本行搭配为空时，同步同主段号（如 `4-1`→`4`）下首条非空搭配 |
+| `kcac03` | 子件主档 `kcaa04`（使用单位） | CUT 预览行固定写 `张`；辅料/物料写主档单位 |
+| `sale_price` | 辅料：子件 `bom_000.sale_price` | 无效/空写 **NULL**（不写 0） |
+| `cost_price` | 辅料：子件 `bom_000.cost_price` | 同上；CUT 预览行 **NULL**（`nullPrices`） |
+| `kcaa02_en` / `location` | 辅料：从子件主档抄入 | 列存在时 UPDATE |
+
+**纸格落库三类行**（均 `kcac01` = 对应父 BOM 的 `systemcode`）
+
+| 行别 | 父 BOM | `kcaa01` | 用量要点 |
+|---|---|---|---|
+| CUT 预览 | 主款 `systemcode` | 裁片 BOM 编码 | `kcac04`=CUT 数量；`kcac05`/`kcac06`= **NULL**；`Seq`=0 |
+| 辅料 Accessory | 主款 | ERP 辅料编码 | `kcac04`/`kcac05`/`kcac06` 来自 Excel E/H/I；I 空则 `kcac06` 按公式；`Seq` 自 1 递增 |
+| 分组物料 Material | 各 CUT 子 BOM `systemcode` | 物料编码 | `kcac04`=该 CUT「单位用量」；`kcac05`=Excel 损耗或主档 `kcaa33`；`Seq` 按 CUT 内自 1 递增 |
+
 ### BOM 主档（bom_000）
 
 物理表：bom_000（可通过环境变量 INV_BOM_MASTER_TABLE 覆盖，代码中不硬编码表名）

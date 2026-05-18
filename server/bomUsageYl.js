@@ -22,6 +22,30 @@ export function computeBomUsageYlFromParent(kcac04, parentYl, parentIsCut) {
   return Number.isFinite(p) ? p * qty : qty
 }
 
+/**
+ * bom_cost.top_kcaa01 / top_kcaa02：直接父行编码与名称；成品根下第一层为自身。
+ * @param {boolean} isRootLevel 是否为成品下第一层（无用量父级）
+ * @param {string} selfKcaa01
+ * @param {string} selfKcaa02
+ * @param {string} parentTopKcaa01 直接父行 kcaa01（递归传入）
+ * @param {string} parentTopKcaa02 直接父行 kcaa02
+ */
+export function resolveBomCostTopFields(
+  isRootLevel,
+  selfKcaa01,
+  selfKcaa02,
+  parentTopKcaa01,
+  parentTopKcaa02,
+) {
+  const self01 = String(selfKcaa01 ?? '').trim()
+  const self02 = String(selfKcaa02 ?? '').trim()
+  if (isRootLevel) return { top_kcaa01: self01, top_kcaa02: self02 }
+  return {
+    top_kcaa01: String(parentTopKcaa01 ?? '').trim(),
+    top_kcaa02: String(parentTopKcaa02 ?? '').trim(),
+  }
+}
+
 /** @param {string} kcaa01 @param {string[]} hidePrefixes */
 export function bomCostUsageMatchesHidePrefix(kcaa01, hidePrefixes) {
   if (!hidePrefixes || !hidePrefixes.length) return false
@@ -36,7 +60,7 @@ export function bomCostUsageMatchesHidePrefix(kcaa01, hidePrefixes) {
 
 /**
  * bom_cost 落库：DFS 平铺明细，不做编码+备注合并；剔除与成本用量表展示相同的隐藏前缀（CUT-/BAG- 等）
- * @param {Array<{ kcaa01?: string, kcaa02?: string, kcaa03?: string, kcaa04?: string, Describe?: string, yl?: number, loss_rate?: number, total_qty?: number }>} flatRows flattenBomPartsCostUsageFlat 结果
+ * @param {Array<{ kcaa01?: string, kcaa02?: string, top_kcaa01?: string, top_kcaa02?: string, kcaa03?: string, kcaa04?: string, Describe?: string, yl?: number, loss_rate?: number, total_qty?: number }>} flatRows flattenBomPartsCostUsageFlat 结果
  * @param {string[]} hidePrefixes 展示隐藏前缀（CUT-/BAG- 等父编码不写库）
  * @param {string} [excludeRootKcaa01] 主 BOM 成品编码（pq），树根行不落 bom_cost
  */
@@ -60,6 +84,8 @@ export function buildBomCostInsertPayloadFromFlatUsage(
     out.push({
       kcaa01: code,
       kcaa02: r?.kcaa02 != null ? String(r.kcaa02) : '',
+      top_kcaa01: r?.top_kcaa01 != null ? String(r.top_kcaa01) : '',
+      top_kcaa02: r?.top_kcaa02 != null ? String(r.top_kcaa02) : '',
       kcaa03: r?.kcaa03 != null ? String(r.kcaa03) : '',
       kcaa04: r?.kcaa04 != null ? String(r.kcaa04) : '',
       Describe: String(r?.Describe ?? '').trim(),
