@@ -57,6 +57,12 @@ import { handleGetPaperPatternImportParseTree } from './paperPatternImportParseT
 import { handlePostPaperPatternImportCommitBom000 } from './paperPatternImportCommitBom000.js'
 import { handlePostPaperPatternImportDeleteBomTree } from './paperPatternImportDeleteBomTree.js'
 import { parsePaperPatternImportTreeFromBuffer } from './paperPatternImportParse.js'
+import {
+  bomCostMaterialStartsWithCutPrefix,
+  bomCostUsageMatchesHidePrefix,
+  buildBomCostInsertPayloadFromFlatUsage,
+  computeBomUsageYlFromParent,
+} from './bomUsageYl.js'
 
 dotenv.config()
 
@@ -3206,7 +3212,7 @@ const INV_BOM_PARTS_TABLE = (() => {
 })()
 const INV_BOM_PARTS_FROM = `dbo.[${INV_BOM_PARTS_TABLE}]`
 
-/** BOM 成本真实用量落库表（默认 Bom_consumption）；POST /api/bom/usage-calc 事务写入；BOM_CONSUMPTION_TABLE 可覆盖 */
+/** BOM 成本真实用量落库表（默认 Bom_consumption，已停用维护；历史数据保留；BOM_CONSUMPTION_TABLE 可覆盖） */
 const BOM_CONSUMPTION_TABLE = (() => {
   const raw = String(process.env.BOM_CONSUMPTION_TABLE ?? 'Bom_consumption').trim()
   return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'Bom_consumption'
@@ -7932,21 +7938,22 @@ async function buildBomPartsUsageTreeNodes(pool, kcac01Parent, level, bomHeadSta
 
 /**
  * 成本 BOM 用量平铺：深度优先与树构建顺序一致；不落库。
- * - 顶层 yl = kcac04；下级 yl = 父节点已算 yl × 当前 kcac04
+ * - 顶层 yl = kcac04；下级 yl = 父节点已算 yl × 当前 kcac04（父为 CUT- 裁片时不乘父用量，子件直接取自身 kcac04）
  * - loss_rate：kcac05>0 用 kcac05；否则 kcaa33>0 用 kcaa33；否则 0
  * - total_qty = yl × (1 + loss_rate)
  * @param {any[]} treeNodes buildBomPartsUsageTreeNodes 返回值
  * @param {number|null|undefined} parentYl 父行已算出的 yl；根层为 null/undefined
  * @param {any[]} [acc]
+ * @param {boolean} [parentIsCut] 父行是否为 CUT- 裁片
  * @returns {{ kcaa01: string, kcaa02: string, kcaa03: string, kcaa04: string, Describe: string, yl: number, loss_rate: number, total_qty: number, level: number }[]}
  */
-function flattenBomPartsCostUsageFlat(treeNodes, parentYl, acc) {
+function flattenBomPartsCostUsageFlat(treeNodes, parentYl, acc, parentIsCut = false) {
   const out = acc ?? []
   if (!Array.isArray(treeNodes) || !treeNodes.length) return out
   for (let i = 0; i < treeNodes.length; i++) {
     const node = treeNodes[i]
     const kcac04 = Number(node?.kcac04 ?? 0)
-    const yl = parentYl == null || parentYl === undefined ? kcac04 : Number(parentYl) * kcac04
+    const yl = computeBomUsageYlFromParent(kcac04, parentYl, parentIsCut)
     const kcac05 = Number(node?.kcac05 ?? 0)
     const kcaa33 = Number(node?.kcaa33 ?? 0)
     let loss_rate = 0
@@ -7967,7 +7974,8 @@ function flattenBomPartsCostUsageFlat(treeNodes, parentYl, acc) {
       level: lv,
     })
     const ch = node?.children
-    if (Array.isArray(ch) && ch.length) flattenBomPartsCostUsageFlat(ch, yl, out)
+    const thisIsCut = bomCostMaterialStartsWithCutPrefix(node?.kcaa01)
+    if (Array.isArray(ch) && ch.length) flattenBomPartsCostUsageFlat(ch, yl, out, thisIsCut)
   }
   return out
 }
@@ -7990,107 +7998,6 @@ function normalizeBomCostHidePrefixesServer(list) {
     if (out.length >= BOM_COST_HIDE_PREFIX_CAP_SERVER) break
   }
   return out
-}
-
-/** @param {string} kcaa01 @param {string[]} hidePrefixes */
-function bomCostUsageMatchesHidePrefixServer(kcaa01, hidePrefixes) {
-  if (!hidePrefixes || !hidePrefixes.length) return false
-  const code = String(kcaa01 ?? '').trim().toLowerCase()
-  if (!code) return false
-  for (let i = 0; i < hidePrefixes.length; i++) {
-    const pre = String(hidePrefixes[i] ?? '').trim().toLowerCase()
-    if (pre && code.startsWith(pre)) return true
-  }
-  return false
-}
-
-/** 第二层及以下：仅按 CUT- 前缀排除（忽略大小写） */
-function bomCostMaterialStartsWithCutPrefix(kcaa01) {
-  const code = String(kcaa01 ?? '').trim().toLowerCase()
-  return code.startsWith('cut-')
-}
-
-/**
- * bom_cost 写入行是否保留
- * - 第一层：配置前缀命中则丢弃；且 kcaa13 须为 1
- * - 第二层起：仅当编码以 CUT- 开头时丢弃（不再套用完整前缀表）
- * @param {number} level
- * @param {string} kcaa01
- * @param {number} kcaa13
- * @param {string[]} hidePrefixes
- */
-function shouldKeepRowForBomCostInsert(level, kcaa01, kcaa13, hidePrefixes) {
-  const lv = Number(level)
-  const L = Number.isFinite(lv) ? lv : 1
-  const code = String(kcaa01 ?? '').trim()
-  if (L <= 1) {
-    if (bomCostUsageMatchesHidePrefixServer(code, hidePrefixes)) return false
-    return Number(kcaa13) === 1
-  }
-  return !bomCostMaterialStartsWithCutPrefix(code)
-}
-
-/**
- * DFS 收集写入 bom_cost 的明细（与成本展开顺序一致；父行被过滤仍向下传递 yl）
- * @param {any[]} treeNodes
- * @param {number|null|undefined} parentYl
- * @param {string[]} hidePrefixes
- * @param {any[]} [acc]
- */
-function collectBomCostInsertRowsFromTree(treeNodes, parentYl, hidePrefixes, acc) {
-  const out = acc ?? []
-  if (!Array.isArray(treeNodes) || !treeNodes.length) return out
-  for (let i = 0; i < treeNodes.length; i += 1) {
-    const node = treeNodes[i]
-    const kcac04 = Number(node?.kcac04 ?? 0)
-    const yl = parentYl == null || parentYl === undefined ? kcac04 : Number(parentYl) * kcac04
-    const rawKcac05 = Number(node?.kcac05 ?? 0)
-    const kcaa33 = Number(node?.kcaa33 ?? 0)
-    const lv = node?.level != null && Number.isFinite(Number(node.level)) ? Number(node.level) : 1
-    const kcaa13 = Number(node?.kcaa13 ?? 0) === 1 ? 1 : 0
-    const kcaa01 = node?.kcaa01 != null ? String(node.kcaa01) : ''
-    const describeVal = String(node?.Describe ?? node?.describe ?? '')
-    if (shouldKeepRowForBomCostInsert(lv, kcaa01, kcaa13, hidePrefixes)) {
-      out.push({
-        kcaa01,
-        kcaa02: node?.kcaa02 != null ? String(node.kcaa02) : '',
-        kcaa03: node?.kcaa03 != null ? String(node.kcaa03) : '',
-        kcaa04: node?.kcaa04 != null ? String(node.kcaa04) : '',
-        Describe: describeVal,
-        yl,
-        rawKcac05,
-        kcaa33,
-        level: lv,
-      })
-    }
-    const ch = node?.children
-    if (Array.isArray(ch) && ch.length) collectBomCostInsertRowsFromTree(ch, yl, hidePrefixes, out)
-  }
-  return out
-}
-
-/**
- * 零损耗时 kcac05=0 且 kcaa33>0：备份 kcac07/kcac08，改写 kcac05 并重算 kcac06
- * @param {{ yl: number, rawKcac05: number, kcaa33: number }} r
- */
-function mapBomCostNumericFields(r) {
-  const yl = Number(r?.yl ?? 0)
-  const raw05 = Number(r?.rawKcac05 ?? 0)
-  const k33 = Number(r?.kcaa33 ?? 0)
-  const base = {
-    kcac04: yl,
-    kcac05: raw05,
-    kcac06: yl * (1 + raw05),
-    kcac07: /** @type {number|null} */ (null),
-    kcac08: /** @type {number|null} */ (null),
-  }
-  if (raw05 === 0 && k33 > 0) {
-    base.kcac07 = raw05
-    base.kcac08 = base.kcac06
-    base.kcac05 = k33
-    base.kcac06 = yl * (1 + k33)
-  }
-  return base
 }
 
 /**
@@ -8146,35 +8053,38 @@ async function insertBomCostBulk(tx, pq, sid, rows) {
 }
 
 /**
- * 成本 BOM 真实用量 / Bom_consumption：与前端 aggregateBomConsumptionRealFromFlat 一致（仅 kcaa01 合并；Map + 首次出现顺序）
+ * 成本 BOM 真实用量 / Bom_consumption：与前端展示合并一致（kcaa01 + Describe；Map + 首次出现顺序）
  * @param {Record<string, unknown>[]} flatRows
  * @param {string[]} hidePrefixes
  */
 function aggregateBomConsumptionRealFromFlatServer(flatRows, hidePrefixes) {
   if (!Array.isArray(flatRows) || !flatRows.length) return []
-  /** @type {Map<string, { kcaa01: string, kcaa02: string, kcaa03: string, kcaa04: string, sumay: number, sumby: number }>} */
+  /** @type {Map<string, { kcaa01: string, kcaa02: string, kcaa03: string, kcaa04: string, Describe: string, sumay: number, sumby: number }>} */
   const map = new Map()
   /** @type {string[]} */
   const order = []
   for (let i = 0; i < flatRows.length; i++) {
     const r = flatRows[i]
     const code = String(r?.kcaa01 ?? '').trim()
-    if (!code || bomCostUsageMatchesHidePrefixServer(code, hidePrefixes)) continue
+    if (!code || bomCostUsageMatchesHidePrefix(code, hidePrefixes)) continue
+    const remark = String(r?.Describe ?? '').trim()
+    const mergeKey = `${code}\u0000${remark}`
     const yl = Number(r?.yl ?? 0)
     const loss = Number(r?.loss_rate ?? 0)
     const rowTotal = Number.isFinite(Number(r?.total_qty)) ? Number(r.total_qty) : yl * (1 + loss)
-    let g = map.get(code)
+    let g = map.get(mergeKey)
     if (!g) {
       g = {
         kcaa01: code,
         kcaa02: r?.kcaa02 != null ? String(r.kcaa02) : '',
         kcaa03: r?.kcaa03 != null ? String(r.kcaa03) : '',
         kcaa04: r?.kcaa04 != null ? String(r.kcaa04) : '',
+        Describe: remark,
         sumay: 0,
         sumby: 0,
       }
-      map.set(code, g)
-      order.push(code)
+      map.set(mergeKey, g)
+      order.push(mergeKey)
     } else {
       if (!g.kcaa02 && r?.kcaa02) g.kcaa02 = String(r.kcaa02)
       if (!g.kcaa03 && r?.kcaa03) g.kcaa03 = String(r.kcaa03)
@@ -8196,6 +8106,7 @@ function aggregateBomConsumptionRealFromFlatServer(flatRows, hidePrefixes) {
       kcaa02: g.kcaa02,
       kcaa03: g.kcaa03,
       kcaa04: g.kcaa04,
+      Describe: g.Describe,
       sumay,
       sumby,
       kcac05,
@@ -8308,10 +8219,10 @@ function mapBomConsumptionRecordToDto(r) {
 }
 
 /**
- * BOM 用量运算：递归 Bom_parts + 成本平铺 + 单事务覆盖写入 bom_cost（明细 isok）与 Bom_consumption（合并）
+ * BOM 用量运算：递归 Bom_parts + 成本平铺 + 单事务覆盖写入 bom_cost（hidePrefixes 剔除 + 跳过主 BOM 根行，平铺不合并）
  * POST /api/bom/usage-calc
  * body: { systemcode, hidePrefixes?: string[] }
- * 成功：{ success:true, total(bom_cost 行数), consumptionTotal, data, flatCostUsageRaw, bomCost, consumption }
+ * 成功：{ success:true, total(bom_cost 行数), data, flatCostUsageRaw, bomCost }（树 data 供「BOM用量表运算」不变）
  */
 app.post('/api/bom/usage-calc', async (req, res) => {
   try {
@@ -8335,23 +8246,8 @@ app.post('/api/bom/usage-calc', async (req, res) => {
     const bomHeadStack = new Set([systemcode])
     const data = await buildBomPartsUsageTreeNodes(pool, systemcode, 1, bomHeadStack)
     const flatCostUsageRaw = flattenBomPartsCostUsageFlat(data, null, [])
-    const merged = aggregateBomConsumptionRealFromFlatServer(flatCostUsageRaw, hidePrefixes)
-    const bomCostSources = collectBomCostInsertRowsFromTree(data, null, hidePrefixes, [])
-    const bomCostInsertPayload = bomCostSources.map((s) => {
-      const num = mapBomCostNumericFields(s)
-      return {
-        kcaa01: s.kcaa01,
-        kcaa02: s.kcaa02,
-        kcaa03: s.kcaa03,
-        kcaa04: s.kcaa04,
-        Describe: s.Describe,
-        kcac04: num.kcac04,
-        kcac05: num.kcac05,
-        kcac06: num.kcac06,
-        kcac07: num.kcac07,
-        kcac08: num.kcac08,
-      }
-    })
+    /** bom_cost：剔除隐藏前缀 + 跳过主档 pq 根行，平铺不合并（Bom_consumption 已停用，历史数据不维护） */
+    const bomCostInsertPayload = buildBomCostInsertPayloadFromFlatUsage(flatCostUsageRaw, hidePrefixes, pq)
 
     const tx = new sql.Transaction(pool)
     await tx.begin()
@@ -8361,13 +8257,7 @@ app.post('/api/bom/usage-calc', async (req, res) => {
       delBc.input('sid', sql.NVarChar(100), sid)
       await delBc.query(`DELETE FROM ${BOM_COST_FROM} WHERE pq = @pq AND sid = @sid`)
 
-      const delReq = new sql.Request(tx)
-      delReq.input('pq', sql.NVarChar(300), pq)
-      delReq.input('sid', sql.NVarChar(100), sid)
-      await delReq.query(`DELETE FROM ${BOM_CONSUMPTION_FROM} WHERE pq = @pq AND sid = @sid`)
-
       if (bomCostInsertPayload.length) await insertBomCostBulk(tx, pq, sid, bomCostInsertPayload)
-      if (merged.length) await insertBomConsumptionBulk(tx, pq, sid, merged)
 
       const upOk = new sql.Request(tx)
       upOk.input('pq', sql.NVarChar(300), pq)
@@ -8399,27 +8289,12 @@ app.post('/api/bom/usage-calc', async (req, res) => {
 
     const bomCost = (selBc.recordset ?? []).map(mapBomCostRecordToDto)
 
-    const sel = await pool
-      .request()
-      .input('pq', sql.NVarChar(300), pq)
-      .input('sid', sql.NVarChar(100), sid)
-      .query(`
-        SELECT id, pq, sid, kcaa01, kcaa02, kcaa03, kcaa04, sumay, sumby, kcac05
-        FROM ${BOM_CONSUMPTION_FROM}
-        WHERE pq = @pq AND sid = @sid
-        ORDER BY id ASC
-      `)
-
-    const consumption = (sel.recordset ?? []).map(mapBomConsumptionRecordToDto)
-
     res.json({
       success: true,
       total: bomCost.length,
-      consumptionTotal: consumption.length,
       data,
       flatCostUsageRaw,
       bomCost,
-      consumption,
     })
   } catch (err) {
     if (err?.code === 'BOM_CYCLE') {
@@ -8433,7 +8308,7 @@ app.post('/api/bom/usage-calc', async (req, res) => {
 
 /**
  * BOM 用量表：GET /api/bom/tree?systemcode=xxx
- * - 若 bom_cost 已有 pq+sid 缓存：hasCache=true，直接返回 bom_cost + consumption，不递归 Bom_parts、不平铺 flatCostUsageRaw
+ * - 若 bom_cost 已有 pq+sid 缓存：hasCache=true，直接返回 bom_cost，不递归 Bom_parts、不平铺 flatCostUsageRaw
  * - 否则：hasCache=false，递归树 data + flatCostUsageRaw（前端本地筛选合并预览；首次落库用 POST /api/bom/usage-calc）
  */
 app.get('/api/bom/tree', async (req, res) => {
@@ -8445,7 +8320,6 @@ app.get('/api/bom/tree', async (req, res) => {
       data: null,
       hasCache: false,
       bom_cost: [],
-      consumption: [],
       flatCostUsageRaw: [],
     }
     if (!systemcode) {
@@ -8482,25 +8356,12 @@ app.get('/api/bom/tree', async (req, res) => {
         `)
       const bomCost = (selBc.recordset ?? []).map(mapBomCostRecordToDto)
 
-      const sel = await pool
-        .request()
-        .input('pq', sql.NVarChar(300), pq)
-        .input('sid', sql.NVarChar(100), sid)
-        .query(`
-          SELECT id, pq, sid, kcaa01, kcaa02, kcaa03, kcaa04, sumay, sumby, kcac05
-          FROM ${BOM_CONSUMPTION_FROM}
-          WHERE pq = @pq AND sid = @sid
-          ORDER BY id ASC
-        `)
-      const consumption = (sel.recordset ?? []).map(mapBomConsumptionRecordToDto)
-
       res.json({
         success: true,
         hasCache: true,
         data: [],
         flatCostUsageRaw: [],
         bom_cost: bomCost,
-        consumption,
       })
       return
     }
@@ -8514,7 +8375,6 @@ app.get('/api/bom/tree', async (req, res) => {
       data,
       flatCostUsageRaw,
       bom_cost: [],
-      consumption: [],
     })
   } catch (err) {
     if (err?.code === 'BOM_CYCLE') {
@@ -8524,7 +8384,6 @@ app.get('/api/bom/tree', async (req, res) => {
         data: null,
         hasCache: false,
         bom_cost: [],
-        consumption: [],
         flatCostUsageRaw: [],
       })
       return
@@ -8537,7 +8396,6 @@ app.get('/api/bom/tree', async (req, res) => {
       data: null,
       hasCache: false,
       bom_cost: [],
-      consumption: [],
       flatCostUsageRaw: [],
     })
   }
@@ -15259,7 +15117,7 @@ app.listen(port, () => {
     `BOM-Tree-v1.2.7-Cache ${bootAt} GET /api/bom/tree：bom_cost 命中则 hasCache 直读；否则 DFS+flatCostUsageRaw`,
   )
   console.log(
-    `BOM-Usage-Calc-bom_cost-Consumption ${bootAt} POST /api/bom/usage-calc → bom_cost(tx DELETE+批量INSERT+isok)+Bom_consumption`,
+    `BOM-Usage-Calc-bom_cost ${bootAt} POST /api/bom/usage-calc → bom_cost(tx DELETE+批量INSERT+isok；Bom_consumption 已停用)`,
   )
   console.log(`ColorCode-Module-Initial-v1.0.0 ${bootAt}`)
   console.log(`ColorCode-Add-DirectMode-v1.1.0 ${bootAt}`)

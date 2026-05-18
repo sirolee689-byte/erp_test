@@ -86,7 +86,7 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   {
     method: 'POST',
     path: '/api/bom/usage-calc',
-    action: 'BOM用量运算并写入bom_cost明细与Bom_consumption汇总',
+    action: 'BOM用量运算并写入bom_cost明细',
     targetTable: 'bom_cost',
   },
   {

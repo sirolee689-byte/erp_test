@@ -254,7 +254,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'hr/dormitory/lodging-records', action: 'audit' }
   }
 
-  /* BOM 用量运算：写 bom_cost + Bom_consumption（须先于 GET /api/bom/tree） */
+  /* BOM 用量运算：写 bom_cost（须先于 GET /api/bom/tree） */
   if (m === 'POST' && path === '/api/bom/usage-calc') {
     return {
       anyOf: [
@@ -263,7 +263,7 @@ export function matchApiPermissionRule(method, path, body, params) {
       ],
     }
   }
-  /* BOM 用量树：无 bom_cost 缓存时递归 Bom_parts；有缓存时直读 bom_cost+Bom_consumption（只读） */
+  /* BOM 用量树：无 bom_cost 缓存时递归 Bom_parts；有缓存时直读 bom_cost（只读） */
   if (m === 'GET' && path === '/api/bom/tree') {
     return {
       anyOf: [

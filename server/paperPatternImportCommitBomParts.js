@@ -77,6 +77,14 @@ export function parsePaperPatternQty(raw) {
 }
 
 /**
+ * CUT 下子件 Bom_parts.kcac04：取 CUT 列表「单位用量」（非 CUT 预览行的数量，亦非物料表用量）
+ * @param {unknown} unitConsumptionRaw CUT 行 unitConsumption
+ */
+export function cutChildKcac04FromUnitConsumption(unitConsumptionRaw) {
+  return bomPartRound6(parsePaperPatternQty(unitConsumptionRaw))
+}
+
+/**
  * 纸格单元格：非空则解析为数字，否则 null（用于 I 列合计是否覆盖 kcac06）
  * @param {unknown} raw
  * @returns {number|null}
@@ -170,6 +178,7 @@ export function resolveAccessoryKcac456(usageRaw, wastageRaw, lineTotalRaw, dbKc
  *     cutSeq: string,
  *     cutCode: string,
  *     quantity?: string|number,
+ *     unitConsumption?: string|number,
  *     wastage?: string|number,
  *     matching?: string,
  *   }>,
@@ -327,7 +336,7 @@ export async function writePaperPatternBomPartsInTx(tx, pool, p) {
       const wf = m.wastageFraction
       const loss =
         wf !== undefined && wf !== null && Number.isFinite(Number(wf)) ? Number(wf) : dbLoss
-      const qty = parsePaperPatternQty(m.usageQty)
+      const kcac04Child = cutChildKcac04FromUnitConsumption(c.unitConsumption)
       const remark = String(m.remark ?? '').trim()
       const describeMat = resolveCutDescribeForBomParts(cutSeq, c.matching, cutMatchingByMajor)
       await insertBomPartsLinePaperPattern(
@@ -338,7 +347,7 @@ export async function writePaperPatternBomPartsInTx(tx, pool, p) {
         parentSc,
         {
           kcaa01: code,
-          kcac04: qty,
+          kcac04: kcac04Child,
           kcac05: loss,
           remark,
           seq: mSeq,

@@ -10,6 +10,7 @@ import {
   bom000PriceToBomPartsOrNull,
   parseAccessoryWastageFraction,
   parsePaperPatternQty,
+  cutChildKcac04FromUnitConsumption,
   resolveAccessoryKcac456,
   resolveCutDescribeForBomParts,
 } from './paperPatternImportCommitBomParts.js'
@@ -47,6 +48,12 @@ test('materialGroupMatchesCut', () => {
 test('parsePaperPatternQty', () => {
   assert.equal(parsePaperPatternQty('1.5'), 1.5)
   assert.equal(parsePaperPatternQty(''), 0)
+})
+
+test('cutChildKcac04FromUnitConsumption 取 CUT 单位用量', () => {
+  assert.equal(cutChildKcac04FromUnitConsumption('0.12'), 0.12)
+  assert.equal(cutChildKcac04FromUnitConsumption('1.23456789'), 1.234568)
+  assert.equal(cutChildKcac04FromUnitConsumption(''), 0)
 })
 
 test('parseAccessoryWastageFraction', () => {

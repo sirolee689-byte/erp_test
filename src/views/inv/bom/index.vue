@@ -744,8 +744,8 @@
                     <span class="bom-usage-calc-toolbar__hint bom-cost-usage-toolbar__hint">
                       {{
                         bomUsageHasCache
-                          ? '命中 bom_cost 缓存：平铺由库表明细还原，下表仍为本地筛选并按「编码+备注」合并；真实用量表为库内 Bom_consumption'
-                          : '与「成本BOM真实用量表」共用前缀：「运算」时写入 bom_cost 与 Bom_consumption；下表为本地筛选合并（按编码+备注），确定配置后立即重算'
+                          ? '命中 bom_cost 缓存：由库表明细还原平铺，下表按「编码+备注」本地合并展示'
+                          : '「运算」写入 bom_cost；下表为本地筛选合并（按编码+备注），调整前缀后立即重算'
                       }}
                     </span>
                   </template>
@@ -812,82 +812,6 @@
                   />
                 </div>
               </el-tab-pane>
-              <el-tab-pane label="成本BOM真实用量表" name="costBomRealUsage" :disabled="!bomBasic">
-                <div class="bom-cost-usage-toolbar bom-parts-toolbar">
-                  <template v-if="bomUsageCostBlockReady">
-                    <div class="bom-cost-hide-prefix-bar">
-                      <span class="bom-cost-hide-prefix-bar__label">隐藏编码前缀</span>
-                      <el-button size="small" type="primary" plain @click="openBomCostHidePrefixDialog">
-                        配置前缀…
-                      </el-button>
-                      <span class="bom-cost-hide-prefix-bar__summary">{{ bomCostHidePrefixSummaryText }}</span>
-                    </div>
-                    <span class="bom-usage-calc-toolbar__hint bom-cost-usage-toolbar__hint">
-                      {{
-                        bomUsageHasCache
-                          ? '命中缓存：下表为库内 Bom_consumption 汇总行；调整前缀仅影响左侧成本合并表，不修改已落库数据'
-                          : '与「成本BOM用量表」共用前缀：「运算」后写入 Bom_consumption；无缓存时本表在落库前为空'
-                      }}
-                    </span>
-                  </template>
-                  <span v-else class="bom-usage-calc-toolbar__hint bom-cost-usage-toolbar__hint">
-                    请切换到「BOM用量表运算」或本 Tab，将自动从服务器加载用量数据
-                  </span>
-                </div>
-                <div v-loading="bomUsageTreeLoading" class="bom-cost-usage-wrap">
-                  <div v-if="bomConsumptionRealFlatRows.length" class="bom-cost-usage-table-outer">
-                    <el-table
-                      :data="bomConsumptionRealFlatRows"
-                      border
-                      stripe
-                      size="small"
-                      class="bom-cost-usage-table"
-                      max-height="calc(100vh - 280px)"
-                      row-key="__bomRealRowKey"
-                      show-summary
-                      :summary-method="bomConsumptionRealSummaryMethod"
-                    >
-                      <el-table-column label="编码" min-width="200" fixed="left" show-overflow-tooltip>
-                        <template #default="{ row }">
-                          <span class="bom-cost-usage-code">{{ dVal(row.kcaa01) }}</span>
-                        </template>
-                      </el-table-column>
-                      <el-table-column prop="kcaa02" label="名称" min-width="140" show-overflow-tooltip>
-                        <template #default="{ row }">{{ dVal(row.kcaa02) }}</template>
-                      </el-table-column>
-                      <el-table-column prop="kcaa03" label="规格" min-width="160" show-overflow-tooltip>
-                        <template #default="{ row }">{{ dVal(row.kcaa03) }}</template>
-                      </el-table-column>
-                      <el-table-column prop="kcaa04" label="单位" width="80" align="center" show-overflow-tooltip>
-                        <template #default="{ row }">{{ dVal(row.kcaa04) }}</template>
-                      </el-table-column>
-                      <el-table-column label="总用量" width="118" align="right">
-                        <template #default="{ row }">{{ formatQty(row.sumay) }}</template>
-                      </el-table-column>
-                      <el-table-column label="损耗后用量" width="128" align="right">
-                        <template #default="{ row }">{{ formatQty(row.sumby) }}</template>
-                      </el-table-column>
-                      <el-table-column label="平均损耗" width="110" align="right">
-                        <template #default="{ row }">{{ formatQty(row.kcac05) }}</template>
-                      </el-table-column>
-                    </el-table>
-                  </div>
-                  <el-empty
-                    v-else-if="!bomUsageTreeLoading && bomUsageCostBlockReady"
-                    description="当前前缀筛选已排除全部物料，或明细无有效行；请调整「配置前缀…」或检查 bom_cost"
-                    :image-size="72"
-                  />
-                  <el-empty
-                    v-else-if="!bomUsageTreeLoading"
-                    :description="
-                      bomUsageTreeError
-                        ? '加载失败，请返回「BOM用量表运算」查看错误'
-                        : '正在等待用量数据加载；无缓存时需先在「BOM用量表运算」点「运算」落库'
-                    "
-                    :image-size="72"
-                  />
-                </div>
-              </el-tab-pane>
             </el-tabs>
           </template>
         </template>
@@ -905,7 +829,7 @@
       @closed="onBomCostHidePrefixDialogClosed"
     >
       <p class="bom-cost-hide-prefix-dialog__tip">
-        物料编码以任一前缀开头（忽略大小写）的行不出现在「成本BOM用量表」与「成本BOM真实用量表」中；子件用量已在运算结果中。
+        物料编码以任一前缀开头（忽略大小写）的行不出现在「成本BOM用量表」中；子件用量已在运算结果中。
       </p>
       <div class="bom-cost-hide-prefix-dialog__rows">
         <div
@@ -1505,8 +1429,6 @@ const bomUsageTreeData = ref([])
 const bomUsageTableRef = ref(null)
 /** 成本 BOM 用量表展示行（本地：前缀筛选 + 按编码+备注合并） */
 const bomCostUsageFlatRows = ref([])
-/** 成本 BOM 真实用量表：GET 缓存 / 运算成功后由接口 consumption（库表）映射 */
-const bomConsumptionRealFlatRows = ref([])
 /** 成本平铺源行：DFS 的 flatCostUsageRaw，或命中缓存时由 bom_cost 映射成的等价平铺（供合并用） */
 const bomCostUsageRawRows = ref([])
 /** GET/POST：当前 pq+sid 是否已有 bom_cost 缓存（仅控制按钮与提示，不区分展示算法） */
@@ -1554,7 +1476,7 @@ const BOM_COST_HIDE_PREFIX_LEN = 80
 
 /** 成本用量/真实用量 Tab 是否已有数据源（平铺或库表汇总） */
 const bomUsageCostBlockReady = computed(
-  () => bomCostUsageRawRows.value.length > 0 || bomConsumptionRealFlatRows.value.length > 0,
+  () => bomCostUsageRawRows.value.length > 0,
 )
 
 let bomCostHidePrefixDraftUid = 0
@@ -1753,27 +1675,11 @@ function aggregateBomCostUsageFlatForDisplay(flatRows, hidePrefixes) {
   return out
 }
 
-/** 将 GET/POST 返回的 Bom_consumption 映射为表格行（row-key 用库 id） */
-function applyBomConsumptionRowsFromApi(consumption) {
-  const arr = Array.isArray(consumption) ? consumption : []
-  bomConsumptionRealFlatRows.value = arr.map((r, i) => ({
-    kcaa01: String(r?.kcaa01 ?? ''),
-    kcaa02: String(r?.kcaa02 ?? ''),
-    kcaa03: String(r?.kcaa03 ?? ''),
-    kcaa04: String(r?.kcaa04 ?? ''),
-    sumay: Number(r?.sumay ?? 0),
-    sumby: Number(r?.sumby ?? 0),
-    kcac05: Number(r?.kcac05 ?? 0),
-    __bomRealRowKey: r?.id != null ? `bom-consumption-db-${r.id}` : `bom-consumption-db-fallback-${i}`,
-  }))
-}
-
-/** 仅重算成本 BOM 用量表（合并）；真实用量表由 applyBomConsumptionRowsFromApi 维护 */
+/** 仅重算成本 BOM 用量表（合并） */
 function recomputeBomCostUsageDisplay() {
   const raw = bomCostUsageRawRows.value
   if (!Array.isArray(raw) || !raw.length) {
     bomCostUsageFlatRows.value = []
-    bomConsumptionRealFlatRows.value = []
     return
   }
   const prefixes = normalizeBomCostHidePrefixes(bomCostHidePrefixes.value)
@@ -1826,35 +1732,6 @@ function bomCostUsageSummaryMethod({ columns, data }) {
   return sums
 }
 
-/**
- * 成本 BOM 真实用量表底部合计：SUM sumay、SUM sumby；平均损耗列为整表加权 (Σsumby-Σsumay)/Σsumay
- * @param {{ columns: import('element-plus').TableColumnCtx<unknown>[], data: Record<string, unknown>[] }} param0
- */
-function bomConsumptionRealSummaryMethod({ columns, data }) {
-  const rows = Array.isArray(data) ? data : []
-  let sumay = 0
-  let sumby = 0
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i]
-    const a = Number(row?.sumay ?? 0)
-    const b = Number(row?.sumby ?? 0)
-    if (Number.isFinite(a)) sumay += a
-    if (Number.isFinite(b)) sumby += b
-  }
-  const kcac05All = sumay > 0 ? (sumby - sumay) / sumay : 0
-  /** @type {string[]} */
-  const sums = []
-  columns.forEach((column, index) => {
-    const lab = String(column.label ?? '')
-    if (lab === '编码') sums[index] = '合计'
-    else if (lab === '总用量') sums[index] = formatQty(sumay)
-    else if (lab === '损耗后用量') sums[index] = formatQty(sumby)
-    else if (lab === '平均损耗') sums[index] = formatQty(kcac05All)
-    else sums[index] = ''
-  })
-  return sums
-}
-
 /** 遍历树（先序），供展开/折叠 */
 function walkBomUsageTree(rows, fn) {
   if (!Array.isArray(rows)) return
@@ -1885,7 +1762,7 @@ function collapseAllBomUsageTree() {
 }
 
 /** 详情弹窗 Tab 名集合（钻取返回时校验恢复） */
-const DETAIL_VALID_TABS = new Set(['basic', 'parts', 'usageCalc', 'costBomUsage', 'costBomRealUsage'])
+const DETAIL_VALID_TABS = new Set(['basic', 'parts', 'usageCalc', 'costBomUsage'])
 
 function normalizeRestoredDetailTab(name) {
   const n = String(name ?? '').trim()
@@ -1905,7 +1782,7 @@ const partsPendingDeleteIds = ref([])
 
 /**
  * 从配件「查看/查看配件」钻取下一层 BOM 时的返回栈（不含当前层）
- * @typedef {{ code: string, titleCode: string, listRow: { code: string, pass: unknown } | null, activeTab: 'basic'|'parts'|'usageCalc'|'costBomUsage'|'costBomRealUsage'|string, partsPendingDeleteIds: number[] }} DetailDrillFrame
+ * @typedef {{ code: string, titleCode: string, listRow: { code: string, pass: unknown } | null, activeTab: 'basic'|'parts'|'usageCalc'|'costBomUsage'|string, partsPendingDeleteIds: number[] }} DetailDrillFrame
  */
 /** @type {import('vue').Ref<DetailDrillFrame[]>} */
 const detailDrillStack = ref([])
@@ -2013,16 +1890,12 @@ async function onBomUsageTableCalc(opts = {}) {
     bomUsageHasCache.value = true
     bomCostUsageRawRows.value = Array.isArray(body.flatCostUsageRaw) ? body.flatCostUsageRaw : []
     bomUsageTreeData.value = Array.isArray(body.data) ? body.data : []
-    applyBomConsumptionRowsFromApi(body.consumption)
     recomputeBomCostUsageDisplay()
     const total = Number(body.total ?? 0)
-    const consumptionTotal = Number(body.consumptionTotal ?? 0)
     ElMessage.success(
-      `${recalc ? '重新运算' : '运算'}完成；bom_cost ${Number.isFinite(total) ? total : 0} 条，Bom_consumption ${
-        Number.isFinite(consumptionTotal) ? consumptionTotal : 0
-      } 条`,
+      `${recalc ? '重新运算' : '运算'}完成；bom_cost ${Number.isFinite(total) ? total : 0} 条`,
     )
-    detailActiveTab.value = 'costBomRealUsage'
+    detailActiveTab.value = 'costBomUsage'
   } catch (e) {
     const msg = String(e?.response?.data?.msg ?? e?.message ?? '网络错误')
     bomUsageTreeError.value = msg
@@ -3087,7 +2960,7 @@ function onEditMaterialPicked(payload) {
 async function loadBomUsageTreeOrCache(force = false) {
   const sc = String(bomSystemcode.value ?? '').trim()
   if (!sc || !detailVisible.value) return
-  const usageTabs = new Set(['usageCalc', 'costBomUsage', 'costBomRealUsage'])
+  const usageTabs = new Set(['usageCalc', 'costBomUsage'])
   if (!usageTabs.has(detailActiveTab.value)) return
   if (bomUsageTreeLoading.value && !force) return
   if (!force && lastBomUsageFetchSystemcode.value === sc) return
@@ -3103,7 +2976,6 @@ async function loadBomUsageTreeOrCache(force = false) {
       bomUsageTreeData.value = []
       bomCostUsageRawRows.value = []
       bomUsageHasCache.value = false
-      applyBomConsumptionRowsFromApi([])
       recomputeBomCostUsageDisplay()
       return
     }
@@ -3113,12 +2985,10 @@ async function loadBomUsageTreeOrCache(force = false) {
       bomUsageHasCache.value = true
       bomCostUsageRawRows.value = mapBomCostApiRowsToCostUsageRawRows(body.bom_cost)
       bomUsageTreeData.value = []
-      applyBomConsumptionRowsFromApi(body.consumption)
     } else {
       bomUsageHasCache.value = false
       bomUsageTreeData.value = Array.isArray(body.data) ? body.data : []
       bomCostUsageRawRows.value = Array.isArray(body.flatCostUsageRaw) ? body.flatCostUsageRaw : []
-      applyBomConsumptionRowsFromApi([])
     }
     recomputeBomCostUsageDisplay()
   } catch (e) {
@@ -3127,7 +2997,6 @@ async function loadBomUsageTreeOrCache(force = false) {
     bomUsageTreeData.value = []
     bomCostUsageRawRows.value = []
     bomUsageHasCache.value = false
-    applyBomConsumptionRowsFromApi([])
     recomputeBomCostUsageDisplay()
   } finally {
     bomUsageTreeLoading.value = false
@@ -3146,7 +3015,6 @@ function resetBomUsageBlockState() {
   bomUsageTreeData.value = []
   bomCostUsageRawRows.value = []
   bomCostUsageFlatRows.value = []
-  bomConsumptionRealFlatRows.value = []
   bomUsageTreeError.value = ''
 }
 
@@ -3163,7 +3031,7 @@ watch(
   ([vis, tab, sc]) => {
     if (!vis || !String(sc ?? '').trim()) return
     if (tab === 'parts') loadBomParts()
-    const usageTabs = new Set(['usageCalc', 'costBomUsage', 'costBomRealUsage'])
+    const usageTabs = new Set(['usageCalc', 'costBomUsage'])
     if (usageTabs.has(tab)) void loadBomUsageTreeOrCache(false)
   },
 )

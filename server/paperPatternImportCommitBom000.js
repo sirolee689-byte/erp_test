@@ -50,7 +50,7 @@ function generateInvBomSystemcode(uidPart) {
 }
 
 /**
- * CUT 规格 kcaa03：长*宽，各保留 3 位小数
+ * CUT 规格 kcaa03：长*宽，各保留 4 位小数（与纸格解析长/宽规范一致）
  * @param {string|number|null|undefined} lenStr
  * @param {string|number|null|undefined} widStr
  */
@@ -61,7 +61,7 @@ export function formatPaperPatternCutKcaa03(lenStr, widStr) {
   }
   const L = parseN(lenStr)
   const W = parseN(widStr)
-  return `${L.toFixed(3)}*${W.toFixed(3)}`
+  return `${L.toFixed(4)}*${W.toFixed(4)}`
 }
 
 /**
@@ -468,6 +468,7 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
         length: c?.length,
         width: c?.width,
         quantity: c?.quantity,
+        unitConsumption: c?.unitConsumption,
         wastage: c?.wastage,
         matching: c?.matching,
       }

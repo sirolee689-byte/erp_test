@@ -148,13 +148,7 @@ npm run dev:server
 
 `taskkill /F /IM node.exe /T` — 确保释放 3001 等被 Node 占用的端口后再起 `dev:server`。
 
-## 18. 纸格资料导入：Excel 解析冻结（强制）
-
-- **冻结文件**：除非用户在需求中**明确写出**要调整纸格 Excel 解析规则，否则**禁止修改** `server/paperPatternImportParse.js`（含固定格 N2/M2/L2、前 10 行「组别/客款号/颜色编码」标签扫描、颜色编码归一、Material/CUT/副料状态机、调试日志与 `mainBom`/`cuts`/`materials` 结构约定）。
-- **可继续演进（不动解析层）**：例如 `server/index.js` 纸格相关路由、`paperPatternImportValidate.js`、`paperPatternImportMapping.js`、`paperPatternImportPreview.js`（仅当变更**不**改变解析树语义时）、前端 `src/views/paper-pattern/**`、入库与权限等——若实现依赖必须改解析文件，须先向用户说明影响并获**明确 OK** 后再改。
-- **共享编码工具**：`src/utils/paperPatternImportCodes.js` 与解析内 `buildMainBomCode`/`buildCutCode`/`normalizeFactoryStyleForEncoding` 须保持一致；若只改前端展示或后端非解析接口，优先在调用侧适配，避免改解析文件。
-
-## 19. 超长表格滚动优化
+## 18. 超长表格滚动优化
 
 - **双滚动条**：凡是横向字段超过 8 个的表格，必须在表格上方同步配置横向滚动条，或使用固定表头+固定左右列（Fixed Columns）方案。
 - **高度自适应**：表格高度必须限制在视口范围内（如 `max-height="calc(100vh - 200px)"`），确保底部滚动条始终可见，无需翻页。

@@ -53,16 +53,18 @@ export function excelColumnLettersFromOneBased(colIndex1) {
 }
 
 /**
+ * 单元格 → 解析用字符串：数值格用存储值 v（不用 w，避免 Excel 显示格式丢精度）；文本格优先 w（前导零）
  * @param {import('xlsx').CellObject | undefined} cell
  * @returns {string}
  */
-function cellToDisplayString(cell) {
+export function cellToPaperPatternCellString(cell) {
   if (cell == null) return ''
   if (cell.t === 'z') return ''
-  // 优先使用工作簿内缓存的显示文本（利于保留前导零等展示形态）
-  if (cell.w != null && String(cell.w) !== '') return String(cell.w)
   const v = cell.v
-  if (v == null || v === '') return ''
+  if (cell.t === 'n') {
+    if (v == null || v === '') return ''
+    return String(v)
+  }
   if (cell.t === 'd' && v instanceof Date) {
     const y = v.getFullYear()
     const m = String(v.getMonth() + 1).padStart(2, '0')
@@ -71,6 +73,8 @@ function cellToDisplayString(cell) {
   }
   if (cell.t === 'b') return v ? 'TRUE' : 'FALSE'
   if (cell.t === 'e') return v != null ? String(v) : ''
+  if (cell.w != null && String(cell.w) !== '') return String(cell.w)
+  if (v == null || v === '') return ''
   return String(v)
 }
 
@@ -155,7 +159,7 @@ export function parsePaperPatternExcelFromBuffer(buf) {
       const own = mergeOwner.get(`${r},${c}`) || { r, c }
       const addr = XLSX.utils.encode_cell(own)
       const cell = sheet[addr]
-      const value = cellToDisplayString(cell)
+      const value = cellToPaperPatternCellString(cell)
       cells.push({
         colIndex: c + 1,
         value,
@@ -204,7 +208,7 @@ export function readFirstSheetCellA1FromBuffer(buf, a1) {
   const own = mergeOwner.get(`${decoded.r},${decoded.c}`) || decoded
   const addr = XLSX.utils.encode_cell(own)
   const cell = sheet[addr]
-  return cellToDisplayString(cell)
+  return cellToPaperPatternCellString(cell)
 }
 
 /**

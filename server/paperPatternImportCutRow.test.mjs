@@ -14,11 +14,11 @@ describe('paperPatternImportCutRow', () => {
     const row = rowFromCols([
       [1, '1-1'],
       [2, '挽手面包'],
-      [3, '4.449'],
-      [4, '4.739'],
+      [3, '4.4488525390625'],
+      [4, '4.7394'],
       [5, '1'],
       [6, '1.5'],
-      [7, '0.12'],
+      [7, '0.12345'],
       [8, '5%'],
       [9, '0.126'],
       [10, '10'],
@@ -27,11 +27,11 @@ describe('paperPatternImportCutRow', () => {
       [13, '码'],
     ])
     const m = readCutMetricColumnsByExcelCol(row)
-    assert.equal(m.length, '4.449')
-    assert.equal(m.width, '4.739')
+    assert.equal(m.length, '4.4489')
+    assert.equal(m.width, '4.7394')
     assert.equal(m.quantity, '1')
     assert.equal(m.fabricWidth, '1.5')
-    assert.equal(m.unitConsumption, '0.12')
+    assert.equal(m.unitConsumption, '0.1235')
     assert.equal(m.wastage, '5%')
     assert.equal(m.actualConsumption, '0.126')
     assert.equal(m.unitPrice, '10')
