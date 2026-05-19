@@ -200,6 +200,15 @@ export function resolveAccessoryKcac456(usageRaw, wastageRaw, lineTotalRaw, dbKc
  *   }>,
  *   actor: { uidInt: number | null, uname: string | null, utruename: string | null },
  *   addtime: string,
+ *   bomMap?: Map<string, {
+ *     kcaa04: string,
+ *     kcaa33: number | null,
+ *     kcaa02_en: string,
+ *     location: string,
+ *     cost_price: number | null,
+ *     sale_price: number | null,
+ *     remark: string,
+ *   }>,
  * }} p
  * @returns {Promise<number>} 写入行数
  */
@@ -224,22 +233,21 @@ export async function writePaperPatternBomPartsInTx(tx, pool, p) {
   const mats = Array.isArray(p.materials) ? p.materials : []
   const cutScMap = p.cutSystemcodeByCutCode instanceof Map ? p.cutSystemcodeByCutCode : new Map()
 
-  /** @type {string[]} */
-  const matCodes = []
-  for (const m of mats) {
-    const d = normalizeErpCodeDisplay(m?.materialCode ?? '')
-    if (d) matCodes.push(d)
+  /** @type {Map<string, { kcaa04: string, kcaa33: number | null, kcaa02_en: string, location: string, cost_price: number | null, sale_price: number | null, remark: string }>} */
+  let bomMap = p.bomMap instanceof Map ? p.bomMap : null
+  if (!bomMap) {
+    /** @type {string[]} */
+    const matCodes = []
+    for (const m of mats) {
+      const d = normalizeErpCodeDisplay(m?.materialCode ?? '')
+      if (d) matCodes.push(d)
+    }
+    for (const a of acc) {
+      const d = normalizeErpCodeDisplay(a?.erpCode ?? '')
+      if (d) matCodes.push(d)
+    }
+    bomMap = await fetchKcaa04Kcaa33ByKcaa01In(tx, matCodes)
   }
-  for (const a of acc) {
-    const d = normalizeErpCodeDisplay(a?.erpCode ?? '')
-    if (d) matCodes.push(d)
-  }
-  for (const c of cuts) {
-    const d = normalizeErpCodeDisplay(c?.cutCode ?? '')
-    if (d) matCodes.push(d)
-  }
-
-  const bomMap = await fetchKcaa04Kcaa33ByKcaa01In(tx, matCodes)
 
   let inserted = 0
 

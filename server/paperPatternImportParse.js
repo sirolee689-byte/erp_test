@@ -1,7 +1,14 @@
 /**
- * 纸格资料导入：厂款号/颜色编码/组别前 10 行辅助解析；厂款号固定 N2、组别优先 M2 否则「组别」标签右侧、客款号固定 L2（优先）；Material/CUT/副料为全文状态机；CUT 明细列按 Excel 第 3～13 列读取，其中「搭配」输出由同分组 Material 备注（第 12 列）汇总，不再沿用 CUT 区第 12 列；Accessory 明细按 B 名称、E 用量、H 损耗、I 合计、L 搭配、ERP 仍取行末最后一个非空格
+ * 纸格资料导入：厂款号 N2；颜色编码第 4 行 N 列起横向；组别 M2 / 客款号 L2；Material/CUT/副料全文状态机
  */
-import { parsePaperPatternExcelFromBuffer, readFirstSheetCellA1FromBuffer } from './paperPatternImportPreview.js'
+import {
+  excelColumnLettersFromOneBased,
+  parsePaperPatternExcelFromBuffer,
+  readFirstSheetCellA1FromBuffer,
+} from './paperPatternImportPreview.js'
+import { materialErpBaseFromExcelCell } from './paperPatternErpCodeNormalize.js'
+import { flattenAccessoriesForDisplay, tryParseAccessoryRow } from './paperPatternAccessoryParse.js'
+import { buildMaterialCodesByColor } from './paperPatternMaterialCodesByColor.js'
 import { readCutMetricColumnsByExcelCol, readExcelColNorm } from './paperPatternImportCutRow.js'
 import {
   buildGroupMatchingMapFromMaterialRemarks,
@@ -17,6 +24,10 @@ const FACTORY_STYLE_CELL_A1 = 'N2'
 const FIXED_CELL_GROUP_M2 = 'M2'
 /** 资料区：客款号（固定 L2，优先于表内「客款号」标签扫描） */
 const FIXED_CELL_CUSTOMER_L2 = 'L2'
+
+/** 颜色编码行（Excel 第 4 行）与起始列 N（1-based 列号 14） */
+export const PAPER_PATTERN_COLOR_ROW_INDEX = 4
+export const PAPER_PATTERN_COLOR_START_COL_INDEX = 14
 
 /**
  * @param {string} s
@@ -93,7 +104,7 @@ function indexOfFirstUnifiedIdeograph(s) {
  * 颜色编码（原色号列）：从左到右，遇到首个汉字则截断其前内容并 trim；增强：须为「英文或-」前缀 + 后续汉字（常见颜色描述）
  * @param {string} raw
  */
-function normalizeColorNoFromCell(raw) {
+export function normalizeColorNoFromCell(raw) {
   const s = String(raw ?? '')
     .replace(/\s+/g, ' ')
     .trim()
@@ -127,56 +138,61 @@ function cellForbiddenForColorInference(val) {
   return false
 }
 
-/** 常见颜色用字：与中文颜色描述同时出现时，才允许作为混排颜色编码候选 */
-const COLOR_HINT_CHARS = new Set(['黑', '蓝', '红', '绿', '白', '灰', '棕', '咖', '粉'])
-
 /**
- * 单元格是否含「颜色提示字」（黑/蓝/红等）
- * @param {string} val
- */
-function cellHasColorHintChar(val) {
-  const s = String(val ?? '')
-  for (const ch of s) {
-    if (COLOR_HINT_CHARS.has(ch)) return true
-  }
-  return false
-}
-
-/**
- * 顶部区域内：像「N-TEST黑色」「BLU蓝」的混排色号候选（须含颜色提示字且非禁用文案）
- * @param {string} val
- */
-function cellLooksLikeMixedColorValue(val) {
-  const s = String(val ?? '')
-    .replace(/\s+/g, ' ')
-    .trim()
-  if (!s) return false
-  if (cellForbiddenForColorInference(s)) return false
-  if (!cellHasColorHintChar(s)) return false
-  const hi = indexOfFirstUnifiedIdeograph(s)
-  if (hi <= 0) return false
-  const before = s.slice(0, hi)
-  return /[A-Za-z]/.test(before) || before.includes('-')
-}
-
-/**
- * 前 10 行内：若关键词未取到颜色编码，再尝试混排单元格（不做全文扫）
+ * 第 4 行自 N 列向右识色：跳过 leading 空；遇第一个空单元格停止；单格经 normalizeColorNoFromCell
  * @param {Array<{ rowIndex: number, cells: Array<{ colIndex: number, value: string }> }>} rows
+ * @returns {{ colorNos: string[], colorSources: Array<{ colorNo: string, excelCol: string }>, warnings: string[] }}
  */
-function tryFillColorNoFromMixedCellsTopRows(rows, main) {
-  if (main.colorNo) return
-  for (const row of rows) {
-    if (row.rowIndex > MAIN_BOM_MAX_ROW_INDEX) break
-    const vals = rowCellValues(row)
-    for (const v of vals) {
-      if (!v) continue
-      if (isTopAreaLabelCell(v)) continue // 跳过明显标签格
-      if (cellLooksLikeMixedColorValue(v)) {
-        main.colorNo = normalizeColorNoFromCell(v)
-        return
-      }
-    }
+export function extractColorNosFromRow4(rows) {
+  /** @type {string[]} */
+  const colorNos = []
+  /** @type {Array<{ colorNo: string, excelCol: string }>} */
+  const colorSources = []
+  /** @type {string[]} */
+  const warnings = []
+  const row = rows.find((r) => r.rowIndex === PAPER_PATTERN_COLOR_ROW_INDEX)
+  if (!row) {
+    return { colorNos, colorSources, warnings }
   }
+
+  const cellByCol = new Map()
+  let maxCol = PAPER_PATTERN_COLOR_START_COL_INDEX
+  for (const c of row.cells) {
+    if (c.colIndex >= PAPER_PATTERN_COLOR_START_COL_INDEX) {
+      maxCol = Math.max(maxCol, c.colIndex)
+    }
+    cellByCol.set(c.colIndex, norm(c.value))
+  }
+
+  const seen = new Set()
+  let started = false
+
+  for (let col = PAPER_PATTERN_COLOR_START_COL_INDEX; col <= maxCol; col++) {
+    const raw = cellByCol.get(col) ?? ''
+    if (!raw) {
+      if (started) break
+      continue
+    }
+    if (cellForbiddenForColorInference(raw)) {
+      warnings.push(`第 4 行 ${excelColumnLettersFromOneBased(col)} 列含标题类文案，已跳过`)
+      continue
+    }
+    const code = normalizeColorNoFromCell(raw)
+    if (!code) continue
+    started = true
+    if (seen.has(code)) {
+      warnings.push(`颜色编码重复：${code}`)
+      continue
+    }
+    seen.add(code)
+    colorNos.push(code)
+    colorSources.push({
+      colorNo: code,
+      excelCol: excelColumnLettersFromOneBased(col),
+    })
+  }
+
+  return { colorNos, colorSources, warnings }
 }
 
 /**
@@ -193,23 +209,6 @@ function cellForbiddenForFactoryStyleNo(val) {
   if (t.includes('样品名称')) return true
   if (lower.includes('accessory')) return true
   if (lower.includes('material')) return true
-  return false
-}
-
-/**
- * 顶部区域列名/标题格（颜色编码混排扫描时跳过）
- * @param {string} v
- */
-function isTopAreaLabelCell(v) {
-  const x = norm(v)
-  if (!x) return false
-  if (x.includes('客款号')) return true
-  if (x.includes('厂款号')) return true
-  if (x.includes('款号')) return true
-  if (x.includes('组别')) return true
-  if (x.includes('色号')) return true
-  if (x.includes('颜色编码')) return true
-  if (x.includes('样品名称')) return true
   return false
 }
 
@@ -256,23 +255,21 @@ function parseFactoryStyleFromN2Display(rawDisplay) {
 /**
  * 标签单元格 → 可解析字段（客款号、颜色编码、组别；厂款号固定 N2；客款号优先以 L2 为准；组别 M2 优先于标签扫描）
  * @param {string} cell
- * @returns {'customerStyleNo'|'colorNo'|'groupLabel'|null}
+ * @returns {'customerStyleNo'|'groupLabel'|'sampleName'|null}
  */
 function topAreaDataFieldFromLabelCell(cell) {
   const v = norm(cell)
   if (!v) return null
   if (v.includes('客款号')) return 'customerStyleNo'
-  if (v.includes('颜色编码')) return 'colorNo'
-  if (v.includes('色号')) return 'colorNo'
   if (v.includes('组别')) return 'groupLabel'
   if (v.includes('样品名称')) return 'sampleName'
   return null
 }
 
 /**
- * 前 10 行：客款号、颜色编码、组别（关键词右侧）；厂款号不从此处取；客款号最终以 L2 为准（若有值）；组别最终以 M2 为准（若有值）
+ * 前 10 行：客款号、组别、样品名称（关键词右侧）；颜色编码仅第 4 行 N 列横向
  * @param {string[]} vals
- * @param {{ customerStyleNo: string, colorNo: string, groupLabel: string, sampleName: string }} main
+ * @param {{ customerStyleNo: string, groupLabel: string, sampleName: string }} main
  */
 function extractTopAreaBomFromRow(vals, main) {
   for (let i = 0; i < vals.length; i++) {
@@ -282,14 +279,6 @@ function extractTopAreaBomFromRow(vals, main) {
       if (main.customerStyleNo) continue
       const val = readRightNonEmpty(vals, i + 1)
       if (val) main.customerStyleNo = norm(val)
-      continue
-    }
-    if (key === 'colorNo') {
-      if (main.colorNo) continue
-      const val = readRightNonEmpty(vals, i + 1)
-      if (!val) continue
-      if (cellForbiddenForColorInference(val)) continue
-      main.colorNo = val
       continue
     }
     if (key === 'groupLabel') {
@@ -363,21 +352,31 @@ export function buildCutCode(p) {
 }
 
 /**
- * Material 行：分组/名称/末格 ERP；备注为 Excel 绝对第 12 列（旧系统 rs(11)）
+ * Material 行：A 列纯数字分组；预览 materialCode 为 N 列基码；codesByColor 与第 4 行识色列对齐的全码
  * @param {{ rowIndex: number, cells: Array<{ colIndex: number, value: string }> }} row
- * @returns {{ groupNo: string, materialName: string, materialCode: string, remark: string, usageQty: string } | null}
+ * @param {Array<{ colorNo: string, excelCol: string }>} [colorSources]
+ * @returns {{
+ *   groupNo: string,
+ *   materialName: string,
+ *   materialCode: string,
+ *   codesByColor: Array<{ colorNo: string, colIndex: number, materialCode: string }>,
+ *   remark: string,
+ *   usageQty: string
+ * } | null}
  */
-function tryParseMaterialRow(row) {
+export function tryParseMaterialRow(row, colorSources = []) {
   const vals = rowCellValues(row)
   const cells = nonEmptyCellsLeftToRight(vals)
   if (cells.length === 0) return null
   if (!isMaterialFirstToken(cells[0].v)) return null
   const groupNo = norm(cells[0].v)
-  const materialName = cells.length >= 2 ? norm(cells[1].v) : ''
-  const materialCode = norm(cells[cells.length - 1].v)
+  const materialName = readExcelColNorm(row, 2) || (cells.length >= 2 ? norm(cells[1].v) : '')
+  const nColRaw = readExcelColNorm(row, PAPER_PATTERN_COLOR_START_COL_INDEX)
+  const materialCode = materialErpBaseFromExcelCell(nColRaw)
+  const codesByColor = buildMaterialCodesByColor(row, colorSources)
   const remark = readExcelColNorm(row, 12)
   const usageQty = readExcelColNorm(row, 5)
-  return { groupNo, materialName, materialCode, remark, usageQty }
+  return { groupNo, materialName, materialCode, codesByColor, remark, usageQty }
 }
 
 /**
@@ -425,6 +424,8 @@ function tryParseCutRow(row) {
  *     groupLabel: string,
  *     sampleName: string,
  *     colorNo: string,
+ *     colorNos: string[],
+ *     colorSources: Array<{ colorNo: string, excelCol: string }>,
  *     bomCode: string
  *   },
  *   cuts: Array<{
@@ -445,6 +446,7 @@ function tryParseCutRow(row) {
  *   }>,
  *   materials: Array<{ groupNo: string, materialName: string, materialCode: string, remark: string, usageQty: string }>,
  *   accessories: Array<{
+ *     seqNo: string,
  *     erpCode: string,
  *     accessoryName: string,
  *     usageQty: string,
@@ -457,6 +459,8 @@ function tryParseCutRow(row) {
  */
 export function parsePaperPatternImportTreeFromBuffer(buf, options = {}) {
   const { rows } = parsePaperPatternExcelFromBuffer(buf)
+  const { colorNos: colorNosEarly, colorSources, warnings: colorRowWarningsEarly } =
+    extractColorNosFromRow4(rows)
 
   const importTypeFlag5 = norm(options.importTypeFlag5 ?? '')
   const importTypeFlag1 = norm(options.importTypeFlag1 ?? '')
@@ -465,12 +469,11 @@ export function parsePaperPatternImportTreeFromBuffer(buf, options = {}) {
       ? `${importTypeFlag1}(${importTypeFlag5})`
       : importTypeFlag5 || importTypeFlag1
 
-  /** @type {{ styleNoRaw: string, styleNoNormalized: string, customerStyleNo: string, colorNo: string, groupLabel: string, sampleName: string }} */
+  /** @type {{ styleNoRaw: string, styleNoNormalized: string, customerStyleNo: string, groupLabel: string, sampleName: string }} */
   const main = {
     styleNoRaw: '',
     styleNoNormalized: '',
     customerStyleNo: '',
-    colorNo: '',
     groupLabel: '',
     sampleName: '',
   }
@@ -479,54 +482,39 @@ export function parsePaperPatternImportTreeFromBuffer(buf, options = {}) {
   const cutRows = []
   /** @type {Array<{ groupNo: string, materialName: string, materialCode: string, remark: string, usageQty: string }>} */
   const materials = []
-  /** @type {Array<{ erpCode: string, accessoryName: string, usageQty: string, wastage: string, lineTotal: string, matching: string }>} */
-  const accessories = []
+  /** @type {Array<{ seqNo: string, codesByColor: Array<{ colorNo: string, colIndex: number, erpCode: string }>, accessoryName: string, usageQty: string, wastage: string, lineTotal: string, matching: string }>} */
+  const accessoryRows = []
 
   /** @type {'normal' | 'accessory'} */
   let mode = 'normal'
-  let accessoryEmptyStreak = 0
 
   for (const row of rows) {
     const vals = rowCellValues(row)
 
-    // 顶部区域：仅前 10 行解析客款号、颜色编码、组别（厂款号固定读 N2；客款号优先 L2、组别优先 M2，见文末）
+    // 顶部区域：前 10 行解析客款号、组别、样品名称（厂款号 N2；颜色第 4 行 N 列横向）
     if (row.rowIndex <= MAIN_BOM_MAX_ROW_INDEX) {
       extractTopAreaBomFromRow(vals, main)
     }
 
     if (mode === 'accessory') {
-      if (rowIsAllEmpty(vals)) {
-        accessoryEmptyStreak++
-        if (accessoryEmptyStreak >= 2) {
-          mode = 'normal'
-          accessoryEmptyStreak = 0
-        }
+      if (rowIsAllEmpty(vals)) continue
+      const aCol = readExcelColNorm(row, 1)
+      if (!aCol || !isMaterialFirstToken(aCol)) {
+        mode = 'normal'
         continue
       }
-      accessoryEmptyStreak = 0
-      const code = lastNonEmptyValue(vals)
-      if (code) {
-        accessories.push({
-          erpCode: norm(code),
-          // Accessory 区：B 名称、E 用量、H 损耗、I 合计、L 搭配（Excel 绝对列号，与模板列一致）
-          accessoryName: readExcelColNorm(row, 2),
-          usageQty: readExcelColNorm(row, 5),
-          wastage: readExcelColNorm(row, 8),
-          lineTotal: readExcelColNorm(row, 9),
-          matching: readExcelColNorm(row, 12),
-        })
-      }
+      const acc = tryParseAccessoryRow(row, colorSources)
+      if (acc) accessoryRows.push(acc)
       continue
     }
 
     // normal
     if (rowTriggersAccessoryMode(vals)) {
       mode = 'accessory'
-      accessoryEmptyStreak = 0
       continue
     }
 
-    const mat = tryParseMaterialRow(row)
+    const mat = tryParseMaterialRow(row, colorSources)
     if (mat) {
       materials.push(mat)
       continue
@@ -545,9 +533,9 @@ export function parsePaperPatternImportTreeFromBuffer(buf, options = {}) {
   main.styleNoRaw = parsedN2.raw
   main.styleNoNormalized = parsedN2.normalized
 
-  // 颜色编码：中英混排时取首个汉字之前；无标签时仅在前 10 行内尝试混排格
-  main.colorNo = normalizeColorNoFromCell(main.colorNo)
-  tryFillColorNoFromMixedCellsTopRows(rows, main)
+  const colorNos = colorNosEarly
+  const colorRowWarnings = colorRowWarningsEarly
+  const accessories = flattenAccessoriesForDisplay(accessoryRows)
 
   // 组别：M2 优先；M2 空时保留前 10 行「组别」标签右侧解析值
   const m2Group = norm(readFirstSheetCellA1FromBuffer(buf, FIXED_CELL_GROUP_M2))
@@ -559,7 +547,7 @@ export function parsePaperPatternImportTreeFromBuffer(buf, options = {}) {
   const styleNoRaw = main.styleNoRaw
   const styleNoNormalized = norm(main.styleNoNormalized)
   const customerStyleNo = norm(main.customerStyleNo)
-  const colorNo = norm(main.colorNo)
+  const colorNo = colorNos.length > 0 ? norm(colorNos[0]) : ''
 
   const bomCode = buildMainBomCode({ importTypeFlag5, styleNo: styleNoNormalized, colorNo })
 
@@ -592,11 +580,13 @@ export function parsePaperPatternImportTreeFromBuffer(buf, options = {}) {
   })
 
   /** @type {string[]} */
-  const warnings = []
+  const warnings = [...colorRowWarnings]
   if (!styleNoNormalized) {
     warnings.push('未找到厂款号（请确认模板 N2 为 PQ- 开头格式，如 PQ-2803H1）')
   }
-  if (!colorNo) warnings.push('未找到颜色编码')
+  if (colorNos.length === 0) {
+    warnings.push('未找到颜色编码（请确认第 4 行 N 列起已填写，如 N4、O4）')
+  }
   if (!importTypeFlag5) warnings.push('未指定导入类型（BOM 前缀）')
 
   if (!bomCode && (importTypeFlag5 || styleNoNormalized || colorNo)) {
@@ -614,6 +604,8 @@ export function parsePaperPatternImportTreeFromBuffer(buf, options = {}) {
     groupLabel: main.groupLabel,
     sampleName: main.sampleName,
     colorNo,
+    colorNos,
+    colorSources,
     bomCode,
   }
 
@@ -625,7 +617,7 @@ export function parsePaperPatternImportTreeFromBuffer(buf, options = {}) {
       styleNoNormalized,
       groupLabel: main.groupLabel,
       customerStyleNo,
-      colorNo,
+      colorNos,
     }),
   )
 
@@ -638,7 +630,7 @@ export function parsePaperPatternImportTreeFromBuffer(buf, options = {}) {
       styleNoNormalized,
       groupLabel: main.groupLabel,
       customerStyleNo,
-      colorNo,
+      colorNos,
       materials: materials.map((m) => ({
         groupNo: m.groupNo,
         materialName: m.materialName,
@@ -654,7 +646,9 @@ export function parsePaperPatternImportTreeFromBuffer(buf, options = {}) {
         quantity: c.quantity,
       })),
       accessories: accessories.map((a) => ({
+        seqNo: a.seqNo,
         erpCode: a.erpCode,
+        colorNo: a.colorNo,
         accessoryName: a.accessoryName,
         usageQty: a.usageQty,
         wastage: a.wastage,

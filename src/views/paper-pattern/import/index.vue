@@ -5,10 +5,9 @@
         <span class="page-title">纸格资料导入</span>
       </template>
       <p class="page-desc">
-        流程：选择 Excel → 上传并解析 → 顶部在「基础资料确认区」核对或修改导入类型、厂款号、组别、客款号、颜色编码 → 可查看
-        <strong>Material 列表</strong>（材料单位、损耗等）并进入 <strong>ERP 物料校验工作台</strong> →
-        系统根据「导入类型 + 厂款号 + 颜色编码」实时生成主 BOM 与 CUT 编码预览。确认无误后可<strong>正式导入</strong>写入
-        Bom_000（主 BOM + CUT，事务）。客款号默认读 L2；组别优先读 M2，若 M2 为空则在前 10 行识别「组别」标签并取右侧单元格。
+        流程：选择 Excel → 上传并解析 → 按 Excel <strong>第 4 行 N 列起横向</strong>识别多款颜色，每色一块「基础资料确认区」→
+        <strong>Material 列表</strong>与 <strong>ERP 物料校验工作台</strong> → CUT 预览可下拉切换颜色。
+        <strong>正式导入</strong>按解析出的<strong>全部颜色</strong>同步写入（单事务）。客款号默认 L2；组别优先 M2。
       </p>
 
       <el-divider content-position="left">模板下载</el-divider>
@@ -49,19 +48,33 @@
           </ul>
         </el-alert>
 
+        <div class="confirm-toolbar">
+          <el-button
+            type="primary"
+            :disabled="!liveMainBomCodeForCommit || commitLoading"
+            :loading="commitLoading"
+            @click="onCommitBom000"
+          >
+            正式导入
+          </el-button>
+          <el-button plain @click="hideBasicConfirmArea = !hideBasicConfirmArea">
+            {{ hideBasicConfirmArea ? '显示各款颜色资料' : '隐藏各款颜色资料' }}
+          </el-button>
+          <el-button plain @click="hideMaterialTable = !hideMaterialTable">
+            {{ hideMaterialTable ? '显示物料信息' : '隐藏物料信息' }}
+          </el-button>
+          <el-button plain @click="hideCutPreviewTable = !hideCutPreviewTable">
+            {{ hideCutPreviewTable ? '显示 CUT 预览' : '隐藏 CUT 预览' }}
+          </el-button>
+        </div>
+
         <el-divider content-position="left">基础资料确认区</el-divider>
-        <p class="confirm-desc">
-          以下为 Excel 解析后的默认值，可直接修改；其中<strong>导入类型</strong>、<strong>厂款号</strong>、<strong>颜色编码</strong>任一变更时，下方主
-          BOM 与 CUT 编码会实时重算（客款号、组别不参与编码）。客款号默认来自 <strong>L2</strong>；组别优先
-        <strong>M2</strong>，否则由表头「组别」标签行解析。
-        </p>
-        <div v-if="importTypesError" class="hint err-inline">{{ importTypesError }}</div>
-        <el-row :gutter="16" class="confirm-grid">
+        <el-row :gutter="16" class="global-import-type-row">
           <el-col :xs="24" :sm="12" :md="8" :lg="6">
             <div class="form-field">
-              <div class="form-label">导入类型</div>
+              <div class="form-label">导入类型（全部颜色共用）</div>
               <el-select
-                v-model="basicForm.importTypeFlag5"
+                v-model="sharedImportTypeFlag5"
                 placeholder="请选择"
                 filterable
                 clearable
@@ -77,98 +90,122 @@
               </el-select>
             </div>
           </el-col>
-          <el-col :xs="24" :sm="12" :md="8" :lg="6">
-            <div class="form-field">
-              <div class="form-label">厂款号</div>
-              <el-input v-model="basicForm.factoryStyleNo" clearable class="field-control" placeholder="如 PQ-2803H1（模板 N2）" />
-            </div>
-          </el-col>
-          <el-col :xs="24" :sm="12" :md="8" :lg="6">
-            <div class="form-field">
-              <div class="form-label">组别</div>
-              <el-input
-                v-model="basicForm.groupLabel"
-                clearable
-                class="field-control"
-                placeholder="优先 M2，否则「组别」右侧"
-              />
-            </div>
-          </el-col>
-          <el-col :xs="24" :sm="12" :md="8" :lg="6">
-            <div class="form-field">
-              <div class="form-label">客款号</div>
-              <el-input
-                v-model="basicForm.customerStyleNo"
-                clearable
-                class="field-control"
-                placeholder="默认 L2，如 -BV2960B2A"
-              />
-            </div>
-          </el-col>
-          <el-col :xs="24" :sm="12" :md="8" :lg="6">
-            <div class="form-field">
-              <div class="form-label">颜色编码</div>
-              <el-input v-model="basicForm.colorNo" clearable class="field-control" placeholder="如 N-TEST" />
-            </div>
-          </el-col>
-          <el-col :xs="24" :sm="12" :md="16" :lg="12">
-            <div class="form-field">
-              <div class="form-label">样品名称（仅资料确认，不写入 Bom_000）</div>
-              <el-input
-                v-model="basicForm.sampleName"
-                clearable
-                class="field-control"
-                placeholder="默认取 Excel「样品名称」；正式导入时主 BOM 的 kcaa02 为导入类型名称（Bom_code.flag1）"
-              />
-            </div>
-          </el-col>
         </el-row>
-        <p class="norm-hint">
-          编码用厂款号（已去掉 *、空格、中划线）：<code>{{ styleNoNormalizedForCode || '—' }}</code>
-        </p>
+        <div v-if="importTypesError" class="hint err-inline global-import-type-err">{{ importTypesError }}</div>
 
-        <div class="fold-toolbar">
-          <el-button
-            type="primary"
-            :disabled="!liveMainBomCode || commitLoading"
-            :loading="commitLoading"
-            @click="onCommitBom000"
+        <div v-show="!hideBasicConfirmArea">
+          <p class="confirm-desc">
+            颜色编码自 Excel <strong>第 4 行 N 列</strong>起向右识别（如 N4、O4）。顶部导入类型修改后同步到全部颜色；各款可分别改厂款号、颜色编码等。
+            CUT 预览用下拉切换颜色。正式导入将写入<strong>全部</strong>已识别颜色。
+          </p>
+          <div
+            v-for="(block, blockIdx) in basicFormList"
+            :key="`color-block-${blockIdx}-${block.colorNo}`"
+            class="color-confirm-block"
           >
-            正式导入
-          </el-button>
-          <el-button plain @click="hideMaterialTable = !hideMaterialTable">
-            {{ hideMaterialTable ? '显示物料信息' : '隐藏物料信息' }}
-          </el-button>
-          <el-button plain @click="hideCutPreviewTable = !hideCutPreviewTable">
-            {{ hideCutPreviewTable ? '显示基础信息' : '隐藏基础信息' }}
-          </el-button>
+            <el-divider v-if="blockIdx > 0" />
+            <h4 class="color-block-title">
+              第 {{ blockIdx + 1 }} 款颜色
+              <span v-if="block.colorNo" class="color-block-tag">{{ block.colorNo }}</span>
+            </h4>
+            <el-row :gutter="16" class="confirm-grid">
+              <el-col :xs="24" :sm="12" :md="8" :lg="6">
+                <div class="form-field">
+                  <div class="form-label">厂款号</div>
+                  <el-input
+                    v-model="block.factoryStyleNo"
+                    clearable
+                    class="field-control"
+                    placeholder="如 PQ-2803H1（模板 N2）"
+                  />
+                </div>
+              </el-col>
+              <el-col :xs="24" :sm="12" :md="8" :lg="6">
+                <div class="form-field">
+                  <div class="form-label">组别</div>
+                  <el-input
+                    v-model="block.groupLabel"
+                    clearable
+                    class="field-control"
+                    placeholder="优先 M2，否则「组别」右侧"
+                  />
+                </div>
+              </el-col>
+              <el-col :xs="24" :sm="12" :md="8" :lg="6">
+                <div class="form-field">
+                  <div class="form-label">客款号</div>
+                  <el-input
+                    v-model="block.customerStyleNo"
+                    clearable
+                    class="field-control"
+                    placeholder="默认 L2，如 -BV2960B2A"
+                  />
+                </div>
+              </el-col>
+              <el-col :xs="24" :sm="12" :md="8" :lg="6">
+                <div class="form-field">
+                  <div class="form-label">颜色编码</div>
+                  <el-input v-model="block.colorNo" clearable class="field-control" placeholder="如 G-TEST" />
+                </div>
+              </el-col>
+              <el-col :xs="24" :sm="12" :md="16" :lg="12">
+                <div class="form-field">
+                  <div class="form-label">样品名称（仅资料确认，不写入 Bom_000）</div>
+                  <el-input
+                    v-model="block.sampleName"
+                    clearable
+                    class="field-control"
+                    placeholder="默认取 Excel「样品名称」；正式导入时主 BOM 的 kcaa02 为导入类型名称（Bom_code.flag1）"
+                  />
+                </div>
+              </el-col>
+            </el-row>
+            <p class="norm-hint block-norm-hint">
+              编码用厂款号：<code>{{ styleNoNormalizedForBlock(block) || '—' }}</code>
+              · 主 BOM：<code>{{ mainBomCodeForBlock(block) || '（请补全导入类型、厂款号、颜色编码）' }}</code>
+            </p>
+          </div>
         </div>
 
         <el-alert type="error" show-icon :closable="false" class="danger-zone">
-          <template #title>测试：按主 BOM 物理清理库内数据</template>
+          <template #title>测试：物理清理纸格导入数据（安全范围）</template>
           <div class="danger-zone-body">
             <p>
-              将<strong>物理删除</strong>指定主 BOM（Bom_000.kcaa01）及所有下属 CUT（<code>CUT-类型厂款号/颜色&lt;…&gt;</code>）对应的
-              <strong>Bom_parts</strong> 与 <strong>Bom_000</strong> 行（先删明细再删主档；与纸格生成编码规则一致）。不涉及 bom_cost
-              等其它表；若外键阻止删除，请根据报错在库中处理依赖。
+              仅删除<strong>精确指定</strong>的主 BOM 颜色，<strong>不会</strong>按款号
+              <code>BAG-厂款号/%</code> 整款删除，避免误删库内其它颜色（如历史 b-TEST、red-TEST）。
+              删除范围：该色主 BOM、该色全部 CUT、关联 <strong>Bom_parts</strong> 与 <strong>Bom_000</strong>。不涉及
+              bom_cost。
             </p>
             <div class="danger-row">
               <el-input
-                v-model="deleteMainKcaa01Input"
+                v-model="deleteSystemcodeInput"
                 clearable
                 class="danger-input"
-                placeholder="主 BOM 编码，如 BAG-PQ2803H1/R-TEST"
+                placeholder="bom_000.systemcode 或 Bom_parts.kcac01"
               />
-              <el-button text type="primary" @click="fillDeleteMainKcaa01FromPreview">填入当前主 BOM</el-button>
               <el-button
                 type="danger"
                 plain
-                :disabled="deleteBomTreeLoading || !String(deleteMainKcaa01Input || '').trim()"
+                :disabled="deleteBomTreeLoading || !String(deleteSystemcodeInput || '').trim()"
                 :loading="deleteBomTreeLoading"
-                @click="onDeleteBomTree"
+                @click="onDeleteBomTreeBySystemcode"
               >
-                物理删除该主 BOM 及下属 CUT
+                删除该 systemcode 对应的一色
               </el-button>
+            </div>
+            <div class="danger-row danger-row-second">
+              <el-button
+                type="danger"
+                plain
+                :disabled="deleteBomTreeLoading || !parsedMainBomCodesForDelete.length"
+                :loading="deleteBomTreeLoading"
+                @click="onDeleteParsedColorBomTrees"
+              >
+                删除本次解析的全部主 BOM（{{ parsedMainBomCodesForDelete.length }} 色）
+              </el-button>
+              <span v-if="parsedMainBomCodesForDelete.length" class="danger-hint-list">
+                {{ parsedMainBomCodesForDelete.join('、') }}
+              </span>
             </div>
           </div>
         </el-alert>
@@ -211,9 +248,20 @@
 
         <el-divider content-position="left">编码预览（实时）</el-divider>
         <div class="code-preview-block">
+          <div v-if="basicFormList.length > 1" class="cut-preview-color-row">
+            <span class="k">CUT 预览颜色</span>
+            <el-select v-model="cutPreviewColorNo" class="cut-preview-color-select" filterable>
+              <el-option
+                v-for="b in basicFormList"
+                :key="b.colorNo || 'empty'"
+                :label="b.colorNo || '（未填）'"
+                :value="b.colorNo"
+              />
+            </el-select>
+          </div>
           <div class="main-bom-line">
             <span class="k">主 BOM 编码</span>
-            <span class="v">{{ liveMainBomCode || '（请补全导入类型、厂款号、颜色编码）' }}</span>
+            <span class="v">{{ liveMainBomCodeForCutPreview || '（请补全导入类型、厂款号、颜色编码）' }}</span>
           </div>
           <div v-show="!hideCutPreviewTable">
             <h4 class="sub-title sm">CUT 预览</h4>
@@ -237,6 +285,8 @@
 
         <h3 class="sub-title">Accessory 列表</h3>
         <el-table :data="parseResult.accessories" border size="small" class="preview-table" empty-text="无">
+          <el-table-column prop="seqNo" label="序号" width="72" align="center" />
+          <el-table-column prop="colorNo" label="颜色" width="100" show-overflow-tooltip />
           <el-table-column prop="accessoryName" label="名称" min-width="140" show-overflow-tooltip />
           <el-table-column prop="erpCode" label="ERP 编码" min-width="220" show-overflow-tooltip />
           <el-table-column prop="usageQty" label="用量" min-width="100" align="right" />
@@ -250,7 +300,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -290,45 +340,50 @@ const importTypeOptions = ref([])
 const importTypesLoading = ref(false)
 const importTypesError = ref('')
 
-/** 基础资料确认（与解析默认值同步，可改） */
-const basicForm = reactive({
-  /** Bom_code.flag5 */
-  importTypeFlag5: '',
-  /** 厂款号展示/编辑（可含横线、空格等，编码时标准化） */
-  factoryStyleNo: '',
-  /** 组别（资料 M2，不参与 BOM/CUT 编码） */
-  groupLabel: '',
-  customerStyleNo: '',
-  /** 颜色编码（参与 BOM/CUT；原「色号」逻辑） */
-  colorNo: '',
-  /** Excel 样品名称，仅页面参考；正式导入主 BOM kcaa02 使用 Bom_code.flag1 */
-  sampleName: '',
-})
+/** 基础资料确认块（每色一块） */
+/** @type {import('vue').Ref<Array<{ importTypeFlag5: string, factoryStyleNo: string, groupLabel: string, customerStyleNo: string, colorNo: string, sampleName: string }>>} */
+const basicFormList = ref([])
+/** 全部颜色共用的导入类型 */
+const sharedImportTypeFlag5 = ref('')
+/** CUT 预览所用颜色（下拉，默认第一款） */
+const cutPreviewColorNo = ref('')
 
 /** @type {import('vue').Ref<null | { mainBom: object, cuts: any[], materials: any[], accessories: any[], warnings: string[] }>} */
 const parseResult = ref(null)
-/** 折叠：仅隐藏 Material 表格区域（标题与 ERP 工作台按钮仍显示） */
+/** 折叠：隐藏各款颜色资料块 */
+const hideBasicConfirmArea = ref(false)
+/** 折叠：仅隐藏 Material 表格区域 */
 const hideMaterialTable = ref(false)
-/** 折叠：仅隐藏 CUT 预览标题与表格（主 BOM 编码行仍显示） */
+/** 折叠：仅隐藏 CUT 预览表格 */
 const hideCutPreviewTable = ref(false)
 const commitLoading = ref(false)
-/** 测试：按主 BOM 物理删除 */
-const deleteMainKcaa01Input = ref('')
+/** 测试：按 systemcode / 解析色列表物理删除 */
+const deleteSystemcodeInput = ref('')
 const deleteBomTreeLoading = ref(false)
 
-function fillDeleteMainKcaa01FromPreview() {
-  deleteMainKcaa01Input.value = liveMainBomCode.value || ''
+const parsedMainBomCodesForDelete = computed(() => {
+  return basicFormList.value.map((b) => mainBomCodeForBlock(b)).filter(Boolean)
+})
+
+function formatDeleteBomTreeSuccessMessage(d) {
+  const nColor = Array.isArray(d?.mainKcaa01s) ? d.mainKcaa01s.length : d?.mainKcaa01 ? 1 : 0
+  const mains =
+    Array.isArray(d?.mainKcaa01s) && d.mainKcaa01s.length
+      ? d.mainKcaa01s.join('、')
+      : String(d?.mainKcaa01 ?? '')
+  const cutHint = d?.cutKcaa01Like ? `（CUT 匹配示例：${d.cutKcaa01Like}）` : ''
+  return `已删除 ${nColor} 色：${mains}；Bom_parts ${d?.bomPartsDeleted ?? 0} 行，Bom_000 ${d?.bom000Deleted ?? 0} 行${cutHint}`
 }
 
-async function onDeleteBomTree() {
-  const code = String(deleteMainKcaa01Input.value ?? '').trim()
+async function onDeleteBomTreeBySystemcode() {
+  const code = String(deleteSystemcodeInput.value ?? '').trim()
   if (!code) {
-    ElMessage.warning('请填写主 BOM 编码')
+    ElMessage.warning('请填写 systemcode 或 Bom_parts.kcac01')
     return
   }
   try {
     await ElMessageBox.confirm(
-      `将物理删除主 BOM「${code}」及所有匹配的 CUT 主档与全部 Bom_parts 明细（不可恢复）。是否继续？`,
+      `将根据 systemcode 解析出对应「一个」主 BOM 颜色并物理删除（不含同厂款其它颜色）。\n编码：${code}\n是否继续？`,
       '危险操作',
       { type: 'error', confirmButtonText: '确定删除', cancelButtonText: '取消' },
     )
@@ -337,16 +392,45 @@ async function onDeleteBomTree() {
   }
   deleteBomTreeLoading.value = true
   try {
-    const res = await axios.post('/api/paper-pattern/import/delete-bom-tree', { mainKcaa01: code })
+    const res = await axios.post('/api/paper-pattern/import/delete-bom-tree', { systemcode: code })
     const data = res?.data
     if (!data?.success) {
       ElMessage.error(String(data?.message || '删除失败'))
       return
     }
-    const d = data.data || {}
-    ElMessage.success(
-      `已删除：Bom_parts ${d.bomPartsDeleted ?? 0} 行，Bom_000 ${d.bom000Deleted ?? 0} 行（CUT 匹配：${d.cutKcaa01Like ?? '—'}）`,
+    ElMessage.success(formatDeleteBomTreeSuccessMessage(data.data || {}))
+  } catch (e) {
+    const msg = e?.response?.data?.message || e?.message || '删除失败'
+    ElMessage.error(String(msg))
+  } finally {
+    deleteBomTreeLoading.value = false
+  }
+}
+
+async function onDeleteParsedColorBomTrees() {
+  const mains = parsedMainBomCodesForDelete.value
+  if (!mains.length) {
+    ElMessage.warning('请先完成解析并补全各颜色主 BOM 编码')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `将仅删除以下 ${mains.length} 个主 BOM 及其 CUT、Bom_parts（不会删除未列出的其它颜色）：\n${mains.join('\n')}\n是否继续？`,
+      '危险操作',
+      { type: 'error', confirmButtonText: '确定删除', cancelButtonText: '取消' },
     )
+  } catch {
+    return
+  }
+  deleteBomTreeLoading.value = true
+  try {
+    const res = await axios.post('/api/paper-pattern/import/delete-bom-tree', { mainKcaa01s: mains })
+    const data = res?.data
+    if (!data?.success) {
+      ElMessage.error(String(data?.message || '删除失败'))
+      return
+    }
+    ElMessage.success(formatDeleteBomTreeSuccessMessage(data.data || {}))
   } catch (e) {
     const msg = e?.response?.data?.message || e?.message || '删除失败'
     ElMessage.error(String(msg))
@@ -384,35 +468,103 @@ async function loadImportTypes() {
   }
 }
 
-/** 从解析结果填充确认区 */
-function hydrateBasicFormFromParseMain(main) {
-  const m = main || {}
-  basicForm.importTypeFlag5 = String(m.importTypeFlag5 ?? '').trim()
-  const raw = String(m.styleNoRaw ?? '').trim()
-  const sn = String(m.styleNo ?? m.styleNoNormalized ?? '').trim()
-  basicForm.factoryStyleNo = raw || sn
-  basicForm.groupLabel = String(m.groupLabel ?? '').trim()
-  basicForm.customerStyleNo = String(m.customerStyleNo ?? '').trim()
-  basicForm.colorNo = String(m.colorNo ?? '').trim()
-  basicForm.sampleName = String(m.sampleName ?? '').trim()
+function createBasicFormBlockFromShared(shared, colorNo) {
+  return {
+    importTypeFlag5: String(shared.importTypeFlag5 ?? '').trim(),
+    factoryStyleNo: String(shared.factoryStyleNo ?? '').trim(),
+    groupLabel: String(shared.groupLabel ?? '').trim(),
+    customerStyleNo: String(shared.customerStyleNo ?? '').trim(),
+    colorNo: String(colorNo ?? '').trim(),
+    sampleName: String(shared.sampleName ?? '').trim(),
+  }
 }
 
-const styleNoNormalizedForCode = computed(() => normalizeFactoryStyleForEncoding(basicForm.factoryStyleNo))
+function syncImportTypeFlag5ToAllBlocks(flag5) {
+  const v = String(flag5 ?? '').trim()
+  for (const block of basicFormList.value) {
+    block.importTypeFlag5 = v
+  }
+}
 
-const liveMainBomCode = computed(() =>
-  buildMainBomCode({
-    importTypeFlag5: basicForm.importTypeFlag5,
-    styleNo: styleNoNormalizedForCode.value,
-    colorNo: basicForm.colorNo,
-  }),
-)
+watch(sharedImportTypeFlag5, (v) => {
+  syncImportTypeFlag5ToAllBlocks(v)
+})
+
+/** 从解析结果填充多块确认区 */
+function hydrateBasicFormListFromParseMain(main) {
+  const m = main || {}
+  const raw = String(m.styleNoRaw ?? '').trim()
+  const sn = String(m.styleNo ?? m.styleNoNormalized ?? '').trim()
+  const shared = {
+    importTypeFlag5: String(m.importTypeFlag5 ?? '').trim(),
+    factoryStyleNo: raw || sn,
+    groupLabel: String(m.groupLabel ?? '').trim(),
+    customerStyleNo: String(m.customerStyleNo ?? '').trim(),
+    sampleName: String(m.sampleName ?? '').trim(),
+  }
+  sharedImportTypeFlag5.value = shared.importTypeFlag5
+  const fromApi = Array.isArray(m.colorNos) ? m.colorNos.map((c) => String(c ?? '').trim()).filter(Boolean) : []
+  const colorNos = fromApi.length > 0 ? fromApi : m.colorNo ? [String(m.colorNo).trim()] : []
+  if (colorNos.length === 0) {
+    basicFormList.value = [createBasicFormBlockFromShared(shared, '')]
+    cutPreviewColorNo.value = ''
+    return
+  }
+  basicFormList.value = colorNos.map((col) => createBasicFormBlockFromShared(shared, col))
+  cutPreviewColorNo.value = colorNos[0]
+}
+
+function styleNoNormalizedForBlock(block) {
+  return normalizeFactoryStyleForEncoding(block?.factoryStyleNo ?? '')
+}
+
+function mainBomCodeForBlock(block) {
+  return buildMainBomCode({
+    importTypeFlag5: block?.importTypeFlag5 ?? '',
+    styleNo: styleNoNormalizedForBlock(block),
+    colorNo: block?.colorNo ?? '',
+  })
+}
+
+const commitBasicForm = computed(() => basicFormList.value[0] ?? null)
+
+const allBlocksReadyForCommit = computed(() => {
+  const list = basicFormList.value
+  if (!list.length) return false
+  return list.every((b) => Boolean(mainBomCodeForBlock(b)))
+})
+
+const liveMainBomCodeForCommit = computed(() => {
+  if (!allBlocksReadyForCommit.value) return ''
+  const list = basicFormList.value
+  if (list.length === 1) return mainBomCodeForBlock(list[0])
+  return `${mainBomCodeForBlock(list[0])} 等 ${list.length} 色`
+})
+
+const cutPreviewBasicForm = computed(() => {
+  const list = basicFormList.value
+  if (!list.length) return null
+  const key = String(cutPreviewColorNo.value ?? '').trim()
+  if (key) {
+    const hit = list.find((b) => String(b.colorNo ?? '').trim() === key)
+    if (hit) return hit
+  }
+  return list[0]
+})
+
+const liveMainBomCodeForCutPreview = computed(() => {
+  const block = cutPreviewBasicForm.value
+  return block ? mainBomCodeForBlock(block) : ''
+})
 
 const liveCutsPreview = computed(() => {
   const cuts = parseResult.value?.cuts
   if (!Array.isArray(cuts)) return []
-  const flag5 = basicForm.importTypeFlag5
-  const sn = styleNoNormalizedForCode.value
-  const col = basicForm.colorNo
+  const block = cutPreviewBasicForm.value
+  if (!block) return []
+  const flag5 = block.importTypeFlag5
+  const sn = styleNoNormalizedForBlock(block)
+  const col = block.colorNo
   return cuts.map((c) => ({
     cutSeq: c.cutSeq,
     cutNameDisplay: formatPaperPatternCutTextDisplay(c.cutName),
@@ -603,8 +755,8 @@ function triggerPickFile() {
   fileInputRef.value?.click()
 }
 
-function resolveImportTypeFlag1ForCommit() {
-  const f5 = String(basicForm.importTypeFlag5 ?? '').trim()
+function resolveImportTypeFlag1ForCommit(block) {
+  const f5 = String(block?.importTypeFlag5 ?? '').trim()
   const hit = importTypeOptions.value.find((it) => String(it?.flag5 ?? '').trim() === f5)
   return String(hit?.flag1 ?? '').trim()
 }
@@ -619,50 +771,85 @@ function buildMaterialsPayloadForCommit() {
         groupNo: row.groupNo,
         materialName: row.materialName,
         materialCode: row.materialCode,
+        codesByColor: Array.isArray(b.codesByColor) ? b.codesByColor : [],
         remark: b.remark ?? '',
         usageQty: b.usageQty ?? '',
         wastageFraction: row.wastageFraction,
       }
     })
   }
-  return Array.isArray(base) ? base.map((m) => ({ ...m })) : []
+  return Array.isArray(base)
+    ? base.map((m) => ({
+        ...m,
+        codesByColor: Array.isArray(m.codesByColor) ? m.codesByColor : [],
+      }))
+    : []
 }
 
-/** 正式导入请求体（不含 overwrite） */
+/** 正式导入请求体（多色：colorNos + 共享 cuts/materials；Material 子件按 codesByColor 写入） */
 function buildCommitPayloadBody() {
+  const list = basicFormList.value
+  const block = list[0] ?? null
+  if (!block) {
+    return {
+      importTypeFlag5: '',
+      importTypeFlag1: '',
+      factoryStyleNo: '',
+      colorNo: '',
+      colorNos: [],
+      customerStyleNo: '',
+      groupLabel: '',
+      cuts: [],
+      materials: [],
+      accessories: [],
+    }
+  }
+  const colorNos = list.map((b) => String(b.colorNo ?? '').trim()).filter(Boolean)
   return {
-    importTypeFlag5: basicForm.importTypeFlag5,
-    importTypeFlag1: resolveImportTypeFlag1ForCommit(),
-    factoryStyleNo: basicForm.factoryStyleNo,
-    colorNo: basicForm.colorNo,
-    customerStyleNo: basicForm.customerStyleNo,
-    groupLabel: basicForm.groupLabel,
-    cuts: parseResult.value.cuts,
+    importTypeFlag5: block.importTypeFlag5,
+    importTypeFlag1: resolveImportTypeFlag1ForCommit(block),
+    factoryStyleNo: block.factoryStyleNo,
+    colorNo: colorNos[0] ?? '',
+    colorNos,
+    customerStyleNo: block.customerStyleNo,
+    groupLabel: block.groupLabel,
+    cuts: parseResult.value?.cuts ?? [],
     materials: buildMaterialsPayloadForCommit(),
-    accessories: parseResult.value.accessories || [],
+    accessories: parseResult.value?.accessories || [],
   }
 }
 
 function showCommitSuccessMessage(data) {
-  const code = data?.mainBomCode ?? ''
+  const codes = Array.isArray(data?.mainBomCodes) ? data.mainBomCodes : []
+  const code =
+    codes.length > 1 ? `${codes[0]} 等 ${codes.length} 色` : String(data?.mainBomCode ?? codes[0] ?? '')
+  const nColor = data?.colorCount ?? (codes.length || 1)
   const nCut = data?.cutCount ?? 0
   const nPart = data?.bomPartsInserted ?? 0
   const rep = data?.overwriteReplaced
   let extra = ''
-  if (rep && (rep.bom000Deleted > 0 || rep.bomPartsDeleted > 0)) {
-    extra = `（已覆盖旧数据：删除 Bom_000 ${rep.bom000Deleted} 条、Bom_parts ${rep.bomPartsDeleted} 行）`
+  const repList = Array.isArray(rep) ? rep : rep ? [rep] : []
+  if (repList.length > 0) {
+    const bom000Del = repList.reduce((s, r) => s + (Number(r?.bom000Deleted) || 0), 0)
+    const partsDel = repList.reduce((s, r) => s + (Number(r?.bomPartsDeleted) || 0), 0)
+    if (bom000Del > 0 || partsDel > 0) {
+      extra = `（已覆盖旧数据：删除 Bom_000 ${bom000Del} 条、Bom_parts ${partsDel} 行）`
+    }
   }
-  ElMessage.success(`导入成功。主 BOM：${code}；CUT 数量：${nCut}；Bom_parts：${nPart} 行${extra}`)
+  ElMessage.success(
+    `导入成功。主 BOM：${code}（${nColor} 色）；CUT 合计：${nCut}；Bom_parts：${nPart} 行${extra}`,
+  )
 }
 
 async function onCommitBom000() {
-  if (!parseResult.value || !liveMainBomCode.value) {
-    ElMessage.warning('请先完成解析，并确保导入类型、厂款号、颜色编码可生成主 BOM 编码')
+  if (!parseResult.value || !allBlocksReadyForCommit.value) {
+    ElMessage.warning('请先完成解析，并确保各颜色块的导入类型、厂款号、颜色编码均可生成主 BOM 编码')
     return
   }
+  const nColor = basicFormList.value.length
   try {
     await ElMessageBox.confirm(
-      '将把主 BOM、全部 CUT 写入 Bom_000，并写入 Bom_parts（单事务，失败全部回滚）。是否继续？',
+      `将把 ${nColor} 个主 BOM、各色全套 CUT 写入 Bom_000，并写入 Bom_parts（Material 子件按颜色列全码；单事务，失败全部回滚）。是否继续？`,
       '正式导入',
       { type: 'warning', confirmButtonText: '确定导入', cancelButtonText: '取消' },
     )
@@ -686,10 +873,13 @@ async function onCommitBom000() {
   } catch (e) {
     const d = e?.response?.data
     if (d?.code === 'MAIN_BOM_EXISTS') {
-      const codeHint = String(d?.data?.mainBomCode ?? liveMainBomCode.value ?? '').trim()
+      const codeHint = String(d?.data?.mainBomCode ?? liveMainBomCodeForCommit.value ?? '').trim()
       try {
+        const codes = Array.isArray(d?.data?.mainBomCodes) ? d.data.mainBomCodes : [codeHint]
+        const hint =
+          codes.length > 1 ? `${codes.join('、')}` : codeHint
         await ElMessageBox.confirm(
-          `Bom_000 在册记录中已存在主 BOM「${codeHint}」。是否覆盖？\n将先物理删除该主 BOM、同批纸格 CUT 及关联 Bom_parts，再重新导入（仍为单事务，失败全部回滚）。`,
+          `Bom_000 在册记录中已存在主 BOM：${hint}。是否覆盖？\n将先物理删除对应主 BOM、CUT 及 Bom_parts，再重新导入（单事务，失败全部回滚）。`,
           '主 BOM 已存在',
           { type: 'warning', confirmButtonText: '覆盖并导入', cancelButtonText: '取消' },
         )
@@ -761,7 +951,7 @@ async function onUploadParse() {
     }
     hideMaterialTable.value = false
     hideCutPreviewTable.value = false
-    hydrateBasicFormFromParseMain(data.mainBom)
+    hydrateBasicFormListFromParseMain(data.mainBom)
   } catch (e) {
     const msg =
       e?.response?.data?.message ||
@@ -781,6 +971,57 @@ async function onUploadParse() {
 }
 .block-card {
   max-width: 1100px;
+}
+.confirm-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+}
+.global-import-type-row {
+  margin-bottom: 4px;
+}
+.global-import-type-err {
+  margin-bottom: 8px;
+}
+.color-confirm-block {
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+}
+.color-block-title {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+.color-block-tag {
+  margin-left: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--el-color-primary);
+}
+.block-norm-hint {
+  margin-top: 0;
+}
+.first-color-badge {
+  margin-left: 10px;
+  font-size: 12px;
+  color: var(--el-color-warning);
+}
+.cut-preview-color-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.cut-preview-color-row .k {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  flex-shrink: 0;
+}
+.cut-preview-color-select {
+  min-width: 160px;
 }
 .page-title {
   font-size: 18px;
@@ -865,6 +1106,16 @@ async function onUploadParse() {
   margin: 0 0 10px;
   font-size: 13px;
   line-height: 1.5;
+}
+.danger-row-second {
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.danger-hint-list {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.5;
+  word-break: break-all;
 }
 .danger-row {
   display: flex;

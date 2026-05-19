@@ -51,6 +51,51 @@ export function parsePaperPatternMainKcaa01ForDelete(mainRaw) {
 }
 
 /**
+ * 从 CUT 的 kcaa01 反推主 BOM kcaa01（与 buildCutCode / buildMainBomCode 一致）
+ * @param {string} cutRaw
+ * @returns {string | null}
+ */
+export function mainKcaa01FromPaperPatternCutKcaa01(cutRaw) {
+  const cutKcaa01 = normalizeErpCodeDisplay(cutRaw)
+  if (!cutKcaa01 || !cutKcaa01.toUpperCase().startsWith('CUT-')) return null
+  const body = cutKcaa01.slice(4)
+  const lt = body.indexOf('<')
+  if (lt <= 0) return null
+  const beforeLt = body.slice(0, lt).trim()
+  const slash = beforeLt.indexOf('/')
+  if (slash <= 0) return null
+  const typeAndStyle = beforeLt.slice(0, slash).trim()
+  const colorNo = beforeLt.slice(slash + 1).trim()
+  if (!typeAndStyle || !colorNo) return null
+  // 导入类型 flag5 通常 2–5 位；按短前缀优先匹配（BAG 先于 BAGPQ）
+  const lens = [3, 4, 5, 2, 6].filter((l) => l < typeAndStyle.length)
+  for (const len of lens) {
+    const prefix = typeAndStyle.slice(0, len)
+    const styleNo = typeAndStyle.slice(len)
+    if (!/^[A-Za-z][A-Za-z0-9]*$/.test(prefix) || !styleNo) continue
+    const candidate = `${prefix}-${styleNo}/${colorNo}`
+    if (parsePaperPatternMainKcaa01ForDelete(candidate)) return candidate
+  }
+  return null
+}
+
+/**
+ * 主 BOM 或 CUT 的 kcaa01 → 用于删除的「单色」主 BOM kcaa01
+ * @param {string} kcaa01Raw
+ * @returns {string | null}
+ */
+export function resolvePaperPatternMainKcaa01ForDeleteFromKcaa01(kcaa01Raw) {
+  const kcaa01 = normalizeErpCodeDisplay(kcaa01Raw)
+  if (!kcaa01) return null
+  if (kcaa01.toUpperCase().startsWith('CUT-')) {
+    return mainKcaa01FromPaperPatternCutKcaa01(kcaa01)
+  }
+  const asMain = parsePaperPatternMainKcaa01ForDelete(kcaa01)
+  if (asMain) return asMain.mainKcaa01
+  return null
+}
+
+/**
  * 与 buildCutCode 生成的 kcaa01 前缀匹配用 LIKE（已转义通配符）
  * @param {{ prefix: string, styleNo: string, colorNo: string }} p
  */
@@ -59,6 +104,26 @@ export function buildCutKcaa01LikePatternForDelete(p) {
   const es = escapeSqlServerLikeWildcards(p.styleNo)
   const ec = escapeSqlServerLikeWildcards(p.colorNo)
   return `CUT-${ep}${es}/${ec}<`
+}
+
+/**
+ * 规范化请求中的主 BOM 列表（去重、校验）
+ * @param {unknown} raw
+ * @returns {string[] | null}
+ */
+export function normalizeMainKcaa01ListForDelete(raw) {
+  const arr = Array.isArray(raw) ? raw : []
+  const out = []
+  const seen = new Set()
+  for (const item of arr) {
+    const parsed = parsePaperPatternMainKcaa01ForDelete(String(item ?? ''))
+    if (!parsed) return null
+    const key = parsed.mainKcaa01.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(parsed.mainKcaa01)
+  }
+  return out.length > 0 ? out : null
 }
 
 /**
@@ -114,37 +179,127 @@ export async function deletePaperPatternBomTreeByMainKcaa01InTx(tx, mainKcaa01Ra
 }
 
 /**
+ * 单事务内：按多个主 BOM kcaa01 依次删除（仅精确编码，不用款号 LIKE）
+ * @param {import('mssql').Transaction} tx
+ * @param {string[]} mainKcaa01List
+ */
+export async function deletePaperPatternBomTreesByMainKcaa01ListInTx(tx, mainKcaa01List) {
+  /** @type {Array<{ mainKcaa01: string, cutKcaa01Like: string, bomPartsDeleted: number, bom000Deleted: number }>} */
+  const perColor = []
+  let bomPartsDeleted = 0
+  let bom000Deleted = 0
+  for (const main of mainKcaa01List) {
+    const rep = await deletePaperPatternBomTreeByMainKcaa01InTx(tx, main)
+    perColor.push(rep)
+    bomPartsDeleted += rep.bomPartsDeleted
+    bom000Deleted += rep.bom000Deleted
+  }
+  return {
+    mode: 'mainKcaa01List',
+    mainKcaa01s: perColor.map((r) => r.mainKcaa01),
+    perColor,
+    bomPartsDeleted,
+    bom000Deleted,
+  }
+}
+
+/**
+ * 由 bom_000.systemcode（或 Bom_parts.kcac01）解析出待删的「单色」主 BOM kcaa01
+ * @param {import('mssql').ConnectionPool | import('mssql').Transaction} db
+ * @param {string} systemcodeRaw
+ */
+export async function resolveMainKcaa01ForDeleteBySystemcode(db, systemcodeRaw) {
+  const systemcode = String(systemcodeRaw ?? '').trim()
+  if (!systemcode) return null
+  const rq = db instanceof sql.Transaction ? new sql.Request(db) : new sql.Request(db)
+  rq.input('systemcode', sql.NVarChar(100), systemcode)
+  const rs = await rq.query(`
+    SELECT TOP 1
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(kcaa01, N'')))) AS kcaa01
+    FROM ${INV_BOM_MASTER_FROM}
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(systemcode, N'')))) = @systemcode
+  `)
+  const row = rs.recordset?.[0]
+  const kcaa01 = String(row?.kcaa01 ?? '').trim()
+  if (!kcaa01) return null
+  return resolvePaperPatternMainKcaa01ForDeleteFromKcaa01(kcaa01)
+}
+
+/**
  * POST /api/paper-pattern/import/delete-bom-tree
- * body: { mainKcaa01: string }
+ * body:
+ *   - { systemcode } 仅删该 systemcode 对应的一色（安全，不用款号 %）
+ *   - { mainKcaa01 } 仅删该主 BOM 一色（兼容）
+ *   - { mainKcaa01s: string[] } 仅删列表中的主 BOM（本次解析多色）
  */
 export async function handlePostPaperPatternImportDeleteBomTree(req, res) {
   try {
-    const mainRaw = String(req.body?.mainKcaa01 ?? '').trim()
-    const parsed = parsePaperPatternMainKcaa01ForDelete(mainRaw)
-    if (!parsed) {
+    const body = req.body ?? {}
+    const systemcode = String(body.systemcode ?? body.kcac01 ?? '').trim()
+    const mainList = normalizeMainKcaa01ListForDelete(body.mainKcaa01s)
+    const mainSingle = parsePaperPatternMainKcaa01ForDelete(String(body.mainKcaa01 ?? '').trim())
+
+    const pool = await getPool()
+    let deletePlan = null
+
+    if (mainList) {
+      deletePlan = { kind: 'list', mainKcaa01s: mainList }
+    } else if (systemcode) {
+      const mainFromSc = await resolveMainKcaa01ForDeleteBySystemcode(pool, systemcode)
+      if (!mainFromSc) {
+        res.status(400).json({
+          success: false,
+          message:
+            '未找到对应 Bom_000 主档，或 kcaa01 无法解析为主 BOM（请确认 systemcode / Bom_parts.kcac01 有效）',
+        })
+        return
+      }
+      deletePlan = {
+        kind: 'systemcode',
+        systemcode,
+        mainKcaa01: mainFromSc,
+      }
+    } else if (mainSingle) {
+      deletePlan = { kind: 'mainKcaa01', mainKcaa01: mainSingle.mainKcaa01 }
+    } else {
       res.status(400).json({
         success: false,
         message:
-          '主 BOM 编码无效：须为「导入类型-厂款号/颜色编码」形式（与页面生成的主 BOM 一致，如 BAG-PQ2803H1/R-TEST）；厂款号段不含「/」',
+          '请提供 systemcode（或 kcac01）、主 BOM 编码 mainKcaa01，或本次待删主 BOM 列表 mainKcaa01s',
       })
       return
     }
-    const pool = await getPool()
+
     const tx = new sql.Transaction(pool)
     await tx.begin()
     try {
-      const stats = await deletePaperPatternBomTreeByMainKcaa01InTx(tx, parsed.mainKcaa01)
+      let stats
+      if (deletePlan.kind === 'list') {
+        stats = await deletePaperPatternBomTreesByMainKcaa01ListInTx(tx, deletePlan.mainKcaa01s)
+      } else {
+        const mainKcaa01 =
+          deletePlan.kind === 'systemcode' ? deletePlan.mainKcaa01 : deletePlan.mainKcaa01
+        const one = await deletePaperPatternBomTreeByMainKcaa01InTx(tx, mainKcaa01)
+        stats = {
+          mode: deletePlan.kind,
+          systemcode: deletePlan.kind === 'systemcode' ? deletePlan.systemcode : undefined,
+          mainKcaa01: one.mainKcaa01,
+          mainKcaa01s: [one.mainKcaa01],
+          perColor: [one],
+          cutKcaa01Like: one.cutKcaa01Like,
+          bomPartsDeleted: one.bomPartsDeleted,
+          bom000Deleted: one.bom000Deleted,
+        }
+      }
       await tx.commit()
       console.log('[paper-pattern-import-delete-bom-tree]', JSON.stringify(stats))
       res.json({
         success: true,
-        message: '已按主 BOM 物理删除关联的 Bom_parts 与 Bom_000 行',
-        data: {
-          mainKcaa01: stats.mainKcaa01,
-          cutKcaa01Like: stats.cutKcaa01Like,
-          bomPartsDeleted: stats.bomPartsDeleted,
-          bom000Deleted: stats.bom000Deleted,
-        },
+        message:
+          deletePlan.kind === 'list'
+            ? `已按 ${stats.mainKcaa01s.length} 个主 BOM 物理删除（不含其它颜色）`
+            : '已按主 BOM 物理删除关联的 Bom_parts 与 Bom_000 行（仅该颜色）',
+        data: stats,
       })
     } catch (e) {
       try {

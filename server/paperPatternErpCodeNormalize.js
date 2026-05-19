@@ -27,3 +27,16 @@ export function erpCodeLookupKey(display) {
   if (!d) return ''
   return d.toLowerCase()
 }
+
+/**
+ * Material 预览：Excel N 列「电脑编码」→ ERP 基码（第一个 / 之前；无 / 则整串）
+ * @param {unknown} raw N 列单元格原文
+ * @returns {string}
+ */
+export function materialErpBaseFromExcelCell(raw) {
+  const full = normalizeErpCodeDisplay(raw)
+  if (!full) return ''
+  const slash = full.indexOf('/')
+  if (slash < 0) return full
+  return full.slice(0, slash).trim()
+}

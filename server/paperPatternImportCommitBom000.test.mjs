@@ -6,6 +6,7 @@ import {
   normalizeFactoryStyleForBomPathDisplay,
   PAPER_PATTERN_BOM000_PASS_DEFAULT,
   PAPER_PATTERN_BOM000_PASS_MAIN,
+  resolveCutsResolvedForColor,
 } from './paperPatternImportCommitBom000.js'
 
 test('formatPaperPatternCutKcaa03 四位小数与乘号', () => {
@@ -29,6 +30,19 @@ test('PAPER_PATTERN_BOM000_PASS_DEFAULT', () => {
 
 test('PAPER_PATTERN_BOM000_PASS_MAIN', () => {
   assert.equal(PAPER_PATTERN_BOM000_PASS_MAIN, '0')
+})
+
+test('resolveCutsResolvedForColor 按色生成 CUT 编码', () => {
+  const rows = resolveCutsResolvedForColor(
+    [{ cutSeq: '1-1', cutName: '前幅', length: '1', width: '2' }],
+    { importTypeFlag5: 'BAG', styleNo: 'PQ3672A1', colorNo: 'G-TEST' },
+  )
+  assert.equal(rows[0].cutCode, 'CUT-BAGPQ3672A1/G-TEST<1-1>')
+  const rows2 = resolveCutsResolvedForColor(
+    [{ cutSeq: '1-1', cutName: '前幅' }],
+    { importTypeFlag5: 'BAG', styleNo: 'PQ3672A1', colorNo: 'VE-TEST' },
+  )
+  assert.equal(rows2[0].cutCode, 'CUT-BAGPQ3672A1/VE-TEST<1-1>')
 })
 
 test('appendBom000PaperPatternAuditColumns 列存在时写入审计字段', () => {

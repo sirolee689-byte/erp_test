@@ -14,7 +14,15 @@ import {
 import { classifyErpCodesAgainstBom000 } from './paperPatternCheckMaterial.js'
 import { normalizeErpCodeDisplay } from './paperPatternErpCodeNormalize.js'
 import { deletePaperPatternBomTreeByMainKcaa01InTx } from './paperPatternImportDeleteBomTree.js'
+import { filterAccessoriesForCommitColor } from './paperPatternAccessoryParse.js'
 import { writePaperPatternBomPartsInTx } from './paperPatternImportCommitBomParts.js'
+import { fetchKcaa04Kcaa33ByKcaa01In } from './paperPatternMaterialBomFields.js'
+import {
+  collectMaterialErpCodesForAllColors,
+  resolveCommitColorNos,
+  resolveMaterialsForCommitColor,
+  validateMaterialCodesByColorForCommit,
+} from './paperPatternMaterialCodesByColor.js'
 
 const INV_BOM_MASTER_TABLE = (() => {
   const raw = String(process.env.INV_BOM_MASTER_TABLE ?? 'bom_000').trim()
@@ -393,9 +401,38 @@ async function insertBom000PaperPatternRow(tx, colset, row) {
 }
 
 /**
+ * 按颜色生成 CUT 写入行（cutCode 含 colorNo）
+ * @param {unknown[]} cutsIn
+ * @param {{ importTypeFlag5: string, styleNo: string, colorNo: string }} ctx
+ */
+export function resolveCutsResolvedForColor(cutsIn, ctx) {
+  const importTypeFlag5 = String(ctx.importTypeFlag5 ?? '').trim()
+  const styleNo = String(ctx.styleNo ?? '').trim()
+  const colorNo = String(ctx.colorNo ?? '').trim()
+  return (Array.isArray(cutsIn) ? cutsIn : []).map((c) => {
+    const cutSeq = String(c?.cutSeq ?? '').trim()
+    const cutName = String(c?.cutName ?? c?.cutNameDisplay ?? '').trim()
+    const cutCode = buildCutCode({ importTypeFlag5, styleNo, colorNo, cutSeq })
+    const kcaa03Cut = formatPaperPatternCutKcaa03(c?.length, c?.width)
+    return {
+      cutSeq,
+      cutName,
+      cutCode,
+      kcaa03Cut,
+      length: c?.length,
+      width: c?.width,
+      quantity: c?.quantity,
+      unitConsumption: c?.unitConsumption,
+      wastage: c?.wastage,
+      matching: c?.matching,
+    }
+  })
+}
+
+/**
  * POST /api/paper-pattern/import/commit-bom000
- * body: { importTypeFlag5, importTypeFlag1?, factoryStyleNo, colorNo, customerStyleNo, groupLabel, cuts[], materials[], accessories?, overwrite?: boolean }
- * overwrite 为 true 时：单事务内先按主 BOM 物理清理旧 Bom_000/Bom_parts（与同路径 delete-bom-tree 一致），再写入新数据。
+ * body: { importTypeFlag5, colorNos[]|colorNo, factoryStyleNo, cuts[], materials[]（含 codesByColor）, accessories?, overwrite? }
+ * 多色：单事务依次写入各主 BOM / CUT / Bom_parts（Material 子件按列全码；Accessory 按 colorNo 写入对应主 BOM）。
  */
 export async function handlePostPaperPatternImportCommitBom000(req, res) {
   try {
@@ -403,9 +440,9 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
     const overwrite = body.overwrite === true || body.overwrite === 'true' || body.overwrite === 1
     const importTypeFlag5 = String(body.importTypeFlag5 ?? '').trim()
     const factoryStyleNo = String(body.factoryStyleNo ?? '').trim()
-    const colorNo = String(body.colorNo ?? '').trim()
     const customerStyleNo = String(body.customerStyleNo ?? '').trim()
     const groupLabel = String(body.groupLabel ?? '').trim()
+    const colorNos = resolveCommitColorNos(body)
     const cutsIn = Array.isArray(body.cuts) ? body.cuts : []
     const accessoriesIn = Array.isArray(body.accessories) ? body.accessories : []
     const materialsIn = Array.isArray(body.materials) ? body.materials : []
@@ -419,8 +456,8 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
       res.status(400).json({ success: false, message: '厂款号无效或为空（编码用）' })
       return
     }
-    if (!colorNo) {
-      res.status(400).json({ success: false, message: '缺少颜色编码' })
+    if (colorNos.length === 0) {
+      res.status(400).json({ success: false, message: '缺少颜色编码（请确认第 4 行 N 列起已填写）' })
       return
     }
     if (cutsIn.length > 5000 || materialsIn.length > 8000 || accessoriesIn.length > 2000) {
@@ -428,9 +465,22 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
       return
     }
 
-    const mainKcaa01 = buildMainBomCode({ importTypeFlag5, styleNo, colorNo })
-    if (!mainKcaa01) {
-      res.status(400).json({ success: false, message: '无法生成主 BOM 编码' })
+    const mainBomCodes = colorNos.map((colorNo) =>
+      buildMainBomCode({ importTypeFlag5, styleNo, colorNo }),
+    )
+    if (mainBomCodes.some((c) => !c)) {
+      res.status(400).json({ success: false, message: '无法生成主 BOM 编码（请检查导入类型、厂款号、颜色编码）' })
+      return
+    }
+
+    const materialCellCheck = validateMaterialCodesByColorForCommit(materialsIn, colorNos)
+    if (!materialCellCheck.ok) {
+      res.status(400).json({
+        success: false,
+        code: materialCellCheck.code,
+        message: materialCellCheck.message,
+        data: materialCellCheck.data,
+      })
       return
     }
 
@@ -453,38 +503,17 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
       res.status(400).json({ success: false, message: '厂款号无效或为空（款色路径用）' })
       return
     }
-    const kcaa03PathDisplay = `${stylePathDisplay}/${colorNo}`
 
-    const cutsResolved = cutsIn.map((c) => {
-      const cutSeq = String(c?.cutSeq ?? '').trim()
-      const cutName = String(c?.cutName ?? '').trim()
-      const cutCode = buildCutCode({ importTypeFlag5, styleNo, colorNo, cutSeq })
-      const kcaa03Cut = formatPaperPatternCutKcaa03(c?.length, c?.width)
-      return {
-        cutSeq,
-        cutName,
-        cutCode,
-        kcaa03Cut,
-        length: c?.length,
-        width: c?.width,
-        quantity: c?.quantity,
-        unitConsumption: c?.unitConsumption,
-        wastage: c?.wastage,
-        matching: c?.matching,
-      }
-    })
-
-    const badCut = cutsResolved.find((x) => !x.cutCode || !x.cutSeq)
+    const cutsByColor = colorNos.map((colorNo) =>
+      resolveCutsResolvedForColor(cutsIn, { importTypeFlag5, styleNo, colorNo }),
+    )
+    const badCut = cutsByColor.flat().find((x) => !x.cutCode || !x.cutSeq)
     if (badCut) {
       res.status(400).json({ success: false, message: '存在无效的 CUT 行（缺少序号或无法生成 CUT 编码）' })
       return
     }
 
-    const erpCodesToVerify = []
-    for (const m of materialsIn) {
-      const code = normalizeErpCodeDisplay(m?.materialCode ?? '')
-      if (code) erpCodesToVerify.push(code)
-    }
+    const erpCodesToVerify = collectMaterialErpCodesForAllColors(materialsIn, colorNos)
     for (const a of accessoriesIn) {
       const code = normalizeErpCodeDisplay(a?.erpCode ?? '')
       if (code) erpCodesToVerify.push(code)
@@ -521,36 +550,52 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
     const addtime = formatBomColorcodeTimestamp()
     const clientIp = String(getRequestIp(req) ?? '').trim()
 
+    /** Material 全码 + Accessory：事务外批量查主档，避免多色重复扫库、且不含 CUT 编码 */
+    const erpCodesForBomFields = collectMaterialErpCodesForAllColors(materialsIn, colorNos)
+    for (const a of accessoriesIn) {
+      const code = normalizeErpCodeDisplay(a?.erpCode ?? '')
+      if (code) erpCodesForBomFields.push(code)
+    }
+    const bomMapPrefetched = await fetchKcaa04Kcaa33ByKcaa01In(pool, erpCodesForBomFields)
+
     const transaction = new sql.Transaction(pool)
     await transaction.begin()
     try {
-      const mainExists = (await countActiveKcaa01InTx(transaction, mainKcaa01)) > 0
-      if (mainExists && !overwrite) {
+      const existingMains = []
+      for (const mainKcaa01 of mainBomCodes) {
+        if ((await countActiveKcaa01InTx(transaction, mainKcaa01)) > 0) {
+          existingMains.push(mainKcaa01)
+        }
+      }
+      if (existingMains.length > 0 && !overwrite) {
         await transaction.rollback()
         res.status(400).json({
           success: false,
           code: 'MAIN_BOM_EXISTS',
-          message: `主BOM已存在：${mainKcaa01}。如需覆盖请先确认（将删除旧主 BOM、相关 CUT 及 Bom_parts 后重新导入）。`,
-          data: { mainBomCode: mainKcaa01 },
+          message: `主 BOM 已存在：${existingMains.join('、')}。如需覆盖请先确认（将删除各主 BOM、相关 CUT 及 Bom_parts 后重新导入）。`,
+          data: { mainBomCodes: existingMains, mainBomCode: existingMains[0] },
         })
         return
       }
 
-      /** @type {null | { mainKcaa01: string, cutKcaa01Like: string, bomPartsDeleted: number, bom000Deleted: number }} */
-      let overwriteReplaced = null
+      /** @type {Array<{ mainKcaa01: string, cutKcaa01Like: string, bomPartsDeleted: number, bom000Deleted: number }>} */
+      const overwriteReplacedList = []
       if (overwrite) {
-        overwriteReplaced = await deletePaperPatternBomTreeByMainKcaa01InTx(transaction, mainKcaa01)
-        console.log('[paper-pattern-import-commit] overwriteDeleted', JSON.stringify(overwriteReplaced))
+        for (const mainKcaa01 of mainBomCodes) {
+          const rep = await deletePaperPatternBomTreeByMainKcaa01InTx(transaction, mainKcaa01)
+          overwriteReplacedList.push(rep)
+          console.log('[paper-pattern-import-commit] overwriteDeleted', JSON.stringify(rep))
+        }
       }
 
-      const cutCodes = cutsResolved.map((c) => c.cutCode)
-      const existingCuts = await findExistingKcaa01AmongInTx(transaction, cutCodes)
+      const allCutCodes = cutsByColor.flat().map((c) => c.cutCode)
+      const existingCuts = await findExistingKcaa01AmongInTx(transaction, allCutCodes)
       if (existingCuts.length > 0) {
         await transaction.rollback()
         res.status(400).json({
           success: false,
           code: 'CUT_EXISTS',
-          message: `以下CUT编码已存在：${existingCuts.join('、')}`,
+          message: `以下 CUT 编码已存在：${existingCuts.join('、')}`,
           data: { existingCuts },
         })
         return
@@ -561,107 +606,123 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
         systemcodeSeq += 1
         return allocatePaperPatternBomSystemcode(actor.uidInt ?? actor.uname ?? '', systemcodeSeq)
       }
-      const mainTriple = nextSystemcode()
 
       const kcaa02Main = importTypeFlag1
+      let bomPartsInsertedTotal = 0
+      let cutCountTotal = 0
 
-      const mainLogObj = {
-        kcaa01: mainKcaa01,
-        kcaa02: kcaa02Main,
-        kcaa03: kcaa03PathDisplay,
-        kcaa11: colorNo,
-        kcaa04: 'PC',
-        kcaa05: '02',
-        pass: PAPER_PATTERN_BOM000_PASS_MAIN,
-        uid: actor.uidInt,
-        uname: actor.uname,
-        utruename: actor.utruename,
-        addtime,
-      }
-      console.log('[paper-pattern-import-commit] mainBomInsert', JSON.stringify(mainLogObj))
+      for (let ci = 0; ci < colorNos.length; ci++) {
+        const colorNo = colorNos[ci]
+        const mainKcaa01 = mainBomCodes[ci]
+        const kcaa03PathDisplay = `${stylePathDisplay}/${colorNo}`
+        const cutsResolved = cutsByColor[ci]
+        const materialsForColor = resolveMaterialsForCommitColor(materialsIn, colorNo)
 
-      await insertBom000PaperPatternRow(transaction, colset, {
-        systemcodeTriple: mainTriple,
-        kcaa01: mainKcaa01,
-        kcaa02: kcaa02Main,
-        kcaa03: kcaa03PathDisplay,
-        kcaa04: 'PC',
-        kcaa05: '02',
-        kcaa06: customerStyleNo,
-        kcaa07: '0',
-        kcaa08: '0',
-        kcaa09: kcaa03PathDisplay,
-        kcaa10: groupLabel,
-        kcaa11: colorNo,
-        kcaa14: 1,
-        kcaa15: '',
-        kcaa25: 'PC',
-        kcaa26: 1,
-        kcaa27: 0,
-        passChar: PAPER_PATTERN_BOM000_PASS_MAIN,
-        remark: '纸格系统导入',
-        addtime,
-        ip: clientIp,
-        decimalStr: '3',
-        actor,
-      })
-
-      const cutSystemcodeByCutCode = new Map()
-      for (const c of cutsResolved) {
-        const cutTriple = nextSystemcode()
-        cutSystemcodeByCutCode.set(c.cutCode, cutTriple)
-        const cutLog = { kcaa01: c.cutCode, kcaa03: c.kcaa03Cut }
-        console.log('[paper-pattern-import-commit] cutInsert', JSON.stringify(cutLog))
+        const mainTriple = nextSystemcode()
+        console.log(
+          '[paper-pattern-import-commit] mainBomInsert',
+          JSON.stringify({
+            kcaa01: mainKcaa01,
+            kcaa02: kcaa02Main,
+            kcaa03: kcaa03PathDisplay,
+            kcaa11: colorNo,
+            colorIndex: ci + 1,
+            colorTotal: colorNos.length,
+          }),
+        )
 
         await insertBom000PaperPatternRow(transaction, colset, {
-          systemcodeTriple: cutTriple,
-          kcaa01: c.cutCode,
-          kcaa02: c.cutName || c.cutCode,
-          kcaa03: c.kcaa03Cut,
-          kcaa04: '张',
+          systemcodeTriple: mainTriple,
+          kcaa01: mainKcaa01,
+          kcaa02: kcaa02Main,
+          kcaa03: kcaa03PathDisplay,
+          kcaa04: 'PC',
           kcaa05: '02',
           kcaa06: customerStyleNo,
           kcaa07: '0',
           kcaa08: '0',
           kcaa09: kcaa03PathDisplay,
           kcaa10: groupLabel,
-          kcaa11: '-',
+          kcaa11: colorNo,
           kcaa14: 1,
-          kcaa15: '04',
-          kcaa25: '张',
+          kcaa15: '',
+          kcaa25: 'PC',
           kcaa26: 1,
           kcaa27: 0,
-          cost_price: null,
-          sale_price: null,
-          passChar: PAPER_PATTERN_BOM000_PASS_DEFAULT,
+          passChar: PAPER_PATTERN_BOM000_PASS_MAIN,
           remark: '纸格系统导入',
           addtime,
           ip: clientIp,
           decimalStr: '3',
           actor,
         })
-      }
 
-      const partsInserted = await writePaperPatternBomPartsInTx(transaction, pool, {
-        mainSystemcode: mainTriple,
-        cutsResolved,
-        cutSystemcodeByCutCode,
-        accessories: accessoriesIn,
-        materials: materialsIn,
-        actor,
-        addtime,
-      })
+        const cutSystemcodeByCutCode = new Map()
+        for (const c of cutsResolved) {
+          const cutTriple = nextSystemcode()
+          cutSystemcodeByCutCode.set(c.cutCode, cutTriple)
+          console.log(
+            '[paper-pattern-import-commit] cutInsert',
+            JSON.stringify({ kcaa01: c.cutCode, kcaa03: c.kcaa03Cut, colorNo }),
+          )
+
+          await insertBom000PaperPatternRow(transaction, colset, {
+            systemcodeTriple: cutTriple,
+            kcaa01: c.cutCode,
+            kcaa02: c.cutName || c.cutCode,
+            kcaa03: c.kcaa03Cut,
+            kcaa04: '张',
+            kcaa05: '02',
+            kcaa06: customerStyleNo,
+            kcaa07: '0',
+            kcaa08: '0',
+            kcaa09: kcaa03PathDisplay,
+            kcaa10: groupLabel,
+            kcaa11: '-',
+            kcaa14: 1,
+            kcaa15: '04',
+            kcaa25: '张',
+            kcaa26: 1,
+            kcaa27: 0,
+            cost_price: null,
+            sale_price: null,
+            passChar: PAPER_PATTERN_BOM000_PASS_DEFAULT,
+            remark: '纸格系统导入',
+            addtime,
+            ip: clientIp,
+            decimalStr: '3',
+            actor,
+          })
+        }
+
+        cutCountTotal += cutsResolved.length
+
+        const partsInserted = await writePaperPatternBomPartsInTx(transaction, pool, {
+          mainSystemcode: mainTriple,
+          cutsResolved,
+          cutSystemcodeByCutCode,
+          accessories: filterAccessoriesForCommitColor(accessoriesIn, colorNo),
+          materials: materialsForColor,
+          actor,
+          addtime,
+          bomMap: bomMapPrefetched,
+        })
+        bomPartsInsertedTotal += partsInserted
+      }
 
       await transaction.commit()
       res.json({
         success: true,
         message: '导入成功',
         data: {
-          mainBomCode: mainKcaa01,
-          cutCount: cutsResolved.length,
-          bomPartsInserted: partsInserted,
+          mainBomCode: mainBomCodes[0],
+          mainBomCodes,
+          colorCount: colorNos.length,
+          cutCount: cutCountTotal,
+          cutCountPerColor: cutsIn.length,
+          bomPartsInserted: bomPartsInsertedTotal,
           overwrite: Boolean(overwrite),
-          overwriteReplaced,
+          overwriteReplaced: overwriteReplacedList.length === 1 ? overwriteReplacedList[0] : overwriteReplacedList,
         },
       })
     } catch (e) {

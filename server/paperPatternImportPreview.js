@@ -53,6 +53,23 @@ export function excelColumnLettersFromOneBased(colIndex1) {
 }
 
 /**
+ * Excel 列字母 → 1-based 列号（A=1, N=14, AA=27）
+ * @param {string} letters
+ * @returns {number}
+ */
+export function excelColumnIndexFromLetters(letters) {
+  const s = String(letters ?? '')
+    .trim()
+    .toUpperCase()
+  if (!/^[A-Z]+$/.test(s)) return 0
+  let n = 0
+  for (let i = 0; i < s.length; i++) {
+    n = n * 26 + (s.charCodeAt(i) - 64)
+  }
+  return n
+}
+
+/**
  * 单元格 → 解析用字符串：数值格用存储值 v（不用 w，避免 Excel 显示格式丢精度）；文本格优先 w（前导零）
  * @param {import('xlsx').CellObject | undefined} cell
  * @returns {string}

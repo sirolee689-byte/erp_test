@@ -24,3 +24,16 @@ export function erpCodeLookupKey(display) {
   if (!d) return ''
   return d.toLowerCase()
 }
+
+/**
+ * Material 预览：N 列电脑编码 → ERP 基码（与 server/paperPatternErpCodeNormalize.js 一致）
+ * @param {unknown} raw
+ * @returns {string}
+ */
+export function materialErpBaseFromExcelCell(raw) {
+  const full = normalizeErpCodeDisplay(raw)
+  if (!full) return ''
+  const slash = full.indexOf('/')
+  if (slash < 0) return full
+  return full.slice(0, slash).trim()
+}
