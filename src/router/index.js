@@ -58,10 +58,19 @@ const paperPatternImportCheckRoute = {
   meta: { title: '纸格资料导入数据校验' },
 }
 
+/** 智能校验（不在菜单中；权限沿用 paper-pattern/import） */
+const paperPatternImportErpWorkbenchRoute = {
+  path: 'paper-pattern/import/erp-workbench',
+  name: 'paper-pattern-import-erp-workbench',
+  component: () => import('@/views/paper-pattern/import/erp-workbench/index.vue'),
+  meta: { title: '智能校验' },
+}
+
 const childRoutes = [
   ...walkRoutes(menuStructure),
   paperPatternImportPreviewRoute,
   paperPatternImportCheckRoute,
+  paperPatternImportErpWorkbenchRoute,
   exception403Route,
 ]
 

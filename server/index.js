@@ -56,6 +56,7 @@ import { handlePostPaperPatternMaterialBomFields } from './paperPatternMaterialB
 import { handleGetPaperPatternImportParseTree } from './paperPatternImportParseTreeGet.js'
 import { handlePostPaperPatternImportCommitBom000 } from './paperPatternImportCommitBom000.js'
 import { handlePostPaperPatternImportDeleteBomTree } from './paperPatternImportDeleteBomTree.js'
+import { decodePaperPatternUploadFileName } from './paperPatternUploadFileName.js'
 import { parsePaperPatternImportTreeFromBuffer } from './paperPatternImportParse.js'
 import {
   bomCostMaterialStartsWithCutPrefix,
@@ -14934,7 +14935,7 @@ app.post('/api/paper-pattern/import/upload', (req, res) => {
     }
     const storedName = req.file.filename
     const fileId = path.basename(storedName, path.extname(storedName))
-    const fileName = String(req.file.originalname || storedName)
+    const fileName = decodePaperPatternUploadFileName(req.file.originalname || storedName)
     res.json({
       success: true,
       fileId,

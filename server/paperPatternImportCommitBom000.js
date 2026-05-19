@@ -438,6 +438,18 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
   try {
     const body = req.body ?? {}
     const overwrite = body.overwrite === true || body.overwrite === 'true' || body.overwrite === 1
+    const erpSmartCheckAcknowledged =
+      body.erpSmartCheckAcknowledged === true ||
+      body.erpSmartCheckAcknowledged === 'true' ||
+      body.erpSmartCheckAcknowledged === 1
+    if (!erpSmartCheckAcknowledged) {
+      res.status(400).json({
+        success: false,
+        code: 'ERP_SMART_CHECK_REQUIRED',
+        message: '请先完成智能校验后再正式导入',
+      })
+      return
+    }
     const importTypeFlag5 = String(body.importTypeFlag5 ?? '').trim()
     const factoryStyleNo = String(body.factoryStyleNo ?? '').trim()
     const customerStyleNo = String(body.customerStyleNo ?? '').trim()

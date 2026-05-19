@@ -6,7 +6,7 @@
       </template>
       <p class="page-desc">
         流程：选择 Excel → 上传并解析 → 按 Excel <strong>第 4 行 N 列起横向</strong>识别多款颜色，每色一块「基础资料确认区」→
-        <strong>Material 列表</strong>与 <strong>ERP 物料校验工作台</strong> → CUT 预览可下拉切换颜色。
+        <strong>Material 列表</strong> → <strong>智能校验</strong>（通过后方可正式导入）→ CUT 预览可下拉切换颜色。
         <strong>正式导入</strong>按解析出的<strong>全部颜色</strong>同步写入（单事务）。客款号默认 L2；组别优先 M2。
       </p>
 
@@ -28,7 +28,12 @@
         <el-button type="primary" plain @click="triggerPickFile">选择 Excel 文件</el-button>
         <span v-if="pickedLabel" class="picked-name">{{ pickedLabel }}</span>
         <span v-else class="picked-placeholder">未选择文件</span>
-        <el-button type="primary" :disabled="!pickedFile" :loading="uploading" @click="onUploadParse">
+        <el-button
+          type="primary"
+          :disabled="!pickedFile"
+          :loading="uploading || parseTreeLoading"
+          @click="onUploadParse"
+        >
           上传并解析
         </el-button>
       </div>
@@ -51,12 +56,16 @@
         <div class="confirm-toolbar">
           <el-button
             type="primary"
-            :disabled="!liveMainBomCodeForCommit || commitLoading"
+            :disabled="!canFormalImport"
             :loading="commitLoading"
+            :title="formalImportDisabledTitle"
             @click="onCommitBom000"
           >
             正式导入
           </el-button>
+          <el-button type="success" plain @click="goSmartCheck">智能校验</el-button>
+          <el-tag v-if="smartCheckPassed" type="success" size="small" effect="plain">智能校验已通过</el-tag>
+          <el-tag v-else type="info" size="small" effect="plain">请先完成智能校验</el-tag>
           <el-button plain @click="hideBasicConfirmArea = !hideBasicConfirmArea">
             {{ hideBasicConfirmArea ? '显示各款颜色资料' : '隐藏各款颜色资料' }}
           </el-button>
@@ -211,12 +220,9 @@
         </el-alert>
 
         <div class="material-top-block">
-          <div class="material-top-head">
-            <h3 class="sub-title material-top-title">Material 列表</h3>
-            <el-button type="primary" @click="goErpWorkbenchFromParse">进入 ERP 物料校验工作台</el-button>
-          </div>
+          <h3 class="sub-title material-top-title">Material 列表</h3>
           <div v-show="!hideMaterialTable">
-            <p class="hint material-top-hint">对照 Bom_000.kcaa01 校验 Material / Accessory（仅校验，不写库）。</p>
+            <p class="hint material-top-hint">材料单位与损耗来自 Bom_000；ERP 是否可导入请在顶部「智能校验」中确认。</p>
             <p v-if="materialBomFieldsLoading" class="hint">正在加载材料单位与默认损耗（Bom_000）…</p>
             <el-table :data="materialPreviewRows" border size="small" class="preview-table" empty-text="无">
               <el-table-column prop="groupNo" label="分组" width="88" />
@@ -300,8 +306,8 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, nextTick, onActivated, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -316,9 +322,19 @@ import {
 import { erpCodeLookupKey, normalizeErpCodeDisplay } from '@/utils/paperPatternErpCodeNormalize.js'
 import { canEditPaperPatternMaterialWastage } from '@/utils/paperPatternMaterialWastagePolicy.js'
 import { formatFractionAsDecimalText } from '@/utils/paperPatternMaterialWastageInput.js'
+import {
+  applyWorkbenchEditsToParseResult,
+  buildSmartCheckFingerprint,
+  clearImportPageSession,
+  clearSmartCheckPass,
+  isSmartCheckPassValid,
+  readImportPageSession,
+  saveImportPageSession,
+  saveWorkbenchPayload,
+} from '@/utils/paperPatternSmartCheck.js'
+import { decodePaperPatternUploadFileName } from '@/utils/paperPatternUploadFileName.js'
 
-const ERP_WORKBENCH_STORAGE = 'paperPatternErpWorkbenchPayloadV1'
-
+const route = useRoute()
 const router = useRouter()
 const templateHref = '/template/paper-pattern-template.xlsx'
 
@@ -347,6 +363,10 @@ const basicFormList = ref([])
 const sharedImportTypeFlag5 = ref('')
 /** CUT 预览所用颜色（下拉，默认第一款） */
 const cutPreviewColorNo = ref('')
+
+/** 已落盘 Excel 的 fileId（与 route.query.fileId 同步，供 parse-tree 恢复） */
+const parseFileId = ref('')
+const parseTreeLoading = ref(false)
 
 /** @type {import('vue').Ref<null | { mainBom: object, cuts: any[], materials: any[], accessories: any[], warnings: string[] }>} */
 const parseResult = ref(null)
@@ -532,6 +552,39 @@ const allBlocksReadyForCommit = computed(() => {
   const list = basicFormList.value
   if (!list.length) return false
   return list.every((b) => Boolean(mainBomCodeForBlock(b)))
+})
+
+const smartCheckColorNos = computed(() => {
+  const m = parseResult.value?.mainBom
+  const fromApi = Array.isArray(m?.colorNos) ? m.colorNos.map((c) => String(c ?? '').trim()).filter(Boolean) : []
+  if (fromApi.length > 0) return fromApi
+  return basicFormList.value.map((b) => String(b?.colorNo ?? '').trim()).filter(Boolean)
+})
+
+const smartCheckFingerprint = computed(() => {
+  if (!parseResult.value) return ''
+  return buildSmartCheckFingerprint(
+    parseResult.value.materials || [],
+    parseResult.value.accessories || [],
+    smartCheckColorNos.value,
+  )
+})
+
+const smartCheckPassed = computed(() => isSmartCheckPassValid(smartCheckFingerprint.value))
+
+const canFormalImport = computed(
+  () =>
+    !!parseResult.value &&
+    allBlocksReadyForCommit.value &&
+    smartCheckPassed.value &&
+    !commitLoading.value,
+)
+
+const formalImportDisabledTitle = computed(() => {
+  if (!parseResult.value) return '请先上传并解析 Excel'
+  if (!allBlocksReadyForCommit.value) return '请补全各颜色导入类型、厂款号、颜色编码'
+  if (!smartCheckPassed.value) return '请先完成智能校验（Material 分色全码与 Accessory 全码须在 Bom_000 存在）'
+  return ''
 })
 
 const liveMainBomCodeForCommit = computed(() => {
@@ -729,25 +782,175 @@ watch(
   { deep: true },
 )
 
-onMounted(() => {
-  loadImportTypes()
+function refreshSmartCheckStateFromSession() {
+  if (!parseResult.value) return
+  const changed = applyWorkbenchEditsToParseResult(parseResult.value)
+  if (changed) {
+    rebuildMaterialPreviewRows()
+    loadMaterialBomFieldsForPreview()
+  }
+}
+
+function resolveImportTypeFlag1FromFlag5(flag5) {
+  const f5 = String(flag5 ?? '').trim()
+  const hit = importTypeOptions.value.find((it) => String(it?.flag5 ?? '').trim() === f5)
+  return String(hit?.flag1 ?? '').trim()
+}
+
+function applyParseTreeResponse(data) {
+  parseResult.value = {
+    mainBom: data.mainBom || {},
+    cuts: Array.isArray(data.cuts) ? data.cuts : [],
+    materials: Array.isArray(data.materials) ? data.materials : [],
+    accessories: Array.isArray(data.accessories) ? data.accessories : [],
+    warnings: Array.isArray(data.warnings) ? data.warnings : [],
+  }
+  hideMaterialTable.value = false
+  hideCutPreviewTable.value = false
+  hydrateBasicFormListFromParseMain(data.mainBom)
+}
+
+function restoreImportPageSessionOverlay() {
+  const sess = readImportPageSession()
+  if (!sess) return
+  if (sess.fileName && !pickedLabel.value) {
+    pickedLabel.value = decodePaperPatternUploadFileName(sess.fileName)
+  }
+  if (sess.sharedImportTypeFlag5) {
+    sharedImportTypeFlag5.value = sess.sharedImportTypeFlag5
+    syncImportTypeFlag5ToAllBlocks(sess.sharedImportTypeFlag5)
+  }
+  if (Array.isArray(sess.basicFormList) && sess.basicFormList.length > 0) {
+    basicFormList.value = sess.basicFormList.map((b) => ({
+      importTypeFlag5: String(b?.importTypeFlag5 ?? '').trim(),
+      factoryStyleNo: String(b?.factoryStyleNo ?? '').trim(),
+      groupLabel: String(b?.groupLabel ?? '').trim(),
+      customerStyleNo: String(b?.customerStyleNo ?? '').trim(),
+      colorNo: String(b?.colorNo ?? '').trim(),
+      sampleName: String(b?.sampleName ?? '').trim(),
+    }))
+  }
+  if (sess.cutPreviewColorNo) cutPreviewColorNo.value = sess.cutPreviewColorNo
+}
+
+function persistImportPageSession() {
+  saveImportPageSession({
+    fileId: parseFileId.value,
+    fileName: pickedLabel.value,
+    basicFormList: basicFormList.value,
+    sharedImportTypeFlag5: sharedImportTypeFlag5.value,
+    cutPreviewColorNo: cutPreviewColorNo.value,
+  })
+}
+
+/**
+ * @param {string} fileId
+ * @param {{ importTypeFlag5?: string, importTypeFlag1?: string }} [opts]
+ */
+async function loadParseTreeFromFileId(fileId, opts = {}) {
+  const fid = String(fileId ?? '').trim()
+  if (!fid) return false
+  parseTreeLoading.value = true
+  errorMessage.value = ''
+  try {
+    const flag5 = String(opts.importTypeFlag5 ?? sharedImportTypeFlag5.value ?? '').trim()
+    const flag1 =
+      String(opts.importTypeFlag1 ?? '').trim() || (flag5 ? resolveImportTypeFlag1FromFlag5(flag5) : '')
+    const res = await axios.get('/api/paper-pattern/import/parse-tree', {
+      params: {
+        fileId: fid,
+        ...(flag5 ? { importTypeFlag5: flag5 } : {}),
+        ...(flag1 ? { importTypeFlag1: flag1 } : {}),
+      },
+    })
+    const data = res?.data
+    if (!data?.success) {
+      errorMessage.value = String(data?.message || '解析失败')
+      parseResult.value = null
+      return false
+    }
+    parseFileId.value = fid
+    applyParseTreeResponse(data)
+    refreshSmartCheckStateFromSession()
+    return true
+  } catch (e) {
+    const msg =
+      e?.response?.data?.message || e?.response?.data?.msg || e?.message || '解析失败'
+    errorMessage.value = String(msg)
+    parseResult.value = null
+    return false
+  } finally {
+    parseTreeLoading.value = false
+  }
+}
+
+async function tryRestoreParseFromRouteOrSession() {
+  const qid = String(route.query.fileId ?? '').trim()
+  if (qid) parseFileId.value = qid
+  const sess = readImportPageSession()
+  const fid = parseFileId.value || sess?.fileId || ''
+  if (!fid) {
+    if (parseResult.value) refreshSmartCheckStateFromSession()
+    return
+  }
+  if (parseResult.value && parseFileId.value === fid) {
+    refreshSmartCheckStateFromSession()
+    return
+  }
+  const flag5 = sess?.sharedImportTypeFlag5 || sharedImportTypeFlag5.value
+  const ok = await loadParseTreeFromFileId(fid, {
+    importTypeFlag5: flag5,
+    importTypeFlag1: flag5 ? resolveImportTypeFlag1FromFlag5(flag5) : '',
+  })
+  if (!ok) return
+  restoreImportPageSessionOverlay()
+  refreshSmartCheckStateFromSession()
+}
+
+watch(
+  () => route.query.fileId,
+  (v) => {
+    const next = String(v ?? '').trim()
+    if (next && next !== parseFileId.value) {
+      parseFileId.value = next
+      tryRestoreParseFromRouteOrSession()
+    }
+  },
+)
+
+onMounted(async () => {
+  await loadImportTypes()
+  await tryRestoreParseFromRouteOrSession()
 })
 
-function goErpWorkbenchFromParse() {
-  if (!parseResult.value) return
-  try {
-    sessionStorage.setItem(
-      ERP_WORKBENCH_STORAGE,
-      JSON.stringify({
-        savedAt: Date.now(),
-        materials: parseResult.value.materials || [],
-        accessories: parseResult.value.accessories || [],
-      }),
-    )
-  } catch {
-    // 忽略存储失败（隐私模式等）
+onActivated(() => {
+  tryRestoreParseFromRouteOrSession()
+})
+
+function goSmartCheck() {
+  if (!parseResult.value) {
+    ElMessage.warning('请先上传并解析 Excel')
+    return
   }
-  router.push({ path: '/paper-pattern/import/erp-workbench' })
+  if (!parseFileId.value) {
+    ElMessage.warning('缺少 fileId，请重新上传并解析 Excel')
+    return
+  }
+  try {
+    persistImportPageSession()
+    saveWorkbenchPayload({
+      materials: parseResult.value.materials || [],
+      accessories: parseResult.value.accessories || [],
+      colorNos: smartCheckColorNos.value,
+    })
+  } catch {
+    ElMessage.warning('无法保存校验数据，请检查浏览器是否允许 sessionStorage')
+    return
+  }
+  router.push({
+    path: '/paper-pattern/import/erp-workbench',
+    query: { fileId: parseFileId.value },
+  })
 }
 
 function triggerPickFile() {
@@ -846,6 +1049,10 @@ async function onCommitBom000() {
     ElMessage.warning('请先完成解析，并确保各颜色块的导入类型、厂款号、颜色编码均可生成主 BOM 编码')
     return
   }
+  if (!smartCheckPassed.value) {
+    ElMessage.warning('请先完成智能校验，全部 Material / Accessory ERP 编码须在 Bom_000 中存在')
+    return
+  }
   const nColor = basicFormList.value.length
   try {
     await ElMessageBox.confirm(
@@ -860,6 +1067,7 @@ async function onCommitBom000() {
   const postCommit = (overwrite) =>
     axios.post('/api/paper-pattern/import/commit-bom000', {
       ...buildCommitPayloadBody(),
+      erpSmartCheckAcknowledged: true,
       ...(overwrite ? { overwrite: true } : {}),
     })
   try {
@@ -933,25 +1141,28 @@ async function onUploadParse() {
   errorMessage.value = ''
   uploading.value = true
   parseResult.value = null
+  parseFileId.value = ''
+  clearSmartCheckPass()
+  clearImportPageSession()
   try {
     const fd = new FormData()
     fd.append('file', pickedFile.value)
-    const res = await axios.post('/api/paper-pattern/upload', fd)
-    const data = res?.data
-    if (!data?.success) {
-      errorMessage.value = String(data?.message || '解析失败')
+    const up = await axios.post('/api/paper-pattern/import/upload', fd)
+    const upData = up?.data
+    if (!upData?.success || !upData?.fileId) {
+      errorMessage.value = String(upData?.message || '上传失败')
       return
     }
-    parseResult.value = {
-      mainBom: data.mainBom || {},
-      cuts: Array.isArray(data.cuts) ? data.cuts : [],
-      materials: Array.isArray(data.materials) ? data.materials : [],
-      accessories: Array.isArray(data.accessories) ? data.accessories : [],
-      warnings: Array.isArray(data.warnings) ? data.warnings : [],
+    const fid = String(upData.fileId).trim()
+    parseFileId.value = fid
+    // 保留浏览器 file.name（中文正确）；勿用 multer originalname 覆盖
+    if (!pickedLabel.value && upData.fileName) {
+      pickedLabel.value = decodePaperPatternUploadFileName(upData.fileName)
     }
-    hideMaterialTable.value = false
-    hideCutPreviewTable.value = false
-    hydrateBasicFormListFromParseMain(data.mainBom)
+    await router.replace({ path: '/paper-pattern/import', query: { fileId: fid } })
+    const ok = await loadParseTreeFromFileId(fid)
+    if (!ok) return
+    persistImportPageSession()
   } catch (e) {
     const msg =
       e?.response?.data?.message ||
