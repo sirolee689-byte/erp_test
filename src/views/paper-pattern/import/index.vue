@@ -39,6 +39,15 @@
       </div>
 
       <el-alert v-if="errorMessage" class="err" :title="errorMessage" type="error" show-icon />
+      <el-alert
+        v-if="commitRestoreNotice"
+        class="commit-restore-notice"
+        :title="commitRestoreNotice"
+        type="info"
+        show-icon
+        closable
+        @close="commitRestoreNotice = ''"
+      />
 
       <template v-if="parseResult">
         <el-alert
@@ -306,6 +315,9 @@
 </template>
 
 <script setup>
+// 与 router name `paper-pattern-import` 一致，供布局 keep-alive 缓存
+defineOptions({ name: 'paper-pattern-import' })
+
 import { computed, nextTick, onActivated, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
@@ -327,8 +339,10 @@ import {
   buildSmartCheckFingerprint,
   clearImportPageSession,
   clearSmartCheckPass,
+  cloneParseResultForSessionSnapshot,
   isSmartCheckPassValid,
   readImportPageSession,
+  readWorkbenchPayload,
   saveImportPageSession,
   saveWorkbenchPayload,
 } from '@/utils/paperPatternSmartCheck.js'
@@ -377,6 +391,8 @@ const hideMaterialTable = ref(false)
 /** 折叠：仅隐藏 CUT 预览表格 */
 const hideCutPreviewTable = ref(false)
 const commitLoading = ref(false)
+/** 从 session 恢复且曾跳过 parse-tree 时的提示（如正式导入进行中） */
+const commitRestoreNotice = ref('')
 /** 测试：按 systemcode / 解析色列表物理删除 */
 const deleteSystemcodeInput = ref('')
 const deleteBomTreeLoading = ref(false)
@@ -570,7 +586,18 @@ const smartCheckFingerprint = computed(() => {
   )
 })
 
-const smartCheckPassed = computed(() => isSmartCheckPassValid(smartCheckFingerprint.value))
+const smartCheckPassed = computed(() => {
+  const fp = smartCheckFingerprint.value
+  if (isSmartCheckPassValid(fp)) return true
+  const payload = readWorkbenchPayload()
+  if (!payload || !parseResult.value) return false
+  const colorNos =
+    Array.isArray(payload.colorNos) && payload.colorNos.length > 0
+      ? payload.colorNos
+      : smartCheckColorNos.value
+  const payloadFp = buildSmartCheckFingerprint(payload.materials, payload.accessories, colorNos)
+  return isSmartCheckPassValid(payloadFp)
+})
 
 const canFormalImport = computed(
   () =>
@@ -782,12 +809,31 @@ watch(
   { deep: true },
 )
 
+/** 编辑基础资料 / 损耗后写入 session，供切标签或重挂载恢复 */
+let persistSessionTimer = null
+function schedulePersistImportPageSession() {
+  if (!parseResult.value || !String(parseFileId.value ?? '').trim()) return
+  if (persistSessionTimer) clearTimeout(persistSessionTimer)
+  persistSessionTimer = setTimeout(() => {
+    persistSessionTimer = null
+    if (commitLoading.value) return
+    persistImportPageSession()
+  }, 400)
+}
+
+watch(
+  [basicFormList, sharedImportTypeFlag5, cutPreviewColorNo, materialPreviewRows],
+  () => schedulePersistImportPageSession(),
+  { deep: true },
+)
+
 function refreshSmartCheckStateFromSession() {
   if (!parseResult.value) return
   const changed = applyWorkbenchEditsToParseResult(parseResult.value)
   if (changed) {
     rebuildMaterialPreviewRows()
     loadMaterialBomFieldsForPreview()
+    persistImportPageSession()
   }
 }
 
@@ -808,6 +854,44 @@ function applyParseTreeResponse(data) {
   hideMaterialTable.value = false
   hideCutPreviewTable.value = false
   hydrateBasicFormListFromParseMain(data.mainBom)
+  restoreImportPageSessionOverlay()
+  persistImportPageSession()
+}
+
+/** 从 session 快照恢复解析树（不请求 parse-tree） */
+function applyParseResultSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object') return false
+  parseResult.value = {
+    mainBom: snapshot.mainBom || {},
+    cuts: Array.isArray(snapshot.cuts) ? snapshot.cuts : [],
+    materials: Array.isArray(snapshot.materials) ? snapshot.materials : [],
+    accessories: Array.isArray(snapshot.accessories) ? snapshot.accessories : [],
+    warnings: Array.isArray(snapshot.warnings) ? snapshot.warnings : [],
+  }
+  hideMaterialTable.value = false
+  hideCutPreviewTable.value = false
+  if (snapshot.mainBom) hydrateBasicFormListFromParseMain(snapshot.mainBom)
+  return true
+}
+
+/**
+ * 用 session 快照恢复界面（切标签 / 重挂载且临时 Excel 已归档时）
+ * @param {{ fileId?: string, parseResultSnapshot?: any, commitInProgress?: boolean }} sess
+ */
+async function restoreImportUiFromSessionSnapshot(sess) {
+  const fid = String(sess?.fileId ?? parseFileId.value ?? '').trim()
+  const snap = sess?.parseResultSnapshot
+  if (!fid || !snap) return false
+  if (parseFileId.value !== fid) parseFileId.value = fid
+  if (!applyParseResultSnapshot(snap)) return false
+  restoreImportPageSessionOverlay()
+  refreshSmartCheckStateFromSession()
+  await loadMaterialBomFieldsForPreview()
+  if (sess?.commitInProgress || commitLoading.value) {
+    commitRestoreNotice.value =
+      '正式导入可能仍在后台进行，界面已从缓存恢复；请勿重复点击「正式导入」，完成后请查看提示或刷新列表。'
+  }
+  return true
 }
 
 function restoreImportPageSessionOverlay() {
@@ -833,25 +917,35 @@ function restoreImportPageSessionOverlay() {
   if (sess.cutPreviewColorNo) cutPreviewColorNo.value = sess.cutPreviewColorNo
 }
 
-function persistImportPageSession() {
+function persistImportPageSession(extra = {}) {
   saveImportPageSession({
     fileId: parseFileId.value,
     fileName: pickedLabel.value,
     basicFormList: basicFormList.value,
     sharedImportTypeFlag5: sharedImportTypeFlag5.value,
     cutPreviewColorNo: cutPreviewColorNo.value,
+    parseResultSnapshot: cloneParseResultForSessionSnapshot(
+      parseResult.value,
+      materialPreviewRows.value,
+    ),
+    commitInProgress:
+      extra.commitInProgress !== undefined
+        ? !!extra.commitInProgress
+        : commitLoading.value,
   })
 }
 
 /**
  * @param {string} fileId
- * @param {{ importTypeFlag5?: string, importTypeFlag1?: string }} [opts]
+ * @param {{ importTypeFlag5?: string, importTypeFlag1?: string, preserveExistingOnFailure?: boolean }} [opts]
  */
 async function loadParseTreeFromFileId(fileId, opts = {}) {
   const fid = String(fileId ?? '').trim()
   if (!fid) return false
+  const preserveExisting = !!opts.preserveExistingOnFailure
+  const hadParse = !!parseResult.value
   parseTreeLoading.value = true
-  errorMessage.value = ''
+  if (!preserveExisting) errorMessage.value = ''
   try {
     const flag5 = String(opts.importTypeFlag5 ?? sharedImportTypeFlag5.value ?? '').trim()
     const flag1 =
@@ -865,19 +959,24 @@ async function loadParseTreeFromFileId(fileId, opts = {}) {
     })
     const data = res?.data
     if (!data?.success) {
-      errorMessage.value = String(data?.message || '解析失败')
-      parseResult.value = null
+      if (!(preserveExisting && hadParse)) {
+        errorMessage.value = String(data?.message || '解析失败')
+        parseResult.value = null
+      }
       return false
     }
     parseFileId.value = fid
     applyParseTreeResponse(data)
     refreshSmartCheckStateFromSession()
+    commitRestoreNotice.value = ''
     return true
   } catch (e) {
     const msg =
       e?.response?.data?.message || e?.response?.data?.msg || e?.message || '解析失败'
-    errorMessage.value = String(msg)
-    parseResult.value = null
+    if (!(preserveExisting && hadParse)) {
+      errorMessage.value = String(msg)
+      parseResult.value = null
+    }
     return false
   } finally {
     parseTreeLoading.value = false
@@ -889,22 +988,49 @@ async function tryRestoreParseFromRouteOrSession() {
   if (qid) parseFileId.value = qid
   const sess = readImportPageSession()
   const fid = parseFileId.value || sess?.fileId || ''
+  const commitBusy = commitLoading.value || !!sess?.commitInProgress
+
   if (!fid) {
     if (parseResult.value) refreshSmartCheckStateFromSession()
     return
   }
+
   if (parseResult.value && parseFileId.value === fid) {
+    restoreImportPageSessionOverlay()
     refreshSmartCheckStateFromSession()
     return
   }
+
+  if (sess?.fileId === fid && sess.parseResultSnapshot) {
+    const restored = await restoreImportUiFromSessionSnapshot(sess)
+    if (restored) return
+  }
+
+  if (commitBusy) {
+    if (sess?.parseResultSnapshot && sess.fileId === fid) {
+      await restoreImportUiFromSessionSnapshot(sess)
+    } else {
+      restoreImportPageSessionOverlay()
+      commitRestoreNotice.value =
+        '正式导入可能仍在进行；若界面空白请稍候再切回本页，勿重复导入。'
+    }
+    return
+  }
+
   const flag5 = sess?.sharedImportTypeFlag5 || sharedImportTypeFlag5.value
   const ok = await loadParseTreeFromFileId(fid, {
     importTypeFlag5: flag5,
     importTypeFlag1: flag5 ? resolveImportTypeFlag1FromFlag5(flag5) : '',
   })
-  if (!ok) return
+  if (!ok) {
+    if (sess?.parseResultSnapshot && sess.fileId === fid) {
+      await restoreImportUiFromSessionSnapshot(sess)
+    }
+    return
+  }
   restoreImportPageSessionOverlay()
   refreshSmartCheckStateFromSession()
+  persistImportPageSession()
 }
 
 watch(
@@ -1009,6 +1135,8 @@ function buildCommitPayloadBody() {
   }
   const colorNos = list.map((b) => String(b.colorNo ?? '').trim()).filter(Boolean)
   return {
+    fileId: String(parseFileId.value ?? '').trim(),
+    truefilename: String(pickedLabel.value ?? '').trim(),
     importTypeFlag5: block.importTypeFlag5,
     importTypeFlag1: resolveImportTypeFlag1ForCommit(block),
     factoryStyleNo: block.factoryStyleNo,
@@ -1049,6 +1177,10 @@ async function onCommitBom000() {
     ElMessage.warning('请先完成解析，并确保各颜色块的导入类型、厂款号、颜色编码均可生成主 BOM 编码')
     return
   }
+  if (!String(parseFileId.value ?? '').trim()) {
+    ElMessage.warning('缺少已上传的 Excel（fileId），请重新上传后再正式导入')
+    return
+  }
   if (!smartCheckPassed.value) {
     ElMessage.warning('请先完成智能校验，全部 Material / Accessory ERP 编码须在 Bom_000 中存在')
     return
@@ -1063,6 +1195,8 @@ async function onCommitBom000() {
   } catch {
     return
   }
+  commitRestoreNotice.value = ''
+  persistImportPageSession({ commitInProgress: true })
   commitLoading.value = true
   const postCommit = (overwrite) =>
     axios.post('/api/paper-pattern/import/commit-bom000', {
@@ -1078,6 +1212,7 @@ async function onCommitBom000() {
       return
     }
     showCommitSuccessMessage(data.data)
+    commitRestoreNotice.value = ''
   } catch (e) {
     const d = e?.response?.data
     if (d?.code === 'MAIN_BOM_EXISTS') {
@@ -1102,6 +1237,7 @@ async function onCommitBom000() {
           return
         }
         showCommitSuccessMessage(data2.data)
+        commitRestoreNotice.value = ''
       } catch (e2) {
         const d2 = e2?.response?.data
         ElMessage.error(String(d2?.message || e2?.message || '导入失败'))
@@ -1111,6 +1247,7 @@ async function onCommitBom000() {
     }
   } finally {
     commitLoading.value = false
+    persistImportPageSession({ commitInProgress: false })
   }
 }
 
@@ -1139,6 +1276,7 @@ function onFileChange(ev) {
 async function onUploadParse() {
   if (!pickedFile.value) return
   errorMessage.value = ''
+  commitRestoreNotice.value = ''
   uploading.value = true
   parseResult.value = null
   parseFileId.value = ''
@@ -1273,6 +1411,9 @@ async function onUploadParse() {
   margin-bottom: 12px;
 }
 .err {
+  margin-bottom: 12px;
+}
+.commit-restore-notice {
   margin-bottom: 12px;
 }
 .confirm-desc {

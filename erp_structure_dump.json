@@ -163,7 +163,10 @@
   {
     "name": "paper-pattern",
     "title": "纸格资料",
-    "children": [{ "name": "import", "title": "纸格资料导入" }]
+    "children": [
+      { "name": "import", "title": "纸格资料导入" },
+      { "name": "import/manage", "title": "管理纸格导入资料" }
+    ]
   },
   { "name": "assets", "title": "资产管理" },
   { "name": "traceability", "title": "追溯系统" }

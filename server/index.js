@@ -47,8 +47,10 @@ import { registerOutsourcingQuotationRoutes } from './outsourcingQuotationHandle
 import {
   ensurePaperPatternImportTmpDir,
   handlePaperPatternImportPreviewGet,
-  PAPER_PATTERN_IMPORT_TMP_DIR,
 } from './paperPatternImportPreview.js'
+import { handleGetPaperPatternImportFilesList } from './paperPatternImportFilesList.js'
+import { handleGetPaperPatternImportFileDownload } from './paperPatternImportFileDownload.js'
+import { getPaperPatternDownloadRoot, getPaperPatternUploadDir } from './paperPatternFilePaths.js'
 import { handleGetPaperPatternMapping, handleSavePaperPatternMapping } from './paperPatternImportMapping.js'
 import { handlePaperPatternImportValidateGet } from './paperPatternImportValidate.js'
 import { handlePostPaperPatternCheckMaterial } from './paperPatternCheckMaterial.js'
@@ -14894,8 +14896,7 @@ ensurePaperPatternImportTmpDir()
 const paperPatternImportUpload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => {
-      ensurePaperPatternImportTmpDir()
-      cb(null, PAPER_PATTERN_IMPORT_TMP_DIR)
+      cb(null, ensurePaperPatternImportTmpDir())
     },
     filename: (_req, file, cb) => {
       const ext = path.extname(String(file.originalname || '')).toLowerCase()
@@ -15052,6 +15053,8 @@ app.get('/api/paper-pattern/import/validate', handlePaperPatternImportValidateGe
 app.post('/api/paper-pattern/check-material', handlePostPaperPatternCheckMaterial)
 app.post('/api/paper-pattern/material-bom-fields', handlePostPaperPatternMaterialBomFields)
 app.get('/api/paper-pattern/import/parse-tree', handleGetPaperPatternImportParseTree)
+app.get('/api/paper-pattern/import/files/list', handleGetPaperPatternImportFilesList)
+app.get('/api/paper-pattern/import/files/download', handleGetPaperPatternImportFileDownload)
 app.post('/api/paper-pattern/import/commit-bom000', handlePostPaperPatternImportCommitBom000)
 app.post('/api/paper-pattern/import/delete-bom-tree', handlePostPaperPatternImportDeleteBomTree)
 
@@ -15132,7 +15135,12 @@ app.listen(port, () => {
   console.log(
     '[宿舍管理] v1.1.10 电费：tj_date=yyyy-m/yy-mm 字符串匹配 + MAX(c_sum_money) 防重复累加；含 lodging-overview/history、入住单 audit*',
   )
-  console.log(`PaperPattern-Import-Upload-Tmp ${bootAt} POST /api/paper-pattern/import/upload`)
+  console.log(
+    `PaperPattern-Import-Upload-Tmp ${bootAt} POST /api/paper-pattern/import/upload uploadDir=${getPaperPatternUploadDir()} downloadRoot=${getPaperPatternDownloadRoot()}`,
+  )
+  console.log(
+    `PaperPattern-Import-Files-List ${bootAt} GET /api/paper-pattern/import/files/list；GET /api/paper-pattern/import/files/download`,
+  )
   console.log(
     `PaperPattern-Import-Types-List ${bootAt} GET /api/paper-pattern/import-types（Bom_code，排除 id=1）`,
   )

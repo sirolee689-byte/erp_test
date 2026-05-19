@@ -4,20 +4,16 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import * as XLSX from 'xlsx'
+import {
+  ensurePaperPatternUploadDir,
+  getPaperPatternUploadDir,
+} from './paperPatternFilePaths.js'
 
-export const PAPER_PATTERN_IMPORT_TMP_DIR = path.join(
-  process.cwd(),
-  'server',
-  'tmp',
-  'paper-pattern-import',
-)
+/** @deprecated 请用 getPaperPatternUploadDir()；保留兼容旧引用 */
+export const PAPER_PATTERN_IMPORT_TMP_DIR = getPaperPatternUploadDir()
 
 export function ensurePaperPatternImportTmpDir() {
-  try {
-    fs.mkdirSync(PAPER_PATTERN_IMPORT_TMP_DIR, { recursive: true })
-  } catch (e) {
-    console.error('创建纸格导入临时目录失败：', e)
-  }
+  return ensurePaperPatternUploadDir()
 }
 
 /** 与 multer 生成的 fileId（UUID）一致，防路径穿越 */
@@ -31,7 +27,7 @@ export function resolveUploadedPaperPatternFile(fileId) {
   const id = String(fileId ?? '').trim()
   if (!FILE_ID_RE.test(id)) return null
   for (const ext of ['.xlsx', '.xls']) {
-    const p = path.join(PAPER_PATTERN_IMPORT_TMP_DIR, `${id}${ext}`)
+    const p = path.join(getPaperPatternUploadDir(), `${id}${ext}`)
     if (fs.existsSync(p) && fs.statSync(p).isFile()) return p
   }
   return null

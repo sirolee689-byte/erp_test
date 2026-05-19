@@ -6,7 +6,8 @@
 - **预览与字段映射**：临时文件 `fileId`、列映射持久化。
 - **数据校验（映射行）**：`GET /api/paper-pattern/import/validate` 按映射列校验 kcaa01/kcaa02 等（与 ERP 工作台场景不同）。
 - **智能校验**（原 ERP 物料校验工作台，**不在左侧菜单**，从导入页工具栏进入）：对照 `Bom_000.kcaa01` 校验 **Material 分色全码**（`codesByColor`，与 Bom_parts 写入一致）与 **Accessory 全码**（不含 CUT- 本身）；不存在时页顶逐条提示「编码 XXX 不存在」；可改码并防抖重验；**通过后方可「正式导入」**（前端门禁 + `commit-bom000` 需 `erpSmartCheckAcknowledged`）。接口 `POST /api/paper-pattern/check-material`（不写 Bom_000、bom_parts）。
-- **导入页 Excel**：`POST /api/paper-pattern/import/upload` 落盘得 `fileId`，再 `GET /api/paper-pattern/import/parse-tree?fileId=` 解析；URL 与智能校验往返均带 `fileId`，返回导入页时自动重载解析树（基础资料区从 session 恢复）。
+- **导入页 Excel**：`POST /api/paper-pattern/import/upload` 落盘得 `fileId`（目录见 `.env` `PAPER_PATTERN_UPLOAD_DIR`），再 `GET /api/paper-pattern/import/parse-tree?fileId=` 解析；URL 与智能校验往返均带 `fileId`。切换顶部标签时由 **keep-alive**（组件名 `paper-pattern-import`）保留内存态；重挂载时从 session 恢复解析树快照（含基础资料区）；**正式导入进行中**不再因临时文件已归档而清空界面或误报「文件不存在」。
+- **管理纸格导入资料**（`paper-pattern/import/manage`）：查询 `System_uplod_file`；立即查询 / 重置 / 查询全部；列表支持按 `id` 下载 Excel（`PAPER_PATTERN_DOWNLOAD_ROOT` + 库中 `filename`/`filepath`）。
 
 ## 数据库
 
@@ -14,5 +15,5 @@
 
 ## 已知问题 / 下一步
 
-- 正式导入（写 Bom_000、bom_parts）、GUID、bom_parts 生成等尚未在本阶段实现。
+- 正式导入成功会登记 `System_uplod_file`（`filename` 为导入时刻时间戳， `truefilename` 为原始文件名）。
 - ERP 比对规则：展示层对编码做首尾 trim、中间连续空白压成单空格，比对键为全小写，与库内 `kcaa01` 经 `LOWER+LTRIM+RTRIM` 后匹配（兼容大小写与多余空格）。

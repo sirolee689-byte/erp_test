@@ -791,6 +791,12 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'POST' && path === '/api/paper-pattern/import/delete-bom-tree') {
     return { menuPath: 'paper-pattern/import', action: 'add' }
   }
+  if (m === 'GET' && path === '/api/paper-pattern/import/files/list') {
+    return { menuPath: 'paper-pattern/import/manage', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/paper-pattern/import/files/download') {
+    return { menuPath: 'paper-pattern/import/manage', action: 'view' }
+  }
 
   return null
 }

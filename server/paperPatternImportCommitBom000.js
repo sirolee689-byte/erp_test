@@ -2,6 +2,7 @@
  * 纸格导入：正式写入 Bom_000（主 BOM + 各 CUT）与 Bom_parts，单事务
  */
 import crypto from 'node:crypto'
+import path from 'node:path'
 import sql from 'mssql'
 import { getPool } from './db.js'
 import { getActorAuditTripletFromReq } from './businessAuditFields.js'
@@ -23,6 +24,13 @@ import {
   resolveMaterialsForCommitColor,
   validateMaterialCodesByColorForCommit,
 } from './paperPatternMaterialCodesByColor.js'
+import { resolveUploadedPaperPatternFile } from './paperPatternImportPreview.js'
+import {
+  extractProjectNameFromTruefilename,
+  insertPaperPatternSystemUploadFileInTx,
+  pickPaperPatternArchiveFilename,
+  renamePaperPatternUploadToArchive,
+} from './paperPatternSystemUploadFile.js'
 
 const INV_BOM_MASTER_TABLE = (() => {
   const raw = String(process.env.INV_BOM_MASTER_TABLE ?? 'bom_000').trim()
@@ -431,7 +439,7 @@ export function resolveCutsResolvedForColor(cutsIn, ctx) {
 
 /**
  * POST /api/paper-pattern/import/commit-bom000
- * body: { importTypeFlag5, colorNos[]|colorNo, factoryStyleNo, cuts[], materials[]（含 codesByColor）, accessories?, overwrite? }
+ * body: { fileId, truefilename?, importTypeFlag5, colorNos[]|colorNo, factoryStyleNo, cuts[], materials[]（含 codesByColor）, accessories?, overwrite? }
  * 多色：单事务依次写入各主 BOM / CUT / Bom_parts（Material 子件按列全码；Accessory 按 colorNo 写入对应主 BOM）。
  */
 export async function handlePostPaperPatternImportCommitBom000(req, res) {
@@ -458,6 +466,21 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
     const cutsIn = Array.isArray(body.cuts) ? body.cuts : []
     const accessoriesIn = Array.isArray(body.accessories) ? body.accessories : []
     const materialsIn = Array.isArray(body.materials) ? body.materials : []
+    const fileId = String(body.fileId ?? '').trim()
+    const truefilename = String(body.truefilename ?? '').trim()
+
+    if (!fileId) {
+      res.status(400).json({ success: false, message: '缺少已上传 Excel 的 fileId' })
+      return
+    }
+    const uploadedSourcePath = resolveUploadedPaperPatternFile(fileId)
+    if (!uploadedSourcePath) {
+      res.status(400).json({
+        success: false,
+        message: '未找到已上传的 Excel 文件，请重新上传后再正式导入',
+      })
+      return
+    }
 
     if (!importTypeFlag5) {
       res.status(400).json({ success: false, message: '缺少导入类型 importTypeFlag5' })
@@ -559,8 +582,28 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
     }
 
     const actor = getActorAuditTripletFromReq(req)
-    const addtime = formatBomColorcodeTimestamp()
+    const commitDate = new Date()
     const clientIp = String(getRequestIp(req) ?? '').trim()
+
+    const uploadExt = path.extname(uploadedSourcePath).toLowerCase()
+    const archiveTruefilename = truefilename || `upload${uploadExt}`
+    let archiveMeta
+    try {
+      archiveMeta = pickPaperPatternArchiveFilename(commitDate, uploadExt)
+    } catch (e) {
+      const code = String(e?.message ?? '')
+      if (code === 'ARCHIVE_FILENAME_COLLISION') {
+        res.status(409).json({
+          success: false,
+          message: '归档文件名冲突（同一秒内已有同名文件），请稍后重试',
+        })
+        return
+      }
+      throw e
+    }
+    const addtime = formatBomColorcodeTimestamp(archiveMeta.addtimeDate)
+    const archiveAddtime = addtime
+    const projectName = extractProjectNameFromTruefilename(archiveTruefilename)
 
     /** Material 全码 + Accessory：事务外批量查主档，避免多色重复扫库、且不含 CUT 编码 */
     const erpCodesForBomFields = collectMaterialErpCodesForAllColors(materialsIn, colorNos)
@@ -610,6 +653,19 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
           message: `以下 CUT 编码已存在：${existingCuts.join('、')}`,
           data: { existingCuts },
         })
+        return
+      }
+
+      let archiveFilesizeBytes
+      try {
+        archiveFilesizeBytes = renamePaperPatternUploadToArchive(
+          uploadedSourcePath,
+          archiveMeta.targetPath,
+        )
+      } catch (e) {
+        await transaction.rollback()
+        console.error('[paper-pattern-import-commit] 归档重命名失败：', e)
+        res.status(500).json({ success: false, message: '归档 Excel 文件失败，请重新上传后再试' })
         return
       }
 
@@ -722,6 +778,17 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
         bomPartsInsertedTotal += partsInserted
       }
 
+      await insertPaperPatternSystemUploadFileInTx(transaction, {
+        actor,
+        addtime: archiveAddtime,
+        ip: clientIp,
+        filename: archiveMeta.filename,
+        filepath: archiveMeta.filepath,
+        filesizeBytes: archiveFilesizeBytes,
+        truefilename: archiveTruefilename,
+        projectName,
+      })
+
       await transaction.commit()
       res.json({
         success: true,
@@ -735,6 +802,12 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
           bomPartsInserted: bomPartsInsertedTotal,
           overwrite: Boolean(overwrite),
           overwriteReplaced: overwriteReplacedList.length === 1 ? overwriteReplacedList[0] : overwriteReplacedList,
+          uploadArchive: {
+            filename: archiveMeta.filename,
+            truefilename: archiveTruefilename,
+            filepath: archiveMeta.filepath,
+            addtime: archiveAddtime,
+          },
         },
       })
     } catch (e) {

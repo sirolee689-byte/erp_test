@@ -155,15 +155,47 @@ export function clearSmartCheckPass() {
 }
 
 /**
+ * 深拷贝解析树供 session 恢复（合并 Material 预览行中可编辑损耗）
+ * @param {any} parseResult
+ * @param {any[] | undefined} materialPreviewRows
+ * @returns {any | null}
+ */
+export function cloneParseResultForSessionSnapshot(parseResult, materialPreviewRows) {
+  if (!parseResult || typeof parseResult !== 'object') return null
+  let snap
+  try {
+    snap = JSON.parse(JSON.stringify(parseResult))
+  } catch {
+    return null
+  }
+  const preview = Array.isArray(materialPreviewRows) ? materialPreviewRows : []
+  if (Array.isArray(snap.materials)) {
+    for (const row of preview) {
+      const idx = row?.rowIndex
+      if (idx === undefined || idx === null) continue
+      const m = snap.materials[idx]
+      if (!m || !row?.wastageEditable) continue
+      if (row.wastageFraction !== undefined && row.wastageFraction !== null) {
+        m.wastageFraction = row.wastageFraction
+      }
+    }
+  }
+  return snap
+}
+
+/**
  * @param {{
  *   fileId?: string,
  *   fileName?: string,
  *   basicFormList?: any[],
  *   sharedImportTypeFlag5?: string,
  *   cutPreviewColorNo?: string,
+ *   parseResultSnapshot?: any,
+ *   commitInProgress?: boolean,
  * }} data
  */
 export function saveImportPageSession(data) {
+  const snap = data?.parseResultSnapshot
   sessionStorage.setItem(
     IMPORT_PAGE_SESSION_STORAGE,
     JSON.stringify({
@@ -173,22 +205,38 @@ export function saveImportPageSession(data) {
       basicFormList: Array.isArray(data?.basicFormList) ? data.basicFormList : [],
       sharedImportTypeFlag5: String(data?.sharedImportTypeFlag5 ?? '').trim(),
       cutPreviewColorNo: String(data?.cutPreviewColorNo ?? '').trim(),
+      parseResultSnapshot: snap && typeof snap === 'object' ? snap : null,
+      commitInProgress: !!data?.commitInProgress,
     }),
   )
 }
 
-/** @returns {{ fileId: string, fileName: string, basicFormList: any[], sharedImportTypeFlag5: string, cutPreviewColorNo: string } | null} */
+/**
+ * @returns {{
+ *   fileId: string,
+ *   fileName: string,
+ *   basicFormList: any[],
+ *   sharedImportTypeFlag5: string,
+ *   cutPreviewColorNo: string,
+ *   parseResultSnapshot: any | null,
+ *   commitInProgress: boolean,
+ * } | null}
+ */
 export function readImportPageSession() {
   try {
     const raw = sessionStorage.getItem(IMPORT_PAGE_SESSION_STORAGE)
     if (!raw) return null
     const o = JSON.parse(raw)
+    const snap = o?.parseResultSnapshot
     return {
       fileId: String(o?.fileId ?? '').trim(),
       fileName: String(o?.fileName ?? '').trim(),
       basicFormList: Array.isArray(o?.basicFormList) ? o.basicFormList : [],
       sharedImportTypeFlag5: String(o?.sharedImportTypeFlag5 ?? '').trim(),
       cutPreviewColorNo: String(o?.cutPreviewColorNo ?? '').trim(),
+      parseResultSnapshot:
+        snap && typeof snap === 'object' && !Array.isArray(snap) ? snap : null,
+      commitInProgress: !!o?.commitInProgress,
     }
   } catch {
     return null
@@ -197,6 +245,33 @@ export function readImportPageSession() {
 
 export function clearImportPageSession() {
   sessionStorage.removeItem(IMPORT_PAGE_SESSION_STORAGE)
+}
+
+/**
+ * 智能校验通过后，把 workbench 中的 materials/accessories 写回导入页 session 快照
+ * @param {string} [fileId]
+ */
+export function mergeWorkbenchIntoImportPageSession(fileId) {
+  const payload = readWorkbenchPayload()
+  const sess = readImportPageSession()
+  if (!payload || !sess) return
+  const fid = String(fileId ?? sess.fileId ?? '').trim()
+  const prevSnap = sess.parseResultSnapshot
+  saveImportPageSession({
+    fileId: fid || sess.fileId,
+    fileName: sess.fileName,
+    basicFormList: sess.basicFormList,
+    sharedImportTypeFlag5: sess.sharedImportTypeFlag5,
+    cutPreviewColorNo: sess.cutPreviewColorNo,
+    commitInProgress: sess.commitInProgress,
+    parseResultSnapshot: {
+      mainBom: prevSnap?.mainBom || {},
+      cuts: Array.isArray(prevSnap?.cuts) ? prevSnap.cuts : [],
+      materials: Array.isArray(payload.materials) ? payload.materials : [],
+      accessories: Array.isArray(payload.accessories) ? payload.accessories : [],
+      warnings: Array.isArray(prevSnap?.warnings) ? prevSnap.warnings : [],
+    },
+  })
 }
 
 /** @param {string} fingerprint */

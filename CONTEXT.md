@@ -176,7 +176,43 @@
 
 ---
 
-## 五、已知设计取舍
+## 五、纸格资料（paper-pattern）
+
+### 菜单
+
+| 路径 | 页面 |
+|---|---|
+| `paper-pattern/import` | 纸格资料导入（Excel 解析、智能校验、正式导入） |
+| `paper-pattern/import/manage` | 管理纸格导入资料（`System_uplod_file` 查询） |
+
+### 文件磁盘路径（`.env`）
+
+| 变量 | 说明 | 默认（本地测试） |
+|---|---|---|
+| `PAPER_PATTERN_UPLOAD_DIR` | 导入页 `POST /api/paper-pattern/import/upload` 落盘目录 | `C:\Users\it_manager\Desktop\纸格测试资料\upload` |
+| `PAPER_PATTERN_DOWNLOAD_ROOT` | 管理页下载时与 `System_uplod_file.filepath`/`filename` 拼接的根目录 | 同上 |
+| `SYSTEM_UPLOAD_FILE_TABLE` | 管理列表物理表名 | `System_uplod_file` |
+
+- 下载解析：取 `filepath`/`filename` 的**文件名段**，再与 `PAPER_PATTERN_DOWNLOAD_ROOT` 安全拼接（禁止目录穿越）。
+- 上线：仅需改 `.env` 为服务器共享路径，重启 API。
+
+### `System_uplod_file`（管理列表只读）
+
+| 列 | 用途 |
+|---|---|
+| `truename` | 上传者姓名（展示/搜索） |
+| `addtime` | 上传时间 `nvarchar`（展示/搜索） |
+| `truefilename` | 用户上传原始文件名（展示/搜索） |
+| `filename` | 服务器存储文件名（下载候选） |
+| `filepath` | 相对路径，如 `\ub_bom\upload\*.xls`；列表范围 `filepath` 含 `ub_bom` |
+| `filesize` | 字节，`nvarchar`；界面展示为四舍五入 **KB**；可按字节或 KB 模糊搜索 |
+
+- 接口：`GET /api/paper-pattern/import/files/list`（`queryAll=1` 或 `keyword`；分页默认 20）；`GET /api/paper-pattern/import/files/download?id=`（按 `id` 流式下载，保存名为库字段 `filename`，如 `20260519155801.xls`）。
+- **正式导入成功**（`POST /api/paper-pattern/import/commit-bom000`）在同一事务写入本表：`filename` = 正式导入时刻 `YYYYMMDDHHmmss` + 扩展名；`truefilename` = 用户原始名（可重复）；`filepath` = `\ub_bom\upload\{filename}`。仅上传/解析不写本表。
+
+---
+
+## 六、已知设计取舍
 
 | 决策 | 内容 |
 |---|---|

@@ -91,6 +91,7 @@ import {
   buildSmartCheckFingerprint,
   expandMaterialRowsForSmartCheck,
   mergeMaterialCheckRowsIntoMaterials,
+  mergeWorkbenchIntoImportPageSession,
   readWorkbenchPayload,
   resolveSmartCheckColorNos,
   saveWorkbenchPayload,
@@ -246,6 +247,7 @@ function goImportWithPass() {
     colorNosRef.value,
   )
   writeSmartCheckPass(fp)
+  mergeWorkbenchIntoImportPageSession(fileId.value)
   router.push(importPageLocation())
 }
 

@@ -4,7 +4,7 @@
 
 > 约定：本文只维护“项目当前明确使用到”的表与字段；如需扩展，请同时补充迁移脚本（见 `docs/sql/` 与 `scripts/migrations/`）和相关设计文档。
 
-## 1. 全局概览（当前确认：18 张表）
+## 1. 全局概览（当前确认：19 张表）
 
 - **HR_Departments**：部门 / 岗位（旧系统表接管）
 - **Hr_staff**：人事档案资料（精简字段查询）
@@ -26,6 +26,7 @@
 - **Purchase_Quotation_list**：采购报价明细表（通过外键或 `pid` 等列关联主表；保存时先删后插整批替换）
 - **Outsourcing_Quotation**：销售/采购/外协管理 — 日常工作 — 外协报价主表（与采购报价同一套主从/审核/回收站接口形态；字段列名 `wxaa*`）
 - **Outsourcing_Quotation_list**：外协报价明细表（与主表 `wxaa01` = 明细 `wxab01` 业务关联；汇总 `wxab04`/`wxab05`）
+- **System_uplod_file**：纸格资料上传记录（旧系统表；管理页只读列表，见 `docs/System_uplod_file.txt`）
 
 ## 2. 表关系（ER 摘要）
 
@@ -540,4 +541,8 @@
 
 - **`dbo.[Outsourcing_Quotation]` / `dbo.[Outsourcing_Quotation_list]`**
   - 来源：`server/outsourcingQuotationHandlers.js`（外协报价 REST）
+
+- **`dbo.[System_uplod_file]`**
+  - 来源：`server/paperPatternImportFilesList.js`（`GET /api/paper-pattern/import/files/list`）；列表范围 `filepath` 含 `ub_bom`；环境变量 `SYSTEM_UPLOAD_FILE_TABLE`
+  - 磁盘：`PAPER_PATTERN_UPLOAD_DIR` / `PAPER_PATTERN_DOWNLOAD_ROOT`（`server/paperPatternFilePaths.js`）
 
