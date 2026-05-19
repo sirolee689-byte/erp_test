@@ -15,3 +15,5 @@
 ### Domain docs
 
 单上下文：根目录 `CONTEXT.md` 与 `docs/adr/`。见 `docs/agents/domain.md`。
+
+这是测试
