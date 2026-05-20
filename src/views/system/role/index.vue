@@ -161,7 +161,7 @@
         :closable="false"
         show-icon
         class="perm-alert"
-        title="左侧勾选可访问的菜单；点击某一节点后，右侧勾选该菜单下的操作权限（与 Sys_Roles.Permissions 的对象结构一致）。开启「全部菜单」等价于通配 * 且操作为 all。"
+        title="勾选一级菜单会自动勾选其下全部子菜单；也可只勾选某个子菜单。保存时若整支已全选则只记父级 path。点击节点后在右侧配置操作权限。开启「全部菜单」等价于通配 * 且操作为 all。"
       />
       <div class="perm-toolbar">
         <el-switch v-model="permFullAccess" active-text="全部菜单（*）" @change="onPermFullAccessChange" />
@@ -334,6 +334,63 @@ function parsePermissionsFromRow(row) {
   return { out, wildcard }
 }
 
+/**
+ * 回显：库中若同时有父、子 path，仅勾选父节点（由树级联展示子级，避免误显整模块半选脏数据）
+ * @param {string[]} paths
+ */
+function preferAncestorPermPaths(paths) {
+  const list = [...new Set(paths.map((x) => String(x).trim()).filter(Boolean))]
+  return list.filter(
+    (p) => !list.some((ancestor) => ancestor !== p && p.startsWith(`${ancestor}/`)),
+  )
+}
+
+/**
+ * 收集某菜单节点在树中的全部后代 path（不含自身）
+ * @param {any[]} nodeList
+ * @param {string} base
+ */
+function collectDescendantPermPaths(nodeList, base = '') {
+  const out = []
+  for (const n of nodeList) {
+    const path = base ? `${base}/${n.name}` : n.name
+    out.push(path)
+    if (n.children?.length) {
+      out.push(...collectDescendantPermPaths(n.children, path))
+    }
+  }
+  return out
+}
+
+/**
+ * 保存前：父节点及其下所有后代均已勾选时，仅保留父 path 入库
+ * @param {string[]} checkedPaths
+ * @param {any[]} nodes
+ */
+function collapseFullyCheckedBranches(checkedPaths, nodes) {
+  const checked = new Set(checkedPaths)
+  const keep = new Set(checkedPaths)
+
+  function walk(nodeList, base = '') {
+    for (const n of nodeList) {
+      const path = base ? `${base}/${n.name}` : n.name
+      if (n.children?.length) {
+        const descendants = collectDescendantPermPaths(n.children, path)
+        const allDescChecked =
+          descendants.length > 0 && descendants.every((d) => checked.has(d))
+        if (checked.has(path) && allDescChecked) {
+          for (const d of descendants) {
+            keep.delete(d)
+          }
+        }
+        walk(n.children, path)
+      }
+    }
+  }
+  walk(nodes)
+  return [...keep]
+}
+
 /** 将当前选中节点的权限模型同步到右侧 UI（all与细粒度二选一展示） */
 function hydrateSelectedPathActionsUi() {
   const p = permSelectedPath.value
@@ -462,11 +519,12 @@ function openPermDialog(row) {
 
   const { out, wildcard } = parsePermissionsFromRow(row)
   permFullAccess.value = wildcard
-  for (const [path, acts] of Object.entries(out)) {
-    permActionsByPath[path] = [...acts]
+  const keysToShow = preferAncestorPermPaths(Object.keys(out))
+  for (const path of keysToShow) {
+    permActionsByPath[path] = [...(out[path] || ['view'])]
   }
   nextTick(() => {
-    permTreeRef.value?.setCheckedKeys(wildcard ? [] : Object.keys(out), false)
+    permTreeRef.value?.setCheckedKeys(wildcard ? [] : keysToShow, false)
     hydrateSelectedPathActionsUi()
   })
 }
@@ -480,10 +538,10 @@ async function submitPermDialog() {
   if (permFullAccess.value) {
     payload = ['*']
   } else {
-    const paths = collectCheckedPermPaths()
     if (permSelectedPath.value) {
       flushSelectedPathToStore()
     }
+    const paths = collapseFullyCheckedBranches(collectCheckedPermPaths(), menuDump)
     const obj = {}
     for (const p of paths) {
       let acts = permActionsByPath[p]
@@ -516,16 +574,14 @@ async function submitPermDialog() {
   }
 }
 
-/**
- * 合并「全选节点 + 半选父节点」，与 Element Plus 级联勾选一致，便于父 path 一并入库
- */
+/** 收集树中已勾选节点（不含半选父节点，避免把仅点选子级时的父级写入库） */
 function collectCheckedPermPaths() {
   const tree = permTreeRef.value
   if (!tree) return []
-  const checked = tree.getCheckedKeys(false)
-  const half =
-    typeof tree.getHalfCheckedKeys === 'function' ? tree.getHalfCheckedKeys() : []
-  return [...new Set([...checked, ...half].map((x) => String(x).trim()).filter(Boolean))]
+  return tree
+    .getCheckedKeys(false)
+    .map((x) => String(x).trim())
+    .filter(Boolean)
 }
 
 /**

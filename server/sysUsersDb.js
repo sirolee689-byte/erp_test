@@ -242,11 +242,28 @@ export async function fetchSysUserPermissionSource(pool, userId) {
     const qPk = getSysUsersEntityPkQb(meta)
     const qIsAdmin = meta.set.has('is_admin') ? meta.qb('is_admin') : null
     const qDel = meta.set.has('del') ? meta.qb('del') : null
+    const qRoleId = meta.qb('roleid')
+    const legacyOperatorV2 = meta.set.has('del') && meta.set.has('pass')
     if (!qPk) return null
     const isAdminExpr = qIsAdmin ? `CAST(u.${qIsAdmin} AS INT)` : 'CAST(0 AS INT)'
     const delActiveSql = qDel
       ? `AND (LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'' OR LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'0')`
       : ''
+    if (legacyOperatorV2 && qRoleId) {
+      const r = await req.query(`
+        SELECT TOP (1)
+          ${isAdminExpr} AS is_admin,
+          CAST(r.Permissions AS NVARCHAR(MAX)) AS Permissions
+        FROM Sys_Users AS u
+        LEFT JOIN Sys_Roles AS r ON r.RoleID = u.${qRoleId}
+        WHERE u.${qPk} = @UserID
+        ${delActiveSql}
+      `)
+      const row = r.recordset?.[0]
+      if (Number(row?.is_admin) === 1) return '{"*":["all"]}'
+      const perm = row?.Permissions
+      return perm != null && perm !== undefined ? String(perm) : null
+    }
     const r = await req.query(`
       SELECT TOP (1) ${isAdminExpr} AS is_admin
       FROM Sys_Users AS u

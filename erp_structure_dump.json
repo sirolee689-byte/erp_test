@@ -156,11 +156,6 @@
     ]
   },
   {
-    "name": "inv",
-    "title": "存货管理",
-    "children": [{ "name": "bom", "title": "BOM资料查询" }]
-  },
-  {
     "name": "paper-pattern",
     "title": "纸格资料",
     "children": [

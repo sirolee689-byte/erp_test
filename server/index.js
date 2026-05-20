@@ -1029,12 +1029,29 @@ app.post('/api/login', async (req, res) => {
       const qUsername = meta.qb('username')
       const qPassword = meta.qb('password')
       const qIsAdmin = meta.set.has('is_admin') ? meta.qb('is_admin') : null
+      const qRoleId = meta.qb('roleid')
       const isActiveSel = userColset.has('is_active') ? `u.${meta.qb('is_active')} AS is_active,` : ''
       const delSel = userColset.has('del') ? `u.${meta.qb('del')} AS del,` : ''
-      const roleNameSql = qIsAdmin
-        ? `CASE WHEN u.${qIsAdmin} = 1 THEN N'系统管理员' ELSE N'普通用户' END`
-        : `N'普通用户'`
-      const permSql = qIsAdmin ? `CASE WHEN u.${qIsAdmin} = 1 THEN N'{"*":["all"]}' ELSE N'[]' END` : `N'[]'`
+      const legacyOperatorV2 = isOperatorUsersV2(meta)
+      const roleNameSql = legacyOperatorV2 && qRoleId
+        ? qIsAdmin
+          ? `CASE WHEN u.${qIsAdmin} = 1 THEN N'系统管理员' WHEN r.RoleName IS NOT NULL AND LTRIM(RTRIM(r.RoleName)) <> N'' THEN r.RoleName ELSE N'普通用户' END`
+          : `CASE WHEN r.RoleName IS NOT NULL AND LTRIM(RTRIM(r.RoleName)) <> N'' THEN r.RoleName ELSE N'普通用户' END`
+        : qIsAdmin
+          ? `CASE WHEN u.${qIsAdmin} = 1 THEN N'系统管理员' ELSE N'普通用户' END`
+          : `N'普通用户'`
+      const permSql =
+        legacyOperatorV2 && qRoleId
+          ? qIsAdmin
+            ? `CASE WHEN u.${qIsAdmin} = 1 THEN N'{"*":["all"]}' ELSE CAST(r.Permissions AS NVARCHAR(MAX)) END`
+            : `CAST(r.Permissions AS NVARCHAR(MAX))`
+          : qIsAdmin
+            ? `CASE WHEN u.${qIsAdmin} = 1 THEN N'{"*":["all"]}' ELSE N'[]' END`
+            : `N'[]'`
+      const roleIdSel =
+        legacyOperatorV2 && qRoleId ? `u.${qRoleId}` : `CAST(NULL AS INT)`
+      const rolesJoin =
+        legacyOperatorV2 && qRoleId ? `LEFT JOIN Sys_Roles AS r ON r.RoleID = u.${qRoleId}` : ''
       if (!qEntityPk || !qUidForStaff || !qUsercode || !qUsername || !qPassword) {
         res.status(500).json({
           code: 500,
@@ -1052,11 +1069,12 @@ app.post('/api/login', async (req, res) => {
           u.${qPassword} AS Password,
           CAST(1 AS INT) AS Status,
           ${isActiveSel}
-          CAST(NULL AS INT) AS RoleID,
+          ${roleIdSel} AS RoleID,
           CAST(${roleNameSql} AS NVARCHAR(50)) AS RoleName,
           CAST(${permSql} AS NVARCHAR(MAX)) AS Permissions,
           s.[name] AS StaffDisplayName
         FROM Sys_Users AS u
+        ${rolesJoin}
         LEFT JOIN ${meta.hrStaffFrom} AS s ON s.[id] = u.${qUidForStaff}
         WHERE u.${qUsername} = @LoginId OR u.${qUsercode} = @LoginId
       `)
