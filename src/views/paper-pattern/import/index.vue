@@ -336,10 +336,12 @@ import { canEditPaperPatternMaterialWastage } from '@/utils/paperPatternMaterial
 import { formatFractionAsDecimalText } from '@/utils/paperPatternMaterialWastageInput.js'
 import {
   applyWorkbenchEditsToParseResult,
+  applyWorkbenchPayloadToParseResult,
   buildSmartCheckFingerprint,
   clearImportPageSession,
   clearSmartCheckPass,
   cloneParseResultForSessionSnapshot,
+  isSmartCheckPassForImportPage,
   isSmartCheckPassValid,
   readImportPageSession,
   readWorkbenchPayload,
@@ -587,16 +589,18 @@ const smartCheckFingerprint = computed(() => {
 })
 
 const smartCheckPassed = computed(() => {
+  if (!parseResult.value) return false
+  const fid = String(parseFileId.value ?? '').trim()
   const fp = smartCheckFingerprint.value
-  if (isSmartCheckPassValid(fp)) return true
+  if (isSmartCheckPassValid(fp, fid)) return true
   const payload = readWorkbenchPayload()
-  if (!payload || !parseResult.value) return false
+  if (!payload) return false
   const colorNos =
     Array.isArray(payload.colorNos) && payload.colorNos.length > 0
       ? payload.colorNos
       : smartCheckColorNos.value
   const payloadFp = buildSmartCheckFingerprint(payload.materials, payload.accessories, colorNos)
-  return isSmartCheckPassValid(payloadFp)
+  return isSmartCheckPassValid(payloadFp, fid)
 })
 
 const canFormalImport = computed(
@@ -837,6 +841,34 @@ function refreshSmartCheckStateFromSession() {
   }
 }
 
+/**
+ * 智能校验通过后回到导入页：用 session 快照或 workbench 载荷覆盖 keep-alive 内旧 parseResult
+ * @returns {Promise<boolean>} 是否已同步解析树
+ */
+async function reconcileParseResultAfterSmartCheckReturn() {
+  const fid = String(parseFileId.value ?? route.query.fileId ?? '').trim()
+  if (!fid || !isSmartCheckPassForImportPage(fid)) return false
+
+  const sess = readImportPageSession()
+  if (sess?.fileId === fid && sess.parseResultSnapshot) {
+    if (parseFileId.value !== fid) parseFileId.value = fid
+    applyParseResultSnapshot(sess.parseResultSnapshot)
+    restoreImportPageSessionOverlay()
+    await loadMaterialBomFieldsForPreview()
+    persistImportPageSession()
+    return true
+  }
+
+  if (!parseResult.value) return false
+  if (applyWorkbenchPayloadToParseResult(parseResult.value)) {
+    rebuildMaterialPreviewRows()
+    await loadMaterialBomFieldsForPreview()
+    persistImportPageSession()
+    return true
+  }
+  return false
+}
+
 function resolveImportTypeFlag1FromFlag5(flag5) {
   const f5 = String(flag5 ?? '').trim()
   const hit = importTypeOptions.value.find((it) => String(it?.flag5 ?? '').trim() === f5)
@@ -995,8 +1027,15 @@ async function tryRestoreParseFromRouteOrSession() {
     return
   }
 
+  // 校验通过返回：优先 session 快照（mergeWorkbench 已写入），避免 keep-alive 旧 parseResult 导致指纹不一致
+  if (isSmartCheckPassForImportPage(fid) && sess?.fileId === fid && sess.parseResultSnapshot) {
+    const restored = await restoreImportUiFromSessionSnapshot(sess)
+    if (restored) return
+  }
+
   if (parseResult.value && parseFileId.value === fid) {
     restoreImportPageSessionOverlay()
+    await reconcileParseResultAfterSmartCheckReturn()
     refreshSmartCheckStateFromSession()
     return
   }

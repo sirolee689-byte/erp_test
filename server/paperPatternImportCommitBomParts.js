@@ -4,9 +4,11 @@
 import { erpCodeLookupKey, normalizeErpCodeDisplay } from './paperPatternErpCodeNormalize.js'
 import { fetchKcaa04Kcaa33ByKcaa01In } from './paperPatternMaterialBomFields.js'
 import {
+  buildPaperPatternBomPartsPrefetch,
   getBomPartsColumnSetForPaperPattern,
   getBomPartsColumnDataKindForPaperPattern,
   getBomPartsDelColumnKindForPaperPattern,
+  getBomPartsColumnKindsForPaperPattern,
   insertBomPartsLinePaperPattern,
   PAPER_PATTERN_BOM_PARTS_PASS_DEFAULT,
 } from './bomPartsLinePersist.js'
@@ -219,6 +221,7 @@ export async function writePaperPatternBomPartsInTx(tx, pool, p) {
   }
   const delColKind = await getBomPartsDelColumnKindForPaperPattern(pool)
   const passColKind = await getBomPartsColumnDataKindForPaperPattern(pool, 'pass')
+  const columnKinds = await getBomPartsColumnKindsForPaperPattern(pool)
 
   const mainSc = String(p.mainSystemcode ?? '').trim()
   if (!mainSc) throw new Error('主 BOM systemcode 为空')
@@ -253,6 +256,26 @@ export async function writePaperPatternBomPartsInTx(tx, pool, p) {
 
   const cutMatchingByMajor = buildCutMatchingByMajorFirstNonEmpty(cuts)
 
+  /** @type {string[]} */
+  const codesForPrefetch = []
+  for (const c of cuts) {
+    const cutCode = normalizeErpCodeDisplay(c?.cutCode ?? '')
+    if (cutCode) codesForPrefetch.push(cutCode)
+  }
+  for (const a of acc) {
+    const code = normalizeErpCodeDisplay(a?.erpCode ?? '')
+    if (code) codesForPrefetch.push(code)
+  }
+  for (const m of mats) {
+    const code = normalizeErpCodeDisplay(m?.materialCode ?? '')
+    if (code) codesForPrefetch.push(code)
+  }
+  const tPrefetch0 = Date.now()
+  const paperPatternPrefetch = {
+    ...(await buildPaperPatternBomPartsPrefetch(tx, codesForPrefetch)),
+    columnKinds,
+  }
+
   // 主 BOM：CUT 预览每行 → 子件为裁片 BOM 编码；Seq=0
   for (const c of cuts) {
     const cutCode = String(c.cutCode ?? '').trim()
@@ -278,6 +301,7 @@ export async function writePaperPatternBomPartsInTx(tx, pool, p) {
         version: PAPER_PATTERN_BOM_PARTS_VERSION,
       },
       partsAudit,
+      paperPatternPrefetch,
     )
     inserted += 1
   }
@@ -321,6 +345,7 @@ export async function writePaperPatternBomPartsInTx(tx, pool, p) {
         version: PAPER_PATTERN_BOM_PARTS_VERSION,
       },
       partsAudit,
+      paperPatternPrefetch,
     )
     accSeq += 1
     inserted += 1
@@ -364,6 +389,7 @@ export async function writePaperPatternBomPartsInTx(tx, pool, p) {
           version: PAPER_PATTERN_BOM_PARTS_VERSION,
         },
         partsAudit,
+        paperPatternPrefetch,
       )
       mSeq += 1
       inserted += 1
@@ -378,6 +404,8 @@ export async function writePaperPatternBomPartsInTx(tx, pool, p) {
       uname: partsAudit.actor.uname,
       utruename: partsAudit.actor.utruename,
       addtime: partsAudit.addtime,
+      prefetchMs: Date.now() - tPrefetch0,
+      prefetchCodes: codesForPrefetch.length,
     }),
   )
   return inserted

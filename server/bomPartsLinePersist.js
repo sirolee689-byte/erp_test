@@ -2,6 +2,7 @@
  * Bom_parts 单行插入 + 与库存 BOM 保存一致的「子件主档同步」UPDATE（从 index.js 抽取，供纸格导入等复用）
  */
 import sql from 'mssql'
+import { erpCodeLookupKey, normalizeErpCodeDisplay } from './paperPatternErpCodeNormalize.js'
 
 const INV_BOM_MASTER_TABLE = (() => {
   const raw = String(process.env.INV_BOM_MASTER_TABLE ?? 'bom_000').trim()
@@ -14,6 +15,9 @@ const INV_BOM_PARTS_TABLE = (() => {
   return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'Bom_parts'
 })()
 const INV_BOM_PARTS_FROM = `dbo.[${INV_BOM_PARTS_TABLE}]`
+
+/** 纸格正式导入：批量预取 bom_000 时每批 IN 条件数 */
+const PAPER_PATTERN_BOM_PARTS_PREFETCH_BATCH = 80
 
 /** 纸格专用列缓存，避免与 index.js 内 INV_BOM_PARTS_COLSET_PROMISE 混用 */
 let PP_BOM_PARTS_COLSET_PROMISE = null
@@ -71,8 +75,7 @@ export async function getBomPartsColumnDataKindForPaperPattern(pool, columnName)
       WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = @tn AND COLUMN_NAME = @col
     `)
     const dt = String(r.recordset?.[0]?.dt ?? '').toLowerCase()
-    if (dt === 'bit' || dt === 'tinyint' || dt === 'smallint' || dt === 'int' || dt === 'bigint')
-      return 'numeric'
+    if (bomPartsSqlDataTypeIsNumeric(dt)) return 'numeric'
     return 'nvarchar'
   } catch {
     return 'nvarchar'
@@ -81,6 +84,117 @@ export async function getBomPartsColumnDataKindForPaperPattern(pool, columnName)
 
 /** 纸格导入 Bom_parts：pass 默认已审核 */
 export const PAPER_PATTERN_BOM_PARTS_PASS_DEFAULT = '1'
+
+const BOM_PARTS_NUMERIC_DATA_TYPES = new Set([
+  'bit',
+  'tinyint',
+  'smallint',
+  'int',
+  'bigint',
+  'decimal',
+  'numeric',
+  'float',
+  'real',
+  'money',
+  'smallmoney',
+])
+
+/** @param {unknown} dt */
+function bomPartsSqlDataTypeIsNumeric(dt) {
+  return BOM_PARTS_NUMERIC_DATA_TYPES.has(String(dt ?? '').toLowerCase())
+}
+
+/** 纸格专用：Bom_parts 全表列物理类型缓存 */
+let PP_BOM_PARTS_COL_KINDS_PROMISE = null
+
+/**
+ * @param {import('mssql').ConnectionPool} pool
+ * @returns {Promise<Map<string, 'numeric'|'nvarchar'>>}
+ */
+export async function getBomPartsColumnKindsForPaperPattern(pool) {
+  if (PP_BOM_PARTS_COL_KINDS_PROMISE) return PP_BOM_PARTS_COL_KINDS_PROMISE
+  PP_BOM_PARTS_COL_KINDS_PROMISE = (async () => {
+    /** @type {Map<string, 'numeric'|'nvarchar'>} */
+    const map = new Map()
+    try {
+      const r = await pool.request().input('tn', sql.NVarChar(128), INV_BOM_PARTS_TABLE).query(`
+        SELECT COLUMN_NAME AS name, DATA_TYPE AS dt
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = @tn
+      `)
+      for (const row of r.recordset ?? []) {
+        const n = String(row?.name ?? '').trim().toLowerCase()
+        if (!n) continue
+        map.set(n, bomPartsSqlDataTypeIsNumeric(row.dt) ? 'numeric' : 'nvarchar')
+      }
+      const numericCount = [...map.values()].filter((v) => v === 'numeric').length
+      console.log(
+        '[Bom_parts 纸格] 列类型缓存',
+        map.size,
+        '列，数值型',
+        numericCount,
+        '表',
+        INV_BOM_PARTS_TABLE,
+      )
+      if (map.size === 0) {
+        PP_BOM_PARTS_COL_KINDS_PROMISE = null
+      }
+    } catch (err) {
+      console.warn('[Bom_parts 纸格] 读取列类型失败：', err?.message ?? err)
+      PP_BOM_PARTS_COL_KINDS_PROMISE = null
+    }
+    return map
+  })()
+  return PP_BOM_PARTS_COL_KINDS_PROMISE
+}
+
+/** @param {import('mssql').ConnectionPool} pool */
+export async function getBomPartsKcaaColumnKindsForPaperPattern(pool) {
+  return getBomPartsColumnKindsForPaperPattern(pool)
+}
+
+/** @param {'numeric'|'nvarchar'} delColKind */
+function bomPartsSqlActiveDelPredicate(alias = 'p', delColKind = 'nvarchar') {
+  if (delColKind === 'numeric') {
+    return `(ISNULL(${alias}.del, 0) = 0)`
+  }
+  return `(ISNULL(${alias}.del, N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), ${alias}.del), N''))) = N'0')`
+}
+
+/**
+ * 纯数字文本 → number；空或非数字返回 null（SQL 2008 R2 无 TRY_CONVERT，须在 JS 侧过滤）
+ * @param {unknown} raw
+ * @returns {number|null}
+ */
+export function bomPartStrictNumericFromText(raw) {
+  const s = String(raw ?? '').replace(/,/g, '').trim()
+  if (s === '') return null
+  if (!/^-?\d+(\.\d+)?$/.test(s)) return null
+  const n = Number(s)
+  return Number.isFinite(n) ? n : null
+}
+
+/**
+ * 预取 UPDATE：按 Bom_parts 列类型绑定 kcaa（数值列仅写可解析数字，避免 nvarchar→numeric 8114）
+ * @param {import('mssql').Request} q
+ * @param {string[]} setParts
+ * @param {string} col
+ * @param {string} val
+ * @param {'numeric'|'nvarchar'} kind
+ */
+export function bomPartsAppendPrefetchedKcaaAssignment(q, setParts, col, val, kind) {
+  const pname = `pp_kcaa_${col}`
+  const s = String(val ?? '').replace(/,/g, '').trim()
+  if (kind === 'numeric') {
+    const n = bomPartStrictNumericFromText(s)
+    if (n === null) return
+    q.input(pname, sql.Decimal(18, 6), n)
+    setParts.push(`p.[${col}] = @${pname}`)
+    return
+  }
+  q.input(pname, sql.NVarChar(500), s)
+  setParts.push(`p.[${col}] = @${pname}`)
+}
 
 /** @param {unknown} raw */
 function bomPartParseDecimal(raw) {
@@ -193,6 +307,72 @@ function bomPartsSqlBindId(request, rawId) {
   request.input('id', sql.Int, v)
 }
 
+/** @param {string} [alias] */
+function bom000ActiveDelFilterSql(alias = 'b') {
+  return `(ISNULL(${alias}.del, N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), ${alias}.del), N''))) = N'0')`
+}
+
+/**
+ * bom_000 任意列 → nvarchar 表达式（SELECT/WHERE 通用）
+ * 必须先 CONVERT 再 ISNULL：ISNULL(数值列, N'') 在列为 NULL 时会触发 8114（SQL Server 2008 R2）
+ * @param {string} tableAlias 表别名，如 b
+ * @param {string} columnName 列名（不含括号），如 kcaa12
+ * @param {number} [len] nvarchar 长度
+ */
+export function bom000SqlColumnToNvarchar(tableAlias, columnName, len = 500) {
+  const col = String(columnName ?? '').trim()
+  const alias = String(tableAlias ?? 'b').trim() || 'b'
+  return `LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(${len}), ${alias}.[${col}]), N'')))`
+}
+
+/**
+ * 批量预取子件 bom_000.systemcode（与单行 lookup 规则一致：未删、id 最大）
+ * @param {import('mssql').Transaction|import('mssql').ConnectionPool} poolOrTx
+ * @param {string[]} kcaa01List
+ * @returns {Promise<Map<string, string>>} key = erpCodeLookupKey(kcaa01)
+ */
+export async function fetchSubBomSystemcodeByKcaa01In(poolOrTx, kcaa01List) {
+  /** @type {Map<string, string>} */
+  const out = new Map()
+  const uniq = [...new Set(kcaa01List.map((c) => normalizeErpCodeDisplay(c)).filter(Boolean))]
+  if (uniq.length === 0) return out
+
+  for (let i = 0; i < uniq.length; i += PAPER_PATTERN_BOM_PARTS_PREFETCH_BATCH) {
+    const chunk = uniq.slice(i, i + PAPER_PATTERN_BOM_PARTS_PREFETCH_BATCH)
+    const rq = new sql.Request(poolOrTx)
+    const orParts = []
+    chunk.forEach((code, idx) => {
+      const p = `sc${idx}`
+      rq.input(p, sql.NVarChar(300), code)
+      orParts.push(`LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) = @${p}`)
+    })
+    const rs = await rq.query(`
+      SELECT
+        b.id,
+        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) AS kcaa01_disp,
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS sub_sc
+      FROM ${INV_BOM_MASTER_FROM} AS b
+      WHERE (${orParts.join(' OR ')})
+        AND ${bom000ActiveDelFilterSql('b')}
+      ORDER BY b.id DESC
+    `)
+    /** @type {Map<string, number>} */
+    const bestId = new Map()
+    for (const row of rs.recordset ?? []) {
+      const disp = String(row.kcaa01_disp ?? '').trim()
+      const key = erpCodeLookupKey(disp)
+      if (!key) continue
+      const id = Number(row.id)
+      if (!Number.isFinite(id)) continue
+      const prev = bestId.get(key)
+      if (prev !== undefined && id <= prev) continue
+      bestId.set(key, id)
+      out.set(key, String(row.sub_sc ?? '').trim())
+    }
+  }
+  return out
+}
+
 /**
  * @param {import('mssql').Transaction|import('mssql').ConnectionPool} poolOrTx
  * @param {string} partMaterialCode
@@ -200,21 +380,129 @@ function bomPartsSqlBindId(request, rawId) {
 async function bomPartsLookupSubBomSystemcode(poolOrTx, partMaterialCode) {
   const code = String(partMaterialCode ?? '').trim()
   if (!code) return ''
-  const r = await new sql.Request(poolOrTx)
-    .input('kcaa01', sql.NVarChar(300), code)
-    .query(`
-      SELECT TOP 1
-        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS sub_sc
-      FROM ${INV_BOM_MASTER_FROM} AS b
-      WHERE LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) = @kcaa01
-        AND (ISNULL(b.del, N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.del), N''))) = N'0')
-      ORDER BY b.id DESC
-    `)
-  return String(r.recordset?.[0]?.sub_sc ?? '').trim()
+  const map = await fetchSubBomSystemcodeByKcaa01In(poolOrTx, [code])
+  return map.get(erpCodeLookupKey(code)) ?? ''
 }
 
 const BOM_PARTS_KCAA_SYNC_NAMES = Array.from({ length: 35 }, (_, i) => `kcaa${String(i + 1).padStart(2, '0')}`)
 const BOM_PARTS_KCAA_PAYLOAD_FALLBACK = new Set(['kcaa02', 'kcaa03', 'kcaa04', 'kcaa11'])
+
+/**
+ * 批量预取 bom_000 最新行（供纸格 Bom_parts 同步 UPDATE，避免每行 OUTER APPLY）
+ * @param {import('mssql').Transaction|import('mssql').ConnectionPool} poolOrTx
+ * @param {string[]} kcaa01List
+ * @returns {Promise<Map<string, Record<string, string>>>} key = erpCodeLookupKey；含 systemcode、kcaa01～kcaa35
+ */
+export async function fetchBom000RowsForPartsSyncByKcaa01In(poolOrTx, kcaa01List) {
+  /** @type {Map<string, Record<string, string>>} */
+  const out = new Map()
+  const uniq = [...new Set(kcaa01List.map((c) => normalizeErpCodeDisplay(c)).filter(Boolean))]
+  if (uniq.length === 0) return out
+
+  const kcaaSelect = BOM_PARTS_KCAA_SYNC_NAMES.map(
+    (c) => `${bom000SqlColumnToNvarchar('b', c, 500)} AS [${c}]`,
+  ).join(',\n        ')
+
+  for (let i = 0; i < uniq.length; i += PAPER_PATTERN_BOM_PARTS_PREFETCH_BATCH) {
+    const chunk = uniq.slice(i, i + PAPER_PATTERN_BOM_PARTS_PREFETCH_BATCH)
+    const rq = new sql.Request(poolOrTx)
+    const orParts = []
+    chunk.forEach((code, idx) => {
+      const p = `sy${idx}`
+      rq.input(p, sql.NVarChar(300), code)
+      orParts.push(`LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) = @${p}`)
+    })
+    const rs = await rq.query(`
+      SELECT
+        b.id,
+        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) AS kcaa01_disp,
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS systemcode,
+        ${kcaaSelect}
+      FROM ${INV_BOM_MASTER_FROM} AS b
+      WHERE (${orParts.join(' OR ')})
+        AND ${bom000ActiveDelFilterSql('b')}
+      ORDER BY b.id DESC
+    `)
+    /** @type {Map<string, number>} */
+    const bestId = new Map()
+    for (const row of rs.recordset ?? []) {
+      const disp = String(row.kcaa01_disp ?? '').trim()
+      const key = erpCodeLookupKey(disp)
+      if (!key) continue
+      const id = Number(row.id)
+      if (!Number.isFinite(id)) continue
+      const prev = bestId.get(key)
+      if (prev !== undefined && id <= prev) continue
+      bestId.set(key, id)
+      /** @type {Record<string, string>} */
+      const sync = { systemcode: String(row.systemcode ?? '').trim() }
+      for (const col of BOM_PARTS_KCAA_SYNC_NAMES) {
+        sync[col] = String(row[col] ?? '').trim()
+      }
+      out.set(key, sync)
+    }
+  }
+  return out
+}
+
+/** mssql 同一 Transaction 连接不支持并发 Request，须串行 */
+function isMssqlTransaction(poolOrTx) {
+  return (
+    poolOrTx != null &&
+    typeof poolOrTx === 'object' &&
+    typeof poolOrTx.commit === 'function' &&
+    typeof poolOrTx.rollback === 'function'
+  )
+}
+
+/**
+ * 纸格正式导入：事务内一次批量预取子件 systemcode + 主档 kcaa 同步行
+ * @param {import('mssql').Transaction|import('mssql').ConnectionPool} poolOrTx
+ * @param {string[]} kcaa01List
+ */
+export async function buildPaperPatternBomPartsPrefetch(poolOrTx, kcaa01List) {
+  const uniq = [...new Set(kcaa01List.map((c) => normalizeErpCodeDisplay(c)).filter(Boolean))]
+  const t0 = Date.now()
+  let subSystemcodeMap
+  let bom000SyncMap
+  if (isMssqlTransaction(poolOrTx)) {
+    subSystemcodeMap = await fetchSubBomSystemcodeByKcaa01In(poolOrTx, uniq)
+    bom000SyncMap = await fetchBom000RowsForPartsSyncByKcaa01In(poolOrTx, uniq)
+  } else {
+    ;[subSystemcodeMap, bom000SyncMap] = await Promise.all([
+      fetchSubBomSystemcodeByKcaa01In(poolOrTx, uniq),
+      fetchBom000RowsForPartsSyncByKcaa01In(poolOrTx, uniq),
+    ])
+  }
+  console.log(
+    '[paper-pattern-bom-parts-prefetch]',
+    JSON.stringify({
+      codes: uniq.length,
+      subHits: subSystemcodeMap.size,
+      syncHits: bom000SyncMap.size,
+      ms: Date.now() - t0,
+    }),
+  )
+  return { subSystemcodeMap, bom000SyncMap }
+}
+
+/**
+ * 与 bomPartsBuildKcaaSyncAssignments 等价的 JS 侧取值（供单测）
+ * @param {string} col
+ * @param {Record<string, string>|undefined} syncRow
+ * @param {Record<string, unknown>} raw
+ */
+export function resolveKcaaForPrefetchedBomPartsUpdate(col, syncRow, raw) {
+  const syncStr = syncRow && syncRow[col] != null ? String(syncRow[col]).trim() : ''
+  if (col === 'kcaa01') {
+    return syncStr || String(raw?.kcaa01 ?? '').trim()
+  }
+  if (BOM_PARTS_KCAA_PAYLOAD_FALLBACK.has(col)) {
+    const rawStr = raw?.[col] != null ? String(raw[col]).trim() : ''
+    return syncStr || rawStr
+  }
+  return syncStr
+}
 
 function bomPartsSqlOuterApplyLatestBom000ByPartKcaa01(alias = 'b0') {
   const kcaaSelect = BOM_PARTS_KCAA_SYNC_NAMES.map((c) => `b.[${c}]`).join(',\n          ')
@@ -357,6 +645,130 @@ async function bomPartsApplyFullLineUpdate(tx, partColset, systemcode, rawId, ra
 }
 
 /**
+ * 纸格导入：用预取 bom_000 行做单次 UPDATE（无 OUTER APPLY），并合并 kcac03/Describe/辅料扩展列
+ * @param {import('mssql').Transaction} tx
+ * @param {Set<string>} partColset
+ * @param {string} parentSystemcode
+ * @param {unknown} rawId
+ * @param {Record<string, unknown>} raw
+ * @param {Record<string, string>} syncRow
+ * @param {Record<string, unknown>} line
+ */
+async function bomPartsApplyPaperPatternPrefetchedUpdate(
+  tx,
+  partColset,
+  delColKind,
+  parentSystemcode,
+  rawId,
+  raw,
+  syncRow,
+  line,
+  columnKinds,
+) {
+  const kcaa01Up = String(raw?.kcaa01 ?? '').trim()
+  const kcac04 = bomPartRoundDecimal6(raw?.kcac04)
+  const kcac05 = bomPartResolveKcac05ForUpdate(raw)
+  const kcac06 = bomPartResolveKcac06ForUpdate(raw, kcac04, kcac05)
+  const costNum = bomPartParseDecimalOrNull(raw?.cost_price)
+  const saleNum = bomPartParseDecimalOrNull(raw?.sale_price)
+  const seqNum = bomPartParseSeq(raw?.seq)
+  const subSc = String(syncRow?.systemcode ?? '').trim()
+
+  const q = new sql.Request(tx)
+  bomPartsSqlBindId(q, rawId)
+  q.input('kcac01', sql.NVarChar(100), parentSystemcode)
+
+  const setParts = []
+  const kinds = columnKinds instanceof Map ? columnKinds : new Map()
+  for (const col of BOM_PARTS_KCAA_SYNC_NAMES) {
+    if (!partColset.has(col)) continue
+    const val = resolveKcaaForPrefetchedBomPartsUpdate(col, syncRow, raw)
+    const kind = kinds.get(col) ?? 'nvarchar'
+    bomPartsAppendPrefetchedKcaaAssignment(q, setParts, col, val, kind)
+  }
+
+  if (partColset.has('kcac02')) {
+    q.input('pp_kcac02', sql.NVarChar(100), subSc || String(raw?.kcac02 ?? '').trim())
+    setParts.push(
+      `p.kcac02 = ISNULL(NULLIF(LTRIM(RTRIM(@pp_kcac02)), N''), p.kcac02)`,
+    )
+  }
+  if (partColset.has('systemcode')) {
+    q.input('pp_parts_sc', sql.NVarChar(100), subSc)
+    setParts.push(
+      `p.systemcode = ISNULL(NULLIF(LTRIM(RTRIM(@pp_parts_sc)), N''), p.systemcode)`,
+    )
+  }
+
+  q.input('kcac04', sql.Decimal(18, 6), kcac04)
+  q.input('kcac05', sql.Decimal(18, 6), kcac05 === null ? null : kcac05)
+  q.input('cost_price', sql.Decimal(18, 6), costNum)
+  q.input('remark', sql.NVarChar(500), raw?.remark != null ? String(raw.remark) : '')
+  q.input('seq', sql.Int, seqNum)
+  setParts.push('p.kcac04 = @kcac04', 'p.kcac05 = @kcac05')
+  if (partColset.has('kcac06')) {
+    q.input('kcac06', sql.Decimal(18, 6), kcac06 === null ? null : kcac06)
+    setParts.push('p.kcac06 = @kcac06')
+  }
+  setParts.push('p.cost_price = @cost_price', 'p.remark = @remark', 'p.[Seq] = @seq')
+  if (partColset.has('sale_price')) {
+    q.input('sale_price', sql.Decimal(18, 6), saleNum)
+    setParts.push('p.sale_price = @sale_price')
+  }
+
+  const kcaa04Master = line.kcac03FromMaster != null ? String(line.kcac03FromMaster).trim() : ''
+  if (partColset.has('kcac03') && kcaa04Master) {
+    const k3kind = kinds.get('kcac03') ?? 'nvarchar'
+    if (k3kind === 'numeric') {
+      const n3 = bomPartStrictNumericFromText(kcaa04Master)
+      if (n3 !== null) {
+        q.input('pp_kcac03', sql.Decimal(18, 6), n3)
+        setParts.push('p.kcac03 = @pp_kcac03')
+      }
+    } else {
+      q.input('pp_kcac03', sql.NVarChar(300), kcaa04Master)
+      setParts.push('p.kcac03 = @pp_kcac03')
+    }
+  }
+
+  if (partColset.has('describe') && line.describe !== undefined && line.describe !== null) {
+    q.input('pp_describe', sql.NVarChar(500), String(line.describe))
+    setParts.push('p.[Describe] = @pp_describe')
+  }
+
+  const copyKcaa02En = Object.prototype.hasOwnProperty.call(line, 'kcaa02EnFromBom000')
+  const copyLoc = Object.prototype.hasOwnProperty.call(line, 'locationFromBom000')
+  if (copyKcaa02En && partColset.has('kcaa02_en')) {
+    q.input('pp_kcaa02_en', sql.NVarChar(500), String(line.kcaa02EnFromBom000 ?? ''))
+    setParts.push('p.kcaa02_en = @pp_kcaa02_en')
+  }
+  if (copyLoc && partColset.has('location')) {
+    q.input('pp_location', sql.NVarChar(200), String(line.locationFromBom000 ?? ''))
+    setParts.push('p.location = @pp_location')
+  }
+
+  if (subSc && partColset.has('guid')) {
+    q.input('pp_guid', sql.NVarChar(100), subSc)
+    setParts.push('p.[GUID] = @pp_guid')
+  }
+  if (subSc && partColset.has('dr_systemcode')) {
+    q.input('pp_dr_sc', sql.NVarChar(100), subSc)
+    setParts.push('p.dr_systemcode = @pp_dr_sc')
+  }
+
+  const delPred = bomPartsSqlActiveDelPredicate('p', delColKind)
+  await q.query(`
+    UPDATE p
+    SET ${setParts.join(', ')}
+    FROM ${INV_BOM_PARTS_FROM} AS p
+    WHERE p.id = @id
+      AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) =
+          LTRIM(RTRIM(CONVERT(nvarchar(100), @kcac01)))
+      AND ${delPred}
+  `)
+}
+
+/**
  * 插入一行 Bom_parts 并执行全字段同步 UPDATE
  * @param {import('mssql').Transaction} tx
  * @param {Set<string>} partColset
@@ -385,6 +797,7 @@ async function bomPartsApplyFullLineUpdate(tx, partColset, systemcode, rawId, ra
  *   version?: number,
  * }} line
  * @param {{ actor: { uidInt: number | null, uname: string | null, utruename: string | null }, addtime: string }} [audit] 纸格导入登录态审计
+ * @param {{ subSystemcodeMap: Map<string, string>, bom000SyncMap: Map<string, Record<string, string>> }} [paperPatternPrefetch] 纸格批量预取（P0：避免每行 lookup + OUTER APPLY）
  * kcac06FromExcel：非空可解析时写入 kcac06（如纸格 I 列合计），否则按 kcac04*(1+kcac05) 计算；
  * useNullKcac05AndKcac06：裁片 CUT 子档行，kcac05/kcac06 写库 NULL；type：库内有列时写入，缺省为 1；
  * version：库内有 [version] 列时写入，缺省 100；sale_price：辅料行从 Bom_000 抄 BOM 价；
@@ -399,6 +812,7 @@ export async function insertBomPartsLinePaperPattern(
   parentSystemcode,
   line,
   audit,
+  paperPatternPrefetch,
 ) {
   const kcaa01 = String(line.kcaa01 ?? '').trim()
   if (!kcaa01) throw new Error('Bom_parts 新增缺少 kcaa01')
@@ -423,7 +837,24 @@ export async function insertBomPartsLinePaperPattern(
   const seqIns = bomPartParseSeq(line.seq)
   const remark = line.remark != null ? String(line.remark) : ''
 
-  const subIns = await bomPartsLookupSubBomSystemcode(tx, kcaa01)
+  const lookupKey = erpCodeLookupKey(kcaa01)
+  const subFromPrefetch =
+    paperPatternPrefetch?.subSystemcodeMap instanceof Map && lookupKey
+      ? paperPatternPrefetch.subSystemcodeMap.get(lookupKey)
+      : undefined
+  const subIns =
+    subFromPrefetch !== undefined
+      ? String(subFromPrefetch ?? '').trim()
+      : await bomPartsLookupSubBomSystemcode(tx, kcaa01)
+  const syncRow =
+    paperPatternPrefetch?.bom000SyncMap instanceof Map && lookupKey
+      ? paperPatternPrefetch.bom000SyncMap.get(lookupKey)
+      : undefined
+  const columnKinds =
+    paperPatternPrefetch?.columnKinds instanceof Map ? paperPatternPrefetch.columnKinds : null
+  const usePrefetchedSync =
+    syncRow != null && columnKinds instanceof Map && columnKinds.size > 0
+
   const q = new sql.Request(tx)
   q.input('kcac01', sql.NVarChar(100), parentSystemcode)
   q.input('kcaa01', sql.NVarChar(300), kcaa01)
@@ -515,7 +946,7 @@ export async function insertBomPartsLinePaperPattern(
     throw new Error('Bom_parts 新增失败：未取得 INSERTED.id')
   }
 
-  await bomPartsApplyFullLineUpdate(tx, partColset, parentSystemcode, newId, {
+  const rawForSync = {
     kcaa01,
     kcaa02: line.kcaa02 != null ? String(line.kcaa02) : '',
     kcaa03: line.kcaa03 != null ? String(line.kcaa03) : '',
@@ -528,86 +959,101 @@ export async function insertBomPartsLinePaperPattern(
     sale_price: saleNum,
     remark,
     seq: seqIns,
-  })
-
-  const kcaa04Master = line.kcac03FromMaster != null ? String(line.kcac03FromMaster).trim() : ''
-  if (partColset.has('kcac03') && kcaa04Master) {
-    const u3 = new sql.Request(tx)
-    u3.input('id', sql.Int, newId)
-    u3.input('kcac01p', sql.NVarChar(100), parentSystemcode)
-    u3.input('kc3', sql.NVarChar(300), kcaa04Master)
-    await u3.query(`
-      UPDATE p
-      SET p.kcac03 = @kc3
-      FROM ${INV_BOM_PARTS_FROM} AS p
-      WHERE p.id = @id
-        AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) =
-            LTRIM(RTRIM(CONVERT(nvarchar(100), @kcac01p)))
-    `)
   }
 
-  if (partColset.has('describe') && line.describe !== undefined && line.describe !== null) {
-    const ud = new sql.Request(tx)
-    ud.input('id', sql.Int, newId)
-    ud.input('kcac01p', sql.NVarChar(100), parentSystemcode)
-    ud.input('dsc', sql.NVarChar(500), String(line.describe))
-    await ud.query(`
-      UPDATE p
-      SET p.[Describe] = @dsc
-      FROM ${INV_BOM_PARTS_FROM} AS p
-      WHERE p.id = @id
-        AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) =
-            LTRIM(RTRIM(CONVERT(nvarchar(100), @kcac01p)))
-    `)
-  }
+  if (usePrefetchedSync) {
+    await bomPartsApplyPaperPatternPrefetchedUpdate(
+      tx,
+      partColset,
+      delColKind,
+      parentSystemcode,
+      newId,
+      rawForSync,
+      syncRow,
+      line,
+      columnKinds,
+    )
+  } else {
+    await bomPartsApplyFullLineUpdate(tx, partColset, parentSystemcode, newId, rawForSync)
 
-  // 辅料：从 Bom_000 抄 kcaa02_en、location 至 Bom_parts 同名列（列存在且调用方传入时）
-  const copyKcaa02En = Object.prototype.hasOwnProperty.call(line, 'kcaa02EnFromBom000')
-  const copyLoc = Object.prototype.hasOwnProperty.call(line, 'locationFromBom000')
-  if ((copyKcaa02En && partColset.has('kcaa02_en')) || (copyLoc && partColset.has('location'))) {
-    const ux = new sql.Request(tx)
-    ux.input('id', sql.Int, newId)
-    ux.input('kcac01p', sql.NVarChar(100), parentSystemcode)
-    const sets = []
-    if (copyKcaa02En && partColset.has('kcaa02_en')) {
-      ux.input('k02en', sql.NVarChar(500), String(line.kcaa02EnFromBom000 ?? ''))
-      sets.push('p.kcaa02_en = @k02en')
-    }
-    if (copyLoc && partColset.has('location')) {
-      ux.input('loc', sql.NVarChar(200), String(line.locationFromBom000 ?? ''))
-      sets.push('p.location = @loc')
-    }
-    if (sets.length) {
-      await ux.query(`
+    const kcaa04Master = line.kcac03FromMaster != null ? String(line.kcac03FromMaster).trim() : ''
+    if (partColset.has('kcac03') && kcaa04Master) {
+      const u3 = new sql.Request(tx)
+      u3.input('id', sql.Int, newId)
+      u3.input('kcac01p', sql.NVarChar(100), parentSystemcode)
+      u3.input('kc3', sql.NVarChar(300), kcaa04Master)
+      await u3.query(`
         UPDATE p
-        SET ${sets.join(', ')}
+        SET p.kcac03 = @kc3
         FROM ${INV_BOM_PARTS_FROM} AS p
         WHERE p.id = @id
           AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) =
               LTRIM(RTRIM(CONVERT(nvarchar(100), @kcac01p)))
       `)
     }
-  }
 
-  const triple = String(subIns || '').trim()
-  if (triple && (partColset.has('guid') || partColset.has('dr_systemcode'))) {
-    const ug = new sql.Request(tx)
-    ug.input('id', sql.Int, newId)
-    ug.input('kcac01p', sql.NVarChar(100), parentSystemcode)
-    ug.input('trip', sql.NVarChar(100), triple)
-    const sets = []
-    if (partColset.has('guid')) sets.push('p.[GUID] = @trip')
-    if (partColset.has('dr_systemcode')) sets.push('p.dr_systemcode = @trip')
-    if (partColset.has('systemcode')) sets.push('p.systemcode = @trip')
-    if (sets.length) {
-      await ug.query(`
+    if (partColset.has('describe') && line.describe !== undefined && line.describe !== null) {
+      const ud = new sql.Request(tx)
+      ud.input('id', sql.Int, newId)
+      ud.input('kcac01p', sql.NVarChar(100), parentSystemcode)
+      ud.input('dsc', sql.NVarChar(500), String(line.describe))
+      await ud.query(`
         UPDATE p
-        SET ${sets.join(', ')}
+        SET p.[Describe] = @dsc
         FROM ${INV_BOM_PARTS_FROM} AS p
         WHERE p.id = @id
           AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) =
               LTRIM(RTRIM(CONVERT(nvarchar(100), @kcac01p)))
       `)
+    }
+
+    const copyKcaa02En = Object.prototype.hasOwnProperty.call(line, 'kcaa02EnFromBom000')
+    const copyLoc = Object.prototype.hasOwnProperty.call(line, 'locationFromBom000')
+    if ((copyKcaa02En && partColset.has('kcaa02_en')) || (copyLoc && partColset.has('location'))) {
+      const ux = new sql.Request(tx)
+      ux.input('id', sql.Int, newId)
+      ux.input('kcac01p', sql.NVarChar(100), parentSystemcode)
+      const sets = []
+      if (copyKcaa02En && partColset.has('kcaa02_en')) {
+        ux.input('k02en', sql.NVarChar(500), String(line.kcaa02EnFromBom000 ?? ''))
+        sets.push('p.kcaa02_en = @k02en')
+      }
+      if (copyLoc && partColset.has('location')) {
+        ux.input('loc', sql.NVarChar(200), String(line.locationFromBom000 ?? ''))
+        sets.push('p.location = @loc')
+      }
+      if (sets.length) {
+        await ux.query(`
+          UPDATE p
+          SET ${sets.join(', ')}
+          FROM ${INV_BOM_PARTS_FROM} AS p
+          WHERE p.id = @id
+            AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) =
+                LTRIM(RTRIM(CONVERT(nvarchar(100), @kcac01p)))
+        `)
+      }
+    }
+
+    const triple = String(subIns || '').trim()
+    if (triple && (partColset.has('guid') || partColset.has('dr_systemcode'))) {
+      const ug = new sql.Request(tx)
+      ug.input('id', sql.Int, newId)
+      ug.input('kcac01p', sql.NVarChar(100), parentSystemcode)
+      ug.input('trip', sql.NVarChar(100), triple)
+      const sets = []
+      if (partColset.has('guid')) sets.push('p.[GUID] = @trip')
+      if (partColset.has('dr_systemcode')) sets.push('p.dr_systemcode = @trip')
+      if (partColset.has('systemcode')) sets.push('p.systemcode = @trip')
+      if (sets.length) {
+        await ug.query(`
+          UPDATE p
+          SET ${sets.join(', ')}
+          FROM ${INV_BOM_PARTS_FROM} AS p
+          WHERE p.id = @id
+            AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) =
+                LTRIM(RTRIM(CONVERT(nvarchar(100), @kcac01p)))
+        `)
+      }
     }
   }
 

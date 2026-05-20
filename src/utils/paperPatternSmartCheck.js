@@ -126,7 +126,7 @@ export function buildSmartCheckFingerprint(materials, accessories, colorNos) {
 }
 
 /**
- * @returns {{ passedAt: number, fingerprint: string } | null}
+ * @returns {{ passedAt: number, fingerprint: string, fileId: string } | null}
  */
 export function readSmartCheckPassRecord() {
   try {
@@ -135,19 +135,38 @@ export function readSmartCheckPassRecord() {
     const o = JSON.parse(raw)
     const fingerprint = String(o?.fingerprint ?? '')
     if (!fingerprint) return null
-    return { passedAt: Number(o.passedAt) || 0, fingerprint }
+    return {
+      passedAt: Number(o.passedAt) || 0,
+      fingerprint,
+      fileId: String(o?.fileId ?? '').trim(),
+    }
   } catch {
     return null
   }
 }
 
-/** @param {string} fingerprint */
-export function writeSmartCheckPass(fingerprint) {
+/**
+ * @param {string} fingerprint
+ * @param {string} [fileId] 与导入页 parseFileId 绑定，防止跨文件误用通过态
+ */
+export function writeSmartCheckPass(fingerprint, fileId) {
   if (!fingerprint) return
   sessionStorage.setItem(
     SMART_CHECK_PASS_STORAGE,
-    JSON.stringify({ passedAt: Date.now(), fingerprint }),
+    JSON.stringify({
+      passedAt: Date.now(),
+      fingerprint,
+      fileId: String(fileId ?? '').trim(),
+    }),
   )
+}
+
+/** @param {string} fileId */
+export function isSmartCheckPassForImportPage(fileId) {
+  const fid = String(fileId ?? '').trim()
+  if (!fid) return false
+  const rec = readSmartCheckPassRecord()
+  return !!(rec?.fingerprint && rec.fileId === fid)
 }
 
 export function clearSmartCheckPass() {
@@ -253,17 +272,17 @@ export function clearImportPageSession() {
  */
 export function mergeWorkbenchIntoImportPageSession(fileId) {
   const payload = readWorkbenchPayload()
+  if (!payload) return
+  const fid = String(fileId ?? '').trim()
   const sess = readImportPageSession()
-  if (!payload || !sess) return
-  const fid = String(fileId ?? sess.fileId ?? '').trim()
-  const prevSnap = sess.parseResultSnapshot
+  const prevSnap = sess?.parseResultSnapshot
   saveImportPageSession({
-    fileId: fid || sess.fileId,
-    fileName: sess.fileName,
-    basicFormList: sess.basicFormList,
-    sharedImportTypeFlag5: sess.sharedImportTypeFlag5,
-    cutPreviewColorNo: sess.cutPreviewColorNo,
-    commitInProgress: sess.commitInProgress,
+    fileId: fid || sess?.fileId || '',
+    fileName: sess?.fileName || '',
+    basicFormList: sess?.basicFormList || [],
+    sharedImportTypeFlag5: sess?.sharedImportTypeFlag5 || '',
+    cutPreviewColorNo: sess?.cutPreviewColorNo || '',
+    commitInProgress: !!sess?.commitInProgress,
     parseResultSnapshot: {
       mainBom: prevSnap?.mainBom || {},
       cuts: Array.isArray(prevSnap?.cuts) ? prevSnap.cuts : [],
@@ -274,11 +293,34 @@ export function mergeWorkbenchIntoImportPageSession(fileId) {
   })
 }
 
-/** @param {string} fingerprint */
-export function isSmartCheckPassValid(fingerprint) {
+/**
+ * 将 workbench 全量 materials/accessories 写回内存中的 parseResult
+ * @param {{ materials?: any[], accessories?: any[] }} parseResult
+ * @returns {boolean}
+ */
+export function applyWorkbenchPayloadToParseResult(parseResult) {
+  const payload = readWorkbenchPayload()
+  if (!payload || !parseResult) return false
+  try {
+    parseResult.materials = JSON.parse(JSON.stringify(payload.materials || []))
+    parseResult.accessories = JSON.parse(JSON.stringify(payload.accessories || []))
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * @param {string} fingerprint
+ * @param {string} [fileId]
+ */
+export function isSmartCheckPassValid(fingerprint, fileId) {
   if (!fingerprint) return false
   const rec = readSmartCheckPassRecord()
-  return !!rec && rec.fingerprint === fingerprint
+  if (!rec || rec.fingerprint !== fingerprint) return false
+  const fid = String(fileId ?? '').trim()
+  if (rec.fileId && fid && rec.fileId !== fid) return false
+  return true
 }
 
 /**

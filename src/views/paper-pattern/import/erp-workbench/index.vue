@@ -246,7 +246,7 @@ function goImportWithPass() {
     accessoryRows.value,
     colorNosRef.value,
   )
-  writeSmartCheckPass(fp)
+  writeSmartCheckPass(fp, fileId.value)
   mergeWorkbenchIntoImportPageSession(fileId.value)
   router.push(importPageLocation())
 }
