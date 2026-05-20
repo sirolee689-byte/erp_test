@@ -464,7 +464,7 @@
     - `GET /api/users/:id`：单条只读详情（同上 JOIN）。
     - `PUT /api/users`：`op=unpass` 将 `pass` 置 `0`（反审核）；`op=soft_delete` 将 `del` 置 `1` 并写 `deltime`；普通 body 为编辑（写 `edittime` 及存在的 `uid`/`uname`/`utruename` 审计列）；日志 Content 按规则 16 / 产品模版拼接。
     - `PUT /api/users/resume`：回收站恢复为 `del=0`（并清 `deltime` 若存在列）。
-    - `POST /api/users`：动态 INSERT（`pass`/`del` 默认待审与在册等）。
+    - `POST /api/users`：初始密码 `123` **bcrypt**；写入前 **`password` 列不足 60 时 API 自动 ALTER 为 NVARCHAR(200)**；`PUT` 支持 `op=audit|unpass|disable`；列表默认 `pass=1`，`pass=0` 为未审核视图。
     - `DELETE /api/users/:id`：该结构下禁止物理删除，返回 400，请走软删除。
   - **ERP 标准列**（非 legacy）时仍以 `server/index.js` 内原有 `UserID`/`Status` 等分支为准。
 - **关键字段（已确认）**

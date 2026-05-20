@@ -31,9 +31,11 @@ import {
   invalidateSysUsersColumnsMeta,
   isSysUserRowLoginDisabled,
   rejectLegacySysUsersCrud,
+  resolveSysUsersPasswordForStorage,
   sysUsersAccountCodeExpr,
   sysUsersPasswordExpr,
 } from './sysUsersDb.js'
+import { mapSqlServerWriteError } from './sqlServerWriteErrors.js'
 import {
   getOperatorUserDetail,
   insertOperatorUserLegacy,
@@ -1283,6 +1285,10 @@ app.get('/api/users', async (req, res) => {
     // =========================
     const keywordRaw = String(req.query?.keyword ?? '').trim()
 
+    // v2 在册列表：pass=1 已审核（默认）；pass=0 显示未审核；回收站 status=0 不按 pass 过滤
+    const passRaw = String(req.query?.pass ?? '1').trim()
+    const passFilter = passRaw === '0' ? '0' : '1'
+
     // 关键：如果 keyword 为空，就不加 LIKE 条件；如果不为空，就开启模糊搜索
     const hasKeyword = keywordRaw.length > 0
 
@@ -1313,6 +1319,7 @@ app.get('/api/users', async (req, res) => {
             offset,
             safePageSize,
             safeStatus,
+            passFilter: safeStatus === 1 ? passFilter : undefined,
             keywordRaw,
           })
           res.json({ code: 200, msg: 'success', list: r.list, total: r.total })
@@ -1771,12 +1778,15 @@ app.put('/api/users/change-password', async (req, res) => {
     // =========================
     // 第 2 步：更新密码
     // =========================
-    // 关键：只要用户“修改密码”，就强制进入加密模式（数据库不再存明文）
-    const newPasswordHash = await hashPassword(newPassword)
+    const pwdResolved = await resolveSysUsersPasswordForStorage(newPassword, meta, hashPassword, pool)
+    if (pwdResolved.error) {
+      res.status(400).json({ code: 400, msg: pwdResolved.error, data: null })
+      return
+    }
 
     const updateReq = pool.request()
     updateReq.input('UserCode', sql.NVarChar(50), String(current.userCode))
-    updateReq.input('NewPassword', sql.NVarChar(200), String(newPasswordHash))
+    updateReq.input('NewPassword', sql.NVarChar(200), String(pwdResolved.stored))
 
     const updateResult = await updateReq.query(`
       UPDATE Sys_Users
@@ -1794,7 +1804,13 @@ app.put('/api/users/change-password', async (req, res) => {
     res.json({ code: 200, msg: 'success', data: null })
   } catch (err) {
     console.error('修改密码 /api/users/change-password 失败：', err)
-    res.status(500).json({ code: 500, msg: '修改失败：数据库写入异常，请联系管理员', data: null })
+    const mapped = mapSqlServerWriteError(err, { hint: '修改密码' })
+    const status = mapped?.status ?? 500
+    res.status(status).json({
+      code: status,
+      msg: mapped?.msg ?? '修改失败：数据库写入异常，请联系管理员',
+      data: null,
+    })
   }
 })
 
@@ -1893,10 +1909,24 @@ app.delete('/api/users/:id', async (req, res) => {
  */
 app.post('/api/users', async (req, res) => {
   try {
-    // 关键：从请求体中读取前端提交的数据（需要 app.use(express.json()) 才能解析）
-    const { UserCode, UserName, Password, RoleID } = req.body ?? {}
+    const body = req.body ?? {}
 
-    // 关键：做最基础的后端校验，避免插入空数据
+    // 关键：v2（del/pass）先分流：密码由 insertOperatorUserLegacy 固定为 123，不要求前端传 Password
+    const pool = await getPool()
+    const metaUsers = await getSysUsersColumnsMeta(pool)
+    if (isOperatorUsersV2(metaUsers)) {
+      const out = await insertOperatorUserLegacy(pool, metaUsers, req, body, hashPassword)
+      if (out.error) {
+        res.status(out.error.status).json(out.error.json)
+        return
+      }
+      res.json({ code: 200, msg: 'success', data: out.data })
+      return
+    }
+
+    const { UserCode, UserName, Password, RoleID } = body
+
+    // 关键：旧版 Sys_Users 做最基础的后端校验，避免插入空数据
     if (!String(UserCode || '').trim()) {
       res.status(400).json({ code: 400, msg: 'UserCode 不能为空', data: null })
       return
@@ -1910,18 +1940,6 @@ app.post('/api/users', async (req, res) => {
       return
     }
 
-    // 关键：获取数据库连接池
-    const pool = await getPool()
-    const metaUsers = await getSysUsersColumnsMeta(pool)
-    if (isOperatorUsersV2(metaUsers)) {
-      const out = await insertOperatorUserLegacy(pool, metaUsers, req, req.body ?? {}, hashPassword)
-      if (out.error) {
-        res.status(out.error.status).json(out.error.json)
-        return
-      }
-      res.json({ code: 200, msg: 'success', data: out.data })
-      return
-    }
     if (await rejectLegacySysUsersCrud(pool, res)) return
 
     const roleCheck = await assertWritableRoleId(pool, RoleID)
@@ -1936,9 +1954,12 @@ app.post('/api/users', async (req, res) => {
     request.input('UserName', sql.NVarChar(50), String(UserName).trim())
     request.input('RoleID', sql.Int, roleCheck.roleId)
 
-    // 关键：v1.0.6 安全升级：新增用户时，密码必须先加密再入库（禁止直存明文）
-    const passwordHash = await hashPassword(Password)
-    request.input('Password', sql.NVarChar(200), String(passwordHash))
+    const pwdResolved = await resolveSysUsersPasswordForStorage(Password, metaUsers, hashPassword, pool)
+    if (pwdResolved.error) {
+      res.status(400).json({ code: 400, msg: pwdResolved.error, data: null })
+      return
+    }
+    request.input('Password', sql.NVarChar(200), String(pwdResolved.stored))
 
     // 关键：执行 SQL 插入（单独 try-catch，专门把“工号重复”这种常见错误识别出来）
     let result
@@ -1972,11 +1993,12 @@ app.post('/api/users', async (req, res) => {
         return
       }
 
-      // 关键：其他数据库写入错误，返回统一中文提示（不要让小白看到一堆英文堆栈）
+      const mapped = mapSqlServerWriteError(dbErr, { hint: '新增操作员' })
       console.error('数据库写入失败（POST /api/users）：', dbErr)
-      res.status(500).json({
-        code: 500,
-        msg: '数据库写入失败，请联系管理员',
+      const status = mapped?.status ?? 500
+      res.status(status).json({
+        code: status,
+        msg: mapped?.msg ?? '数据库写入失败，请联系管理员',
         data: null,
       })
       return
@@ -2001,11 +2023,12 @@ app.post('/api/users', async (req, res) => {
       data: created ? { ...created, RoleName: roleName } : created,
     })
   } catch (err) {
-    // 关键：服务端打印详细错误，便于你定位“字段不能为空/长度超限/唯一键冲突”等问题
     console.error('新增 /api/users 失败：', err)
-    res.status(500).json({
-      code: 500,
-      msg: '数据库写入失败，请联系管理员',
+    const mapped = mapSqlServerWriteError(err, { hint: '新增操作员' })
+    const status = mapped?.status ?? 500
+    res.status(status).json({
+      code: status,
+      msg: mapped?.msg ?? '数据库写入失败，请联系管理员',
       data: null,
     })
   }

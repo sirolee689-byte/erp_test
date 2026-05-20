@@ -75,9 +75,21 @@
           style="max-width: 320px"
           @keyup.enter="onSearch"
         />
+        <div v-if="selectedStatus === 1" class="audit-switch">
+          <span class="switch-label">显示未审核</span>
+          <el-switch v-model="showUnAudited" @change="onSearch" />
+        </div>
         <el-button type="primary" @click="onSearch">查询</el-button>
         <el-button @click="onReset">重置</el-button>
       </div>
+
+      <el-alert
+        v-if="selectedStatus === 1 && showUnAudited"
+        title="当前显示：未审核（pass=0）的操作员"
+        type="warning"
+        show-icon
+        class="audit-alert"
+      />
 
       <!--
         Sys_Users 数据表展示（Element Plus 表格）
@@ -106,7 +118,11 @@
             :empty-text="loading ? '加载中...' : '暂无数据'"
           >
             <!-- 主键 UserID 仅作 row-key，不在表格中展示 -->
-            <el-table-column prop="Username" label="登录账号" min-width="140" show-overflow-tooltip />
+            <el-table-column prop="Usercode" label="登录账号" min-width="140" show-overflow-tooltip>
+              <template #default="{ row }">
+                {{ row?.Usercode ?? row?.UserCode ?? row?.Username ?? '—' }}
+              </template>
+            </el-table-column>
             <el-table-column prop="truename" label="姓名" min-width="120" show-overflow-tooltip>
               <template #default="{ row }">
                 {{ row?.truename ?? row?.Truename ?? '—' }}
@@ -126,35 +142,43 @@
               </template>
             </el-table-column>
 
-            <el-table-column label="操作" min-width="280" fixed="right">
+            <el-table-column label="操作" min-width="360" fixed="right">
               <template #default="{ row }">
                 <template v-if="Number(selectedStatus) === 1">
                   <el-button v-permission="'view'" size="small" @click="openViewDialog(row)">查看</el-button>
+                  <el-button v-permission="'edit'" size="small" @click="openEditDialog(row)">
+                    编辑
+                  </el-button>
                   <el-button
+                    v-if="showUnAudited"
                     v-permission="'edit'"
                     size="small"
-                    :disabled="isRowPassLocked(row)"
-                    @click="openEditDialog(row)"
+                    type="primary"
+                    :disabled="passIsAudited(row)"
+                    :loading="busyUserId === row.UserID"
+                    @click="confirmAudit(row)"
                   >
-                    编辑
+                    审核
+                  </el-button>
+                  <el-button
+                    v-if="!showUnAudited"
+                    v-permission="'delete'"
+                    size="small"
+                    type="warning"
+                    :disabled="!passIsAudited(row)"
+                    :loading="busyUserId === row.UserID"
+                    @click="confirmUnaudit(row)"
+                  >
+                    反审
                   </el-button>
                   <el-button
                     v-permission="'delete'"
                     size="small"
                     type="warning"
-                    :disabled="Number(row?.Pass) !== 1"
-                    @click="confirmUnpass(row)"
+                    :loading="busyUserId === row.UserID"
+                    @click="confirmDisable(row)"
                   >
                     禁用
-                  </el-button>
-                  <el-button
-                    v-permission="'delete'"
-                    size="small"
-                    type="danger"
-                    :disabled="isRowPassLocked(row)"
-                    @click="confirmSoftDelete(row)"
-                  >
-                    软删除
                   </el-button>
                 </template>
                 <template v-else>
@@ -231,6 +255,25 @@
             />
           </el-select>
         </el-form-item>
+
+        <el-form-item v-if="dialogMode === 'edit'" label="新密码" prop="Password">
+          <el-input
+            v-model="createForm.Password"
+            type="password"
+            show-password
+            clearable
+            placeholder="留空表示不修改；长度不限"
+          />
+        </el-form-item>
+
+        <el-alert
+          v-if="dialogMode === 'create'"
+          type="info"
+          :closable="false"
+          show-icon
+          title="初始密码为 123，操作员首次登录须修改密码。"
+          style="margin-bottom: 4px"
+        />
       </el-form>
 
       <template #footer>
@@ -242,8 +285,7 @@
     <!-- 只读查看（GET /api/users/:id） -->
     <el-dialog v-model="viewDialogVisible" title="查看操作员" width="520px" :close-on-click-modal="false">
       <el-descriptions v-if="viewDetail" :column="1" border size="small">
-        <el-descriptions-item label="登录账号">{{ viewDetail.Username ?? '—' }}</el-descriptions-item>
-        <el-descriptions-item label="员工编码">{{ viewDetail.Usercode ?? '—' }}</el-descriptions-item>
+        <el-descriptions-item label="登录账号">{{ viewDetail.Usercode ?? viewDetail.UserCode ?? '—' }}</el-descriptions-item>
         <el-descriptions-item label="姓名（truename）">{{ viewDetail.truename ?? viewDetail.Truename ?? '—' }}</el-descriptions-item>
         <el-descriptions-item label="关联角色">{{ viewDetail.RoleName ?? '—' }}</el-descriptions-item>
         <el-descriptions-item label="审核状态">
@@ -289,6 +331,12 @@ const errorMessage = ref('')
  * - 0 = 恢复操作员（回收站/禁用）
  */
 const selectedStatus = ref(1)
+
+/** 在册列表：默认 pass=1；打开后查 pass=0（与颜色编码一致） */
+const showUnAudited = ref(false)
+
+/** 审核/反审/禁用请求中的 UserID */
+const busyUserId = ref(null)
 
 /**
  * 搜索关键字（前端）
@@ -399,8 +447,8 @@ function formatDateTime(row, column, cellValue) {
   return d.toLocaleString()
 }
 
-/** pass=1 时锁定编辑与软删除（与 .cursorrules 审核锁死一致） */
-function isRowPassLocked(row) {
+/** pass=1 已审核 */
+function passIsAudited(row) {
   return Number(row?.Pass) === 1
 }
 
@@ -473,10 +521,9 @@ async function loadUsers() {
       params: {
         page: page.value,
         pageSize: pageSize.value,
-        // 关键：如果 keyword 为空，就不传；如果不为空，就传给后端做模糊搜索
         keyword: String(keyword.value || '').trim() || undefined,
-        // 关键：把当前视图状态传给后端（后端用它来拼 WHERE Status = @status）
         status: selectedStatus.value,
+        ...(selectedStatus.value === 1 ? { pass: showUnAudited.value ? '0' : '1' } : {}),
       },
     })
     // 关键：取出后端 JSON 数据（axios 会把响应体放在 res.data）
@@ -561,8 +608,8 @@ function openEditDialog(row) {
   // 注意：Password 不回显（安全原因），默认留空表示“不修改密码”
   createForm.value = {
     UserID: row?.UserID,
-    UserCode: row?.Usercode ?? row?.UserCode ?? '',
-    UserName: row?.Username ?? row?.UserName ?? '',
+    UserCode: row?.Usercode ?? row?.UserCode ?? row?.Username ?? row?.UserName ?? '',
+    UserName: row?.Usercode ?? row?.UserCode ?? row?.Username ?? row?.UserName ?? '',
     Truename: row?.truename ?? row?.Truename ?? '',
     Password: '',
     RoleID: row?.RoleID,
@@ -605,13 +652,15 @@ async function submitCreateForm() {
         Truename: createForm.value.Truename,
         RoleID: createForm.value.RoleID,
       }
-      // 新增：不让用户填密码，后端会自动设为 123（加密）+ is_first_login=1
-      // 同时为兼容旧表必填 usercode，这里把 UserCode 自动设置为登录账号
+      // 登录账号写入 Sys_Users.usercode（与 username 同步，后端校验全表唯一）
+      const loginAccount = String(createForm.value.UserName ?? '').trim()
+      payload.UserCode = loginAccount
       if (!isEdit) {
-        payload.UserCode = String(createForm.value.UserName ?? '').trim()
+        payload.UserName = loginAccount
       } else {
-        payload.UserCode = createForm.value.UserCode
-        payload.Password = createForm.value.Password
+        payload.UserName = loginAccount
+        const pwd = String(createForm.value.Password ?? '').trim()
+        if (pwd) payload.Password = pwd
       }
 
       // 关键：按模式发请求
@@ -627,7 +676,11 @@ async function submitCreateForm() {
       }
 
       // 关键：提示成功
-      ElMessage.success(dialogMode.value === 'edit' ? '保存成功' : '添加成功')
+      ElMessage.success(
+        dialogMode.value === 'edit'
+          ? '保存成功'
+          : '添加成功；初始密码为 123，首次登录须修改密码',
+      )
       // 关键：关闭弹窗
       createDialogVisible.value = false
       // 关键：刷新表格数据，让新用户立即出现在列表里
@@ -652,45 +705,75 @@ async function submitCreateForm() {
 }
 
 /**
- * 反审核（禁用）：将 pass 置为 0，后端写规则 16 日志
+ * 审核：pass 置为 1（未审核列表）
  */
-async function confirmUnpass(row) {
+async function confirmAudit(row) {
   const userId = row?.UserID
   if (!userId) {
     ElMessage.error('操作失败：缺少 UserID')
     return
   }
-
   try {
     await ElMessageBox.confirm(
-      `确定要对【${row?.Username ?? row?.UserName ?? ''}】执行反审核（pass=0）吗？`,
-      '二次确认',
-      {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning',
-      },
+      `确定审核操作员【${row?.Username ?? row?.UserName ?? ''}】吗？审核后将出现在默认（已审核）列表中。`,
+      '确认审核',
+      { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' },
     )
-
-    const res = await axios.put('/api/users', { UserID: userId, op: 'unpass' })
+    busyUserId.value = userId
+    const res = await axios.put('/api/users', { UserID: userId, op: 'audit' })
     const json = res.data
-
     if (json?.code !== 200) {
-      ElMessage.error(json?.msg || '操作失败')
+      ElMessage.error(json?.msg || '审核失败')
       return
     }
-
-    ElMessage.success('已反审核')
+    ElMessage.success('审核成功')
     await loadUsers()
   } catch (e) {
-    /* 用户取消 */
+    if (e !== 'cancel' && e?.message !== 'cancel') {
+      ElMessage.error(e?.response?.data?.msg || '审核失败')
+    }
+  } finally {
+    busyUserId.value = null
   }
 }
 
 /**
- * 软删除：del=1 + deltime，后端写规则 16 日志
+ * 反审：pass 置为 0（已审核列表）
  */
-async function confirmSoftDelete(row) {
+async function confirmUnaudit(row) {
+  const userId = row?.UserID
+  if (!userId) {
+    ElMessage.error('操作失败：缺少 UserID')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定反审操作员【${row?.Username ?? row?.UserName ?? ''}】吗？反审后将出现在「显示未审核」列表中。`,
+      '确认反审',
+      { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' },
+    )
+    busyUserId.value = userId
+    const res = await axios.put('/api/users', { UserID: userId, op: 'unpass' })
+    const json = res.data
+    if (json?.code !== 200) {
+      ElMessage.error(json?.msg || '反审失败')
+      return
+    }
+    ElMessage.success('反审成功')
+    await loadUsers()
+  } catch (e) {
+    if (e !== 'cancel' && e?.message !== 'cancel') {
+      ElMessage.error(e?.response?.data?.msg || '反审失败')
+    }
+  } finally {
+    busyUserId.value = null
+  }
+}
+
+/**
+ * 禁用：del 置为 1，账号不可登录；在「恢复操作员」视图可启用
+ */
+async function confirmDisable(row) {
   const userId = row?.UserID
   if (!userId) {
     ElMessage.error('操作失败：缺少 UserID')
@@ -699,7 +782,7 @@ async function confirmSoftDelete(row) {
 
   try {
     await ElMessageBox.confirm(
-      `确定将操作员【${row?.Username ?? row?.UserName ?? ''}】移入回收站（逻辑删除）吗？`,
+      `确定要禁用操作员【${row?.Username ?? row?.UserName ?? ''}】吗？禁用后无法登录，可在「恢复操作员」中重新启用。`,
       '二次确认',
       {
         confirmButtonText: '确定',
@@ -708,15 +791,15 @@ async function confirmSoftDelete(row) {
       },
     )
 
-    const res = await axios.put('/api/users', { UserID: userId, op: 'soft_delete' })
+    const res = await axios.put('/api/users', { UserID: userId, op: 'disable' })
     const json = res.data
 
     if (json?.code !== 200) {
-      ElMessage.error(json?.msg || '软删除失败')
+      ElMessage.error(json?.msg || '禁用失败')
       return
     }
 
-    ElMessage.success('已软删除')
+    ElMessage.success('已禁用')
     await loadUsers()
   } catch (e) {
     /* 用户取消 */
@@ -761,6 +844,7 @@ async function onSearch() {
  */
 async function onReset() {
   keyword.value = ''
+  showUnAudited.value = false
   page.value = 1
   await loadUsers()
 }
@@ -821,11 +905,9 @@ async function switchToStatus(nextStatus) {
   // 关键：如果本来就在这个视图，就不重复刷新
   if (selectedStatus.value === nextStatus) return
 
-  // 关键：更新当前视图状态
   selectedStatus.value = nextStatus
-
-  // 关键：切换视图时清空搜索关键字
   keyword.value = ''
+  showUnAudited.value = false
 
   // 关键：切换视图时把分页重置为第一页
   page.value = 1
@@ -873,8 +955,21 @@ onMounted(async () => {
 .search-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin: 8px 0 12px;
+}
+.audit-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.switch-label {
+  font-size: 14px;
+  color: var(--el-text-color-regular);
+}
+.audit-alert {
+  margin-bottom: 12px;
 }
 .operator-toolbar {
   /* 关键：flex + wrap，让按钮在一行放不下时自动换行（响应式） */

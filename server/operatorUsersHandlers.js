@@ -4,7 +4,14 @@
 import { sql } from './db.js'
 import { getActorAuditTripletFromReq } from './businessAuditFields.js'
 import { writeLog } from './operationLogWriter.js'
-import { getSysUsersAuditUidQb, getSysUsersEntityPkQb } from './sysUsersDb.js'
+import {
+  clipNvarcharForColumn,
+  getSysUsersColumnMaxLen,
+  getSysUsersAuditUidQb,
+  getSysUsersEntityPkQb,
+  resolveSysUsersPasswordForStorage,
+} from './sysUsersDb.js'
+import { mapSqlServerWriteError } from './sqlServerWriteErrors.js'
 
 /** 旧版 uid+username+usercode 且同时具备 del、pass 时走本模块 v2 */
 export function isOperatorUsersV2(meta) {
@@ -97,10 +104,10 @@ function buildOperatorFromJoin(meta, qRoleId) {
  * 分页列表（仅 ROW_NUMBER，兼容 SQL Server 2008 R2）
  * @param {import('mssql').ConnectionPool} pool
  * @param {import('./sysUsersDb.js').SysUsersColumnsMeta} meta
- * @param {{ offset: number, safePageSize: number, safeStatus: 0|1, keywordRaw: string }} opts
+ * @param {{ offset: number, safePageSize: number, safeStatus: 0|1, passFilter?: '0'|'1', keywordRaw: string }} opts
  */
 export async function queryOperatorUsersPage(pool, meta, opts) {
-  const { offset, safePageSize, safeStatus, keywordRaw } = opts
+  const { offset, safePageSize, safeStatus, passFilter, keywordRaw } = opts
   const qPk = getSysUsersEntityPkQb(meta)
   const qUsercode = meta.qb('usercode')
   const qUsername = meta.qb('username')
@@ -124,12 +131,18 @@ export async function queryOperatorUsersPage(pool, meta, opts) {
     ? ` AND (u.${qUsercode} LIKE @key ESCAPE N'\\' OR u.${qUsername} LIKE @key ESCAPE N'\\'${kwTruename})`
     : ''
 
-  const whereSql = `WHERE ${delPart}${kwSql}`
+  const passSql =
+    safeStatus === 1 && (passFilter === '0' || passFilter === '1')
+      ? ` AND LTRIM(RTRIM(CAST(ISNULL(u.${qPass}, N'') AS NVARCHAR(20)))) = @pass`
+      : ''
+
+  const whereSql = `WHERE ${delPart}${passSql}${kwSql}`
   const fromJoin = buildOperatorFromJoin(meta, qRoleId)
   const selCols = buildOperatorSelectCols(meta, qPk, qUsercode, qUsername, qPass, qRoleId, qTruename)
   const orderExpr = `u.${qPk} DESC`
 
   const totalReq = pool.request()
+  if (passSql) totalReq.input('pass', sql.NVarChar(1), passFilter)
   if (hasKeyword) totalReq.input('key', sql.NVarChar(120), likeKey)
   const totalR = await totalReq.query(`
     SELECT COUNT(1) AS total
@@ -143,6 +156,7 @@ export async function queryOperatorUsersPage(pool, meta, opts) {
   const listReq = pool.request()
   listReq.input('startRow', sql.Int, startRow)
   listReq.input('endRow', sql.Int, endRow)
+  if (passSql) listReq.input('pass', sql.NVarChar(1), passFilter)
   if (hasKeyword) listReq.input('key', sql.NVarChar(120), likeKey)
 
   const result = await listReq.query(`
@@ -201,6 +215,45 @@ function bareIdent(qbCol) {
   return String(qbCol ?? '').trim()
 }
 
+/** 登录账号冲突提示（全表 usercode 唯一） */
+function usercodeDuplicateMsg(usercode) {
+  return `登录账号「${usercode}」已存在，请更换`
+}
+
+/**
+ * 校验 Sys_Users.usercode 全表唯一（编辑时排除当前主键）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {import('./sysUsersDb.js').SysUsersColumnsMeta} meta
+ * @param {string} usercode
+ * @param {number} [excludeUserId]
+ */
+async function assertOperatorUsercodeUnique(pool, meta, usercode, excludeUserId = 0) {
+  const qPk = getSysUsersEntityPkQb(meta)
+  const qUsercode = meta.qb('usercode')
+  if (!qPk || !qUsercode) return { ok: true }
+  const code = String(usercode ?? '').trim()
+  if (!code) return { ok: false, msg: '登录账号不能为空' }
+
+  const req = pool.request()
+  req.input('usercode', sql.NVarChar(80), code)
+  let excludeSql = ''
+  if (Number.isFinite(excludeUserId) && excludeUserId > 0) {
+    req.input('excludeId', sql.Int, excludeUserId)
+    excludeSql = ` AND u.${qPk} <> @excludeId`
+  }
+
+  const r = await req.query(`
+    SELECT TOP (1) u.${qPk} AS UserID
+    FROM Sys_Users AS u
+    WHERE LTRIM(RTRIM(CAST(ISNULL(u.${qUsercode}, N'') AS NVARCHAR(100)))) = @usercode
+    ${excludeSql}
+  `)
+  if (r.recordset?.[0]) {
+    return { ok: false, msg: usercodeDuplicateMsg(code) }
+  }
+  return { ok: true }
+}
+
 /**
  * 新增（旧版 Sys_Users 动态列）
  */
@@ -219,12 +272,16 @@ export async function insertOperatorUserLegacy(pool, meta, req, body, hashPasswo
     return { error: { status: 500, json: { code: 500, msg: '表结构缺少主键(UserID/uid)/usercode/username/password/del/pass', data: null } } }
   }
 
-  // 新增操作员：前端只需传 UserName/Truename/RoleID；UserCode 自动取 UserName；密码固定为 123（加密）
-  const username = String(body.UserName ?? body.Username ?? '').trim()
-  const usercode = String(body.UserCode ?? body.Usercode ?? '').trim() || username
-  const truenameRaw = String(body.Truename ?? body.truename ?? '').trim()
-  if (!username) return { error: { status: 400, json: { code: 400, msg: '登录账号不能为空', data: null } } }
-  if (!usercode) return { error: { status: 400, json: { code: 400, msg: 'UserCode 不能为空（系统将其自动设置为登录账号）', data: null } } }
+  // 登录账号 → usercode（唯一）；username 与 usercode 同步以便登录匹配
+  let usercode = String(body.UserCode ?? body.Usercode ?? body.UserName ?? body.Username ?? '').trim()
+  let truenameRaw = String(body.Truename ?? body.truename ?? '').trim()
+  usercode = clipNvarcharForColumn(usercode, getSysUsersColumnMaxLen(meta, 'usercode'))
+  let username = clipNvarcharForColumn(usercode, getSysUsersColumnMaxLen(meta, 'username'))
+  truenameRaw = clipNvarcharForColumn(truenameRaw, getSysUsersColumnMaxLen(meta, 'truename'))
+  if (!usercode) return { error: { status: 400, json: { code: 400, msg: '登录账号不能为空', data: null } } }
+
+  const uniq = await assertOperatorUsercodeUnique(pool, meta, usercode)
+  if (!uniq.ok) return { error: { status: 400, json: { code: 400, msg: uniq.msg, data: null } } }
   if (qTruename && !truenameRaw) {
     return { error: { status: 400, json: { code: 400, msg: '姓名（truename）不能为空', data: null } } }
   }
@@ -237,7 +294,11 @@ export async function insertOperatorUserLegacy(pool, meta, req, body, hashPasswo
   }
 
   const tri = getActorAuditTripletFromReq(req)
-  const pwdHash = await hashPassword('123')
+  const pwdResolved = await resolveSysUsersPasswordForStorage('123', meta, hashPassword, pool)
+  if (pwdResolved.error) {
+    return { error: { status: 400, json: { code: 400, msg: pwdResolved.error, data: null } } }
+  }
+  const pwdHash = pwdResolved.stored
   const now = nowAuditString()
 
   const insertColList = [bareIdent(qUsercode), bareIdent(qUsername), bareIdent(qPwd), bareIdent(qDel), bareIdent(qPass)]
@@ -298,10 +359,12 @@ export async function insertOperatorUserLegacy(pool, meta, req, body, hashPasswo
     await writeLog(req, '新增操作员', content, { targetTable: 'Sys_Users' })
     return { data: { UserID: newId, Usercode: usercode, Username: username } }
   } catch (dbErr) {
+    const mapped = mapSqlServerWriteError(dbErr, { hint: '新增操作员' })
+    if (mapped) return { error: { status: mapped.status, json: { code: mapped.status, msg: mapped.msg, data: null } } }
     const errNumber = dbErr?.number ?? dbErr?.originalError?.number
     const errMessage = String(dbErr?.message ?? '')
     if (Number(errNumber) === 2627 || errMessage.includes('Violation of UNIQUE KEY')) {
-      return { error: { status: 400, json: { code: 400, msg: '工号或登录账号已存在，请勿重复添加', data: null } } }
+      return { error: { status: 400, json: { code: 400, msg: usercodeDuplicateMsg(usercode), data: null } } }
     }
     throw dbErr
   }
@@ -312,7 +375,7 @@ function stateChangeLogContent(ctx) {
 }
 
 /**
- * PUT：编辑 / op=unpass / op=soft_delete
+ * PUT：编辑 / op=disable（del=1）/ 兼容 unpass、soft_delete
  */
 export async function putOperatorUser(pool, meta, req, body, hashPassword) {
   const qPk = getSysUsersEntityPkQb(meta)
@@ -339,6 +402,39 @@ export async function putOperatorUser(pool, meta, req, body, hashPassword) {
   // 兼容旧前端：仅传 Status=0 时视为反审核
   const op = body.op ?? (body.Status !== undefined && Number(body.Status) === 0 ? 'unpass' : undefined)
 
+  const delActiveWhere = `(LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'' OR LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'0')`
+  const passIsOneWhere = `LTRIM(RTRIM(CAST(ISNULL(u.${qPass}, N'') AS NVARCHAR(20)))) = N'1'`
+  const passNotOneWhere = `LTRIM(RTRIM(CAST(ISNULL(u.${qPass}, N'') AS NVARCHAR(20)))) <> N'1'`
+
+  if (op === 'audit') {
+    const tri = getActorAuditTripletFromReq(req)
+    const now = nowAuditString()
+    const sets = [`u.${qPass} = N'1'`]
+    if (meta.set.has('edittime')) sets.push(`u.${meta.qb('edittime')} = @now`)
+    if (qAuditUid && tri.uidInt != null) sets.push(`u.${qAuditUid} = @actorUid`)
+    if (meta.set.has('uname') && tri.uname) sets.push(`u.${meta.qb('uname')} = @actorUname`)
+    if (meta.set.has('utruename') && tri.utruename) sets.push(`u.${meta.qb('utruename')} = @actorUtruename`)
+    const upd = pool.request()
+    upd.input('id', sql.Int, userId)
+    upd.input('now', sql.NVarChar(50), now)
+    if (tri.uidInt != null) upd.input('actorUid', sql.Int, tri.uidInt)
+    if (tri.uname) upd.input('actorUname', sql.NVarChar(80), tri.uname)
+    if (tri.utruename) upd.input('actorUtruename', sql.NVarChar(80), tri.utruename)
+    const r = await upd.query(`
+      UPDATE u
+      SET ${sets.join(', ')}
+      FROM Sys_Users AS u
+      WHERE u.${qPk} = @id AND ${delActiveWhere} AND ${passNotOneWhere}
+    `)
+    const n = Number(r.rowsAffected?.[0] ?? 0)
+    if (n === 0) {
+      return { error: { status: 400, json: { code: 400, msg: '审核失败：记录不存在、已禁用或已是已审核状态', data: null } } }
+    }
+    const ctx = await fetchOperatorRowContext(pool, meta, userId)
+    await writeLog(req, '修改操作员', stateChangeLogContent(ctx), { targetTable: 'Sys_Users' })
+    return { data: await getOperatorUserDetail(pool, meta, userId) }
+  }
+
   if (op === 'unpass') {
     const tri = getActorAuditTripletFromReq(req)
     const now = nowAuditString()
@@ -357,16 +453,18 @@ export async function putOperatorUser(pool, meta, req, body, hashPassword) {
       UPDATE u
       SET ${sets.join(', ')}
       FROM Sys_Users AS u
-      WHERE u.${qPk} = @id AND (LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'' OR LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'0')
+      WHERE u.${qPk} = @id AND ${delActiveWhere} AND ${passIsOneWhere}
     `)
     const n = Number(r.rowsAffected?.[0] ?? 0)
-    if (n === 0) return { error: { status: 400, json: { code: 400, msg: '未更新：记录已回收或不存在', data: null } } }
+    if (n === 0) {
+      return { error: { status: 400, json: { code: 400, msg: '反审失败：记录不存在、已禁用或未审核状态', data: null } } }
+    }
     const ctx = await fetchOperatorRowContext(pool, meta, userId)
     await writeLog(req, '修改操作员', stateChangeLogContent(ctx), { targetTable: 'Sys_Users' })
     return { data: await getOperatorUserDetail(pool, meta, userId) }
   }
 
-  if (op === 'soft_delete') {
+  if (op === 'disable' || op === 'soft_delete') {
     const tri = getActorAuditTripletFromReq(req)
     const now = nowAuditString()
     const sets = [`u.${qDel} = N'1'`]
@@ -388,19 +486,21 @@ export async function putOperatorUser(pool, meta, req, body, hashPassword) {
       WHERE u.${qPk} = @id AND (LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'' OR LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'0')
     `)
     const n = Number(r.rowsAffected?.[0] ?? 0)
-    if (n === 0) return { error: { status: 400, json: { code: 400, msg: '软删除失败：仅允许删除在册记录', data: null } } }
-    const nameForDel = ctx0.truename || ctx0.loginName
-    const delContent = `编码删除！操作员编码：${ctx0.usercodeVal}，操作员名称：${nameForDel}`
-    await writeLog(req, '删除操作员', delContent, { targetTable: 'Sys_Users' })
+    if (n === 0) return { error: { status: 400, json: { code: 400, msg: '禁用失败：仅允许禁用在册记录', data: null } } }
+    const ctx = await fetchOperatorRowContext(pool, meta, userId)
+    await writeLog(req, '修改操作员', stateChangeLogContent(ctx), { targetTable: 'Sys_Users' })
     return { data: { UserID: userId } }
   }
 
-  const usercode = String(body.UserCode ?? body.Usercode ?? '').trim()
-  const username = String(body.UserName ?? body.Username ?? '').trim()
+  let usercode = String(body.UserCode ?? body.Usercode ?? body.UserName ?? body.Username ?? '').trim()
   const password = body.Password === undefined || body.Password === null ? '' : String(body.Password)
   const truenameIn = String(body.Truename ?? body.truename ?? '').trim()
-  if (!usercode) return { error: { status: 400, json: { code: 400, msg: '员工编码不能为空', data: null } } }
-  if (!username) return { error: { status: 400, json: { code: 400, msg: '登录账号不能为空', data: null } } }
+  usercode = clipNvarcharForColumn(usercode, getSysUsersColumnMaxLen(meta, 'usercode'))
+  const username = clipNvarcharForColumn(usercode, getSysUsersColumnMaxLen(meta, 'username'))
+  if (!usercode) return { error: { status: 400, json: { code: 400, msg: '登录账号不能为空', data: null } } }
+
+  const uniqEdit = await assertOperatorUsercodeUnique(pool, meta, usercode, userId)
+  if (!uniqEdit.ok) return { error: { status: 400, json: { code: 400, msg: uniqEdit.msg, data: null } } }
   if (qTruename && !truenameIn) {
     return { error: { status: 400, json: { code: 400, msg: '姓名（truename）不能为空', data: null } } }
   }
@@ -431,7 +531,13 @@ export async function putOperatorUser(pool, meta, req, body, hashPassword) {
   upd.input('username', sql.NVarChar(80), username)
   if (qTruename) upd.input('truename', sql.NVarChar(100), truenameIn)
   if (qRoleId) upd.input('roleId', sql.Int, roleIdVal)
-  if (shouldUpdatePassword) upd.input('pwd', sql.NVarChar(200), await hashPassword(password))
+  if (shouldUpdatePassword) {
+    const pwdResolved = await resolveSysUsersPasswordForStorage(password, meta, hashPassword, pool)
+    if (pwdResolved.error) {
+      return { error: { status: 400, json: { code: 400, msg: pwdResolved.error, data: null } } }
+    }
+    upd.input('pwd', sql.NVarChar(200), pwdResolved.stored)
+  }
   upd.input('now', sql.NVarChar(50), now)
   if (tri.uidInt != null) upd.input('actorUid', sql.Int, tri.uidInt)
   if (tri.uname) upd.input('actorUname', sql.NVarChar(80), tri.uname)
@@ -450,10 +556,12 @@ export async function putOperatorUser(pool, meta, req, body, hashPassword) {
     await writeLog(req, '修改操作员', stateChangeLogContent(ctx), { targetTable: 'Sys_Users' })
     return { data: await getOperatorUserDetail(pool, meta, userId) }
   } catch (dbErr) {
+    const mapped = mapSqlServerWriteError(dbErr, { hint: '修改操作员' })
+    if (mapped) return { error: { status: mapped.status, json: { code: mapped.status, msg: mapped.msg, data: null } } }
     const errNumber = dbErr?.number ?? dbErr?.originalError?.number
     const errMessage = String(dbErr?.message ?? '')
     if (Number(errNumber) === 2627 || errMessage.includes('Violation of UNIQUE KEY')) {
-      return { error: { status: 400, json: { code: 400, msg: '工号或登录账号冲突', data: null } } }
+      return { error: { status: 400, json: { code: 400, msg: usercodeDuplicateMsg(usercode), data: null } } }
     }
     throw dbErr
   }

@@ -21,10 +21,17 @@ export function invalidateSysUsersColumnsMeta() {
   SYS_USERS_META_PROMISE = null
 }
 
+/** bcrypt 哈希写入所需列长下限（约 60 字符） */
+export const SYS_USERS_BCRYPT_MIN_COLUMN_LEN = 60
+
+/** 自动扩列目标长度（与 docs/sql/sys_users_password_widen.sql 一致） */
+export const SYS_USERS_PASSWORD_COLUMN_TARGET_LEN = 200
+
 /**
  * @typedef {object} SysUsersColumnsMeta
  * @property {Set<string>} set
  * @property {Map<string, string>} exactByLower
+ * @property {Map<string, number>} maxLenByLower 小写列名 → CHARACTER_MAXIMUM_LENGTH（-1 表示 MAX）
  * @property {(low: string) => string | null} qb
  * @property {boolean} legacyLayout
  * @property {string} hrStaffFrom
@@ -48,17 +55,21 @@ export async function getSysUsersColumnsMeta(pool) {
   if (SYS_USERS_META_PROMISE) return SYS_USERS_META_PROMISE
   SYS_USERS_META_PROMISE = (async () => {
     const r = await pool.request().query(`
-      SELECT COLUMN_NAME AS n
+      SELECT COLUMN_NAME AS n, CHARACTER_MAXIMUM_LENGTH AS maxLen
       FROM INFORMATION_SCHEMA.COLUMNS
       WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'Sys_Users'
     `)
     const exactByLower = new Map()
+    const maxLenByLower = new Map()
     const set = new Set()
     for (const row of r.recordset ?? []) {
       const exact = String(row?.n ?? '').trim()
       if (!exact) continue
-      set.add(exact.toLowerCase())
-      exactByLower.set(exact.toLowerCase(), exact)
+      const low = exact.toLowerCase()
+      set.add(low)
+      exactByLower.set(low, exact)
+      const ml = Number(row?.maxLen)
+      if (Number.isFinite(ml)) maxLenByLower.set(low, ml)
     }
     /** @param {string} low */
     const qb = (low) => {
@@ -67,9 +78,86 @@ export async function getSysUsersColumnsMeta(pool) {
     }
     // 旧系统：以 uid + username + usercode 为准（即使同时存在 UserID 列也走旧表语义，避免 Status 为 NULL 被误判）
     const legacyLayout = set.has('uid') && set.has('username') && set.has('usercode')
-    return { set, exactByLower, qb, legacyLayout, hrStaffFrom: HR_STAFF_FROM }
+    return { set, exactByLower, maxLenByLower, qb, legacyLayout, hrStaffFrom: HR_STAFF_FROM }
   })()
   return SYS_USERS_META_PROMISE
+}
+
+/**
+ * 列最大字符数（nvarchar 按字符计；-1 为 MAX，返回 null 表示不裁剪）
+ * @param {SysUsersColumnsMeta} meta
+ * @param {string} low 小写列名
+ */
+export function getSysUsersColumnMaxLen(meta, low) {
+  const ml = meta?.maxLenByLower?.get(String(low).toLowerCase())
+  if (ml == null || !Number.isFinite(ml)) return null
+  if (ml < 0) return null
+  return ml
+}
+
+/**
+ * 按列长裁剪 nvarchar 入参，降低 8152 概率
+ * @param {string} value
+ * @param {number | null} maxLen
+ */
+export function clipNvarcharForColumn(value, maxLen) {
+  const s = String(value ?? '')
+  if (maxLen == null || maxLen < 0) return s
+  if (s.length <= maxLen) return s
+  return s.slice(0, maxLen)
+}
+
+/**
+ * password 列不足 bcrypt 时自动扩至 NVARCHAR(200)（无需手工跑脚本）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {SysUsersColumnsMeta} [metaIn]
+ */
+export async function ensureSysUsersPasswordColumnWiden(pool, metaIn = null) {
+  const meta = metaIn ?? (await getSysUsersColumnsMeta(pool))
+  const maxLen = getSysUsersColumnMaxLen(meta, 'password')
+  if (maxLen == null || maxLen < 0 || maxLen >= SYS_USERS_BCRYPT_MIN_COLUMN_LEN) {
+    return meta
+  }
+  const exact = meta.exactByLower.get('password')
+  if (!exact) return meta
+  const col = bracketIdent(exact)
+  if (!col) return meta
+  await pool.request().query(`
+    ALTER TABLE dbo.[Sys_Users] ALTER COLUMN ${col} NVARCHAR(${SYS_USERS_PASSWORD_COLUMN_TARGET_LEN}) NULL
+  `)
+  invalidateSysUsersColumnsMeta()
+  return getSysUsersColumnsMeta(pool)
+}
+
+/**
+ * 密码入库：一律 bcrypt；有 pool 时自动扩列，不限制明文密码长度（仅哈希长度受列宽约束）
+ * @param {string} plainPassword
+ * @param {SysUsersColumnsMeta} meta
+ * @param {(plain: string) => Promise<string>} hashPassword
+ * @param {import('mssql').ConnectionPool} [pool]
+ */
+export async function resolveSysUsersPasswordForStorage(plainPassword, meta, hashPassword, pool = null) {
+  const plain = String(plainPassword ?? '')
+  let m = meta
+  if (pool) {
+    m = await ensureSysUsersPasswordColumnWiden(pool, meta)
+  }
+  const hash = await hashPassword(plain)
+  const maxLen = getSysUsersColumnMaxLen(m, 'password')
+
+  if (maxLen != null && maxLen >= 0 && maxLen < SYS_USERS_BCRYPT_MIN_COLUMN_LEN) {
+    return {
+      error: `password 列过短（当前最多 ${maxLen} 字符），无法保存 bcrypt。请联系管理员检查数据库权限或执行 docs/sql/sys_users_password_widen.sql。`,
+    }
+  }
+
+  if (maxLen != null && maxLen >= 0 && hash.length > maxLen) {
+    return {
+      error: `password 列过短（当前最多 ${maxLen} 字符），无法保存加密结果。请联系管理员扩列。`,
+    }
+  }
+
+  return { stored: hash, mode: 'bcrypt' }
 }
 
 /**

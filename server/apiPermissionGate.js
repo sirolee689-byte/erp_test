@@ -49,8 +49,11 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'system/operator', action: 'add' }
   }
   if (m === 'PUT' && path === '/api/users') {
-    if (body && (body.op === 'unpass' || body.op === 'soft_delete')) {
+    if (body && (body.op === 'unpass' || body.op === 'soft_delete' || body.op === 'disable')) {
       return { menuPath: 'system/operator', action: 'delete' }
+    }
+    if (body && body.op === 'audit') {
+      return { menuPath: 'system/operator', action: 'edit' }
     }
     if (body && Number(body.Status) === 0) {
       return { menuPath: 'system/operator', action: 'delete' }
