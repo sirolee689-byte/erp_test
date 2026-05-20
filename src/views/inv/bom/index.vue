@@ -12,7 +12,7 @@
         数据来自物理表 <code>bom_000</code>（可通过环境变量 <code>INV_BOM_MASTER_TABLE</code> 覆盖表名）。默认每页 10 条，仅加载当前页数据。
       </p>
 
-      <div class="search-row">
+      <div class="search-row erp-action-row">
         <el-input
           v-model="keyword"
           placeholder="输入编码或名称关键词（支持全模糊）"
@@ -20,11 +20,12 @@
           class="bom-keyword-input"
           @keyup.enter="onSearch"
         />
+        <el-button type="primary" @click="onSearch">查询</el-button>
         <el-select
           v-if="!showRecycle"
           v-model="searchQuery.bom_cut"
           placeholder="裁片过滤"
-          style="width: 200px"
+          class="bom-cut-select"
           @change="onSearch"
         >
           <el-option label="不包含裁片编码（排除 CUT- 开头）" :value="0" />
@@ -38,7 +39,6 @@
           <span class="switch-label">显示未审核</span>
           <el-switch v-model="showUnAudited" @change="onSearch" />
         </div>
-        <el-button type="primary" @click="onSearch">查询</el-button>
         <el-button @click="onReset">重置</el-button>
         <el-button v-if="!showRecycle" v-permission="'add'" type="success" @click="openAddBom">新增 BOM</el-button>
       </div>
@@ -69,9 +69,25 @@
         class="audit-view-alert"
       />
 
+      <div class="pagination-row pagination-row--top">
+        <el-pagination
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="total"
+          :current-page="page"
+          :page-size="pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          @size-change="onPageSizeChange"
+          @current-change="onPageChange"
+        />
+      </div>
+
       <el-skeleton :loading="loading" animated :rows="8">
         <template #default>
+          <ErpTableViewportHScroll>
           <el-table
+            ref="listTableRef"
+            class="erp-list-table"
             :data="tableList"
             border
             stripe
@@ -79,22 +95,23 @@
             row-key="rowKey"
             :empty-text="loading ? '加载中…' : '暂无数据'"
           >
-            <el-table-column label="操作" width="218" fixed="left" align="left">
+            <el-table-column
+              label="操作"
+              width="260"
+              fixed="left"
+              align="center"
+              class-name="erp-col-actions"
+            >
               <template #default="{ row }">
-                <div class="bom-list-actions">
+                <div class="bom-list-actions erp-table-actions">
                   <template v-if="showRecycle">
-                    <el-button
-                      v-permission="'view'"
-                      size="small"
-                      @click="openDetail(row)"
-                    >
+                    <el-button v-permission="'view'" type="info" plain @click="openDetail(row)">
                       查看详情
                     </el-button>
                     <el-button
                       v-permission="'edit'"
                       type="primary"
-                      link
-                      size="small"
+                      plain
                       :loading="busySystemcode === row.systemcode"
                       :disabled="!String(row.systemcode ?? '').trim()"
                       @click="onRestore(row)"
@@ -104,8 +121,7 @@
                     <el-button
                       v-permission="'delete'"
                       type="danger"
-                      link
-                      size="small"
+                      plain
                       :loading="busySystemcode === row.systemcode"
                       :disabled="!String(row.systemcode ?? '').trim() || rowIsAudited(row)"
                       @click="onHardDelete(row)"
@@ -114,12 +130,11 @@
                     </el-button>
                   </template>
                   <template v-else>
-                    <el-button v-permission="'view'" size="small" @click="openDetail(row)">查看详情</el-button>
+                    <el-button v-permission="'view'" type="info" plain @click="openDetail(row)">查看详情</el-button>
                     <el-button
                       v-permission="'add'"
-                      size="small"
                       type="primary"
-                      link
+                      plain
                       :loading="busyCopySystemcode === row.systemcode || busyCopySystemcode === row.code"
                       :disabled="!String(row.code ?? '').trim()"
                       @click="openCopyBom(row)"
@@ -129,7 +144,8 @@
                     <el-button
                       v-if="showUnAudited"
                       v-permission="'edit'"
-                      size="small"
+                      type="primary"
+                      plain
                       :disabled="rowIsAudited(row)"
                       @click="onEdit(row)"
                     >
@@ -139,8 +155,7 @@
                       v-if="showUnAudited && !rowIsAudited(row)"
                       v-permission="'audit'"
                       type="success"
-                      link
-                      size="small"
+                      plain
                       :loading="busySystemcode === row.systemcode"
                       @click="onAudit(row)"
                     >
@@ -150,8 +165,7 @@
                       v-if="!showUnAudited && rowIsAudited(row)"
                       v-permission="'audit'"
                       type="warning"
-                      link
-                      size="small"
+                      plain
                       :loading="busySystemcode === row.systemcode"
                       @click="onUnaudit(row)"
                     >
@@ -161,8 +175,7 @@
                       v-if="showUnAudited"
                       v-permission="'delete'"
                       type="danger"
-                      link
-                      size="small"
+                      plain
                       :disabled="rowIsAudited(row) || !String(row.systemcode ?? '').trim()"
                       :loading="busySystemcode === row.systemcode"
                       @click="onSoftDelete(row)"
@@ -173,75 +186,96 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="编码" min-width="220">
+            <el-table-column
+              label="输入/修改时间"
+              min-width="158"
+              align="center"
+              header-align="center"
+              class-name="erp-col-datetime"
+            >
               <template #default="{ row }">
-                <span class="bom-list-cell-wrap">{{ row.code }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="运算" width="100" align="center">
-              <template #default="{ row }">
-                <el-tag
-                  v-if="row.usageCalcStatus === 'done'"
-                  type="success"
-                  size="small"
-                  effect="plain"
-                >
-                  {{ row.usageCalcLabel }}
-                </el-tag>
-                <el-tag
-                  v-else-if="row.usageCalcStatus === 'pending'"
-                  type="warning"
-                  size="small"
-                  effect="plain"
-                >
-                  {{ row.usageCalcLabel }}
-                </el-tag>
-                <el-tag v-else type="info" size="small" effect="plain">{{ row.usageCalcLabel }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="用量（成本）" min-width="148" align="right" header-align="center">
-              <template #default="{ row }">
-                <span v-if="row.isNeedCalc" class="bom-list-usage-cost-cell">{{ row.bomCostUsageCostText }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="名称" min-width="140">
-              <template #default="{ row }">
-                <span class="bom-list-cell-wrap">{{ row.name }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="规格" min-width="140">
-              <template #default="{ row }">
-                <span class="bom-list-cell-wrap">{{ row.spec }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="unit" label="单位" width="56" align="center" show-overflow-tooltip />
-            <el-table-column label="输入/修改时间" min-width="158">
-              <template #default="{ row }">
-                <div class="usage-sum-cell">
+                <div class="bom-list-datetime">
                   <div>输入：{{ formatDateTime(row.addtime) }}</div>
                   <div>修改：{{ formatDateTime(row.edittime) }}</div>
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip />
-            <el-table-column label="采购" width="56" align="center">
+            <el-table-column label="编码" min-width="220" align="center" header-align="center">
+              <template #default="{ row }">
+                <span class="bom-list-cell-wrap">{{ row.code }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="运算" width="112" align="center" header-align="center">
+              <template #default="{ row }">
+                <span
+                  v-if="row.usageCalcStatus === 'pending'"
+                  class="bom-usage-calc-badge bom-usage-calc-badge--pending"
+                  role="status"
+                >
+                  <el-icon class="bom-usage-calc-badge__icon" aria-hidden="true"><Close /></el-icon>
+                  <span>{{ row.usageCalcLabel }}</span>
+                </span>
+                <span
+                  v-else-if="row.usageCalcStatus === 'done'"
+                  class="bom-usage-calc-badge bom-usage-calc-badge--done"
+                  role="status"
+                >
+                  <el-icon class="bom-usage-calc-badge__icon" aria-hidden="true"><Check /></el-icon>
+                  <span>{{ row.usageCalcLabel }}</span>
+                </span>
+                <span
+                  v-else
+                  class="bom-usage-calc-badge bom-usage-calc-badge--none"
+                  role="status"
+                >
+                  <span>{{ row.usageCalcLabel }}</span>
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="成本用量"
+              min-width="168"
+              align="center"
+              header-align="center"
+              class-name="erp-col-datetime"
+            >
+              <template #default="{ row }">
+                <div v-if="row.isNeedCalc" class="bom-list-datetime bom-list-usage-cost">
+                  <div>{{ row.bomCostUsageCostText }}</div>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="名称(中文)" min-width="140" align="center" header-align="center">
+              <template #default="{ row }">
+                <span class="bom-list-cell-wrap">{{ row.kcaa02 ?? row.name }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="规格" min-width="140" align="center" header-align="center">
+              <template #default="{ row }">
+                <span class="bom-list-cell-wrap">{{ row.spec }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="unit" label="单位" width="56" align="center" header-align="center" />
+            <el-table-column prop="remark" label="备注" min-width="120" align="center" header-align="center" />
+            <el-table-column label="采购" width="56" align="center" header-align="center">
               <template #default="{ row }">{{ ynText(row.isPurchase) }}</template>
             </el-table-column>
-            <el-table-column label="外协" width="56" align="center">
+            <el-table-column label="外协" width="56" align="center" header-align="center">
               <template #default="{ row }">{{ ynText(row.isSubcontract) }}</template>
             </el-table-column>
-            <el-table-column label="自产" width="56" align="center">
+            <el-table-column label="自产" width="56" align="center" header-align="center">
               <template #default="{ row }">{{ ynText(row.isSelfProduced) }}</template>
             </el-table-column>
-            <el-table-column label="审核" width="72" align="center">
+            <el-table-column label="审核" width="72" align="center" header-align="center">
               <template #default="{ row }">
                 <el-tag v-if="rowIsAudited(row)" type="success" size="small">已审</el-tag>
                 <el-tag v-else type="info" size="small">未审</el-tag>
               </template>
             </el-table-column>
           </el-table>
+          </ErpTableViewportHScroll>
 
-          <div class="pagination-row">
+          <div class="pagination-row pagination-row--bottom">
             <el-pagination
               background
               layout="total, sizes, prev, pager, next, jumper"
@@ -271,7 +305,7 @@
           <el-alert v-if="detailError" :title="detailError" type="error" show-icon class="bom-detail-alert" />
           <template v-else-if="bomBasic">
             <div v-if="detailDrillStack.length" class="bom-detail-drill-bar">
-              <el-button type="primary" link @click="goBackDetailDrill">
+              <el-button type="primary" link class="erp-btn-keep-link" @click="goBackDetailDrill">
                 ← 返回上一层
               </el-button>
               <span v-if="detailDrillBackHint" class="bom-detail-drill-bar__hint">
@@ -502,7 +536,7 @@
                     v-if="detailDrillStack.length"
                     type="primary"
                     link
-                    class="bom-detail-drill-bar__btn--toolbar"
+                    class="bom-detail-drill-bar__btn--toolbar erp-btn-keep-link"
                     @click="goBackDetailDrill"
                   >
                     ← 返回上一层
@@ -532,7 +566,7 @@
                     :data="partsList"
                     border
                     stripe
-                    size="small"
+                    :size="detailTableSize"
                     class="bom-parts-table"
                     :empty-text="partsLoading ? '加载中…' : '暂无配件'"
                     :row-key="partsRowKey"
@@ -546,26 +580,27 @@
                       fixed="left"
                       :index="partsRowIndex"
                     />
-                    <el-table-column label="操作" width="148" align="center" fixed="left">
+                    <el-table-column label="操作" width="168" align="center" fixed="left">
                       <template #default="{ row }">
-                        <el-button
-                          type="primary"
-                          size="small"
-                          class="bom-part-view-action-btn"
-                          :disabled="!String(row.kcaa01 ?? '').trim()"
-                          @click="openLinkedBomDetailFromPart(row)"
-                        >
-                          查看
-                        </el-button>
-                        <el-button
-                          type="danger"
-                          link
-                          size="small"
-                          :disabled="partLineReadonly(row)"
-                          @click="removeDetailPartRow(row)"
-                        >
-                          删除
-                        </el-button>
+                        <div class="erp-table-actions">
+                          <el-button
+                            type="info"
+                            plain
+                            class="bom-part-view-action-btn"
+                            :disabled="!String(row.kcaa01 ?? '').trim()"
+                            @click="openLinkedBomDetailFromPart(row)"
+                          >
+                            查看
+                          </el-button>
+                          <el-button
+                            type="danger"
+                            plain
+                            :disabled="partLineReadonly(row)"
+                            @click="removeDetailPartRow(row)"
+                          >
+                            删除
+                          </el-button>
+                        </div>
                       </template>
                     </el-table-column>
                     <!-- 编码/名称/规格/颜色：GET 已按 bom_000.kcaa01 关联优先取主档 -->
@@ -646,7 +681,7 @@
                     v-if="detailDrillStack.length"
                     type="primary"
                     link
-                    class="bom-detail-drill-bar__btn--toolbar"
+                    class="bom-detail-drill-bar__btn--toolbar erp-btn-keep-link"
                     @click="goBackDetailDrill"
                   >
                     ← 返回上一层
@@ -694,7 +729,7 @@
                       row-key="id"
                       border
                       stripe
-                      size="small"
+                      :size="detailTableSize"
                       class="bom-usage-tree-table"
                       :tree-props="{ children: 'children' }"
                       default-expand-all
@@ -759,7 +794,7 @@
                       :data="bomCostUsageFlatRows"
                       border
                       stripe
-                      size="small"
+                      :size="detailTableSize"
                       class="bom-cost-usage-table"
                       max-height="calc(100vh - 280px)"
                       row-key="__bomCostRowKey"
@@ -848,6 +883,7 @@
             size="small"
             type="danger"
             link
+            class="erp-btn-keep-link"
             :disabled="bomCostHidePrefixDraftRows.length <= 1"
             @click="removeBomCostHidePrefixDraftRow(dIdx)"
           >
@@ -856,10 +892,16 @@
         </div>
       </div>
       <div class="bom-cost-hide-prefix-dialog__actions">
-        <el-button size="small" type="primary" link @click="addBomCostHidePrefixDraftRow">+ 添加一行</el-button>
+        <el-button size="small" type="primary" link class="erp-btn-keep-link" @click="addBomCostHidePrefixDraftRow">
+          + 添加一行
+        </el-button>
         <span class="bom-cost-hide-prefix-dialog__quick-label">常用：</span>
-        <el-button size="small" link type="primary" @click="appendQuickHidePrefix('CUT-')">CUT-</el-button>
-        <el-button size="small" link type="primary" @click="appendQuickHidePrefix('BAG-')">BAG-</el-button>
+        <el-button size="small" link type="primary" class="erp-btn-keep-link" @click="appendQuickHidePrefix('CUT-')">
+          CUT-
+        </el-button>
+        <el-button size="small" link type="primary" class="erp-btn-keep-link" @click="appendQuickHidePrefix('BAG-')">
+          BAG-
+        </el-button>
       </div>
       <template #footer>
         <el-button size="small" @click="bomCostHidePrefixDialogVisible = false">取消</el-button>
@@ -1234,7 +1276,7 @@
                   :data="editPartsList"
                   border
                   stripe
-                  size="small"
+                  :size="detailTableSize"
                   class="bom-parts-table bom-parts-table--edit"
                   :empty-text="editPartsLoading ? '加载中…' : '暂无配件'"
                   :row-key="partsRowKey"
@@ -1261,26 +1303,27 @@
                     fixed="left"
                     :index="partsRowIndex"
                   />
-                  <el-table-column label="操作" min-width="232" align="center" fixed="left">
+                  <el-table-column label="操作" min-width="260" align="center" fixed="left">
                     <template #default="{ row }">
-                      <el-button
-                        type="primary"
-                        link
-                        size="small"
-                        :disabled="editPartLineReadonly(row)"
-                        @click="openEditPartMaterialPicker(row)"
-                      >
-                        添加配件
-                      </el-button>
-                      <el-button
-                        type="primary"
-                        size="small"
-                        class="bom-part-view-action-btn"
-                        :disabled="!String(row.kcaa01 ?? '').trim()"
-                        @click="openLinkedBomDetailFromPart(row)"
-                      >
-                        查看配件
-                      </el-button>
+                      <div class="erp-table-actions">
+                        <el-button
+                          type="primary"
+                          plain
+                          :disabled="editPartLineReadonly(row)"
+                          @click="openEditPartMaterialPicker(row)"
+                        >
+                          添加配件
+                        </el-button>
+                        <el-button
+                          type="info"
+                          plain
+                          class="bom-part-view-action-btn"
+                          :disabled="!String(row.kcaa01 ?? '').trim()"
+                          @click="openLinkedBomDetailFromPart(row)"
+                        >
+                          查看配件
+                        </el-button>
+                      </div>
                     </template>
                   </el-table-column>
                   <el-table-column prop="kcaa01" label="编码" min-width="150" fixed="left" show-overflow-tooltip />
@@ -1374,8 +1417,13 @@
 <script setup>
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import axios from 'axios'
+import { Check, Close } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import MaterialSelector from '../../supply-chain/daily/purchase-quote/MaterialSelector.vue'
+import { useUiDensity } from '@/composables/useUiDensity'
+import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
+
+const { detailTableSize } = useUiDensity()
 
 /**
  * 默认用于「存货管理 / BOM资料查询」路由；
@@ -1392,7 +1440,16 @@ const pageTitle = computed(() => {
 
 const loading = ref(false)
 const errorMessage = ref('')
+const listTableRef = ref(null)
 const tableList = ref([])
+
+watch([tableList, loading], async () => {
+  if (loading.value) return
+  await nextTick()
+  listTableRef.value?.doLayout?.()
+  const el = listTableRef.value?.$el
+  if (el) refreshErpTableViewportHScroll(el)
+})
 const total = ref(0)
 const page = ref(1)
 /** 默认每页 10 条：配合“按最近修改/新增优先”更符合使用习惯 */
@@ -3549,7 +3606,6 @@ loadData()
 .page-desc {
   margin: 0 0 12px;
   color: var(--el-text-color-secondary);
-  font-size: 13px;
 }
 .search-row {
   display: flex;
@@ -3563,6 +3619,10 @@ loadData()
   min-width: 280px;
   max-width: 520px;
 }
+.bom-cut-select {
+  width: 200px;
+  flex-shrink: 0;
+}
 .audit-switch {
   display: inline-flex;
   align-items: center;
@@ -3570,7 +3630,6 @@ loadData()
   margin-left: 4px;
 }
 .switch-label {
-  font-size: 13px;
   color: var(--el-text-color-regular);
 }
 .hint-alert,
@@ -3578,40 +3637,45 @@ loadData()
 .audit-view-alert {
   margin-bottom: 12px;
 }
-/* 列表：操作列收窄允许按钮折行；编码/名称/规格自动换行完整展示 */
-.bom-list-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 6px;
-  max-width: 100%;
-}
 .bom-list-actions :deep(.el-button) {
   margin-left: 0;
 }
-.bom-list-cell-wrap {
-  display: inline-block;
-  width: 100%;
-  white-space: normal;
-  word-break: break-word;
-  line-height: 1.35;
-  font-size: 12px;
-  vertical-align: top;
+/* 列表「运算」列：方框徽章 + 图标（颜色与 element-override 语义色一致） */
+.bom-usage-calc-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid;
+  border-radius: var(--el-border-radius-base);
+  font-size: var(--erp-table-meta-size, 12px);
+  font-weight: var(--erp-font-weight-body, 500);
+  line-height: 1.4;
+  white-space: nowrap;
 }
-/* 用量（成本）：SUM(kcac04) , SUM(kcac06)，等宽数字便于对齐 */
-.bom-list-usage-cost-cell {
-  font-size: 12px;
+.bom-usage-calc-badge__icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.bom-usage-calc-badge--pending {
+  color: #b91c1c;
+  border-color: #b91c1c;
+  background: #fef2f2;
+}
+.bom-usage-calc-badge--done {
+  color: #15803d;
+  border-color: #15803d;
+  background: #f0fdf4;
+}
+.bom-usage-calc-badge--none {
+  color: #2563eb;
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+/* 用量（成本）：与时间列同字号，文案由接口返回「成本：x,y」 */
+.bom-list-usage-cost {
   font-variant-numeric: tabular-nums;
-  font-family: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', monospace;
-}
-.pagination-row {
-  margin-top: 14px;
-  display: flex;
-  justify-content: flex-end;
-}
-.usage-sum-cell {
-  line-height: 18px;
-  font-size: 12px;
 }
 .bom-detail-alert {
   margin-bottom: 12px;
@@ -3627,7 +3691,6 @@ loadData()
   background: var(--el-fill-color-light);
 }
 .bom-detail-drill-bar__hint {
-  font-size: 12px;
   color: var(--el-text-color-secondary);
 }
 .bom-detail-drill-bar__btn--toolbar {
@@ -3654,23 +3717,25 @@ loadData()
   overflow-x: hidden;
 }
 .bom-section-title {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--el-font-size-large);
+  font-weight: var(--erp-font-weight-heading, 600);
   color: var(--el-text-color-primary);
   margin: 14px 0 8px;
   padding-bottom: 4px;
   border-bottom: 1px solid var(--el-border-color-lighter);
+  line-height: var(--erp-line-height-body, 1.6);
 }
 .bom-sub-block-title {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--el-font-size-base);
+  font-weight: var(--erp-font-weight-heading, 600);
   color: var(--el-text-color-regular);
   margin: 10px 0 6px;
 }
 .bom-usage-calc-toolbar__hint {
   margin-left: 8px;
   color: var(--el-text-color-secondary);
-  font-size: 13px;
+  font-size: var(--erp-text-secondary-size);
+  line-height: var(--erp-line-height-body, 1.6);
 }
 
 .bom-detail-tab-placeholder {
@@ -3728,22 +3793,19 @@ loadData()
   width: 100%;
 }
 .bom-cost-hide-prefix-bar__label {
-  font-size: 13px;
   color: var(--el-text-color-regular);
   white-space: nowrap;
 }
 .bom-cost-hide-prefix-bar__summary {
-  font-size: 13px;
   color: var(--el-text-color-secondary);
   flex: 1 1 200px;
   min-width: 0;
-  line-height: 1.4;
+  line-height: var(--erp-line-height-body, 1.6);
 }
 .bom-cost-hide-prefix-dialog__tip {
   margin: 0 0 12px;
-  font-size: 13px;
   color: var(--el-text-color-secondary);
-  line-height: 1.5;
+  line-height: var(--erp-line-height-body, 1.6);
 }
 .bom-cost-hide-prefix-dialog__rows {
   max-height: min(52vh, 360px);
@@ -3768,7 +3830,6 @@ loadData()
   margin-top: 4px;
 }
 .bom-cost-hide-prefix-dialog__quick-label {
-  font-size: 13px;
   color: var(--el-text-color-regular);
   margin-left: 4px;
 }
@@ -3822,8 +3883,8 @@ loadData()
 }
 .bom-parts-sum-row {
   margin-top: 10px;
-  font-size: 13px;
   color: var(--el-text-color-regular);
+  line-height: var(--erp-line-height-body, 1.6);
 }
 .bom-parts-sum-gap {
   margin-left: 24px;

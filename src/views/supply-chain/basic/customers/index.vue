@@ -51,6 +51,19 @@
         class="audit-alert"
       />
 
+      <div class="pagination-row pagination-row--top">
+        <el-pagination
+          v-model:current-page="page"
+          v-model:page-size="pageSize"
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="total"
+          :page-sizes="[10, 20, 50, 100]"
+          @size-change="onPageSizeChange"
+          @current-change="onPageChange"
+        />
+      </div>
+
       <el-skeleton :loading="loading" animated :rows="6">
         <template #default>
           <el-table :data="tableList" border stripe row-key="id" style="width: 100%" :empty-text="loading ? '加载中…' : '暂无数据'">
@@ -161,7 +174,7 @@
             </el-table-column>
           </el-table>
 
-          <div class="pager-row">
+          <div class="pagination-row pagination-row--bottom">
             <el-pagination
               v-model:current-page="page"
               v-model:page-size="pageSize"
@@ -698,12 +711,7 @@ async function loadSettlementMethodOptions() {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-}
-.pager-row {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 12px;
-}
+}
 .customer-form {
   padding-top: 4px;
 }

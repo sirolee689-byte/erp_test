@@ -29,6 +29,19 @@
 
       <el-alert v-if="errorMessage" :title="errorMessage" type="error" show-icon class="error-alert" />
 
+      <div class="pagination-row pagination-row--top">
+        <el-pagination
+          v-model:current-page="page"
+          v-model:page-size="pageSize"
+          :total="total"
+          :page-sizes="[20, 50, 100, 200]"
+          layout="total, sizes, prev, pager, next, jumper"
+          background
+          @current-change="onPageChange"
+          @size-change="onPageSizeChange"
+        />
+      </div>
+
       <div class="list-panel">
         <h3 class="list-title">纸格资料列表</h3>
         <el-skeleton :loading="loading && !hasLoadedOnce" animated :rows="4">
@@ -58,7 +71,7 @@
                 </el-table-column>
                 <el-table-column prop="filesizeDisplay" label="文件大小" width="100" />
               </el-table>
-              <div class="pager-row">
+              <div class="pagination-row pagination-row--bottom">
                 <el-pagination
                   v-model:current-page="page"
                   v-model:page-size="pageSize"
@@ -298,9 +311,5 @@ onMounted(() => {
 }
 .preview-table {
   margin-bottom: 12px;
-}
-.pager-row {
-  display: flex;
-  justify-content: flex-end;
 }
 </style>

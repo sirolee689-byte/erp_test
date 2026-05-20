@@ -71,6 +71,19 @@
 
       <el-alert v-if="errorMessage" :title="errorMessage" type="error" show-icon class="error-alert" />
 
+      <div class="pagination-row pagination-row--top">
+        <el-pagination
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="total"
+          :current-page="page"
+          :page-size="pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          @size-change="onPageSizeChange"
+          @current-change="onPageChange"
+        />
+      </div>
+
       <el-skeleton :loading="loading" animated :rows="8">
         <template #default>
           <el-table
@@ -187,7 +200,7 @@
             </el-table-column>
           </el-table>
 
-          <div class="pagination-row">
+          <div class="pagination-row pagination-row--bottom">
             <el-pagination
               background
               layout="total, sizes, prev, pager, next, jumper"
@@ -1302,12 +1315,7 @@ async function submitBatchUpdate() {
   background-color: #d6ecff;
   border-color: #bcdfff;
   color: #1f5faa;
-}
-.pagination-row {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 12px;
-}
+}
 .warn-text {
   color: #d12f19;
   font-weight: 700;

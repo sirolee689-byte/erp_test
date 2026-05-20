@@ -56,6 +56,19 @@
         class="audit-alert"
       />
 
+      <div class="pagination-row pagination-row--top">
+        <el-pagination
+          v-model:current-page="page"
+          v-model:page-size="pageSize"
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="total"
+          :page-sizes="[10, 20, 50, 100]"
+          @size-change="onPageSizeChange"
+          @current-change="onPageChange"
+        />
+      </div>
+
       <el-skeleton :loading="loading" animated :rows="6">
         <template #default>
           <el-table
@@ -227,7 +240,7 @@
             </el-table-column>
           </el-table>
 
-          <div class="pager-row">
+          <div class="pagination-row pagination-row--bottom">
             <el-pagination
               v-model:current-page="page"
               v-model:page-size="pageSize"
@@ -1639,12 +1652,7 @@ loadData()
 }
 .code-bold {
   font-weight: 600;
-}
-.pager-row {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 14px;
-}
+}
 .pq-main-table :deep(.el-table__body-wrapper .el-table__body tr) {
   cursor: pointer;
 }

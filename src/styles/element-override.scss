@@ -1,0 +1,594 @@
+/**
+ * ERP 包容性设计系统（Accessible & Ethical + Inclusive Design）
+ * 企业内部管理系统 · 中老年用户优先
+ *
+ * 通过 Element Plus CSS 变量 + 少量全局选择器统一生效，避免逐组件改样式。
+ * 与 html[data-ui="comfortable|standard"] 联动（见 utils/uiDensity.js）。
+ */
+
+/* ========== 语义 token（两模式共用） ========== */
+:root {
+  --erp-font-weight-body: 500;
+  --erp-font-weight-heading: 600;
+  --erp-line-height-body: 1.6;
+  --erp-line-height-table: 1.6;
+  --erp-touch-min: 44px;
+  --erp-action-gap: 8px;
+  --erp-action-btn-font-size: 14px;
+  --erp-action-btn-min-height: 32px;
+  --erp-list-action-btn-font-size: 12px;
+  --erp-list-action-btn-min-height: 26px;
+  --erp-list-action-gap: 6px;
+  --erp-table-data-size: 14px;
+  --erp-table-data-mono-size: 14px;
+  --erp-table-meta-size: 14px;
+  --erp-table-datetime-size: 12px;
+  --erp-page-title-size: 18px;
+  --erp-page-desc-size: 14px;
+  --erp-text-secondary-size: 14px;
+  --erp-shell-title-size: 16px;
+  --erp-shell-user-size: 14px;
+  --erp-sidebar-logo-size: 16px;
+  --erp-sidebar-menu-size: 14px;
+}
+
+html {
+  font-weight: var(--erp-font-weight-body);
+  line-height: var(--erp-line-height-body);
+  -webkit-font-smoothing: antialiased;
+  text-size-adjust: 100%;
+}
+
+/* ========== 标准模式（保留原密度，略提对比度） ========== */
+html[data-ui='standard'] {
+  --el-font-size-extra-large: 20px;
+  --el-font-size-large: 18px;
+  --el-font-size-medium: 16px;
+  --el-font-size-base: 14px;
+  --el-font-size-small: 13px;
+  --el-font-size-extra-small: 12px;
+  --el-component-size-large: 40px;
+  --el-component-size: 32px;
+  --el-component-size-small: 24px;
+  --el-border-radius-base: 6px;
+  --el-border-radius-small: 4px;
+
+  --el-text-color-primary: #1f2937;
+  --el-text-color-regular: #374151;
+  --el-text-color-secondary: #4b5563;
+  --el-text-color-placeholder: #6b7280;
+
+  --el-color-primary: #2563eb;
+  --el-color-success: #15803d;
+  --el-color-warning: #b45309;
+  --el-color-danger: #b91c1c;
+
+  --erp-table-data-size: 14px;
+  --erp-table-data-mono-size: 13px;
+  --erp-table-meta-size: 13px;
+  --erp-page-title-size: 18px;
+  --erp-page-desc-size: 14px;
+  --erp-text-secondary-size: 13px;
+  --erp-shell-title-size: 16px;
+  --erp-shell-user-size: 13px;
+  --erp-sidebar-logo-size: 16px;
+  --erp-sidebar-menu-size: 14px;
+  --erp-table-datetime-size: 12px;
+  --erp-list-action-btn-font-size: 12px;
+  --erp-list-action-btn-min-height: 26px;
+  --erp-list-action-gap: 6px;
+}
+
+/* ========== 舒适模式（Inclusive：字号 / 对比度 / 44px 触控） ========== */
+html[data-ui='comfortable'] {
+  /* 【字体】正文 ≥16px，表格数据 ≥15px，标题 ≥20px */
+  --el-font-size-extra-large: 22px;
+  --el-font-size-large: 20px;
+  --el-font-size-medium: 18px;
+  --el-font-size-base: 16px;
+  --el-font-size-small: 15px;
+  --el-font-size-extra-small: 14px;
+
+  --erp-table-data-size: 15px;
+  --erp-table-data-mono-size: 15px;
+  --erp-table-meta-size: 15px;
+  --erp-page-title-size: 20px;
+  --erp-page-desc-size: 16px;
+  --erp-text-secondary-size: 15px;
+  --erp-shell-title-size: 20px;
+  --erp-shell-user-size: 16px;
+  --erp-sidebar-logo-size: 18px;
+  --erp-sidebar-menu-size: 16px;
+  --erp-action-btn-font-size: 15px;
+  --erp-action-btn-min-height: 38px;
+  --erp-table-datetime-size: 13px;
+  --erp-list-action-btn-font-size: 13px;
+  --erp-list-action-btn-min-height: 28px;
+  --erp-list-action-gap: 6px;
+
+  /* 【触控】控件最小高度 44px */
+  --el-component-size-large: 48px;
+  --el-component-size: 44px;
+  --el-component-size-small: 36px;
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 6px;
+
+  /* 【对比度 WCAG AA 取向】深字 + 浅底 */
+  --el-text-color-primary: #111827;
+  --el-text-color-regular: #1f2937;
+  --el-text-color-secondary: #374151;
+  --el-text-color-placeholder: #4b5563;
+  --el-bg-color: #ffffff;
+  --el-fill-color-light: #f3f4f6;
+
+  /* 【主操作】高饱和深色，避免浅灰主按钮 */
+  --el-color-primary: #1d4ed8;
+  --el-color-primary-light-3: #3b82f6;
+  --el-color-primary-light-5: #60a5fa;
+  --el-color-primary-dark-2: #1e3a8a;
+  --el-color-success: #166534;
+  --el-color-success-dark-2: #14532d;
+  --el-color-warning: #b45309;
+  --el-color-warning-dark-2: #92400e;
+  --el-color-danger: #b91c1c;
+  --el-color-danger-dark-2: #991b1b;
+
+  --el-button-font-weight: 500;
+}
+
+/* ---------- 表格：数据列字号与行高 ---------- */
+.el-table .cell {
+  font-size: var(--erp-table-data-size);
+  line-height: var(--erp-line-height-table);
+  font-weight: var(--erp-font-weight-body);
+}
+
+.el-table th.el-table__cell {
+  font-weight: var(--erp-font-weight-heading);
+  font-size: var(--el-font-size-base);
+}
+
+html[data-ui='comfortable'] .el-table--default .el-table__cell {
+  padding: 12px 0;
+}
+
+html[data-ui='comfortable'] .el-table--small .el-table__cell {
+  padding: 8px 0;
+}
+
+html[data-ui='comfortable'] .el-table--small .cell {
+  font-size: var(--erp-table-data-size) !important;
+  line-height: var(--erp-line-height-table);
+}
+
+html[data-ui='comfortable'] .el-table__body tr {
+  min-height: var(--erp-touch-min);
+}
+
+/* ---------- 模块主列表 .erp-list-table：数据完整展示；纵滚仅页面、横滚仅视口底条 ---------- */
+
+/* 表宽 100% + EP doLayout 同步表头/表体列宽（勿双表各自 max-content/auto，否则列错位） */
+.erp-module-page .erp-list-table {
+  width: 100% !important;
+}
+
+.erp-module-page .erp-list-table .el-table__body .cell,
+.erp-module-page .erp-list-table .el-table__header .cell {
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+.erp-module-page .erp-list-table .el-table__body td.el-table__cell,
+.erp-module-page .erp-list-table .el-table__header th.el-table__cell {
+  overflow: hidden;
+}
+
+.erp-module-page .erp-list-table .erp-col-number .cell {
+  text-align: right;
+}
+
+.erp-module-page .erp-list-table td.erp-col-actions .cell,
+.erp-module-page .erp-list-table td.erp-col-datetime .cell,
+.erp-module-page .erp-list-table td.erp-col-multiline .cell {
+  overflow: hidden;
+  white-space: normal;
+}
+
+.erp-module-page .erp-list-table .erp-table-actions {
+  flex-wrap: wrap;
+  justify-content: center;
+  overflow: hidden;
+  max-width: 100%;
+  gap: var(--erp-list-action-gap);
+}
+
+/* 主列表操作按钮：换行展示 + 紧凑尺寸（豁免 44px 触控，仍 ≥26px） */
+.erp-module-page .erp-list-table .erp-table-actions .el-button {
+  font-size: var(--erp-list-action-btn-font-size) !important;
+  min-height: var(--erp-list-action-btn-min-height) !important;
+  padding: 4px 8px !important;
+  line-height: 1.25 !important;
+  font-weight: var(--erp-font-weight-body) !important;
+}
+
+/* 视口底横条激活后：禁止表内可见滚动条（仍可由 JS 同步 scrollLeft） */
+.erp-table-viewport-hscroll-active .el-table__body-wrapper .el-scrollbar__wrap,
+.erp-table-viewport-hscroll-active .el-table__header-wrapper .el-scrollbar__wrap {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.erp-table-viewport-hscroll-active .el-table__body-wrapper .el-scrollbar__wrap::-webkit-scrollbar,
+.erp-table-viewport-hscroll-active .el-table__header-wrapper .el-scrollbar__wrap::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.erp-table-viewport-hscroll-active .el-table__body-wrapper .el-scrollbar__bar.is-horizontal,
+.erp-table-viewport-hscroll-active .el-table__body-wrapper .el-scrollbar__bar.is-vertical,
+.erp-table-viewport-hscroll-active .el-table__header-wrapper .el-scrollbar__bar.is-horizontal,
+.erp-table-viewport-hscroll-active .el-table__header-wrapper .el-scrollbar__bar.is-vertical {
+  display: none !important;
+}
+
+.erp-table-viewport-hscroll {
+  position: fixed;
+  left: 0;
+  width: 100px;
+  bottom: 0;
+  z-index: 2000;
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: 14px;
+  display: none;
+  border-top: 1px solid var(--el-border-color-lighter);
+  background: var(--el-bg-color);
+  box-shadow: 0 -2px 10px rgba(15, 23, 42, 0.08);
+  scrollbar-gutter: stable;
+}
+
+.erp-table-viewport-hscroll-inner {
+  height: 1px;
+  pointer-events: none;
+}
+
+/* 主列表数据单元格内容：随文本撑开，勿 max-width:100% 导致裁切 */
+.bom-list-cell-wrap,
+.erp-list-cell-wrap {
+  display: inline-block;
+  width: max-content;
+  max-width: none;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+/* 主列表禁用 show-overflow-tooltip 的省略裁切（仍建议列上勿加该属性） */
+.erp-module-page .erp-list-table .cell.el-tooltip__trigger {
+  overflow: hidden !important;
+  text-overflow: clip !important;
+}
+
+/* 列表时间/多行紧凑（双行高度对齐单行数据列） */
+.bom-list-datetime,
+.bom-list-usage-cost,
+.erp-table-cell-multiline {
+  font-size: var(--erp-table-datetime-size);
+  line-height: 1.25;
+  text-align: center;
+}
+
+.bom-list-datetime > div,
+.bom-list-usage-cost > div,
+.erp-table-cell-multiline > div {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.erp-module-page .erp-list-table td.erp-col-datetime .cell,
+.erp-module-page .erp-list-table td.erp-col-multiline .cell {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  white-space: normal;
+}
+
+/* ---------- 表单 / 按钮：触控与间距 ---------- */
+html[data-ui='comfortable'] .el-button {
+  min-height: var(--erp-touch-min);
+  font-weight: var(--erp-font-weight-body);
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+/* link/text 仅对显式豁免类保留文字链样式 */
+html[data-ui='comfortable'] .el-button.is-link:not(.erp-btn-keep-link),
+html[data-ui='comfortable'] .el-button.is-text:not(.erp-btn-keep-link) {
+  min-height: 36px;
+}
+
+/* ---------- 表格操作区：方框按钮 + 分色（舒适模式） ---------- */
+.erp-table-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--erp-action-gap);
+  max-width: 100%;
+}
+
+.erp-table-actions .el-button + .el-button {
+  margin-left: 0;
+}
+
+html[data-ui='comfortable'] .erp-module-page .erp-table-actions .el-button,
+html[data-ui='comfortable'] .erp-module-page .bom-list-actions.erp-table-actions .el-button {
+  font-size: var(--erp-action-btn-font-size) !important;
+  min-height: var(--erp-action-btn-min-height) !important;
+  padding: 6px 12px !important;
+  font-weight: var(--erp-font-weight-body) !important;
+  border-width: 1px !important;
+  border-style: solid !important;
+  line-height: 1.4 !important;
+}
+
+/* 主列表操作列：紧凑按钮（覆盖上一段 38px 规则） */
+html[data-ui='comfortable'] .erp-module-page .erp-list-table .erp-table-actions .el-button {
+  font-size: var(--erp-list-action-btn-font-size) !important;
+  min-height: var(--erp-list-action-btn-min-height) !important;
+  padding: 4px 8px !important;
+  line-height: 1.25 !important;
+}
+
+html[data-ui='comfortable'] .erp-module-page .erp-table-actions .el-button--primary.is-plain {
+  --el-button-bg-color: #dbeafe;
+  --el-button-border-color: #1d4ed8;
+  --el-button-text-color: #1e3a8a;
+  --el-button-hover-bg-color: #bfdbfe;
+  --el-button-hover-border-color: #1e40af;
+  --el-button-hover-text-color: #172554;
+}
+
+html[data-ui='comfortable'] .erp-module-page .erp-table-actions .el-button--success.is-plain {
+  --el-button-bg-color: #dcfce7;
+  --el-button-border-color: #166534;
+  --el-button-text-color: #14532d;
+  --el-button-hover-bg-color: #bbf7d0;
+  --el-button-hover-border-color: #14532d;
+  --el-button-hover-text-color: #052e16;
+}
+
+html[data-ui='comfortable'] .erp-module-page .erp-table-actions .el-button--warning.is-plain {
+  --el-button-bg-color: #fef3c7;
+  --el-button-border-color: #b45309;
+  --el-button-text-color: #92400e;
+  --el-button-hover-bg-color: #fde68a;
+  --el-button-hover-border-color: #92400e;
+  --el-button-hover-text-color: #78350f;
+}
+
+html[data-ui='comfortable'] .erp-module-page .erp-table-actions .el-button--danger.is-plain {
+  --el-button-bg-color: #fee2e2;
+  --el-button-border-color: #b91c1c;
+  --el-button-text-color: #991b1b;
+  --el-button-hover-bg-color: #fecaca;
+  --el-button-hover-border-color: #991b1b;
+  --el-button-hover-text-color: #7f1d1d;
+}
+
+html[data-ui='comfortable'] .erp-module-page .erp-table-actions .el-button--info.is-plain {
+  --el-button-bg-color: #e0f2fe;
+  --el-button-border-color: #0369a1;
+  --el-button-text-color: #0c4a6e;
+  --el-button-hover-bg-color: #bae6fd;
+  --el-button-hover-border-color: #075985;
+  --el-button-hover-text-color: #082f49;
+}
+
+html[data-ui='comfortable'] .erp-module-page .erp-table-actions .el-button--default.is-plain,
+html[data-ui='comfortable'] .erp-module-page .erp-table-actions .el-button:not([class*='el-button--']) {
+  --el-button-bg-color: #f3f4f6;
+  --el-button-border-color: #6b7280;
+  --el-button-text-color: #1f2937;
+}
+
+/* 舒适模式：表格内残留的 link（未改模板时）也显示为方框 */
+html[data-ui='comfortable'] .erp-module-page .erp-table-actions .el-button.is-link:not(.erp-btn-keep-link) {
+  background-color: var(--el-button-bg-color, #f3f4f6) !important;
+  border: 1px solid var(--el-button-border-color, #6b7280) !important;
+  color: var(--el-button-text-color, #1f2937) !important;
+  text-decoration: none !important;
+}
+
+html[data-ui='comfortable'] .erp-module-page .search-row .el-button,
+html[data-ui='comfortable'] .erp-module-page .erp-action-row .el-button {
+  font-size: var(--el-font-size-base) !important;
+  font-weight: var(--erp-font-weight-body) !important;
+}
+
+html[data-ui='comfortable'] .el-input__wrapper {
+  min-height: var(--erp-touch-min);
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+html[data-ui='comfortable'] .el-select__wrapper {
+  min-height: var(--erp-touch-min);
+}
+
+html[data-ui='comfortable'] .el-pagination .btn-prev,
+html[data-ui='comfortable'] .el-pagination .btn-next,
+html[data-ui='comfortable'] .el-pagination .el-pager li {
+  min-width: var(--erp-touch-min);
+  min-height: 36px;
+  font-weight: var(--erp-font-weight-body);
+}
+
+/* 顶栏「显示」切换区例外：略紧凑以免挤占顶栏 */
+html[data-ui='comfortable'] .erp-ui-density .el-radio-button__inner {
+  min-height: 36px;
+  line-height: 1.4;
+  font-weight: var(--erp-font-weight-body);
+}
+
+/* 操作区按钮间距 ≥8px */
+.search-row,
+.erp-action-row,
+.bom-list-actions,
+.bom-parts-toolbar,
+.bom-detail-drill-bar,
+.bom-cost-hide-prefix-dialog__actions {
+  gap: var(--erp-action-gap) !important;
+}
+
+.search-row {
+  row-gap: 10px;
+}
+
+/* ---------- 状态：Alert 保留图标；Tag 加粗边框便于辨识 ---------- */
+.el-alert .el-alert__icon {
+  font-size: 20px;
+}
+
+html[data-ui='comfortable'] .el-tag {
+  font-weight: var(--erp-font-weight-body);
+  border-width: 1px;
+}
+
+html[data-ui='comfortable'] .el-tag.el-tag--success {
+  --el-tag-text-color: #14532d;
+  --el-tag-bg-color: #dcfce7;
+  --el-tag-border-color: #166534;
+}
+
+html[data-ui='comfortable'] .el-tag.el-tag--warning {
+  --el-tag-text-color: #92400e;
+  --el-tag-bg-color: #fef3c7;
+  --el-tag-border-color: #b45309;
+}
+
+html[data-ui='comfortable'] .el-tag.el-tag--danger {
+  --el-tag-text-color: #991b1b;
+  --el-tag-bg-color: #fee2e2;
+  --el-tag-border-color: #b91c1c;
+}
+
+/* ---------- 焦点环（键盘 / 可访问性） ---------- */
+.el-button:focus-visible,
+.el-input__wrapper:focus-within,
+.el-select__wrapper:focus-within,
+.el-radio-button__original-radio:focus-visible + .el-radio-button__inner {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
+
+/* ---------- 布局壳 ---------- */
+html[data-ui='comfortable'] .erp-header-title {
+  font-size: var(--erp-shell-title-size);
+  font-weight: var(--erp-font-weight-heading);
+}
+
+html[data-ui='comfortable'] .erp-user-text {
+  font-size: var(--erp-shell-user-size);
+  font-weight: var(--erp-font-weight-body);
+}
+
+html[data-ui='comfortable'] .erp-logo {
+  font-size: var(--erp-sidebar-logo-size);
+  font-weight: var(--erp-font-weight-heading);
+}
+
+html[data-ui='comfortable'] .erp-menu .el-menu-item,
+html[data-ui='comfortable'] .erp-menu .el-sub-menu__title {
+  font-size: var(--erp-sidebar-menu-size);
+  font-weight: var(--erp-font-weight-body);
+  min-height: var(--erp-touch-min);
+}
+
+html[data-ui='comfortable'] .erp-app-main-root .erp-tab-label {
+  font-size: var(--el-font-size-base);
+  font-weight: var(--erp-font-weight-body);
+  max-width: 180px;
+}
+
+html[data-ui='comfortable'] .erp-header {
+  min-height: 56px;
+  height: auto !important;
+}
+
+html[data-ui='comfortable'] .login-title-main {
+  font-size: 24px;
+  font-weight: var(--erp-font-weight-heading);
+}
+
+html[data-ui='comfortable'] .login-title-sub,
+html[data-ui='comfortable'] .login-tips {
+  font-size: var(--el-font-size-base);
+  line-height: var(--erp-line-height-body);
+}
+
+/* ---------- 业务页写死 12px 的兜底（BOM 编码列等） ---------- */
+.bom-list-cell-wrap,
+.usage-sum-cell {
+  font-size: var(--erp-table-data-size);
+  line-height: var(--erp-line-height-table);
+  font-weight: var(--erp-font-weight-body);
+}
+
+html[data-ui='comfortable'] .bom-list-cell-wrap {
+  font-weight: var(--erp-font-weight-heading);
+}
+
+/* 用量（成本）与时间列同套紧凑样式（见 .bom-list-datetime） */
+.bom-list-usage-cost {
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-sum-cell {
+  font-size: var(--erp-table-meta-size);
+}
+
+html[data-ui='comfortable'] .bom-section-title {
+  font-size: var(--el-font-size-large) !important;
+  font-weight: var(--erp-font-weight-heading) !important;
+}
+
+html[data-ui='comfortable'] .bom-sub-block-title,
+html[data-ui='comfortable'] .bom-usage-calc-toolbar__hint,
+html[data-ui='comfortable'] .bom-cost-hide-prefix-bar__label,
+html[data-ui='comfortable'] .bom-cost-hide-prefix-bar__summary,
+html[data-ui='comfortable'] .bom-cost-hide-prefix-dialog__tip,
+html[data-ui='comfortable'] .bom-parts-sum-row {
+  font-size: var(--erp-text-secondary-size) !important;
+  line-height: var(--erp-line-height-body) !important;
+}
+
+/* 舒适模式下覆盖 scoped 12px */
+html[data-ui='comfortable'] .bom-list-cell-wrap {
+  font-size: var(--erp-table-data-size) !important;
+  line-height: var(--erp-line-height-table) !important;
+}
+
+html[data-ui='comfortable'] .bom-list-datetime,
+html[data-ui='comfortable'] .bom-list-usage-cost,
+html[data-ui='comfortable'] .erp-table-cell-multiline {
+  font-size: var(--erp-table-datetime-size) !important;
+  line-height: 1.25 !important;
+}
+
+/* 全站 12px 硬编码兜底（表格/预览区） */
+html[data-ui='comfortable'] .erp-module-page [style*='font-size: 12px'],
+html[data-ui='comfortable'] .preview-table .cell {
+  font-size: var(--erp-table-data-size) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

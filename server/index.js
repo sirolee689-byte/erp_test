@@ -7867,14 +7867,16 @@ app.get('/api/inv/bom/list', async (req, res) => {
         } else {
           const sum4 = Number(aggHit?.total4 ?? 0)
           const sum6 = Number(aggHit?.total6 ?? 0)
-          bomCostUsageCostText = `${Number.isFinite(sum4) ? sum4.toFixed(4) : '0.0000'} , ${
-            Number.isFinite(sum6) ? sum6.toFixed(4) : '0.0000'
-          }`
+          const s4 = Number.isFinite(sum4) ? sum4.toFixed(4) : '0.0000'
+          const s6 = Number.isFinite(sum6) ? sum6.toFixed(4) : '0.0000'
+          bomCostUsageCostText = `成本：${s4},${s6}`
         }
       }
       return {
         systemcode: row.systemcode != null ? String(row.systemcode) : '',
         code: row.code != null ? String(row.code) : '',
+        /** bom_000.kcaa02 名称(中文) */
+        kcaa02: row.product_name != null ? String(row.product_name) : '',
         name: row.product_name != null ? String(row.product_name) : '',
         spec: row.spec != null ? String(row.spec) : '',
         unit: row.unit != null ? String(row.unit) : '',

@@ -56,7 +56,7 @@ defineProps({
   height: 56px;
   line-height: 56px;
   padding: 0 16px;
-  font-size: 16px;
+  font-size: var(--erp-sidebar-logo-size, 16px);
   font-weight: 600;
   color: #fff;
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);

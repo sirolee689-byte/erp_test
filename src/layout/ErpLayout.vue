@@ -22,6 +22,13 @@
           - 这里负责把用户名显示出来，并提供下拉菜单（修改密码 / 退出登录）
         -->
         <div class="erp-header-right">
+          <div class="erp-ui-density" title="调整字号与按钮大小，设置会保存在本浏览器">
+            <span class="erp-ui-density-label">显示</span>
+            <el-radio-group v-model="uiDensityModel" size="small">
+              <el-radio-button :value="UI_DENSITY_COMFORTABLE">舒适</el-radio-button>
+              <el-radio-button :value="UI_DENSITY_STANDARD">标准</el-radio-button>
+            </el-radio-group>
+          </div>
           <!--
             用户名下拉菜单（你要求的：用户名下拉里增加“修改密码”）
             小白版解释：
@@ -128,6 +135,7 @@ import {
   getPermissionModelFromStorage,
 } from '@/utils/menuPermission'
 import { useTagsViewStore } from '@/store/modules/tagsView'
+import { useUiDensity } from '@/composables/useUiDensity'
 import ErpAppMain from './ErpAppMain.vue'
 import ErpSidebar from './ErpSidebar.vue'
 import axios from 'axios'
@@ -136,6 +144,19 @@ import { ArrowDown, Edit, Expand, Fold, SwitchButton, UserFilled } from '@elemen
 
 const route = useRoute()
 const router = useRouter()
+
+const {
+  density: uiDensity,
+  setDensity: setUiDensity,
+  UI_DENSITY_COMFORTABLE,
+  UI_DENSITY_STANDARD,
+} = useUiDensity()
+
+const uiDensityModel = computed({
+  get: () => uiDensity.value,
+  set: (v) => setUiDensity(v),
+})
+
 const active = computed(() => route.path)
 const headerTitle = computed(() => (route.meta.title ? String(route.meta.title) : '首页'))
 
@@ -494,7 +515,21 @@ async function submitChangePassword() {
   margin-left: auto;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+}
+.erp-ui-density {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.04);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+.erp-ui-density-label {
+  font-size: var(--erp-text-secondary-size, 13px);
+  color: var(--el-text-color-regular);
+  white-space: nowrap;
 }
 .erp-user {
   /* 关键：工业感小标签 */
@@ -523,7 +558,7 @@ async function submitChangePassword() {
 }
 .erp-user-text {
   color: rgba(15, 23, 42, 0.85);
-  font-size: 13px;
+  font-size: var(--erp-shell-user-size, 13px);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -543,7 +578,7 @@ async function submitChangePassword() {
   background: rgba(0, 0, 0, 0.04);
 }
 .erp-header-title {
-  font-size: 16px;
+  font-size: var(--erp-shell-title-size, 16px);
   font-weight: 500;
   color: var(--el-text-color-primary);
 }

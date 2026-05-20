@@ -55,9 +55,24 @@
         class="audit-alert"
       />
 
+      <div class="pagination-row pagination-row--top">
+        <el-pagination
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="total"
+          :current-page="page"
+          :page-size="pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          @size-change="onPageSizeChange"
+          @current-change="onPageChange"
+        />
+      </div>
+
       <el-skeleton :loading="loading" animated :rows="6">
         <template #default>
           <el-table
+            v-erp-list-h-scroll
+            class="erp-list-table"
             :data="tableList"
             border
             stripe
@@ -65,91 +80,111 @@
             style="width: 100%"
             :empty-text="loading ? '加载中…' : '暂无数据'"
           >
-            <el-table-column prop="in_time" label="录入时间" width="160" show-overflow-tooltip />
-            <el-table-column prop="code" label="颜色编码" min-width="120" show-overflow-tooltip>
+            <el-table-column
+              prop="in_time"
+              label="录入时间"
+              width="160"
+              align="center"
+              header-align="center"
+            />
+            <el-table-column
+              prop="code"
+              label="颜色编码"
+              min-width="120"
+              align="center"
+              header-align="center"
+            >
               <template #default="{ row }">
                 <span class="code-bold">{{ row.code || '—' }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="name" label="名称(中文)" min-width="160" show-overflow-tooltip />
-            <el-table-column label="审核" width="100">
+            <el-table-column
+              prop="name"
+              label="名称(中文)"
+              min-width="160"
+              align="center"
+              header-align="center"
+            />
+            <el-table-column label="审核" width="100" align="center" header-align="center">
               <template #default="{ row }">
                 <el-tag v-if="passIsAudited(row)" type="success" size="small">已审核</el-tag>
                 <el-tag v-else type="warning" size="small">未审核</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="340" fixed="right">
+            <el-table-column
+              label="操作"
+              width="380"
+              fixed="right"
+              align="center"
+              class-name="erp-col-actions"
+            >
               <template #default="{ row }">
-                <template v-if="showRecycle">
-                  <el-button
-                    type="primary"
-                    link
-                    size="small"
-                    :loading="busyCode === row.code"
-                    @click="onRestore(row)"
-                  >
-                    恢复
-                  </el-button>
-                  <el-button
-                    v-permission="'delete'"
-                    type="danger"
-                    link
-                    size="small"
-                    :loading="busyCode === row.code"
-                    @click="onHardDelete(row)"
-                  >
-                    彻底删除
-                  </el-button>
-                </template>
-                <template v-else>
-                  <el-button
-                    v-if="showUnAudited"
-                    v-permission="'edit'"
-                    type="success"
-                    link
-                    size="small"
-                    :disabled="passIsAudited(row)"
-                    :loading="busyCode === row.code"
-                    @click="openEditDialog(row)"
-                  >
-                    编辑
-                  </el-button>
-                  <el-button
-                    type="primary"
-                    link
-                    size="small"
-                    :disabled="passIsAudited(row)"
-                    :loading="busyCode === row.code"
-                    @click="onAudit(row)"
-                  >
-                    审核
-                  </el-button>
-                  <el-button
-                    type="warning"
-                    link
-                    size="small"
-                    :disabled="!passIsAudited(row)"
-                    :loading="busyCode === row.code"
-                    @click="onUnaudit(row)"
-                  >
-                    反审
-                  </el-button>
-                  <el-button
-                    type="danger"
-                    link
-                    size="small"
-                    :disabled="passIsAudited(row)"
-                    :loading="busyCode === row.code"
-                    @click="onSoftDelete(row)"
-                  >
-                    删除
-                  </el-button>
-                </template>
+                <div class="erp-table-actions">
+                  <template v-if="showRecycle">
+                    <el-button
+                      type="primary"
+                      plain
+                      :loading="busyCode === row.code"
+                      @click="onRestore(row)"
+                    >
+                      恢复
+                    </el-button>
+                    <el-button
+                      v-permission="'delete'"
+                      type="danger"
+                      plain
+                      :loading="busyCode === row.code"
+                      @click="onHardDelete(row)"
+                    >
+                      彻底删除
+                    </el-button>
+                  </template>
+                  <template v-else>
+                    <el-button
+                      v-if="showUnAudited"
+                      v-permission="'edit'"
+                      type="success"
+                      plain
+                      :disabled="passIsAudited(row)"
+                      :loading="busyCode === row.code"
+                      @click="openEditDialog(row)"
+                    >
+                      编辑
+                    </el-button>
+                    <el-button
+                      type="primary"
+                      plain
+                      :disabled="passIsAudited(row)"
+                      :loading="busyCode === row.code"
+                      @click="onAudit(row)"
+                    >
+                      审核
+                    </el-button>
+                    <el-button
+                      type="warning"
+                      plain
+                      :disabled="!passIsAudited(row)"
+                      :loading="busyCode === row.code"
+                      @click="onUnaudit(row)"
+                    >
+                      反审
+                    </el-button>
+                    <el-button
+                      type="danger"
+                      plain
+                      :disabled="passIsAudited(row)"
+                      :loading="busyCode === row.code"
+                      @click="onSoftDelete(row)"
+                    >
+                      删除
+                    </el-button>
+                  </template>
+                </div>
               </template>
             </el-table-column>
           </el-table>
 
-          <div class="pagination-row">
+          <div class="pagination-row pagination-row--bottom">
             <el-pagination
               background
               layout="total, sizes, prev, pager, next, jumper"
@@ -214,7 +249,6 @@ import { ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
-
 const pageTitle = '颜色编码'
 
 const loading = ref(false)
@@ -601,10 +635,5 @@ loadData()
 }
 .code-bold {
   font-weight: 700;
-}
-.pagination-row {
-  margin-top: 14px;
-  display: flex;
-  justify-content: flex-end;
-}
+}
 </style>

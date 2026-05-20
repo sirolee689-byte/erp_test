@@ -55,39 +55,90 @@
         class="audit-alert"
       />
 
+      <div class="pagination-row pagination-row--top">
+        <el-pagination
+          v-model:current-page="page"
+          v-model:page-size="pageSize"
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="total"
+          :page-sizes="[10, 20, 50, 100]"
+          @size-change="onPageSizeChange"
+          @current-change="onPageChange"
+        />
+      </div>
+
       <el-skeleton :loading="loading" animated :rows="6">
         <template #default>
           <el-table
             ref="tableRef"
+            v-erp-list-h-scroll
+            class="erp-list-table"
             :data="tableList"
             border
             stripe
             row-key="id"
             style="width: 100%"
-            :max-height="tableMaxHeight"
             :empty-text="loading ? '加载中…' : '暂无数据'"
           >
-            <el-table-column prop="s_code" label="编码" width="140" fixed="left" show-overflow-tooltip>
+            <el-table-column
+              prop="s_code"
+              label="编码"
+              width="140"
+              fixed="left"
+              align="center"
+              header-align="center"
+            >
               <template #default="{ row }">
                 <span class="code-bold">{{ row.s_code || '—' }}</span>
               </template>
             </el-table-column>
 
-            <el-table-column label="状态" width="110">
+            <el-table-column label="状态" width="110" align="center" header-align="center">
               <template #default="{ row }">
                 <el-tag v-if="passIsAudited(row)" type="success" size="small">已审核</el-tag>
                 <el-tag v-else type="warning" size="small">未审核</el-tag>
               </template>
             </el-table-column>
 
-            <el-table-column prop="s_name" label="名称" min-width="220" show-overflow-tooltip />
-            <el-table-column prop="s_sname" label="简称" min-width="160" show-overflow-tooltip />
-            <el-table-column prop="s_sh" label="税号" min-width="180" show-overflow-tooltip />
-            <el-table-column prop="s_lb" label="类别" min-width="140" show-overflow-tooltip />
+            <el-table-column
+              prop="s_name"
+              label="名称"
+              min-width="220"
+              align="center"
+              header-align="center"
+            />
+            <el-table-column
+              prop="s_sname"
+              label="简称"
+              min-width="160"
+              align="center"
+              header-align="center"
+            />
+            <el-table-column
+              prop="s_sh"
+              label="税号"
+              min-width="180"
+              align="center"
+              header-align="center"
+            />
+            <el-table-column
+              prop="s_lb"
+              label="类别"
+              min-width="140"
+              align="center"
+              header-align="center"
+            />
 
-            <el-table-column label="联系方式" min-width="180">
+            <el-table-column
+              label="联系方式"
+              min-width="180"
+              align="center"
+              header-align="center"
+              class-name="erp-col-multiline"
+            >
               <template #default="{ row }">
-                <div class="multi-line">
+                <div class="erp-table-cell-multiline">
                   <div>{{ row.s_lxr || '—' }}</div>
                   <div>{{ row.s_mobile || '—' }}</div>
                   <div>{{ row.s_tel || '—' }}</div>
@@ -95,30 +146,60 @@
               </template>
             </el-table-column>
 
-            <el-table-column prop="s_payfor" label="结算方式" min-width="160" show-overflow-tooltip />
+            <el-table-column
+              prop="s_payfor"
+              label="结算方式"
+              min-width="160"
+              align="center"
+              header-align="center"
+            />
 
-            <el-table-column label="货期" min-width="160">
+            <el-table-column
+              label="货期"
+              min-width="160"
+              align="center"
+              header-align="center"
+              class-name="erp-col-multiline"
+            >
               <template #default="{ row }">
-                <div class="multi-line">
+                <div class="erp-table-cell-multiline">
                   <div>采购：{{ normalizeDays(row.s_jh) }}</div>
                   <div>外协：{{ normalizeDays(row.s_wx_jh) }}</div>
                 </div>
               </template>
             </el-table-column>
 
-            <el-table-column prop="sl" label="税率" width="110" show-overflow-tooltip />
+            <el-table-column
+              prop="sl"
+              label="税率"
+              width="110"
+              align="center"
+              header-align="center"
+            />
 
-            <el-table-column label="发票类型" min-width="160">
+            <el-table-column label="发票类型" min-width="160" align="center" header-align="center">
               <template #default="{ row }">
                 <span>{{ formatInvoiceType(row) }}</span>
               </template>
             </el-table-column>
 
-            <el-table-column prop="s_info" label="备注" min-width="220" show-overflow-tooltip />
+            <el-table-column
+              prop="s_info"
+              label="备注"
+              min-width="220"
+              align="center"
+              header-align="center"
+            />
 
-            <el-table-column label="操作" width="320" fixed="right">
+            <el-table-column
+              label="操作"
+              width="320"
+              fixed="right"
+              align="center"
+              class-name="erp-col-actions"
+            >
               <template #default="{ row }">
-                <div class="op-btns">
+                <div class="erp-table-actions">
                   <el-button
                     v-if="!showRecycle"
                     v-permission="'edit'"
@@ -188,7 +269,7 @@
             </el-table-column>
           </el-table>
 
-          <div class="pager-row">
+          <div class="pagination-row pagination-row--bottom">
             <el-pagination
               v-model:current-page="page"
               v-model:page-size="pageSize"
@@ -328,11 +409,10 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import axios from 'axios'
-
 /** 页面标题（与左侧菜单一致） */
 const pageTitle = '供应商资料'
 
@@ -349,7 +429,6 @@ const page = ref(1)
 const pageSize = ref(20)
 
 const tableRef = ref()
-const tableMaxHeight = computed(() => 'calc(100vh - 260px)')
 
 const dialogVisible = ref(false)
 const dialogMode = ref('create') // create | edit
@@ -716,21 +795,7 @@ async function permanentDeleteRow(row) {
 }
 .code-bold {
   font-weight: 600;
-}
-.multi-line {
-  line-height: 18px;
-  white-space: pre-line;
-}
-.op-btns {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.pager-row {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 12px;
-}
+}
 .supplier-form {
   padding-top: 4px;
 }

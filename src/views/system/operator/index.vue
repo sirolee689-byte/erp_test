@@ -107,6 +107,19 @@
         class="error-alert"
       />
 
+      <div class="pagination-row pagination-row--top">
+        <el-pagination
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="total"
+          :current-page="page"
+          :page-size="pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          @size-change="onPageSizeChange"
+          @current-change="onPageChange"
+        />
+      </div>
+
       <el-skeleton :loading="loading" animated :rows="6">
         <template #default>
           <el-table
@@ -197,7 +210,7 @@
             - loadUsers 会把 page/pageSize 作为 axios 参数发到后端：/api/users?page=...&pageSize=...
             - 后端拿到 page/pageSize 后，用 SQL 的 OFFSET/FETCH 只查这一页的数据
           -->
-          <div class="pagination-row">
+          <div class="pagination-row pagination-row--bottom">
             <el-pagination
               background
               layout="total, sizes, prev, pager, next, jumper"
@@ -1015,10 +1028,5 @@ onMounted(async () => {
   color: #fff;
   /* 关键：选中态边框更深，更明显 */
   box-shadow: 0 0 0 2px rgba(184, 95, 18, 0.14) inset;
-}
-.pagination-row {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 12px;
-}
+}
 </style>

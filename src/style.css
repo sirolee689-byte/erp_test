@@ -3,4 +3,11 @@ body,
 #app {
   margin: 0;
   height: 100%;
+  font-family:
+    'Microsoft YaHei',
+    'PingFang SC',
+    'Segoe UI',
+    system-ui,
+    sans-serif;
+  color: var(--el-text-color-primary);
 }

@@ -17,6 +17,8 @@ defineOptions({ name: 'ErpAppMain' })
   background: #f3f5f7;
   padding: 16px;
   min-width: 0;
+  /* 主内容区横向由表体/视口底横条处理，避免白卡片与 el-card__body 再出一层横滚 */
+  overflow-x: hidden;
 }
 .erp-content-card {
   background: #fff;

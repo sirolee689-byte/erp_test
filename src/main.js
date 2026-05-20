@@ -2,12 +2,17 @@ import { createApp } from 'vue'
 import './style.css'
 import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css'
+import '@/styles/element-override.scss'
+import '@/styles/erp-module-page.css'
+import { initUiDensityOnBoot } from '@/utils/uiDensity'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import App from './App.vue'
 import router from './router'
 import { permissionDirective } from './directives/permission'
+import { erpListHScrollDirective } from './directives/erpListHScroll'
+import ErpTableViewportHScroll from './components/erp/ErpTableViewportHScroll.vue'
 import { getPermissionModelFromStorage, hasPageAction } from './utils/menuPermission'
 
 /**
@@ -54,6 +59,8 @@ axios.interceptors.response.use(
   }
 )
 
+initUiDensityOnBoot()
+
 const app = createApp(App)
 
 app.use(router)
@@ -61,6 +68,8 @@ app.use(ElementPlus, { locale: zhCn })
 
 /** 全局注册按钮权限指令：v-permission / v-permission.disable */
 app.directive('permission', permissionDirective)
+app.directive('erp-list-h-scroll', erpListHScrollDirective)
+app.component('ErpTableViewportHScroll', ErpTableViewportHScroll)
 
 /**
  * 【Vue3 globalProperties：如何在任意页面判断权限】

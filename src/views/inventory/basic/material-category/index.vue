@@ -55,9 +55,24 @@
         class="audit-alert"
       />
 
+      <div class="pagination-row pagination-row--top">
+        <el-pagination
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="total"
+          :current-page="page"
+          :page-size="pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          @size-change="onPageSizeChange"
+          @current-change="onPageChange"
+        />
+      </div>
+
       <el-skeleton :loading="loading" animated :rows="6">
         <template #default>
           <el-table
+            v-erp-list-h-scroll
+            class="erp-list-table"
             :data="tableList"
             border
             stripe
@@ -65,80 +80,102 @@
             style="width: 100%"
             :empty-text="loading ? '加载中…' : '暂无数据'"
           >
-            <el-table-column prop="id" label="ID" width="88" />
-            <el-table-column prop="code" label="分类编码" min-width="140" show-overflow-tooltip />
-            <el-table-column prop="name" label="分类名称" min-width="160" show-overflow-tooltip />
-            <el-table-column prop="customs_code" label="海关商品编码" min-width="160" show-overflow-tooltip />
-            <el-table-column label="入库浮动率" min-width="120" show-overflow-tooltip>
+            <el-table-column prop="id" label="ID" width="88" align="center" header-align="center" />
+            <el-table-column
+              prop="code"
+              label="分类编码"
+              min-width="140"
+              align="center"
+              header-align="center"
+            />
+            <el-table-column
+              prop="name"
+              label="分类名称"
+              min-width="160"
+              align="center"
+              header-align="center"
+            />
+            <el-table-column
+              prop="customs_code"
+              label="海关商品编码"
+              min-width="160"
+              align="center"
+              header-align="center"
+            />
+            <el-table-column label="入库浮动率" min-width="120" align="center" header-align="center">
               <template #default="{ row }">
                 <span>{{ formatRatePercent(row?.stocks_in) || '—' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="出库浮动率" min-width="120" show-overflow-tooltip>
+            <el-table-column label="出库浮动率" min-width="120" align="center" header-align="center">
               <template #default="{ row }">
                 <span>{{ formatRatePercent(row?.stocks_out) || '—' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="审核" width="100">
+            <el-table-column label="审核" width="100" align="center" header-align="center">
               <template #default="{ row }">
                 <el-tag v-if="passIsAudited(row)" type="success" size="small">已审核</el-tag>
                 <el-tag v-else type="warning" size="small">未审核</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="260" fixed="right">
+            <el-table-column
+              label="操作"
+              width="300"
+              fixed="right"
+              align="center"
+              class-name="erp-col-actions"
+            >
               <template #default="{ row }">
-                <template v-if="showRecycle">
-                  <el-button type="primary" link size="small" :loading="busyId === row.id" @click="onRestore(row)">
-                    恢复
-                  </el-button>
-                  <el-button
-                    v-permission="'delete'"
-                    type="danger"
-                    link
-                    size="small"
-                    :loading="busyId === row.id"
-                    @click="onHardDelete(row)"
-                  >
-                    彻底删除
-                  </el-button>
-                </template>
-                <template v-else>
-                  <el-button
-                    type="primary"
-                    link
-                    size="small"
-                    :disabled="passIsAudited(row)"
-                    :loading="busyId === row.id"
-                    @click="onAudit(row)"
-                  >
-                    审核
-                  </el-button>
-                  <el-button
-                    type="warning"
-                    link
-                    size="small"
-                    :disabled="!passIsAudited(row)"
-                    :loading="busyId === row.id"
-                    @click="onUnaudit(row)"
-                  >
-                    反审
-                  </el-button>
-                  <el-button
-                    type="danger"
-                    link
-                    size="small"
-                    :disabled="passIsAudited(row)"
-                    :loading="busyId === row.id"
-                    @click="onSoftDelete(row)"
-                  >
-                    删除
-                  </el-button>
-                </template>
+                <div class="erp-table-actions">
+                  <template v-if="showRecycle">
+                    <el-button type="primary" plain :loading="busyId === row.id" @click="onRestore(row)">
+                      恢复
+                    </el-button>
+                    <el-button
+                      v-permission="'delete'"
+                      type="danger"
+                      plain
+                      :loading="busyId === row.id"
+                      @click="onHardDelete(row)"
+                    >
+                      彻底删除
+                    </el-button>
+                  </template>
+                  <template v-else>
+                    <el-button
+                      type="primary"
+                      plain
+                      :disabled="passIsAudited(row)"
+                      :loading="busyId === row.id"
+                      @click="onAudit(row)"
+                    >
+                      审核
+                    </el-button>
+                    <el-button
+                      type="warning"
+                      plain
+                      :disabled="!passIsAudited(row)"
+                      :loading="busyId === row.id"
+                      @click="onUnaudit(row)"
+                    >
+                      反审
+                    </el-button>
+                    <el-button
+                      type="danger"
+                      plain
+                      :disabled="passIsAudited(row)"
+                      :loading="busyId === row.id"
+                      @click="onSoftDelete(row)"
+                    >
+                      删除
+                    </el-button>
+                  </template>
+                </div>
               </template>
             </el-table-column>
           </el-table>
 
-          <div class="pagination-row">
+          <div class="pagination-row pagination-row--bottom">
             <el-pagination
               background
               layout="total, sizes, prev, pager, next, jumper"
@@ -519,10 +556,5 @@ loadData()
 .error-alert,
 .audit-alert {
   margin-bottom: 12px;
-}
-.pagination-row {
-  margin-top: 14px;
-  display: flex;
-  justify-content: flex-end;
-}
+}
 </style>

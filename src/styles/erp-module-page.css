@@ -1,0 +1,83 @@
+/**
+ * 业务模块页公共排版（与各页 .erp-module-page 配合）
+ * 字号使用 --erp-* 变量，随 data-ui 切换。
+ */
+
+.erp-module-page .page-title {
+  font-size: var(--erp-page-title-size, 18px);
+  font-weight: var(--erp-font-weight-heading, 600);
+  line-height: var(--erp-line-height-body, 1.6);
+}
+
+.erp-module-page .page-desc {
+  margin: 0;
+  font-size: var(--erp-page-desc-size, 14px);
+  font-weight: var(--erp-font-weight-body, 500);
+  line-height: var(--erp-line-height-body, 1.6);
+  color: var(--el-text-color-secondary);
+}
+
+.erp-module-page .switch-label,
+.erp-module-page .erp-text-secondary {
+  font-size: var(--erp-text-secondary-size, 14px);
+  font-weight: var(--erp-font-weight-body, 500);
+  line-height: var(--erp-line-height-body, 1.6);
+  color: var(--el-text-color-regular);
+}
+
+/* 模块内主操作区：保持顶部工具条、按钮间距 */
+.erp-module-page .search-row,
+.erp-module-page .erp-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--erp-action-gap, 8px);
+  margin-bottom: 12px;
+}
+
+/* 列表「操作」列：方框按钮容器（与 element-override .erp-table-actions 配合） */
+.erp-module-page .erp-table-actions {
+  width: 100%;
+}
+
+/* 主列表：禁止 :max-height；纵滚由页面承担，横滚由视口底 ErpTableViewportHScroll 承担 */
+.erp-module-page .erp-list-table {
+  width: 100%;
+}
+
+/* 主列表双分页：头 + 底，左对齐（erp-module-page 与宿舍子页等共用类名） */
+.pagination-row,
+.pager-row {
+  display: flex;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.pagination-row--top,
+.pager-row--top {
+  margin-bottom: 12px;
+}
+
+.pagination-row--bottom,
+.pager-row--bottom {
+  margin-top: 14px;
+}
+
+/* 卡片内容区不出现第二层横滚；纵向随内容增高由页面滚动 */
+.erp-module-page > .el-card > .el-card__body {
+  overflow-x: hidden;
+  overflow-y: visible;
+}
+
+/* 覆盖各页 scoped 内写死的 18px / 13px，使舒适模式全局生效 */
+html[data-ui='comfortable'] .erp-module-page .page-title {
+  font-size: var(--erp-page-title-size) !important;
+}
+
+html[data-ui='comfortable'] .erp-module-page .page-desc {
+  font-size: var(--erp-page-desc-size) !important;
+}
+
+html[data-ui='comfortable'] .erp-module-page .switch-label {
+  font-size: var(--erp-text-secondary-size) !important;
+}
