@@ -74,6 +74,7 @@ import {
   formatBomCostAuditTimestamp,
   insertBomCostBulkEnriched,
 } from './bomCostEnrichFromBom000.js'
+import { buildBomPartsUsageTreeNodes } from './bomUsageTreeBuild.js'
 
 dotenv.config()
 
@@ -7862,92 +7863,6 @@ app.get('/api/inv/bom/list', async (req, res) => {
 })
 
 /**
- * 用量表运算：单层 Bom_parts 读取（白名单列；按 Seq 排序）
- * - kcac01 匹配须用足够长的 nvarchar，避免 systemcode 被 CONVERT(100) 截断导致下层 0 行
- * - 不在 WHERE 中过滤 del（与 GET /api/inventory/bom/parts 一致）：旧库大量在册行 del 为 NULL/空，严格 del='0' 会把整层子件查成 0 行
- * @param {import('mssql').ConnectionPool} pool
- * @param {string} kcac01Parent 父级 systemcode（匹配 kcac01）
- */
-async function fetchBomPartsLayerForUsageTree(pool, kcac01Parent) {
-  const parent = String(kcac01Parent ?? '').trim()
-  if (!parent) return []
-  const r = await pool
-    .request()
-    .input('kcac01', sql.NVarChar(500), parent)
-    .query(`
-      SELECT
-        p.id,
-        LTRIM(RTRIM(ISNULL(CAST(p.kcac01 AS nvarchar(500)), N''))) AS kcac01,
-        LTRIM(RTRIM(ISNULL(CAST(p.kcac02 AS nvarchar(500)), N''))) AS kcac02,
-        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p.kcaa01, N'')))) AS kcaa01,
-        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(p.kcaa02, N'')))) AS kcaa02,
-        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(p.kcaa03, N'')))) AS kcaa03,
-        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcaa04, N'')))) AS kcaa04,
-        ${bomPartsNumericColAsDecimalSql('p.kcac04')} AS kcac04,
-        ${bomPartsNumericColAsDecimalSql('p.kcac05')} AS kcac05,
-        ${bomPartsNumericColAsDecimalSql('p.kcaa33')} AS kcaa33,
-        CONVERT(int, ISNULL(p.kcaa13, 0)) AS kcaa13,
-        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(p.[Describe], N'')))) AS [Describe],
-        p.[Seq] AS [Seq],
-        LTRIM(RTRIM(ISNULL(CAST(p.systemcode AS nvarchar(500)), N''))) AS systemcode
-      FROM ${INV_BOM_PARTS_FROM} AS p
-      WHERE LTRIM(RTRIM(ISNULL(CAST(p.kcac01 AS nvarchar(500)), N''))) = @kcac01
-      ORDER BY CASE WHEN p.[Seq] IS NULL THEN 1 ELSE 0 END, p.[Seq], p.id
-    `)
-  return r.recordset ?? []
-}
-
-/**
- * 递归构建 Bom_parts 树形节点（嵌套 children）：下一层 kcac01 = 当前行 kcac02；防循环；不写库、不做用量公式运算。
- * @param {import('mssql').ConnectionPool} pool
- * @param {string} kcac01Parent
- * @param {number} level 根层为 1
- * @param {Set<string>} bomHeadStack 从根到当前父级链路上的子 BOM systemcode（含根入参），用于检测 A→B→A
- */
-async function buildBomPartsUsageTreeNodes(pool, kcac01Parent, level, bomHeadStack) {
-  const rows = await fetchBomPartsLayerForUsageTree(pool, kcac01Parent)
-  const out = []
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i]
-    const childSc = String(row.kcac02 ?? '').trim()
-    /** @type {any[]} 子层树节点（嵌套 children） */
-    let children = []
-    if (childSc) {
-      if (bomHeadStack.has(childSc)) {
-        const err = new Error('检测到BOM循环引用')
-        err.code = 'BOM_CYCLE'
-        throw err
-      }
-      const nextStack = new Set(bomHeadStack)
-      nextStack.add(childSc)
-      children = await buildBomPartsUsageTreeNodes(pool, childSc, level + 1, nextStack)
-    }
-    const dVal = row.Describe != null ? String(row.Describe) : row.describe != null ? String(row.describe) : ''
-    const seqRaw = row.Seq != null ? row.Seq : row.seq
-    const seqNum = seqRaw != null && seqRaw !== '' && Number.isFinite(Number(seqRaw)) ? Number(seqRaw) : null
-    out.push({
-      id: row.id != null ? Number(row.id) : null,
-      kcaa01: row.kcaa01 != null ? String(row.kcaa01) : '',
-      kcaa02: row.kcaa02 != null ? String(row.kcaa02) : '',
-      kcaa03: row.kcaa03 != null ? String(row.kcaa03) : '',
-      kcaa04: row.kcaa04 != null ? String(row.kcaa04) : '',
-      kcac01: row.kcac01 != null ? String(row.kcac01) : '',
-      kcac02: row.kcac02 != null ? String(row.kcac02) : '',
-      kcac04: Number(row.kcac04 ?? 0),
-      kcac05: Number(row.kcac05 ?? 0),
-      kcaa33: Number(row.kcaa33 ?? 0),
-      kcaa13: Number(row.kcaa13 ?? 0) === 1 ? 1 : 0,
-      Describe: dVal,
-      Seq: seqNum,
-      level,
-      systemcode: row.systemcode != null ? String(row.systemcode) : '',
-      children,
-    })
-  }
-  return out
-}
-
-/**
  * 成本 BOM 用量平铺：深度优先与树构建顺序一致；不落库。
  * - 顶层 yl = kcac04；下级 yl = 父节点已算 yl × 当前 kcac04（父为 CUT- 裁片时不乘父用量，子件直接取自身 kcac04）
  * - loss_rate：kcac05>0 用 kcac05；否则 kcaa33>0 用 kcaa33；否则 0
@@ -8225,22 +8140,30 @@ app.post('/api/bom/usage-calc', async (req, res) => {
     }
     const { sid, pq } = head
 
+    const tCalc0 = Date.now()
     const bomHeadStack = new Set([systemcode])
+    const tTree0 = Date.now()
     const data = await buildBomPartsUsageTreeNodes(pool, systemcode, 1, bomHeadStack)
+    const treeMs = Date.now() - tTree0
+    const tFlat0 = Date.now()
     const flatCostUsageRaw = flattenBomPartsCostUsageFlat(data, null, [])
+    const flatMs = Date.now() - tFlat0
     /** bom_cost：剔除隐藏前缀 + 跳过主档 pq 根行，平铺不合并（Bom_consumption 已停用，历史数据不维护） */
     const bomCostInsertPayload = buildBomCostInsertPayloadFromFlatUsage(flatCostUsageRaw, hidePrefixes, pq)
+    const tEnrich0 = Date.now()
     const bom000Map = await fetchBom000ForBomCostEnrich(
       pool,
       bomCostInsertPayload.map((r) => r.kcaa01),
     )
     const bomCostRowsEnriched = enrichBomCostInsertRowsFromBom000(bomCostInsertPayload, bom000Map)
+    const enrichMs = Date.now() - tEnrich0
     const actor = getActorAuditTripletFromReq(req)
     const bomCostRowsFinal = applyBomCostAuditToRows(bomCostRowsEnriched, {
       actor,
       addtime: formatBomCostAuditTimestamp(),
     })
 
+    const tTx0 = Date.now()
     const tx = new sql.Transaction(pool)
     await tx.begin()
     try {
@@ -8282,6 +8205,22 @@ app.post('/api/bom/usage-calc', async (req, res) => {
       `)
 
     const bomCost = (selBc.recordset ?? []).map(mapBomCostRecordToDto)
+
+    const txMs = Date.now() - tTx0
+    const totalMs = Date.now() - tCalc0
+    console.log(
+      '[bom-usage-calc]',
+      JSON.stringify({
+        systemcode,
+        flatRows: flatCostUsageRaw.length,
+        bomCostRows: bomCost.length,
+        treeMs,
+        flatMs,
+        enrichMs,
+        txMs,
+        totalMs,
+      }),
+    )
 
     res.json({
       success: true,
@@ -15109,7 +15048,7 @@ app.listen(port, () => {
     `BOM-Parts-Save-Sync-Kcaa01-35-v1.2.6 ${bootAt} PUT parts: id+kcac01 lock; sync kcaa01-35/kcac02/systemcode from bom_000; audit [同步]`,
   )
   console.log(
-    `BOM-Tree-v1.2.7-Cache ${bootAt} GET /api/bom/tree：bom_cost 命中则 hasCache 直读；否则 DFS+flatCostUsageRaw`,
+    `BOM-Tree-v1.2.8-BatchPrefetch ${bootAt} GET/POST 用量树：bom_cost 命中直读；否则 Bom_parts 批量预取建树`,
   )
   console.log(
     `BOM-Usage-Calc-bom_cost ${bootAt} POST /api/bom/usage-calc → bom_cost(tx DELETE+bom_000补全+binfo/GUID/审计+isok；Bom_consumption 已停用)`,
