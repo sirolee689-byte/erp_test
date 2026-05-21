@@ -4,6 +4,7 @@
     :title="dialogTitle"
     dialog-class="bom-detail-dialog bom-linked-detail-dialog"
     append-to-body
+    :modal="stackModal"
     @closed="onClosed"
   >
     <el-skeleton :loading="bootLoading" animated :rows="6">
@@ -13,38 +14,7 @@
           <el-tabs v-model="activeTab">
             <el-tab-pane label="基础资料" name="basic">
               <div v-loading="basicFullLoading" class="bom-detail-body">
-                <el-form class="bom-detail-form" label-position="right" label-width="112px" size="default">
-                  <el-row :gutter="12">
-                    <el-col :xs="24" :sm="12">
-                      <el-form-item label="系统编码">
-                        <el-input :model-value="dVal(bomBasic.systemcode)" readonly />
-                      </el-form-item>
-                    </el-col>
-                    <el-col :xs="24" :sm="12">
-                      <el-form-item label="审核">
-                        <el-input :model-value="rowIsAudited(bomBasic) ? '已审核' : '未审核'" readonly />
-                      </el-form-item>
-                    </el-col>
-                    <el-col :xs="24" :sm="12">
-                      <el-form-item label="编码">
-                        <el-input :model-value="dVal(bomBasic.kcaa01)" readonly />
-                      </el-form-item>
-                    </el-col>
-                    <el-col :xs="24" :sm="12">
-                      <el-form-item label="名称">
-                        <el-input :model-value="dVal(bomBasic.kcaa02)" readonly />
-                      </el-form-item>
-                    </el-col>
-                    <el-col :xs="24" :sm="12">
-                      <el-form-item label="规格">
-                        <el-input :model-value="dVal(bomBasic.kcaa03)" readonly />
-                      </el-form-item>
-                    </el-col>
-                  </el-row>
-                  <p v-if="bomBasic._briefOnly" class="bom-linked-detail-hint">
-                    完整基础资料可在列表对该编码使用「查看详情」打开主弹窗。
-                  </p>
-                </el-form>
+                <BomDetailBasicReadonly :basic="bomBasic" />
               </div>
             </el-tab-pane>
             <el-tab-pane label="配件明细" name="parts">
@@ -87,7 +57,7 @@
                   <el-table-column type="index" label="序号" width="56" align="center" fixed="left" :index="partsRowIndex" />
                   <el-table-column label="操作" width="168" align="center" fixed="left">
                     <template #default="{ row }">
-                      <div class="erp-table-actions">
+                      <ErpTableActions>
                         <el-button
                           type="info"
                           plain
@@ -100,7 +70,7 @@
                         <el-button type="danger" plain :disabled="partLineReadonly(row)" @click="removePartRow(row)">
                           删除
                         </el-button>
-                      </div>
+                      </ErpTableActions>
                     </template>
                   </el-table-column>
                   <el-table-column prop="kcaa01" label="编码" min-width="120" fixed="left" show-overflow-tooltip />
@@ -192,6 +162,7 @@ import { computed, ref, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ErpPageDialog from '@/components/erp/ErpPageDialog.vue'
+import BomDetailBasicReadonly from './BomDetailBasicReadonly.vue'
 import MaterialSelector from '../../supply-chain/daily/purchase-quote/MaterialSelector.vue'
 import { useUiDensity } from '@/composables/useUiDensity'
 
@@ -199,9 +170,13 @@ defineOptions({ inheritAttrs: false })
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
+  /** 本层要查看的配件行（由父组件栈传入） */
+  partRow: { type: Object, default: null },
+  /** 仅最顶层显示灰色遮罩，避免多层叠黑 */
+  stackModal: { type: Boolean, default: true },
 })
 
-const emit = defineEmits(['update:modelValue', 'closed'])
+const emit = defineEmits(['update:modelValue', 'closed', 'view-child'])
 
 const { detailTableSize } = useUiDensity()
 
@@ -225,9 +200,6 @@ const partsSessionDirty = ref(false)
 const lastPartsLoadedSystemcode = ref('')
 const partsRequestSeq = ref(0)
 const materialSelectorVisible = ref(false)
-
-/** 打开前由父组件写入的目标配件行 */
-const pendingPartRow = ref(null)
 
 const dialogTitle = computed(() => {
   const c = String(titleCode.value ?? bomBasic.value?.kcaa01 ?? '').trim()
@@ -387,7 +359,9 @@ async function ensureBasicFull() {
       return
     }
     const basic = body?.data?.basic ?? null
-    if (basic) bomBasic.value = basic
+    if (basic) {
+      bomBasic.value = { ...basic, _briefOnly: false }
+    }
   } catch (e) {
     bootError.value = String(e?.response?.data?.msg ?? e?.message ?? '网络错误')
   } finally {
@@ -485,18 +459,21 @@ async function bootstrapFromPartRow(partRow) {
   }
 }
 
-/** 父组件：打开子弹窗查看该配件对应 BOM */
-async function openFromPartRow(partRow) {
-  pendingPartRow.value = partRow
-  open.value = true
-  await bootstrapFromPartRow(partRow)
-}
-
-/** 子弹窗内继续查看子配件：同弹窗换主档 */
+/** 配件行「查看」：通知父组件再叠一层大弹窗 */
 async function openChildFromPartRow(partRow) {
+  const code = String(partRow?.kcaa01 ?? '').trim()
+  if (!code) {
+    ElMessage.warning('配件行无编码')
+    return
+  }
+  const curCode = String(bomBasic.value?.kcaa01 ?? '').trim()
+  if (curCode && curCode === code) {
+    ElMessage.warning('已在当前子件 BOM')
+    return
+  }
   if (isPartsDirty()) {
     try {
-      await ElMessageBox.confirm('当前有未保存的配件修改，切换子件将丢弃本地修改。', '确认查看', {
+      await ElMessageBox.confirm('当前有未保存的配件修改，打开下一层将丢弃本层未保存内容。', '确认查看', {
         type: 'warning',
         confirmButtonText: '继续',
         cancelButtonText: '取消',
@@ -505,7 +482,7 @@ async function openChildFromPartRow(partRow) {
       return
     }
   }
-  await bootstrapFromPartRow(partRow)
+  emit('view-child', partRow)
 }
 
 async function onRefreshParts() {
@@ -631,7 +608,6 @@ function onClosed() {
   partsList.value = []
   partsPendingDeleteIds.value = []
   partsError.value = ''
-  pendingPartRow.value = null
   resetPartsSession()
   emit('closed')
 }
@@ -652,13 +628,17 @@ watch(
   },
 )
 
-defineExpose({ openFromPartRow })
+/** 打开本层时按 partRow 加载子件 BOM（每层独立实例，不覆盖其它层） */
+watch(
+  () => [open.value, props.partRow],
+  ([vis, row]) => {
+    if (!vis || !row || typeof row !== 'object') return
+    const code = String(row?.kcaa01 ?? '').trim()
+    const loaded = String(bomBasic.value?.kcaa01 ?? '').trim()
+    if (code && loaded === code) return
+    void bootstrapFromPartRow(row)
+  },
+  { immediate: true },
+)
 </script>
 
-<style scoped>
-.bom-linked-detail-hint {
-  margin: 0 0 12px;
-  font-size: var(--el-font-size-small);
-  color: var(--el-text-color-secondary);
-}
-</style>

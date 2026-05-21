@@ -95,6 +95,7 @@ html[data-ui='comfortable'] .erp-module-page .switch-label {
 .erp-page-dialog .el-dialog__header {
   flex-shrink: 0;
   margin-right: 0;
+  min-height: calc(var(--erp-dialog-close-size, 44px) + 12px);
 }
 
 .erp-page-dialog .el-dialog__body {

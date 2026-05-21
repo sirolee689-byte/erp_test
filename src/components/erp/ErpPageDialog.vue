@@ -6,6 +6,7 @@
     :width="pageDialogWidth"
     :destroy-on-close="destroyOnClose"
     :close-on-click-modal="closeOnClickModal"
+    :close-on-press-escape="closeOnPressEscape"
     :class="dialogClassMerged"
     v-bind="$attrs"
     @closed="emit('closed')"
@@ -32,7 +33,9 @@ const props = defineProps({
   /** 距视口顶边；全局样式配合，默认 8px */
   top: { type: String, default: '8px' },
   destroyOnClose: { type: Boolean, default: true },
-  closeOnClickModal: { type: Boolean, default: true },
+  /** 默认 false：点遮罩不关闭，避免误触（仅右上角 × 或代码里关） */
+  closeOnClickModal: { type: Boolean, default: false },
+  closeOnPressEscape: { type: Boolean, default: false },
   /** 页面附加 class（如 bom-detail-dialog） */
   dialogClass: { type: String, default: '' },
 })

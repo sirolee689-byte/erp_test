@@ -13,6 +13,7 @@ import router from './router'
 import { permissionDirective } from './directives/permission'
 import { erpListHScrollDirective } from './directives/erpListHScroll'
 import ErpTableViewportHScroll from './components/erp/ErpTableViewportHScroll.vue'
+import ErpTableActions from './components/erp/ErpTableActions.vue'
 import { getPermissionModelFromStorage, hasPageAction } from './utils/menuPermission'
 
 /**
@@ -70,6 +71,7 @@ app.use(ElementPlus, { locale: zhCn })
 app.directive('permission', permissionDirective)
 app.directive('erp-list-h-scroll', erpListHScrollDirective)
 app.component('ErpTableViewportHScroll', ErpTableViewportHScroll)
+app.component('ErpTableActions', ErpTableActions)
 
 /**
  * 【Vue3 globalProperties：如何在任意页面判断权限】

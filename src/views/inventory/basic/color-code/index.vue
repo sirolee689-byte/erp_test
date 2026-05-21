@@ -119,7 +119,7 @@
               class-name="erp-col-actions"
             >
               <template #default="{ row }">
-                <div class="erp-table-actions">
+                <ErpTableActions>
                   <template v-if="showRecycle">
                     <el-button
                       type="primary"
@@ -179,7 +179,7 @@
                       删除
                     </el-button>
                   </template>
-                </div>
+                </ErpTableActions>
               </template>
             </el-table-column>
           </el-table>
@@ -635,5 +635,5 @@ loadData()
 }
 .code-bold {
   font-weight: 700;
-}
+}
 </style>

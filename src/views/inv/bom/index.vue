@@ -97,13 +97,14 @@
           >
             <el-table-column
               label="操作"
-              width="260"
+              :width="bomListActionsColWidth"
               fixed="left"
-              align="center"
+              align="left"
+              header-align="center"
               class-name="erp-col-actions"
             >
               <template #default="{ row }">
-                <div class="bom-list-actions erp-table-actions">
+                <ErpTableActions class="bom-list-actions">
                   <template v-if="showRecycle">
                     <el-button v-permission="'view'" type="info" plain @click="openDetail(row)">
                       查看详情
@@ -131,6 +132,28 @@
                   </template>
                   <template v-else>
                     <el-button v-permission="'view'" type="info" plain @click="openDetail(row)">查看详情</el-button>
+                    <el-button
+                      v-permission="'edit'"
+                      type="warning"
+                      plain
+                      :loading="busyPropagateSystemcode === row.systemcode"
+                      :disabled="!String(row.systemcode ?? '').trim()"
+                      @click="onPropagateMaster(row)"
+                    >
+                      一键更新
+                    </el-button>
+                    <el-button
+                      v-permission="'edit'"
+                      type="primary"
+                      plain
+                      :loading="busyUsageCalcSystemcode === row.systemcode"
+                      :disabled="
+                        !String(row.systemcode ?? '').trim() || row.usageCalcStatus === 'none'
+                      "
+                      @click="onOneClickUsageCalc(row)"
+                    >
+                      一键运算
+                    </el-button>
                     <el-button
                       v-permission="'add'"
                       type="primary"
@@ -183,7 +206,7 @@
                       删除
                     </el-button>
                   </template>
-                </div>
+                </ErpTableActions>
               </template>
             </el-table-column>
             <el-table-column
@@ -304,211 +327,7 @@
             <el-tabs v-model="detailActiveTab">
               <el-tab-pane label="基础资料" name="basic">
                 <div v-loading="detailBasicLoading" class="bom-detail-body">
-                  <el-form class="bom-detail-form" label-position="right" label-width="112px" size="default">
-                    <div class="bom-section-title">系统</div>
-                    <el-row :gutter="12" class="bom-edit-row-system">
-                      <el-col :xs="24" :sm="15">
-                        <el-form-item label="系统编码">
-                          <el-input :model-value="dVal(bomBasic.systemcode)" readonly placeholder="—" />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="9">
-                        <el-form-item label="客供">
-                          <div class="bom-edit-checkbox-cell">
-                            <el-checkbox :model-value="bomBasic.customer_supply_checked" disabled>是</el-checkbox>
-                          </div>
-                        </el-form-item>
-                      </el-col>
-                    </el-row>
-
-                    <div class="bom-section-title">基本资料</div>
-                    <el-row :gutter="12">
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="编码">
-                          <el-input :model-value="dVal(bomBasic.kcaa01)" readonly />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="名称">
-                          <el-input :model-value="dVal(bomBasic.kcaa02)" readonly />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="开票名称">
-                          <el-input :model-value="dVal(bomBasic.kpname)" readonly />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="英文名称">
-                          <el-input :model-value="dVal(bomBasic.kcaa02_en)" readonly />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="分类">
-                          <el-input :model-value="dVal(detailCategoryDisplay)" readonly />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="规格">
-                          <el-input :model-value="dVal(bomBasic.kcaa03)" readonly />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="组别">
-                          <el-input :model-value="dVal(bomBasic.kcaa10)" readonly />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="颜色">
-                          <el-input :model-value="dVal(bomBasic.kcaa11)" readonly />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="产地">
-                          <el-input :model-value="dVal(bomBasic.location)" readonly />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="客户款号">
-                          <el-input :model-value="dVal(bomBasic.kcaa06)" readonly />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="工厂款号">
-                          <el-input :model-value="dVal(bomBasic.kcaa09)" readonly />
-                        </el-form-item>
-                      </el-col>
-                    </el-row>
-
-                    <div class="bom-section-title">单位与损耗</div>
-                    <div class="bom-unit-loss-block">
-                      <el-row :gutter="12">
-                        <el-col :xs="24" :sm="12">
-                          <el-form-item label="使用单位">
-                            <el-input :model-value="dVal(bomBasic.kcaa04)" readonly />
-                          </el-form-item>
-                        </el-col>
-                        <el-col :xs="24" :sm="12">
-                          <el-form-item label="小数点配置">
-                            <el-input :model-value="dVal(detailDecimalLabel)" readonly />
-                          </el-form-item>
-                        </el-col>
-                      </el-row>
-                      <el-row :gutter="12">
-                        <el-col :xs="24" :sm="8">
-                          <el-form-item label="采购单位">
-                            <el-input :model-value="dVal(bomBasic.kcaa25)" readonly />
-                          </el-form-item>
-                        </el-col>
-                        <el-col :xs="24" :sm="8">
-                          <el-form-item label="转换方式">
-                            <el-select :model-value="detailKcaa27Num" disabled style="width: 100%">
-                              <el-option label="采购->使用" :value="0" />
-                              <el-option label="使用->采购" :value="1" />
-                            </el-select>
-                          </el-form-item>
-                        </el-col>
-                        <el-col :xs="24" :sm="8">
-                          <el-form-item label="转换率">
-                            <el-input :model-value="dVal(bomBasic.kcaa26)" readonly />
-                          </el-form-item>
-                        </el-col>
-                      </el-row>
-                      <el-row :gutter="12">
-                        <el-col :xs="24" :sm="8">
-                          <el-form-item label="报价单位">
-                            <el-input :model-value="dVal(bomBasic.kcaa29)" readonly />
-                          </el-form-item>
-                        </el-col>
-                        <el-col :xs="24" :sm="8">
-                          <el-form-item label="转换方式">
-                            <el-select :model-value="detailKcaa31Num" disabled style="width: 100%">
-                              <el-option label="报价->使用" :value="0" />
-                              <el-option label="使用->报价" :value="1" />
-                            </el-select>
-                          </el-form-item>
-                        </el-col>
-                        <el-col :xs="24" :sm="8">
-                          <el-form-item label="转换率">
-                            <el-input :model-value="dVal(bomBasic.kcaa30)" readonly />
-                          </el-form-item>
-                        </el-col>
-                      </el-row>
-                      <el-row :gutter="12">
-                        <el-col :xs="24" :sm="12">
-                          <el-form-item label="报价损耗">
-                            <el-input :model-value="dVal(bomBasic.kcaa32)" readonly />
-                          </el-form-item>
-                        </el-col>
-                        <el-col :xs="24" :sm="12">
-                          <el-form-item label="物料损耗">
-                            <el-input :model-value="dVal(bomBasic.kcaa33)" readonly />
-                          </el-form-item>
-                        </el-col>
-                      </el-row>
-                    </div>
-
-                    <div class="bom-section-title">价格与币别</div>
-                    <el-row :gutter="12">
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="BOM价格">
-                          <el-input :model-value="dVal(bomBasic.sale_price)" readonly />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="币别(报价)">
-                          <el-input :model-value="dVal(detailQuoteCurrencyText)" readonly />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="采购价格">
-                          <el-input :model-value="dVal(bomBasic.cost_price)" readonly />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="币别(采购)">
-                          <el-input :model-value="dVal(bomBasic.kcaa35)" readonly />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :span="24">
-                        <el-form-item label="供应商">
-                          <el-input :model-value="dVal(bomBasic.supplier_display)" readonly />
-                        </el-form-item>
-                      </el-col>
-                    </el-row>
-
-                    <div class="bom-section-title">工作方式与车间</div>
-                    <el-row :gutter="12">
-                      <el-col :span="24">
-                        <el-form-item label="工作方式">
-                          <div class="bom-detail-check-row">
-                            <el-checkbox :model-value="bomBasic.kcaa12_checked" disabled>采购</el-checkbox>
-                            <el-checkbox :model-value="bomBasic.kcaa13_checked" disabled>外协</el-checkbox>
-                            <el-checkbox :model-value="bomBasic.kcaa14_checked" disabled>自产</el-checkbox>
-                          </div>
-                        </el-form-item>
-                      </el-col>
-                      <el-col :span="24">
-                        <el-form-item label="生产车间">
-                          <el-input :model-value="dVal(bomBasic.workshop_display)" readonly />
-                        </el-form-item>
-                      </el-col>
-                    </el-row>
-
-                    <div class="bom-section-title">其它</div>
-                    <el-row :gutter="12">
-                      <el-col :xs="24" :sm="12">
-                        <el-form-item label="保税">
-                          <el-switch :model-value="detailSignBool" disabled active-text="保税" inactive-text="非保税" />
-                        </el-form-item>
-                      </el-col>
-                      <el-col :span="24">
-                        <el-form-item label="备注">
-                          <el-input :model-value="dVal(bomBasic.remark)" type="textarea" :rows="3" readonly />
-                        </el-form-item>
-                      </el-col>
-                    </el-row>
-                  </el-form>
+                  <BomDetailBasicReadonly :basic="bomBasic" />
                 </div>
               </el-tab-pane>
               <el-tab-pane label="配件明细" name="parts" :disabled="!bomBasic">
@@ -565,7 +384,7 @@
                     />
                     <el-table-column label="操作" width="168" align="center" fixed="left">
                       <template #default="{ row }">
-                        <div class="erp-table-actions">
+                        <ErpTableActions>
                           <el-button
                             type="info"
                             plain
@@ -583,7 +402,7 @@
                           >
                             删除
                           </el-button>
-                        </div>
+                        </ErpTableActions>
                       </template>
                     </el-table-column>
                     <!-- 编码/名称/规格/颜色：GET 已按 bom_000.kcaa01 关联优先取主档 -->
@@ -834,8 +653,16 @@
       </el-skeleton>
     </ErpPageDialog>
 
-    <!-- 配件行「查看」：子弹窗展示子件 BOM，关闭即可，不占用主详情钻取栈 -->
-    <BomLinkedDetailDialog ref="linkedDetailRef" v-model="linkedDetailVisible" />
+    <!-- 配件行「查看」：每层独立大弹窗，可多层叠放 -->
+    <BomLinkedDetailDialog
+      v-for="(layer, layerIdx) in linkedDetailStack"
+      :key="layer.id"
+      v-model="layer.visible"
+      :part-row="layer.partRow"
+      :stack-modal="layerIdx === linkedDetailStack.length - 1"
+      @view-child="pushLinkedDetailLayer"
+      @closed="removeLinkedDetailLayer(layer.id)"
+    />
 
     <!-- 成本 BOM：隐藏编码前缀（逐行编辑） -->
     <el-dialog
@@ -844,6 +671,8 @@
       width="520px"
       append-to-body
       destroy-on-close
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
       class="bom-cost-hide-prefix-dialog"
       @closed="onBomCostHidePrefixDialogClosed"
     >
@@ -900,6 +729,8 @@
       width="96%"
       top="3vh"
       destroy-on-close
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
       class="bom-edit-dialog"
       @closed="onEditClosed"
     >
@@ -1289,7 +1120,7 @@
                   />
                   <el-table-column label="操作" min-width="260" align="center" fixed="left">
                     <template #default="{ row }">
-                      <div class="erp-table-actions">
+                      <ErpTableActions>
                         <el-button
                           type="primary"
                           plain
@@ -1307,7 +1138,7 @@
                         >
                           查看配件
                         </el-button>
-                      </div>
+                      </ErpTableActions>
                     </template>
                   </el-table-column>
                   <el-table-column prop="kcaa01" label="编码" min-width="150" fixed="left" show-overflow-tooltip />
@@ -1406,7 +1237,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import MaterialSelector from '../../supply-chain/daily/purchase-quote/MaterialSelector.vue'
 import { useUiDensity } from '@/composables/useUiDensity'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
+import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
 import ErpPageDialog from '@/components/erp/ErpPageDialog.vue'
+import BomDetailBasicReadonly from './BomDetailBasicReadonly.vue'
 import BomLinkedDetailDialog from './BomLinkedDetailDialog.vue'
 
 const { detailTableSize } = useUiDensity()
@@ -1450,8 +1283,27 @@ const searchQuery = reactive({
 const showUnAudited = ref(false)
 /** 回收站视图（与「显示未审核」互斥） */
 const showRecycle = ref(false)
+
+/** 主列表操作列：按当前视图最多可见按钮数估宽（默认 5 钮，未审核 7 钮，回收站 3 钮） */
+const bomListActionsButtonCount = computed(() => {
+  if (showRecycle.value) return 3
+  if (showUnAudited.value) return 7
+  return 5
+})
+const bomListActionsColWidth = computed(() =>
+  getErpTableActionsColMinWidth(bomListActionsButtonCount.value, { compact: true }),
+)
+
+watch(bomListActionsColWidth, async () => {
+  await nextTick()
+  listTableRef.value?.doLayout?.()
+})
 /** 列表行 systemcode 正在请求（审核/删/恢复等） */
 const busySystemcode = ref('')
+/** 列表行正在「一键更新」 */
+const busyPropagateSystemcode = ref('')
+/** 列表行正在「一键运算」 */
+const busyUsageCalcSystemcode = ref('')
 /** 列表行正在「复制到新增」加载 */
 const busyCopySystemcode = ref('')
 
@@ -1465,9 +1317,22 @@ const bomBasic = ref(null)
 const detailListRow = ref(null)
 const detailActiveTab = ref('basic')
 
-/** 配件行「查看」子弹窗（与主详情 ErpPageDialog 叠层） */
-const linkedDetailVisible = ref(false)
-const linkedDetailRef = ref(null)
+/** 配件行「查看」叠层大弹窗（每层一个编码，可多级） */
+let linkedDetailLayerSeq = 0
+const linkedDetailStack = ref([])
+
+function pushLinkedDetailLayer(partRow) {
+  linkedDetailStack.value.push({
+    id: ++linkedDetailLayerSeq,
+    partRow,
+    visible: true,
+  })
+}
+
+function removeLinkedDetailLayer(id) {
+  const idx = linkedDetailStack.value.findIndex((l) => l.id === id)
+  if (idx >= 0) linkedDetailStack.value.splice(idx, 1)
+}
 
 /** BOM用量表运算：树形表格数据源（GET /api/bom/tree，嵌套 children） */
 const bomUsageTreeLoading = ref(false)
@@ -1845,12 +1710,35 @@ async function ensureBomBasicFull() {
       detailError.value = '未返回基础资料数据'
       return
     }
-    bomBasic.value = basic
+    bomBasic.value = { ...basic, _briefOnly: false }
   } catch (e) {
     detailError.value = String(e?.response?.data?.msg ?? e?.message ?? '网络错误')
   } finally {
     detailBasicLoading.value = false
   }
+}
+
+/** 将 POST /api/bom/usage-calc 成功响应写入详情用量块（树 + 成本平铺） */
+function applyBomUsageCalcResult(body, systemcode) {
+  lastBomUsageFetchSystemcode.value = String(systemcode ?? '').trim()
+  bomUsageHasCache.value = true
+  bomUsageTreeError.value = ''
+  bomCostUsageRawRows.value = Array.isArray(body?.flatCostUsageRaw) ? body.flatCostUsageRaw : []
+  bomUsageTreeData.value = Array.isArray(body?.data) ? body.data : []
+  recomputeBomCostUsageDisplay()
+}
+
+/** @param {string} systemcode @param {string[]} hidePrefixes */
+async function postBomUsageCalcApi(systemcode, hidePrefixes) {
+  const res = await axios.post('/api/bom/usage-calc', { systemcode, hidePrefixes })
+  return res.data
+}
+
+function clearBomUsageCalcResultOnError() {
+  bomUsageTreeData.value = []
+  bomCostUsageRawRows.value = []
+  bomUsageHasCache.value = false
+  recomputeBomCostUsageDisplay()
 }
 
 /** @param {{ recalc?: boolean }} opts recalc=true：已有缓存时全量重算并覆盖落库 */
@@ -1872,26 +1760,15 @@ async function onBomUsageTableCalc(opts = {}) {
   bomUsageTreeError.value = ''
   try {
     const hidePrefixes = normalizeBomCostHidePrefixes(bomCostHidePrefixes.value)
-    const res = await axios.post('/api/bom/usage-calc', {
-      systemcode: bomSystemcode.value,
-      hidePrefixes,
-    })
-    const body = res.data
+    const body = await postBomUsageCalcApi(bomSystemcode.value, hidePrefixes)
     if (!body?.success) {
       const msg = String(body?.msg ?? 'bom_cost写入失败')
       bomUsageTreeError.value = msg
-      bomUsageTreeData.value = []
-      bomCostUsageRawRows.value = []
-      bomUsageHasCache.value = false
-      recomputeBomCostUsageDisplay()
+      clearBomUsageCalcResultOnError()
       ElMessage.error(msg)
       return
     }
-    lastBomUsageFetchSystemcode.value = String(bomSystemcode.value ?? '').trim()
-    bomUsageHasCache.value = true
-    bomCostUsageRawRows.value = Array.isArray(body.flatCostUsageRaw) ? body.flatCostUsageRaw : []
-    bomUsageTreeData.value = Array.isArray(body.data) ? body.data : []
-    recomputeBomCostUsageDisplay()
+    applyBomUsageCalcResult(body, bomSystemcode.value)
     const total = Number(body.total ?? 0)
     ElMessage.success(
       `${recalc ? '重新运算' : '运算'}完成；bom_cost ${Number.isFinite(total) ? total : 0} 条`,
@@ -1900,10 +1777,7 @@ async function onBomUsageTableCalc(opts = {}) {
   } catch (e) {
     const msg = String(e?.response?.data?.msg ?? e?.message ?? '网络错误')
     bomUsageTreeError.value = msg
-    bomUsageTreeData.value = []
-    bomCostUsageRawRows.value = []
-    bomUsageHasCache.value = false
-    recomputeBomCostUsageDisplay()
+    clearBomUsageCalcResultOnError()
     ElMessage.error(msg)
   } finally {
     bomUsageTreeLoading.value = false
@@ -1913,37 +1787,6 @@ async function onBomUsageTableCalc(opts = {}) {
 const detailDialogTitle = computed(() => {
   const c = String(detailTitleCode.value ?? '').trim()
   return c ? `BOM 详情 - ${c}` : 'BOM 详情'
-})
-
-/** 详情「基础资料」只读布局与新增/编辑表单分区一致 */
-const detailCategoryDisplay = computed(() => {
-  const b = bomBasic.value
-  if (!b) return ''
-  const n = String(b.categoryName ?? '').trim()
-  if (n) return n
-  return String(b.kcaa05 ?? '').trim()
-})
-
-const detailKcaa27Num = computed(() => (Number(bomBasic.value?.kcaa27) === 1 ? 1 : 0))
-
-const detailKcaa31Num = computed(() => (Number(bomBasic.value?.kcaa31) === 1 ? 1 : 0))
-
-const detailDecimalLabel = computed(() => {
-  const d = String(bomBasic.value?.decimal ?? '').trim()
-  if (/^[1-6]$/.test(d)) return `${d} 位`
-  return d
-})
-
-/** 报价币别：优先存库名称 kcaa34，否则兼容旧码 kcaa34_display */
-const detailQuoteCurrencyText = computed(() => {
-  const raw = String(bomBasic.value?.kcaa34 ?? '').trim()
-  if (raw) return raw
-  return String(bomBasic.value?.kcaa34_display ?? '').trim()
-})
-
-const detailSignBool = computed(() => {
-  const s = String(bomBasic.value?.sign ?? '').trim()
-  return s === '1' || s.toLowerCase() === 'y'
 })
 
 /** 主档新增/编辑弹窗 */
@@ -2270,14 +2113,20 @@ async function fetchWorkshopSuggest(queryString, cb) {
       params: { page: 1, pageSize: 50, keyword: q, pass: 1 },
     })
     const list = Array.isArray(res.data?.data?.list) ? res.data.data.list : []
-    cb(
-      list.map((r) => {
+    const items = list
+      .map((r) => {
         const code = String(r.code ?? '').trim()
         const name = String(r.name ?? '').trim()
         const label = code && name ? `${code},${name}` : code || name
         return { value: label, label, code }
-      }),
-    )
+      })
+      .sort((a, b) =>
+        String(a.code ?? '').localeCompare(String(b.code ?? ''), undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        }),
+      )
+    cb(items)
   } catch {
     cb([])
   }
@@ -3262,8 +3111,8 @@ async function openDetail(row) {
   }
 }
 
-/** 配件行「查看」：子弹窗打开子件 BOM，主详情保持不变 */
-async function openLinkedBomDetailFromPart(partRow) {
+/** 配件行「查看」：再叠一层大弹窗，主详情保持不变 */
+function openLinkedBomDetailFromPart(partRow) {
   const code = String(partRow?.kcaa01 ?? '').trim()
   if (!code) {
     ElMessage.warning('请先选择配件')
@@ -3279,9 +3128,115 @@ async function openLinkedBomDetailFromPart(partRow) {
     ElMessage.warning('已在当前 BOM')
     return
   }
-  linkedDetailVisible.value = true
-  await nextTick()
-  await linkedDetailRef.value?.openFromPartRow(partRow)
+  pushLinkedDetailLayer(partRow)
+}
+
+/** 主档基础资料变更后：全库同步 Bom_parts / bom_cost 引用行的描述字段（不改用量、不重算） */
+async function onPropagateMaster(row) {
+  const sc = String(row?.systemcode ?? '').trim()
+  const code = String(row?.code ?? row?.kcaa01 ?? '').trim()
+  if (!sc) {
+    ElMessage.warning('缺少 systemcode，无法一键更新')
+    return
+  }
+  if (!code) {
+    ElMessage.warning('当前行无物料编码，无法一键更新')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `是否进行【物料编码${code}】一键更新？将会把所有使用到这个物料的 BOM 子件中的基础资料同步更新。用量数据不会改变。`,
+      '确认一键更新',
+      {
+        type: 'warning',
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch {
+    return
+  }
+  busyPropagateSystemcode.value = sc
+  try {
+    const res = await axios.post('/api/inventory/bom/propagate-master', { systemcode: sc })
+    if (res.data?.code === 200) {
+      const parts = Number(res.data?.data?.partsUpdated ?? 0)
+      const cost = Number(res.data?.data?.costUpdated ?? 0)
+      let msg = `一键更新完成！共更新了 ${parts} 条子件记录。`
+      if (cost > 0) {
+        msg = `一键更新完成！共更新了 ${parts} 条配件明细、${cost} 条成本运算缓存。`
+      }
+      ElMessage.success(msg)
+    } else {
+      ElMessage.error(res.data?.msg || '一键更新失败')
+    }
+  } catch (e) {
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '一键更新失败'))
+  } finally {
+    busyPropagateSystemcode.value = ''
+  }
+}
+
+/** 列表「一键运算」：等同详情 BOM用量表运算；已运算则确认后重新运算；成功后打开详情并切到成本 BOM 用量表 */
+async function onOneClickUsageCalc(row) {
+  const sc = String(row?.systemcode ?? '').trim()
+  const code = String(row?.code ?? row?.kcaa01 ?? '').trim()
+  const status = String(row?.usageCalcStatus ?? 'none')
+  if (!sc) {
+    ElMessage.warning('缺少 systemcode，无法运算')
+    return
+  }
+  if (!code) {
+    ElMessage.warning('当前行无物料编码，无法运算')
+    return
+  }
+  if (status === 'none') {
+    ElMessage.warning('该款不需运算')
+    return
+  }
+  const isRecalc = status === 'done'
+  try {
+    await ElMessageBox.confirm(
+      isRecalc
+        ? `【物料编码 ${code}】已有运算结果，将删除旧 bom_cost 数据后重新运算并覆盖。是否继续？`
+        : `将对【物料编码 ${code}】按配件明细递归运算并写入 bom_cost（隐藏前缀与当前页配置一致）。是否继续？`,
+      isRecalc ? '确认重新运算' : '确认运算',
+      {
+        type: 'warning',
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch {
+    return
+  }
+  busyUsageCalcSystemcode.value = sc
+  bomUsageTreeLoading.value = true
+  bomUsageTreeError.value = ''
+  try {
+    const hidePrefixes = normalizeBomCostHidePrefixes(bomCostHidePrefixes.value)
+    const body = await postBomUsageCalcApi(sc, hidePrefixes)
+    if (!body?.success) {
+      const msg = String(body?.msg ?? 'bom_cost写入失败')
+      ElMessage.error(msg)
+      return
+    }
+    await openDetail(row)
+    if (detailError.value || !bomBasic.value) {
+      await loadData()
+      return
+    }
+    applyBomUsageCalcResult(body, sc)
+    detailActiveTab.value = 'costBomUsage'
+    const total = Number(body.total ?? 0)
+    ElMessage.success(`运算完成；bom_cost ${Number.isFinite(total) ? total : 0} 条`)
+    await loadData()
+  } catch (e) {
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '运算失败'))
+  } finally {
+    busyUsageCalcSystemcode.value = ''
+    bomUsageTreeLoading.value = false
+  }
 }
 
 async function onAudit(row) {
@@ -3614,6 +3569,7 @@ loadData()
 }
 .bom-list-actions :deep(.el-button) {
   margin-left: 0;
+  margin-right: 0;
 }
 /* 列表「运算」列：方框徽章 + 图标（颜色与 element-override 语义色一致） */
 .bom-usage-calc-badge {

@@ -111,7 +111,7 @@
               class-name="erp-col-actions"
             >
               <template #default="{ row }">
-                <div class="erp-table-actions">
+                <ErpTableActions>
                   <template v-if="showRecycle">
                     <el-button type="primary" plain :loading="busyId === row.id" @click="onRestore(row)">恢复</el-button>
                     <el-button
@@ -153,7 +153,7 @@
                       删除
                     </el-button>
                   </template>
-                </div>
+                </ErpTableActions>
               </template>
             </el-table-column>
           </el-table>
@@ -509,6 +509,6 @@ fetchList()
 }
 .grow {
   flex: 1;
-}
+}
 </style>
 

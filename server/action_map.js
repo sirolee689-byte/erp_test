@@ -100,6 +100,12 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   { method: 'POST', path: '/api/inventory/bom/save-parts', action: '保存BOM配件明细(save-parts)', targetTable: 'Bom_parts' },
   {
     method: 'POST',
+    path: '/api/inventory/bom/propagate-master',
+    action: 'BOM主档一键更新引用基础资料',
+    targetTable: 'Bom_parts',
+  },
+  {
+    method: 'POST',
     path: '/api/paper-pattern/import/delete-bom-tree',
     action: '纸格导入按主BOM物理删除Bom_000与Bom_parts',
     targetTable: 'bom_000',

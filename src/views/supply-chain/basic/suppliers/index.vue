@@ -199,7 +199,7 @@
               class-name="erp-col-actions"
             >
               <template #default="{ row }">
-                <div class="erp-table-actions">
+                <ErpTableActions>
                   <el-button
                     v-if="!showRecycle"
                     v-permission="'edit'"
@@ -264,7 +264,7 @@
                   >
                     彻底删除
                   </el-button>
-                </div>
+                </ErpTableActions>
               </template>
             </el-table-column>
           </el-table>
@@ -795,7 +795,7 @@ async function permanentDeleteRow(row) {
 }
 .code-bold {
   font-weight: 600;
-}
+}
 .supplier-form {
   padding-top: 4px;
 }

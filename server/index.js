@@ -77,6 +77,7 @@ import {
   insertBomCostBulkEnriched,
 } from './bomCostEnrichFromBom000.js'
 import { buildBomPartsUsageTreeNodes } from './bomUsageTreeBuild.js'
+import { handlePostBomMasterPropagate } from './bomMasterPropagate.js'
 
 dotenv.config()
 
@@ -8906,6 +8907,11 @@ app.post('/api/inventory/bom/save-parts', async (req, res) => {
   return handleInventoryBomPartsPut(req, res)
 })
 
+/** BOM 主档一键更新：按物料编码将 bom_000 基础资料写回全库 Bom_parts / bom_cost 引用（不改用量、不重算） */
+app.post('/api/inventory/bom/propagate-master', (req, res) =>
+  handlePostBomMasterPropagate(req, res, { getPool, writeLog }),
+)
+
 
 /**
  * BOM 编码校验 / 版本提示：查询同编码在册行（编辑时可排除自身 systemcode）
@@ -15166,6 +15172,9 @@ app.listen(port, () => {
   )
   console.log(
     `BOM-Usage-Calc-bom_cost ${bootAt} POST /api/bom/usage-calc → bom_cost(tx DELETE+bom_000补全+binfo/GUID/审计+isok；Bom_consumption 已停用)`,
+  )
+  console.log(
+    `BOM-Propagate-Master-v1.0.0 ${bootAt} POST /api/inventory/bom/propagate-master → Bom_parts+bom_cost kcaa 同步（不改用量）`,
   )
   console.log(`ColorCode-Module-Initial-v1.0.0 ${bootAt}`)
   console.log(`ColorCode-Add-DirectMode-v1.1.0 ${bootAt}`)

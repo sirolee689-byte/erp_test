@@ -10,15 +10,31 @@
 :root {
   --erp-font-weight-body: 500;
   --erp-font-weight-heading: 600;
-  --erp-line-height-body: 1.6;
-  --erp-line-height-table: 1.6;
+  --erp-line-height-body: 1.1;
+  --erp-line-height-table: 1.1;
   --erp-touch-min: 44px;
-  --erp-action-gap: 8px;
+  /* ---------- 弹窗右上角关闭（×）DIY（标准模式）---------- */
+  /* 方框宽高（可点区域），建议 ≥44px */
+  --erp-dialog-close-size: 44px;
+  /* × 图标大小，约为方框的一半较协调 */
+  --erp-dialog-close-icon-size: 22px;
+  --erp-action-gap: 7px;
   --erp-action-btn-font-size: 14px;
   --erp-action-btn-min-height: 32px;
-  --erp-list-action-btn-font-size: 12px;
-  --erp-list-action-btn-min-height: 26px;
-  --erp-list-action-gap: 6px;
+  --erp-list-action-btn-font-size: 11px;
+  --erp-list-action-btn-min-height: 22px;
+  --erp-list-action-col-gap: 4px;
+  --erp-list-action-row-gap: 2px;
+  /* 兼容旧引用 */
+  --erp-list-action-gap: var(--erp-list-action-col-gap);
+  /* BOM 主列表操作列（7 钮两行，较通用列表更紧凑） */
+  --erp-bom-list-action-col-gap: 2px;
+  --erp-bom-list-action-row-gap: 2px;
+  --erp-bom-list-action-btn-font-size: 14px;
+  --erp-bom-list-action-btn-line-height: 2;
+  --erp-bom-list-action-btn-min-height: 18px;
+  --erp-bom-list-action-btn-padding-y: 1px;
+  --erp-bom-list-action-btn-padding-x: 4px;
   --erp-table-data-size: 14px;
   --erp-table-data-mono-size: 14px;
   --erp-table-meta-size: 14px;
@@ -74,9 +90,12 @@ html[data-ui='standard'] {
   --erp-sidebar-logo-size: 16px;
   --erp-sidebar-menu-size: 14px;
   --erp-table-datetime-size: 12px;
-  --erp-list-action-btn-font-size: 12px;
-  --erp-list-action-btn-min-height: 26px;
-  --erp-list-action-gap: 6px;
+  --erp-list-action-btn-font-size: 11px;
+  --erp-list-action-btn-min-height: 22px;
+  --erp-list-action-col-gap: 4px;
+  --erp-list-action-row-gap: 2px;
+  /* 兼容旧引用 */
+  --erp-list-action-gap: var(--erp-list-action-col-gap);
 }
 
 /* ========== 舒适模式（Inclusive：字号 / 对比度 / 44px 触控） ========== */
@@ -105,6 +124,9 @@ html[data-ui='comfortable'] {
   --erp-list-action-btn-font-size: 13px;
   --erp-list-action-btn-min-height: 28px;
   --erp-list-action-gap: 6px;
+  /* 弹窗关闭（×）DIY（舒适模式）：覆盖 :root 同名变量 */
+  --erp-dialog-close-size: 40px;
+  --erp-dialog-close-icon-size: 30px;
 
   /* 【触控】控件最小高度 44px */
   --el-component-size-large: 48px;
@@ -185,6 +207,15 @@ html[data-ui='comfortable'] .el-table__body tr {
   overflow: hidden;
 }
 
+.erp-module-page .erp-list-table .el-table__body td.erp-col-actions.el-table__cell {
+  overflow: visible;
+}
+
+html[data-ui='comfortable'] .erp-module-page .erp-list-table .el-table__body td.erp-col-actions.el-table__cell {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
 .erp-module-page .erp-list-table .erp-col-number .cell {
   text-align: right;
 }
@@ -196,12 +227,63 @@ html[data-ui='comfortable'] .el-table__body tr {
   white-space: normal;
 }
 
-.erp-module-page .erp-list-table .erp-table-actions {
-  flex-wrap: wrap;
+/* 操作列两行 Grid：左对齐、勿裁切底部按钮 */
+.erp-module-page .erp-list-table td.erp-col-actions .cell {
+  overflow: visible;
+  text-align: left;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  line-height: 1;
+}
+
+/* 操作区 Grid：n<7 每行最多 3 列；n>=7 为 ceil(n/2)；最多两行（见 ErpTableActions + erpTableActionsLayout.js） */
+.erp-table-actions.erp-table-actions--grid {
+  display: grid;
+  grid-template-columns: repeat(var(--erp-table-actions-cols, 3), max-content);
   justify-content: center;
+  justify-items: center;
+  align-content: center;
   overflow: hidden;
   max-width: 100%;
-  gap: var(--erp-list-action-gap);
+  gap: var(--erp-action-gap);
+  max-height: calc(
+    2 * var(--erp-table-actions-btn-min-height, var(--erp-action-btn-min-height)) +
+      var(--erp-action-gap)
+  );
+}
+
+.erp-module-page .erp-list-table .erp-table-actions.erp-table-actions--grid {
+  justify-content: flex-start;
+  justify-items: start;
+  column-gap: var(--erp-list-action-col-gap);
+  row-gap: var(--erp-list-action-row-gap);
+  gap: unset;
+  max-height: calc(
+    2 * var(--erp-list-action-btn-min-height) + var(--erp-list-action-row-gap)
+  );
+}
+
+/* BOM 主列表：7 钮 4+3 两行，压扁间距（勿用 --erp-action-gap 8px） */
+.erp-module-page .erp-list-table .bom-list-actions.erp-table-actions--grid {
+  column-gap: var(--erp-bom-list-action-col-gap);
+  row-gap: var(--erp-bom-list-action-row-gap);
+  overflow: visible;
+  max-height: calc(
+    2 * var(--erp-bom-list-action-btn-min-height) + var(--erp-bom-list-action-row-gap)
+  );
+}
+
+.erp-module-page .erp-list-table .bom-list-actions.erp-table-actions .el-button {
+  font-size: var(--erp-bom-list-action-btn-font-size) !important;
+  min-height: var(--erp-bom-list-action-btn-min-height) !important;
+  height: auto !important;
+  padding: var(--erp-bom-list-action-btn-padding-y) var(--erp-bom-list-action-btn-padding-x) !important;
+  line-height: var(--erp-bom-list-action-btn-line-height) !important;
+  border-radius: var(--el-border-radius-small, 4px) !important;
+}
+
+.erp-module-page .erp-list-table .bom-list-actions.erp-table-actions .el-button > span {
+  line-height: var(--erp-bom-list-action-btn-line-height) !important;
 }
 
 /* 主列表操作按钮：换行展示 + 紧凑尺寸（豁免 44px 触控，仍 ≥26px） */
@@ -322,8 +404,7 @@ html[data-ui='comfortable'] .el-button.is-text:not(.erp-btn-keep-link) {
   margin-left: 0;
 }
 
-html[data-ui='comfortable'] .erp-module-page .erp-table-actions .el-button,
-html[data-ui='comfortable'] .erp-module-page .bom-list-actions.erp-table-actions .el-button {
+html[data-ui='comfortable'] .erp-module-page .erp-table-actions .el-button {
   font-size: var(--erp-action-btn-font-size) !important;
   min-height: var(--erp-action-btn-min-height) !important;
   padding: 6px 12px !important;
@@ -339,6 +420,18 @@ html[data-ui='comfortable'] .erp-module-page .erp-list-table .erp-table-actions 
   min-height: var(--erp-list-action-btn-min-height) !important;
   padding: 4px 8px !important;
   line-height: 1.25 !important;
+}
+
+html[data-ui='comfortable'] .erp-module-page .erp-list-table .bom-list-actions.erp-table-actions .el-button {
+  font-size: var(--erp-bom-list-action-btn-font-size) !important;
+  min-height: var(--erp-bom-list-action-btn-min-height) !important;
+  height: auto !important;
+  padding: var(--erp-bom-list-action-btn-padding-y) var(--erp-bom-list-action-btn-padding-x) !important;
+  line-height: var(--erp-bom-list-action-btn-line-height) !important;
+}
+
+html[data-ui='comfortable'] .erp-module-page .erp-list-table .bom-list-actions.erp-table-actions .el-button > span {
+  line-height: var(--erp-bom-list-action-btn-line-height) !important;
 }
 
 html[data-ui='comfortable'] .erp-module-page .erp-table-actions .el-button--primary.is-plain {
@@ -432,10 +525,9 @@ html[data-ui='comfortable'] .erp-ui-density .el-radio-button__inner {
   font-weight: var(--erp-font-weight-body);
 }
 
-/* 操作区按钮间距 ≥8px */
+/* 操作区按钮间距 ≥8px（BOM 主列表 .bom-list-actions 由 Grid token 控制，不在此列） */
 .search-row,
 .erp-action-row,
-.bom-list-actions,
 .bom-parts-toolbar,
 .bom-detail-drill-bar,
 .bom-cost-hide-prefix-dialog__actions {
@@ -581,6 +673,64 @@ html[data-ui='comfortable'] .erp-table-cell-multiline {
 html[data-ui='comfortable'] .erp-module-page [style*='font-size: 12px'],
 html[data-ui='comfortable'] .preview-table .cell {
   font-size: var(--erp-table-data-size) !important;
+}
+
+/* ========== 弹窗关闭（×）：大号红框，全站 el-dialog 统一 ==========
+ * DIY 优先改 :root / html[data-ui='comfortable'] 的 --erp-dialog-close-size、--erp-dialog-close-icon-size
+ * 位置微调：本段 .el-dialog__headerbtn 的 right；标题留白：.el-dialog__header 的 padding-right 中 +16px
+ * 框线粗细：border 的 2px；颜色：--el-color-danger（红框）
+ */
+.el-dialog__header {
+  position: relative;
+  /* 标题右侧留白，避免与 × 重叠；+16px 可改为 20px、24px */
+  padding-right: calc(var(--erp-dialog-close-size) + 16px) !important;
+  align-items: center;
+}
+
+.el-dialog__headerbtn {
+  width: var(--erp-dialog-close-size) !important;
+  height: var(--erp-dialog-close-size) !important;
+  top: 50% !important;
+  /* 普通弹窗：距右边缘距离 */
+  right: 12px !important;
+  margin: 0 !important;
+  transform: translateY(-50%) !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--el-color-danger) !important;
+  border-radius: var(--el-border-radius-base) !important;
+  background-color: #fff !important;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 12%);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.el-dialog__headerbtn:hover,
+.el-dialog__headerbtn:focus-visible {
+  background-color: var(--el-color-danger-light-9, #fef2f2) !important;
+  border-color: var(--el-color-danger) !important;
+  outline: none;
+}
+
+.el-dialog__headerbtn .el-dialog__close {
+  font-size: var(--erp-dialog-close-icon-size) !important;
+  color: var(--el-color-danger) !important;
+  font-weight: 700;
+}
+
+.el-dialog__headerbtn .el-icon,
+.el-dialog__headerbtn svg {
+  width: var(--erp-dialog-close-icon-size) !important;
+  height: var(--erp-dialog-close-icon-size) !important;
+  color: var(--el-color-danger) !important;
+}
+
+/* 页面级大弹窗（BOM 详情等）：可单独调距右边缘 */
+.erp-page-dialog .el-dialog__headerbtn {
+  right: 16px !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

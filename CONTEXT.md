@@ -117,6 +117,19 @@
 - **无子档 BOM 时兜底**：`kcaa02` / `kcaa03` / `kcaa04` / `kcaa11` 可用请求体；其余 `kcaa` 列保持行内原值（避免清空历史扩展字段）。
 - **新增行**：先 `INSERT` 得 `id`，再执行同一套同步 UPDATE。
 
+**主档一键更新（列表「一键更新」）**
+
+- 入口：BOM 资料列表行操作；`POST /api/inventory/bom/propagate-master`，body `{ systemcode }`；权限 `inv/bom` **edit**。
+- 按主档 **systemcode** 取在册 `bom_000` 最新行，以其 **kcaa01** 精确匹配（非 `LIKE`）全库 **`Bom_parts`** 与 **`bom_cost`** 中 `kcaa01` 相同的在册行，批量 UPDATE 基础字段（含 `kcaa02`/`kcaa03` 名称规格；`bom_cost` 另含与运算补全一致的扩展列）。
+- **不改**：`kcac04`～`kcac06` 等用量、`top_kcaa*`、不触发 `POST /api/bom/usage-calc`。
+- 审计：`[一键更新]物料编码：[…]，同步配件明细 N 条、成本运算缓存 M 条…`。
+
+**列表一键运算**
+
+- 入口：BOM 资料列表「一键运算」；复用 `POST /api/bom/usage-calc`（与详情「BOM用量表运算」相同；`hidePrefixes` 取列表页配置）。
+- **未运算**：首次写入 `bom_cost`；**已运算**：确认后覆盖重算；**不需运算**：按钮禁用。
+- 成功后自动打开详情并切到 **「成本BOM用量表」** Tab，并刷新列表运算/成本列。
+
 **纸格导入扩展列**（库存配件 Tab 不展示；列存在才写入）
 
 | 列 | 典型取值 / 来源 | 说明 |

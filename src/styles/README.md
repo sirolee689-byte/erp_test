@@ -18,6 +18,7 @@
 
 | `erp-module-page.css` | 业务模块页 `.erp-module-page` 标题/说明/工具条；页面级弹窗 `.erp-page-dialog` |
 | `components/erp/ErpPageDialog.vue` | 页面级详情/大表单弹窗封装（近全屏方案 A） |
+| `components/erp/ErpTableActions.vue` | 表格操作列容器（Grid 两行、按可见按钮数设列） |
 
 | `utils/uiDensity.js` | `comfortable`（默认）/ `standard` 切换，写入 `localStorage` + `html[data-ui]` |
 
@@ -51,7 +52,7 @@
 
 
 
-- 列表操作列外包 `<div class="erp-table-actions">`
+- 列表操作列外包 `<ErpTableActions>`（Grid 最多两行、左对齐；`row-gap` 2px / `col-gap` 4px；主列表小按钮 token 见 `--erp-list-action-*`）
 
 - 行内操作用 `plain` + 语义 `type`（`primary` 编辑/审核、`success` 审核、`warning` 反审、`danger` 删除、`info` 查看），**不要用 `link`**
 
@@ -73,7 +74,7 @@
 
 3. **必须** 视口底横向滚动：`<ErpTableViewportHScroll>` 包裹表，或 `v-erp-list-h-scroll`（与表体 `scrollLeft` 同步；表内横竖滚动条 UI 由全局 CSS 隐藏）。
 
-4. 操作列：`erp-col-actions` + `.erp-table-actions`（换行、小按钮）。
+4. 操作列：`erp-col-actions` + `<ErpTableActions>`（左对齐紧凑排版；列数见 `src/utils/erpTableActionsLayout.js`）。
 
 5. 数值列：`erp-col-number` 右对齐；双行时间/多行：`erp-col-datetime` / `erp-col-multiline`。
 
@@ -95,7 +96,9 @@
 
 3. 正文在 `.el-dialog__body` 内**单一纵滚**；Tab 内超长子表可单独 `max-height`（与主列表分开）。
 
-4. 表单级（新增颜色、改密码等）继续 `width="480px"`～`560px`，**勿**加 `erp-page-dialog`。
+4. **关闭方式**：`ErpPageDialog` 默认**禁止**点灰色遮罩、按 Esc 关闭；仅右上角 **×**（或页内「取消」按钮）可关。小表单窗建议同样设 `:close-on-click-modal="false"`。× 按钮 DIY：改 `element-override.scss` 中 `--erp-dialog-close-size` / `--erp-dialog-close-icon-size`（文件内搜索「弹窗关闭」）；前端 UI 任务可 @ 项目 skill `erp-frontend-ui`。
+
+5. 表单级（新增颜色、改密码等）继续 `width="480px"`～`560px`，**勿**加 `erp-page-dialog`。
 
 
 

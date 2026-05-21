@@ -302,6 +302,14 @@ export function matchApiPermissionRule(method, path, body, params) {
       ],
     }
   }
+  if (m === 'POST' && path === '/api/inventory/bom/propagate-master') {
+    return {
+      anyOf: [
+        { menuPath: 'inv/bom', action: 'edit' },
+        { menuPath: 'inventory/basic/bom-data', action: 'edit' },
+      ],
+    }
+  }
 
   /* BOM 主档新增/保存前校验与单位换算（须先于泛化 GET /api/inventory/bom/:id） */
   if (m === 'GET' && path === '/api/inventory/bom/check-code') {

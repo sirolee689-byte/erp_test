@@ -100,7 +100,7 @@
 
             <el-table-column label="操作" width="420" fixed="right">
               <template #default="{ row }">
-                <div class="op-btns">
+                <ErpTableActions>
                   <el-button size="small" type="primary" plain @click="openViewDialog(row)">查看</el-button>
 
                   <el-button
@@ -169,7 +169,7 @@
                   >
                     彻底删除
                   </el-button>
-                </div>
+                </ErpTableActions>
               </template>
             </el-table-column>
           </el-table>
@@ -707,11 +707,7 @@ async function loadSettlementMethodOptions() {
   line-height: 18px;
   white-space: pre-line;
 }
-.op-btns {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
+/* 操作列布局由全局 ErpTableActions + erp-table-actions--grid 承担 */
 .customer-form {
   padding-top: 4px;
 }
