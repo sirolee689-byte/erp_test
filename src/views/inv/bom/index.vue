@@ -291,30 +291,19 @@
       </el-skeleton>
     </el-card>
 
-    <el-dialog
+    <ErpPageDialog
       v-model="detailVisible"
       :title="detailDialogTitle"
-      width="min(1120px, 96vw)"
-      top="4vh"
-      destroy-on-close
-      class="bom-detail-dialog"
+      dialog-class="bom-detail-dialog"
       @closed="onDetailClosed"
     >
       <el-skeleton :loading="detailLoading" animated :rows="10">
         <template #default>
           <el-alert v-if="detailError" :title="detailError" type="error" show-icon class="bom-detail-alert" />
           <template v-else-if="bomBasic">
-            <div v-if="detailDrillStack.length" class="bom-detail-drill-bar">
-              <el-button type="primary" link class="erp-btn-keep-link" @click="goBackDetailDrill">
-                ← 返回上一层
-              </el-button>
-              <span v-if="detailDrillBackHint" class="bom-detail-drill-bar__hint">
-                来自：{{ detailDrillBackHint }}
-              </span>
-            </div>
             <el-tabs v-model="detailActiveTab">
               <el-tab-pane label="基础资料" name="basic">
-                <div class="bom-detail-body">
+                <div v-loading="detailBasicLoading" class="bom-detail-body">
                   <el-form class="bom-detail-form" label-position="right" label-width="112px" size="default">
                     <div class="bom-section-title">系统</div>
                     <el-row :gutter="12" class="bom-edit-row-system">
@@ -533,22 +522,16 @@
                 />
                 <div v-else class="bom-parts-toolbar">
                   <el-button
-                    v-if="detailDrillStack.length"
-                    type="primary"
-                    link
-                    class="bom-detail-drill-bar__btn--toolbar erp-btn-keep-link"
-                    @click="goBackDetailDrill"
-                  >
-                    ← 返回上一层
-                  </el-button>
-                  <el-button
                     type="primary"
                     :disabled="partsReadOnly || !bomSystemcode"
                     @click="materialSelectorVisible = true"
                   >
                     添加配件
                   </el-button>
-                  <el-button :disabled="partsReadOnly || !bomSystemcode || partsLoading" @click="loadBomParts">
+                  <el-button
+                    :disabled="partsReadOnly || !bomSystemcode || partsLoading"
+                    @click="onRefreshBomPartsClick"
+                  >
                     刷新
                   </el-button>
                   <el-button
@@ -619,7 +602,12 @@
                           :step="0.000001"
                           controls-position="right"
                           class="bom-parts-num"
-                          @change="() => syncPartKcac06(row)"
+                          @change="
+                            () => {
+                              syncPartKcac06(row)
+                              markPartsSessionDirty()
+                            }
+                          "
                         />
                       </template>
                     </el-table-column>
@@ -651,6 +639,7 @@
                           :step="0.0001"
                           controls-position="right"
                           class="bom-parts-num"
+                          @change="markPartsSessionDirty"
                         />
                       </template>
                     </el-table-column>
@@ -664,6 +653,7 @@
                           :disabled="partLineReadonly(row)"
                           maxlength="500"
                           show-word-limit
+                          @input="markPartsSessionDirty"
                         />
                       </template>
                     </el-table-column>
@@ -675,17 +665,8 @@
                 </div>
                 <MaterialSelector v-model="materialSelectorVisible" @picked="onMaterialPicked" />
               </el-tab-pane>
-              <el-tab-pane label="BOM用量表运算" name="usageCalc" :disabled="!bomBasic">
+              <el-tab-pane label="BOM用量表运算" name="usageCalc" lazy :disabled="!bomBasic">
                 <div class="bom-parts-toolbar bom-usage-calc-toolbar">
-                  <el-button
-                    v-if="detailDrillStack.length"
-                    type="primary"
-                    link
-                    class="bom-detail-drill-bar__btn--toolbar erp-btn-keep-link"
-                    @click="goBackDetailDrill"
-                  >
-                    ← 返回上一层
-                  </el-button>
                   <el-button
                     type="primary"
                     :loading="bomUsageTreeLoading"
@@ -766,7 +747,7 @@
                   />
                 </div>
               </el-tab-pane>
-              <el-tab-pane label="成本BOM用量表" name="costBomUsage" :disabled="!bomBasic">
+              <el-tab-pane label="成本BOM用量表" name="costBomUsage" lazy :disabled="!bomBasic">
                 <div class="bom-cost-usage-toolbar bom-parts-toolbar">
                   <template v-if="bomUsageCostBlockReady">
                     <div class="bom-cost-hide-prefix-bar">
@@ -851,7 +832,10 @@
           </template>
         </template>
       </el-skeleton>
-    </el-dialog>
+    </ErpPageDialog>
+
+    <!-- 配件行「查看」：子弹窗展示子件 BOM，关闭即可，不占用主详情钻取栈 -->
+    <BomLinkedDetailDialog ref="linkedDetailRef" v-model="linkedDetailVisible" />
 
     <!-- 成本 BOM：隐藏编码前缀（逐行编辑） -->
     <el-dialog
@@ -1422,6 +1406,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import MaterialSelector from '../../supply-chain/daily/purchase-quote/MaterialSelector.vue'
 import { useUiDensity } from '@/composables/useUiDensity'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
+import ErpPageDialog from '@/components/erp/ErpPageDialog.vue'
+import BomLinkedDetailDialog from './BomLinkedDetailDialog.vue'
 
 const { detailTableSize } = useUiDensity()
 
@@ -1478,6 +1464,10 @@ const bomBasic = ref(null)
 /** 列表打开详情时的原始行（审核态等） */
 const detailListRow = ref(null)
 const detailActiveTab = ref('basic')
+
+/** 配件行「查看」子弹窗（与主详情 ErpPageDialog 叠层） */
+const linkedDetailVisible = ref(false)
+const linkedDetailRef = ref(null)
 
 /** BOM用量表运算：树形表格数据源（GET /api/bom/tree，嵌套 children） */
 const bomUsageTreeLoading = ref(false)
@@ -1818,94 +1808,48 @@ function collapseAllBomUsageTree() {
   })
 }
 
-/** 详情弹窗 Tab 名集合（钻取返回时校验恢复） */
-const DETAIL_VALID_TABS = new Set(['basic', 'parts', 'usageCalc', 'costBomUsage'])
-
-function normalizeRestoredDetailTab(name) {
-  const n = String(name ?? '').trim()
-  return DETAIL_VALID_TABS.has(n) ? n : 'basic'
-}
-
 /** 配件明细 Tab */
 const partsList = ref([])
 const partsLoading = ref(false)
 const partsError = ref('')
-const partsLoadedToken = ref('')
 const materialSelectorVisible = ref(false)
-/** 防止重复请求：systemcode + 时间戳在关闭弹窗时清空 */
-const partsLoadGeneration = ref(0)
+/** 配件 GET 请求序号：换主档/关弹窗时递增，作废进行中的响应并可靠关闭 loading */
+const partsRequestSeq = ref(0)
+/** 当前主档配件已加载过的 systemcode（Tab 切回时不重复 GET） */
+const lastPartsLoadedSystemcode = ref('')
+/** 本地增删改未保存（切 Tab 回来须保留） */
+const partsSessionDirty = ref(false)
+/** 轻量主档（_briefOnly）切到基础资料 Tab 时拉全量详情 */
+const detailBasicLoading = ref(false)
 /** 详情弹窗：待保存的配件行软删 */
 const partsPendingDeleteIds = ref([])
 
-/**
- * 从配件「查看/查看配件」钻取下一层 BOM 时的返回栈（不含当前层）
- * @typedef {{ code: string, titleCode: string, listRow: { code: string, pass: unknown } | null, activeTab: 'basic'|'parts'|'usageCalc'|'costBomUsage'|string, partsPendingDeleteIds: number[] }} DetailDrillFrame
- */
-/** @type {import('vue').Ref<DetailDrillFrame[]>} */
-const detailDrillStack = ref([])
-
-/** 栈顶即「返回后」要恢复的上一层标题（kcaa01） */
-const detailDrillBackHint = computed(() => {
-  const arr = detailDrillStack.value
-  if (!arr.length) return ''
-  const top = arr[arr.length - 1]
-  return String(top?.titleCode ?? top?.code ?? '').trim()
-})
-
-/** 钻取前压入当前详情状态 */
-function pushDetailDrillSnapshot() {
-  const code = String(bomBasic.value?.kcaa01 ?? '').trim()
-  if (!code) return
-  detailDrillStack.value.push({
-    code,
-    titleCode: String(detailTitleCode.value ?? '').trim() || code,
-    listRow: detailListRow.value
-      ? { code: String(detailListRow.value.code ?? '').trim(), pass: detailListRow.value.pass }
-      : null,
-    activeTab: String(detailActiveTab.value ?? 'basic'),
-    partsPendingDeleteIds: [...(partsPendingDeleteIds.value ?? [])],
-  })
+function isBomBasicBriefOnly() {
+  return !!bomBasic.value?._briefOnly
 }
 
-/** 弹出栈顶并恢复上一层 BOM 与 Tab */
-async function goBackDetailDrill() {
-  const prev = detailDrillStack.value.pop()
-  if (!prev?.code) return
-  detailLoading.value = true
-  detailError.value = ''
+async function ensureBomBasicFull() {
+  if (!isBomBasicBriefOnly()) return
+  const code = String(bomBasic.value?.kcaa01 ?? '').trim()
+  if (!code) return
+  detailBasicLoading.value = true
   try {
-    const res = await axios.get(`/api/inventory/bom/${encodeURIComponent(prev.code)}`)
+    const res = await axios.get(`/api/inventory/bom/${encodeURIComponent(code)}`)
     const body = res.data
     if (body?.code !== 200) {
-      const msg = body?.msg || '加载失败'
-      detailError.value = msg
-      ElMessage.error(msg)
-      detailDrillStack.value.push(prev)
+      detailError.value = body?.msg || '加载失败'
       return
     }
     const basic = body?.data?.basic ?? null
     if (!basic) {
       detailError.value = '未返回基础资料数据'
-      detailDrillStack.value.push(prev)
       return
     }
     bomBasic.value = basic
-    detailTitleCode.value = String(prev.titleCode ?? basic.kcaa01 ?? '').trim() || String(basic.kcaa01 ?? '').trim()
-    detailListRow.value = { code: String(basic.kcaa01 ?? '').trim(), pass: basic.pass }
-    detailActiveTab.value = normalizeRestoredDetailTab(prev.activeTab)
-    partsPendingDeleteIds.value = [...(prev.partsPendingDeleteIds ?? [])]
-    partsError.value = ''
-    partsList.value = []
-    partsLoadedToken.value = ''
-    resetBomUsageBlockState()
-    if (detailActiveTab.value === 'parts' && String(basic.systemcode ?? '').trim()) {
-      await loadBomParts()
-    }
   } catch (e) {
     detailError.value = String(e?.response?.data?.msg ?? e?.message ?? '网络错误')
-    detailDrillStack.value.push(prev)
   } finally {
-    detailLoading.value = false
+    detailBasicLoading.value = false
   }
 }
 
@@ -2663,6 +2607,28 @@ function onLossPctChange(row, pctVal) {
   const p = Number(pctVal)
   row.kcac05 = Number.isFinite(p) ? p / 100 : 0
   syncPartKcac06(row)
+  markPartsSessionDirty()
+}
+
+function markPartsSessionDirty() {
+  partsSessionDirty.value = true
+}
+
+/** 是否存在未保存的配件本地修改 */
+function isPartsSessionDirty() {
+  if (partsSessionDirty.value) return true
+  if ((partsPendingDeleteIds.value ?? []).length > 0) return true
+  return (partsList.value ?? []).some((r) => {
+    const id = Number(r?.id)
+    return !Number.isFinite(id) || id <= 0
+  })
+}
+
+/** 切换主档或关闭弹窗时清空配件 Tab 会话缓存 */
+function resetBomPartsCacheState() {
+  lastPartsLoadedSystemcode.value = ''
+  partsSessionDirty.value = false
+  partsRequestSeq.value += 1
 }
 
 function genLocalKey() {
@@ -2752,6 +2718,7 @@ async function removeDetailPartRow(row) {
   if (id) pushPendingDeleteId(partsPendingDeleteIds, id)
   const idx = partsList.value.indexOf(row)
   if (idx >= 0) partsList.value.splice(idx, 1)
+  markPartsSessionDirty()
 }
 
 /** 选材回调：kcaa05 为选材组件内的「单位」别名，映射到配件表 kcaa04 */
@@ -2774,43 +2741,68 @@ function onMaterialPicked(payload) {
   }
   syncPartKcac06(row)
   partsList.value.push(row)
+  markPartsSessionDirty()
 }
 
-async function loadBomParts() {
+/** @param {{ force?: boolean }} opts force=true：刷新/保存后/钻取换层，忽略 Tab 缓存 */
+async function loadBomParts(opts = {}) {
+  const force = !!opts?.force
   const sc = bomSystemcode.value
   if (!sc) {
     partsError.value = '主档缺少 systemcode，无法加载配件明细（请确认库内 bom_000.systemcode）。'
     partsList.value = []
+    lastPartsLoadedSystemcode.value = ''
     return
   }
-  const token = `${sc}@@${partsLoadGeneration.value}`
-  partsLoadedToken.value = token
+  if (!force && lastPartsLoadedSystemcode.value === sc) {
+    return
+  }
+  const reqId = ++partsRequestSeq.value
   partsLoading.value = true
   partsError.value = ''
   try {
     const res = await axios.get(`/api/inventory/bom/parts/${encodeURIComponent(sc)}`)
     const body = res.data
     if (body?.code !== 200) {
-      if (partsLoadedToken.value !== token) return
+      if (partsRequestSeq.value !== reqId) return
       partsError.value = body?.msg || '加载失败'
       partsList.value = []
+      lastPartsLoadedSystemcode.value = ''
       return
     }
     const list = Array.isArray(body?.data?.list) ? body.data.list : []
-    if (partsLoadedToken.value !== token) return
+    if (partsRequestSeq.value !== reqId) return
     partsPendingDeleteIds.value = []
+    partsSessionDirty.value = false
     partsList.value = list.map((r) => {
       const row = { ...r, _localKey: genLocalKey() }
       syncPartKcac06(row)
       return row
     })
+    lastPartsLoadedSystemcode.value = sc
   } catch (e) {
-    if (partsLoadedToken.value !== token) return
+    if (partsRequestSeq.value !== reqId) return
     partsError.value = String(e?.response?.data?.msg ?? e?.message ?? '网络错误')
     partsList.value = []
+    lastPartsLoadedSystemcode.value = ''
   } finally {
-    if (partsLoadedToken.value === token) partsLoading.value = false
+    if (partsRequestSeq.value === reqId) partsLoading.value = false
   }
+}
+
+async function onRefreshBomPartsClick() {
+  if (isPartsSessionDirty()) {
+    try {
+      await ElMessageBox.confirm(
+        '当前有未保存的配件修改，刷新将丢弃本地修改并从服务器重新加载。',
+        '确认刷新',
+        { type: 'warning', confirmButtonText: '仍要刷新', cancelButtonText: '取消' },
+      )
+    } catch {
+      return
+    }
+  }
+  await loadBomParts({ force: true })
 }
 
 async function saveBomParts() {
@@ -2864,7 +2856,7 @@ async function saveBomParts() {
     }
     ElMessage.success('配件明细已保存')
     partsPendingDeleteIds.value = []
-    await loadBomParts()
+    await loadBomParts({ force: true })
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '保存失败'))
   }
@@ -3080,6 +3072,7 @@ watch(
   (sc, prev) => {
     if (String(prev ?? '').trim() === String(sc ?? '').trim()) return
     resetBomUsageBlockState()
+    resetBomPartsCacheState()
   },
 )
 
@@ -3087,9 +3080,17 @@ watch(
   () => [detailVisible.value, detailActiveTab.value, bomSystemcode.value],
   ([vis, tab, sc]) => {
     if (!vis || !String(sc ?? '').trim()) return
-    if (tab === 'parts') loadBomParts()
+    if (tab === 'parts') void loadBomParts()
     const usageTabs = new Set(['usageCalc', 'costBomUsage'])
     if (usageTabs.has(tab)) void loadBomUsageTreeOrCache(false)
+  },
+)
+
+watch(
+  () => [detailVisible.value, detailActiveTab.value],
+  ([vis, tab]) => {
+    if (!vis || tab !== 'basic') return
+    void ensureBomBasicFull()
   },
 )
 
@@ -3109,7 +3110,6 @@ function dVal(v) {
 
 function onDetailClosed() {
   detailError.value = ''
-  detailDrillStack.value = []
   bomBasic.value = null
   detailTitleCode.value = ''
   detailActiveTab.value = 'basic'
@@ -3117,11 +3117,12 @@ function onDetailClosed() {
   partsList.value = []
   partsPendingDeleteIds.value = []
   partsError.value = ''
-  partsLoadedToken.value = ''
-  partsLoadGeneration.value += 1
+  partsRequestSeq.value += 1
+  detailBasicLoading.value = false
   materialSelectorVisible.value = false
   bomUsageTreeLoading.value = false
   resetBomUsageBlockState()
+  resetBomPartsCacheState()
 }
 
 const hintShort = computed(() => {
@@ -3236,7 +3237,6 @@ async function openDetail(row) {
     ElMessage.warning('当前行无编码，无法查看详情')
     return
   }
-  detailDrillStack.value = []
   detailTitleCode.value = code
   detailListRow.value = row
   detailVisible.value = true
@@ -3262,51 +3262,26 @@ async function openDetail(row) {
   }
 }
 
-/** 从配件行钻取：打开该配件编码对应 BOM，并切到「配件明细」Tab（下一层） */
+/** 配件行「查看」：子弹窗打开子件 BOM，主详情保持不变 */
 async function openLinkedBomDetailFromPart(partRow) {
   const code = String(partRow?.kcaa01 ?? '').trim()
   if (!code) {
     ElMessage.warning('请先选择配件')
     return
   }
-  const curCode = String(bomBasic.value?.kcaa01 ?? '').trim()
+  let curCode = ''
+  if (detailVisible.value && bomBasic.value) {
+    curCode = String(bomBasic.value?.kcaa01 ?? '').trim()
+  } else if (editVisible.value) {
+    curCode = String(editForm.kcaa01 ?? '').trim()
+  }
   if (curCode && curCode === code) {
     ElMessage.warning('已在当前 BOM')
     return
   }
-  if (bomBasic.value && curCode) {
-    pushDetailDrillSnapshot()
-  }
-  detailLoading.value = true
-  detailError.value = ''
-  bomBasic.value = null
-  partsList.value = []
-  partsError.value = ''
-  detailTitleCode.value = code
-  try {
-    const res = await axios.get(`/api/inventory/bom/${encodeURIComponent(code)}`)
-    const body = res.data
-    if (body?.code !== 200) {
-      const msg = body?.msg || '加载失败'
-      detailError.value = msg
-      ElMessage.error(msg)
-      return
-    }
-    const basic = body?.data?.basic ?? null
-    if (!basic) {
-      detailError.value = '未返回基础资料数据'
-      return
-    }
-    bomBasic.value = basic
-    detailListRow.value = { code: basic.kcaa01, pass: basic.pass }
-    detailActiveTab.value = 'parts'
-  } catch (e) {
-    const msg = String(e?.response?.data?.msg ?? e?.message ?? '网络错误')
-    detailError.value = msg
-    ElMessage.error(msg)
-  } finally {
-    detailLoading.value = false
-  }
+  linkedDetailVisible.value = true
+  await nextTick()
+  await linkedDetailRef.value?.openFromPartRow(partRow)
 }
 
 async function onAudit(row) {
@@ -3700,9 +3675,7 @@ loadData()
   padding-top: 4px;
 }
 .bom-detail-body {
-  max-height: calc(92vh - 160px);
   overflow-x: hidden;
-  overflow-y: auto;
   padding-right: 4px;
 }
 .bom-detail-check-row {
@@ -3710,11 +3683,6 @@ loadData()
   flex-wrap: wrap;
   align-items: center;
   gap: 12px 20px;
-}
-.bom-detail-dialog :deep(.el-dialog__body) {
-  padding-top: 8px;
-  /* 避免与 el-table 内部横向滚动条重复：宽表仅由表格自身滚动 */
-  overflow-x: hidden;
 }
 .bom-section-title {
   font-size: var(--el-font-size-large);

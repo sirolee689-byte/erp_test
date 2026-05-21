@@ -7453,6 +7453,28 @@ async function fetchInvBomMasterRowBySystemcode(pool, systemcodeRaw) {
   return r.recordset?.[0] ?? null
 }
 
+/**
+ * BOM 钻取/配件 Tab：按 kcaa01 轻量读主档（无 JOIN、无单位换算）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {string} kcaa01Raw
+ */
+async function fetchInvBomMasterBriefByKcaa01(pool, kcaa01Raw) {
+  const code = String(kcaa01Raw ?? '').trim()
+  if (!code) return null
+  const r = await pool.request().input('code', sql.NVarChar(300), code).query(`
+    SELECT TOP (1)
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS systemcode,
+      LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(10), b.pass), N''))) AS pass,
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) AS kcaa01,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa02, N'')))) AS kcaa02,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa03, N'')))) AS kcaa03
+    FROM ${INV_BOM_MASTER_FROM} AS b
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) = @code
+      AND (ISNULL(b.del, N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.del), N''))) = N'0')
+  `)
+  return r.recordset?.[0] ?? null
+}
+
 async function lookupBomUnitChangeDirectionRate(pool, useName, otherName) {
   const use = String(useName ?? '').trim()
   const other = String(otherName ?? '').trim()
@@ -8413,6 +8435,8 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
           LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa02, N'')))) AS j02,
           LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa03, N'')))) AS j03,
           LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.kcaa11, N'')))) AS j11,
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS child_systemcode,
+          LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(10), b.pass), N''))) AS child_pass,
           ROW_NUMBER() OVER (
             PARTITION BY LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N''))))
             ORDER BY b.id DESC
@@ -8423,7 +8447,7 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
         WHERE (ISNULL(b.del, N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.del), N''))) = N'0')
       ),
       bh AS (
-        SELECT kcaa01_key, j01, j02, j03, j11
+        SELECT kcaa01_key, j01, j02, j03, j11, child_systemcode, child_pass
         FROM bh_ranked
         WHERE rn = 1
       )
@@ -8454,7 +8478,9 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
         ${bomPartsNumericColAsDecimalSql('p.cost_price')} AS cost_price,
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(p.remark, N'')))) AS remark,
         p.[Seq] AS seq,
-        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(10), p.del), N''))) AS del
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(10), p.del), N''))) AS del,
+        LTRIM(RTRIM(ISNULL(bh.child_systemcode, N''))) AS child_systemcode,
+        LTRIM(RTRIM(ISNULL(bh.child_pass, N''))) AS child_pass
       FROM ${INV_BOM_PARTS_FROM} AS p
       LEFT OUTER JOIN bh
         ON LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p.kcaa01, N'')))) = bh.kcaa01_key
@@ -8472,6 +8498,10 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
       id: row.id != null ? Number(row.id) : null,
       kcac01: row.kcac01 != null ? String(row.kcac01) : '',
       kcac02: row.kcac02 != null ? String(row.kcac02) : '',
+      /** 子件编码对应 bom_000.systemcode，供配件「查看」钻取免二次查主档 */
+      childSystemcode:
+        row.child_systemcode != null ? String(row.child_systemcode).trim() : '',
+      childPass: row.child_pass != null ? String(row.child_pass) : '',
       kcaa01: row.kcaa01 != null ? String(row.kcaa01) : '',
       kcaa02: row.kcaa02 != null ? String(row.kcaa02) : '',
       kcaa03: row.kcaa03 != null ? String(row.kcaa03) : '',
@@ -9623,6 +9653,47 @@ app.delete('/api/inventory/bom/systemcode/:systemcode', async (req, res) => {
     console.error('DELETE /api/inventory/bom/systemcode/:systemcode 失败：', err)
     const detail = String(err?.message ?? err?.originalError?.message ?? '数据库更新失败')
     res.status(500).json({ code: 500, msg: `删除失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * BOM 主档轻量查询（配件钻取）：无 JOIN、无单位换算
+ * GET /api/inventory/bom/:id/brief — :id 为 kcaa01（须注册在 /:id 全量详情之前）
+ */
+app.get('/api/inventory/bom/:id/brief', async (req, res) => {
+  try {
+    let code = ''
+    try {
+      code = decodeURIComponent(String(req.params?.id ?? '').trim())
+    } catch {
+      code = String(req.params?.id ?? '').trim()
+    }
+    if (!code) {
+      res.status(400).json({ code: 400, msg: '参数错误：编码不能为空', data: null })
+      return
+    }
+
+    const pool = await getPool()
+    const row = await fetchInvBomMasterBriefByKcaa01(pool, code)
+    if (!row) {
+      res.status(404).json({ code: 404, msg: '未找到该编码对应的 BOM 资料', data: null })
+      return
+    }
+
+    const str = (v) => (v == null ? '' : String(v))
+    const basic = {
+      systemcode: str(row.systemcode),
+      pass: str(row.pass),
+      kcaa01: str(row.kcaa01),
+      kcaa02: str(row.kcaa02),
+      kcaa03: str(row.kcaa03),
+    }
+
+    res.json({ code: 200, msg: 'success', data: { basic } })
+  } catch (err) {
+    console.error('GET /api/inventory/bom/:id/brief 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取 BOM 主档摘要失败：${detail}`, data: null })
   }
 })
 

@@ -81,3 +81,30 @@ html[data-ui='comfortable'] .erp-module-page .page-desc {
 html[data-ui='comfortable'] .erp-module-page .switch-label {
   font-size: var(--erp-text-secondary-size) !important;
 }
+
+/* ========== 页面级弹窗（方案 A：近全屏 Dialog，侧栏仍可见） ========== */
+.erp-page-dialog.el-dialog {
+  width: min(100%, calc(100vw - 32px)) !important;
+  max-width: none !important;
+  margin: 8px auto !important;
+  max-height: calc(100vh - 16px);
+  display: flex;
+  flex-direction: column;
+}
+
+.erp-page-dialog .el-dialog__header {
+  flex-shrink: 0;
+  margin-right: 0;
+}
+
+.erp-page-dialog .el-dialog__body {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-top: 8px;
+}
+
+.erp-page-dialog .el-dialog__footer {
+  flex-shrink: 0;
+}

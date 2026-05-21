@@ -16,7 +16,8 @@
 
 | `element-override.scss` | Element Plus CSS 变量、触控 44px、对比度、表格/按钮全局规则 |
 
-| `erp-module-page.css` | 业务模块页 `.erp-module-page` 标题/说明/工具条 |
+| `erp-module-page.css` | 业务模块页 `.erp-module-page` 标题/说明/工具条；页面级弹窗 `.erp-page-dialog` |
+| `components/erp/ErpPageDialog.vue` | 页面级详情/大表单弹窗封装（近全屏方案 A） |
 
 | `utils/uiDensity.js` | `comfortable`（默认）/ `standard` 切换，写入 `localStorage` + `html[data-ui]` |
 
@@ -77,6 +78,24 @@
 5. 数值列：`erp-col-number` 右对齐；双行时间/多行：`erp-col-datetime` / `erp-col-multiline`。
 
 6. 弹窗/Tab 内**子表**可单独 `max-height`（与主列表规范分开）。
+
+
+
+## 页面级弹窗（近全屏 · 方案 A）
+
+
+
+**硬性约定（查看详情、主从大表单等；小窗增删改不在此列）：**
+
+
+
+1. 使用 `ErpPageDialog`（`src/components/erp/ErpPageDialog.vue`）或 `el-dialog` + `class="erp-page-dialog"`，样式见 `erp-module-page.css`。
+
+2. 宽度 `min(100%, calc(100vw - 32px))`，`max-width: none`，`top` 默认 **8px**；遮罩在整页上，**侧栏/顶栏仍可见**。
+
+3. 正文在 `.el-dialog__body` 内**单一纵滚**；Tab 内超长子表可单独 `max-height`（与主列表分开）。
+
+4. 表单级（新增颜色、改密码等）继续 `width="480px"`～`560px`，**勿**加 `erp-page-dialog`。
 
 
 

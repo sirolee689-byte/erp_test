@@ -276,6 +276,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     }
   }
 
+  /* BOM 主档轻量摘要（配件钻取；权限与详情 view 一致，由下方泛化 GET /api/inventory/bom/.+ 覆盖） */
   /* BOM 配件明细（须先于泛化 GET /api/inventory/bom/:id，否则会被 /.+/ 误匹配；权限仍与详情 view / 保存 edit 一致） */
   if (m === 'GET' && /^\/api\/inventory\/bom\/parts\/.+$/.test(path)) {
     return {
