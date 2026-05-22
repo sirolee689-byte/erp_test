@@ -3,6 +3,7 @@
  */
 import sql from 'mssql'
 import { getPool } from './db.js'
+import { getSysUsersColumnsMeta, getSysUsersEntityPkQb } from './sysUsersDb.js'
 
 const SYSTEM_UPLOAD_FILE_TABLE =
   String(process.env.SYSTEM_UPLOAD_FILE_TABLE ?? 'System_uplod_file').trim() ||
@@ -97,6 +98,33 @@ export function buildFilesizeSearchSqlFragment(keyword) {
   `
 }
 
+/**
+ * 上传者展示：优先 Sys_Users.truename（按 f.uid 关联），无匹配时回退 f.truename
+ * @param {import('./sysUsersDb.js').SysUsersColumnsMeta} userMeta
+ */
+export function buildPaperPatternUploaderSql(userMeta) {
+  const qPk = getSysUsersEntityPkQb(userMeta)
+  const qTruename = userMeta.qb('truename')
+  const joinSql = qPk
+    ? `LEFT JOIN Sys_Users AS su ON LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(f.uid, N'')))) <> N''
+        AND LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(f.uid, N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(su.${qPk}, N''))))`
+    : ''
+  const suTruenameExpr = qTruename
+    ? `LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(su.${qTruename}, N''))))`
+    : `CAST(N'' AS NVARCHAR(100))`
+  const fileTruenameExpr = `LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(f.truename, N''))))`
+  const uploaderSql =
+    qPk && qTruename
+      ? `CASE WHEN ${suTruenameExpr} <> N'' THEN ${suTruenameExpr} ELSE ${fileTruenameExpr} END`
+      : fileTruenameExpr
+  const uploaderSearchSql =
+    qPk && qTruename
+      ? `OR LOWER(${suTruenameExpr}) LIKE @kw
+          OR LOWER(${fileTruenameExpr}) LIKE @kw`
+      : `OR LOWER(${fileTruenameExpr}) LIKE @kw`
+  return { joinSql, uploaderSql, uploaderSearchSql }
+}
+
 function mapListRow(row) {
   return {
     id: row.id != null ? Number(row.id) : 0,
@@ -117,6 +145,8 @@ function mapListRow(row) {
 export async function handleGetPaperPatternImportFilesList(req, res) {
   try {
     const pool = await getPool()
+    const userMeta = await getSysUsersColumnsMeta(pool)
+    const { joinSql, uploaderSql, uploaderSearchSql } = buildPaperPatternUploaderSql(userMeta)
     const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
     const pageSizeRaw = Number(req.query?.pageSize ?? 20) || 20
     const pageSize = Math.min(200, Math.max(1, pageSizeRaw))
@@ -138,7 +168,7 @@ export async function handleGetPaperPatternImportFilesList(req, res) {
       const filesizeFrag = buildFilesizeSearchSqlFragment(keywordRaw)
       keywordClause = `
         AND (
-          LOWER(LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(f.truename, N''))))) LIKE @kw
+          ${uploaderSearchSql.replace(/^\s*OR\s*/, '')}
           OR LOWER(LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(f.truefilename, N''))))) LIKE @kw
           OR LOWER(LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(f.addtime, N''))))) LIKE @kw
           ${filesizeFrag}
@@ -155,6 +185,7 @@ export async function handleGetPaperPatternImportFilesList(req, res) {
     const totalRow = await countReq.query(`
       SELECT COUNT(1) AS total
       FROM ${SYSTEM_UPLOAD_FILE_TABLE} AS f
+      ${joinSql}
       ${whereScope}
       ${keywordClause}
     `)
@@ -178,7 +209,7 @@ export async function handleGetPaperPatternImportFilesList(req, res) {
       FROM (
         SELECT
           f.id,
-          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(f.truename, N'')))) AS truename,
+          ${uploaderSql} AS truename,
           LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(f.addtime, N'')))) AS addtime,
           LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(f.truefilename, N'')))) AS truefilename,
           LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(f.filename, N'')))) AS filename,
@@ -186,6 +217,7 @@ export async function handleGetPaperPatternImportFilesList(req, res) {
           LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(f.filesize, N'')))) AS filesize,
           ROW_NUMBER() OVER (ORDER BY LTRIM(RTRIM(ISNULL(f.addtime, N''))) DESC, f.id DESC) AS rn
         FROM ${SYSTEM_UPLOAD_FILE_TABLE} AS f
+        ${joinSql}
         ${whereScope}
         ${keywordClause}
       ) AS x

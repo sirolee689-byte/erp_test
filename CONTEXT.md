@@ -150,7 +150,7 @@
 |---|---|---|---|
 | CUT 预览 | 主款 `systemcode` | 裁片 BOM 编码 | `kcac04`=CUT 数量；`kcac05`/`kcac06`= **NULL**；`Seq`=0 |
 | 辅料 Accessory | 主款 | ERP 辅料编码 | `kcac04`/`kcac05`/`kcac06` 来自 Excel E/H/I；I 空则 `kcac06` 按公式；`Seq` 自 1 递增 |
-| 分组物料 Material | 各 CUT 子 BOM `systemcode` | 物料编码 | `kcac04`=该 CUT「单位用量」；`kcac05`=Excel 损耗或主档 `kcaa33`；`Seq` 按 CUT 内自 1 递增 |
+| 分组物料 Material | 各 CUT 子 BOM `systemcode` | 物料编码 | `kcac04`=该 CUT「单位用量」；`kcac05`=Excel 损耗或主档 `kcaa33`；`Seq`=**纸格 Material 列表全局序号**（同编码取首次出现，与导入页列表顺序一致；供成本 BOM 用量表排序） |
 
 ### BOM 主档（bom_000）
 
@@ -205,8 +205,10 @@
 
 | 路径 | 页面 |
 |---|---|
-| `paper-pattern/import` | 纸格资料导入（Excel 解析、智能校验、正式导入） |
 | `paper-pattern/import/manage` | 管理纸格导入资料（`System_uplod_file` 查询） |
+| `paper-pattern/import` | 纸格资料导入（Excel 解析、智能校验、正式导入） |
+
+- **是否清仓单**（导入页，与导入类型共用）：默认否。选「是」时仅主 BOM / CUT 的 `bom_000.kcaa01` 及主 BOM 下 CUT 子件 `bom_parts.kcaa01` 在颜色段末尾固定加 `-OUT`（例 `BAG-…/R-TEST` → `BAG-…/R-TEST-OUT`；`commit-bom000` 传 `clearanceOrder: true`）。Material/Accessory 物料全码与其余字段不变。
 
 ### 文件磁盘路径（`.env`）
 
@@ -223,7 +225,7 @@
 
 | 列 | 用途 |
 |---|---|
-| `truename` | 上传者姓名（展示/搜索） |
+| `truename` | 登记快照；列表「上传者」展示优先 `Sys_Users.truename`（按 `uid` 关联，无匹配时回退本列） |
 | `addtime` | 上传时间 `nvarchar`（展示/搜索） |
 | `truefilename` | 用户上传原始文件名（展示/搜索） |
 | `filename` | 服务器存储文件名（下载候选） |

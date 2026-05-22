@@ -327,25 +327,44 @@ function isCutFirstToken(seqText) {
 }
 
 /**
- * 主 BOM 编码：导入类型-{标准化厂款号}/颜色编码（示例 BAG-PQ2803H1/N-TEST；厂款号不含「-」）
- * @param {{ importTypeFlag5: string, styleNo: string, colorNo: string }} p styleNo 为标准化厂款号
+ * 是否清仓单（生成主/CUT 编号时在颜色段末尾固定追加 -OUT）
+ * @param {unknown} clearanceOrder
+ */
+export function isPaperPatternClearanceOrder(clearanceOrder) {
+  return clearanceOrder === true || clearanceOrder === 'true' || clearanceOrder === 1
+}
+
+/**
+ * 生成编号用的颜色段（选 A：选清仓单则固定 `${颜色}-OUT`）
+ * @param {string} colorNo
+ * @param {unknown} [clearanceOrder]
+ */
+export function colorNoSegmentForBomEncoding(colorNo, clearanceOrder) {
+  const col = norm(colorNo)
+  if (!col) return ''
+  return isPaperPatternClearanceOrder(clearanceOrder) ? `${col}-OUT` : col
+}
+
+/**
+ * 主 BOM 编码：导入类型-{标准化厂款号}/颜色段（示例 BAG-PQ2803H1/N-TEST；厂款号不含「-」）
+ * @param {{ importTypeFlag5: string, styleNo: string, colorNo: string, clearanceOrder?: unknown }} p styleNo 为标准化厂款号
  */
 export function buildMainBomCode(p) {
   const prefix = norm(p.importTypeFlag5)
   const sn = norm(p.styleNo)
-  const col = norm(p.colorNo)
+  const col = colorNoSegmentForBomEncoding(p.colorNo, p.clearanceOrder)
   if (!prefix || !sn || !col) return ''
   return `${prefix}-${sn}/${col}`
 }
 
 /**
- * CUT 编码：CUT-{导入类型}{标准化厂款号}/{颜色编码}<序号>（示例 CUT-BAGPQ2803H1/N-TEST<1-1>）
- * @param {{ importTypeFlag5: string, styleNo: string, colorNo: string, cutSeq: string }} p styleNo 为标准化厂款号
+ * CUT 编码：CUT-{导入类型}{标准化厂款号}/{颜色段}<序号>（示例 CUT-BAGPQ2803H1/N-TEST<1-1>）
+ * @param {{ importTypeFlag5: string, styleNo: string, colorNo: string, cutSeq: string, clearanceOrder?: unknown }} p styleNo 为标准化厂款号
  */
 export function buildCutCode(p) {
   const prefix = norm(p.importTypeFlag5)
   const sn = norm(p.styleNo)
-  const col = norm(p.colorNo)
+  const col = colorNoSegmentForBomEncoding(p.colorNo, p.clearanceOrder)
   const seq = norm(p.cutSeq)
   if (!prefix || !sn || !col || !seq) return ''
   return `CUT-${prefix}${sn}/${col}<${seq}>`
@@ -586,11 +605,6 @@ export function parsePaperPatternImportTreeFromBuffer(buf, options = {}) {
   }
   if (colorNos.length === 0) {
     warnings.push('未找到颜色编码（请确认第 4 行 N 列起已填写，如 N4、O4）')
-  }
-  if (!importTypeFlag5) warnings.push('未指定导入类型（BOM 前缀）')
-
-  if (!bomCode && (importTypeFlag5 || styleNoNormalized || colorNo)) {
-    warnings.push('主 BOM 编码无法生成：需同时具备导入类型前缀、标准化厂款号、颜色编码')
   }
 
   const mainBom = {

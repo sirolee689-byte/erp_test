@@ -7973,6 +7973,9 @@ function flattenBomPartsCostUsageFlat(
     const total_qty = yl * (1 + loss_rate)
     const lv = node?.level != null && Number.isFinite(Number(node.level)) ? Number(node.level) : 1
     const describeVal = String(node?.Describe ?? node?.describe ?? '')
+    const seqRaw = node?.Seq != null ? node.Seq : node?.seq
+    const seqNum =
+      seqRaw != null && seqRaw !== '' && Number.isFinite(Number(seqRaw)) ? Number(seqRaw) : null
     out.push({
       kcaa01: selfCode,
       kcaa02: selfName,
@@ -7985,6 +7988,7 @@ function flattenBomPartsCostUsageFlat(
       loss_rate,
       total_qty,
       level: lv,
+      Seq: seqNum,
     })
     const ch = node?.children
     const thisIsCut = bomCostMaterialStartsWithCutPrefix(node?.kcaa01)

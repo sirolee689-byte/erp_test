@@ -4,6 +4,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, test } from 'node:test'
 import {
+  buildCutCode,
+  buildMainBomCode,
   extractColorNosFromRow4,
   normalizeColorNoFromCell,
   parsePaperPatternImportTreeFromBuffer,
@@ -19,6 +21,30 @@ function row4WithCells(pairs) {
   const cells = pairs.map(([colIndex, value]) => ({ colIndex, value }))
   return [{ rowIndex: PAPER_PATTERN_COLOR_ROW_INDEX, cells }]
 }
+
+describe('buildMainBomCode / buildCutCode 清仓单', () => {
+  test('清仓单主 BOM 与 CUT 编号', () => {
+    assert.equal(
+      buildMainBomCode({
+        importTypeFlag5: 'BAG',
+        styleNo: 'PQ2803H1',
+        colorNo: 'R-TEST',
+        clearanceOrder: true,
+      }),
+      'BAG-PQ2803H1/R-TEST-OUT',
+    )
+    assert.equal(
+      buildCutCode({
+        importTypeFlag5: 'BAG',
+        styleNo: 'PQ2803H1',
+        colorNo: 'R-TEST',
+        cutSeq: '1-1',
+        clearanceOrder: true,
+      }),
+      'CUT-BAGPQ2803H1/R-TEST-OUT<1-1>',
+    )
+  })
+})
 
 describe('normalizeColorNoFromCell', () => {
   test('混排截断至首个汉字前', () => {

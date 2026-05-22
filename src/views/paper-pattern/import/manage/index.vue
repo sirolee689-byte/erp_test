@@ -4,11 +4,6 @@
       <template #header>
         <span class="page-title">管理纸格导入资料</span>
       </template>
-      <p class="page-desc">
-        数据表 <code>System_uplod_file</code>（<code>filepath</code> 含 <code>ub_bom</code>）；上传/下载目录由服务端
-        <code>.env</code> 配置 <code>PAPER_PATTERN_UPLOAD_DIR</code>、<code>PAPER_PATTERN_DOWNLOAD_ROOT</code>。
-      </p>
-
       <div class="search-panel">
         <div class="search-field">
           <span class="search-label">查询条件</span>

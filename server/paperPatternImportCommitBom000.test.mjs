@@ -45,6 +45,14 @@ test('resolveCutsResolvedForColor 按色生成 CUT 编码', () => {
   assert.equal(rows2[0].cutCode, 'CUT-BAGPQ3672A1/VE-TEST<1-1>')
 })
 
+test('resolveCutsResolvedForColor 清仓单 CUT 编号带 -OUT', () => {
+  const rows = resolveCutsResolvedForColor(
+    [{ cutSeq: '1-2', cutName: '后幅' }],
+    { importTypeFlag5: 'BAG', styleNo: 'PQ2803H1', colorNo: 'R-TEST', clearanceOrder: true },
+  )
+  assert.equal(rows[0].cutCode, 'CUT-BAGPQ2803H1/R-TEST-OUT<1-2>')
+})
+
 test('appendBom000PaperPatternAuditColumns 列存在时写入审计字段', () => {
   const colset = new Set(['uid', 'uname', 'utruename', 'addtime', 'edittime', 'ip'])
   const cols = []

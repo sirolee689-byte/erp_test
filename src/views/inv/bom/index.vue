@@ -133,6 +133,7 @@
                   <template v-else>
                     <el-button v-permission="'view'" type="info" plain @click="openDetail(row)">查看详情</el-button>
                     <el-button
+                      v-if="!row.isNeedCalc"
                       v-permission="'edit'"
                       type="warning"
                       plain
@@ -143,6 +144,7 @@
                       一键更新
                     </el-button>
                     <el-button
+                      v-if="row.isNeedCalc"
                       v-permission="'edit'"
                       type="primary"
                       plain
@@ -167,12 +169,13 @@
                     <el-button
                       v-if="showUnAudited"
                       v-permission="'edit'"
-                      type="primary"
-                      plain
+                      :type="isBomListRowEdited(row) ? 'default' : 'primary'"
+                      :plain="!isBomListRowEdited(row)"
+                      :class="{ 'bom-list-btn--edited': isBomListRowEdited(row) }"
                       :disabled="rowIsAudited(row)"
                       @click="onEdit(row)"
                     >
-                      编辑
+                      {{ isBomListRowEdited(row) ? '已编辑' : '编辑' }}
                     </el-button>
                     <el-button
                       v-if="showUnAudited && !rowIsAudited(row)"
@@ -1241,6 +1244,7 @@ import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
 import ErpPageDialog from '@/components/erp/ErpPageDialog.vue'
 import BomDetailBasicReadonly from './BomDetailBasicReadonly.vue'
 import BomLinkedDetailDialog from './BomLinkedDetailDialog.vue'
+import { aggregateBomCostUsageFlatForDisplay } from '@/utils/bomCostUsageAggregate.js'
 
 const { detailTableSize } = useUiDensity()
 
@@ -1498,7 +1502,7 @@ function normalizeBomCostHidePrefixes(list) {
 /** 将接口 bom_cost 行转为与 flatCostUsageRaw 一致的结构，便于沿用合并逻辑 */
 function mapBomCostApiRowsToCostUsageRawRows(bomCostRows) {
   const arr = Array.isArray(bomCostRows) ? bomCostRows : []
-  return arr.map((r) => ({
+  return arr.map((r, idx) => ({
     kcaa01: String(r?.kcaa01 ?? '').trim(),
     kcaa02: r?.kcaa02 != null ? String(r.kcaa02) : '',
     kcaa03: r?.kcaa03 != null ? String(r.kcaa03) : '',
@@ -1508,83 +1512,8 @@ function mapBomCostApiRowsToCostUsageRawRows(bomCostRows) {
     loss_rate: Number(r?.kcac05 ?? 0),
     total_qty: Number.isFinite(Number(r?.kcac06)) ? Number(r.kcac06) : undefined,
     level: 1,
+    _flatIndex: idx,
   }))
-}
-
-/** @param {string} kcaa01 @param {string[]} hidePrefixes */
-function bomCostUsageMatchesHidePrefix(kcaa01, hidePrefixes) {
-  if (!hidePrefixes || !hidePrefixes.length) return false
-  const code = String(kcaa01 ?? '').trim().toLowerCase()
-  if (!code) return false
-  for (let i = 0; i < hidePrefixes.length; i++) {
-    const pre = String(hidePrefixes[i] ?? '').trim().toLowerCase()
-    if (pre && code.startsWith(pre)) return true
-  }
-  return false
-}
-
-/**
- * 与后端 flatten 之后逻辑一致：剔除前缀行后按 kcaa01+Describe 合并
- * @param {Record<string, unknown>[]} flatRows
- * @param {string[]} hidePrefixes
- */
-function aggregateBomCostUsageFlatForDisplay(flatRows, hidePrefixes) {
-  if (!Array.isArray(flatRows) || !flatRows.length) return []
-  /** @type {Map<string, { kcaa01: string, kcaa02: string, kcaa03: string, kcaa04: string, Describe: string, sumYl: number, sumTotal: number }>} */
-  const map = new Map()
-  for (let i = 0; i < flatRows.length; i++) {
-    const r = flatRows[i]
-    const code = String(r?.kcaa01 ?? '').trim()
-    if (!code || bomCostUsageMatchesHidePrefix(code, hidePrefixes)) continue
-    const remark = String(r?.Describe ?? '').trim()
-    const key = `${code}\u0000${remark}`
-    const yl = Number(r?.yl ?? 0)
-    const loss = Number(r?.loss_rate ?? 0)
-    const rowTotal = Number.isFinite(Number(r?.total_qty)) ? Number(r.total_qty) : yl * (1 + loss)
-    let g = map.get(key)
-    if (!g) {
-      g = {
-        kcaa01: code,
-        kcaa02: r?.kcaa02 != null ? String(r.kcaa02) : '',
-        kcaa03: r?.kcaa03 != null ? String(r.kcaa03) : '',
-        kcaa04: r?.kcaa04 != null ? String(r.kcaa04) : '',
-        Describe: remark,
-        sumYl: 0,
-        sumTotal: 0,
-      }
-      map.set(key, g)
-    } else {
-      if (!g.kcaa02 && r?.kcaa02) g.kcaa02 = String(r.kcaa02)
-      if (!g.kcaa03 && r?.kcaa03) g.kcaa03 = String(r.kcaa03)
-      if (!g.kcaa04 && r?.kcaa04) g.kcaa04 = String(r.kcaa04)
-    }
-    g.sumYl += yl
-    g.sumTotal += rowTotal
-  }
-  const out = []
-  for (const g of map.values()) {
-    const sumYl = g.sumYl
-    let loss_rate = 0
-    if (sumYl > 0) loss_rate = g.sumTotal / sumYl - 1
-    const total_qty = sumYl * (1 + loss_rate)
-    out.push({
-      kcaa01: g.kcaa01,
-      kcaa02: g.kcaa02,
-      kcaa03: g.kcaa03,
-      kcaa04: g.kcaa04,
-      Describe: g.Describe,
-      yl: sumYl,
-      loss_rate,
-      total_qty,
-      level: 1,
-    })
-  }
-  out.sort((a, b) => {
-    const c = a.kcaa01.localeCompare(b.kcaa01, 'zh-Hans-CN', { sensitivity: 'accent' })
-    if (c !== 0) return c
-    return a.Describe.localeCompare(b.Describe, 'zh-Hans-CN', { sensitivity: 'accent' })
-  })
-  return out
 }
 
 /** 仅重算成本 BOM 用量表（合并） */
@@ -1813,6 +1742,50 @@ const editOpenedFromCopy = ref(false)
 /** 编辑弹窗：待保存的已入库配件行软删（PUT lines pendingDelete） */
 const editPartsPendingDeleteIds = ref([])
 
+/** 列表「已编辑」标记：按 systemcode 记入 sessionStorage（本会话刷新仍保留） */
+const BOM_LIST_EDITED_SC_STORAGE_KEY = 'erp:bom:master-edited-sc'
+
+function readEditedBomScSetFromStorage() {
+  try {
+    const raw = sessionStorage.getItem(BOM_LIST_EDITED_SC_STORAGE_KEY)
+    if (!raw) return new Set()
+    const arr = JSON.parse(raw)
+    if (!Array.isArray(arr)) return new Set()
+    return new Set(arr.map((s) => String(s ?? '').trim()).filter(Boolean))
+  } catch {
+    return new Set()
+  }
+}
+
+function persistEditedBomScSet(set) {
+  try {
+    sessionStorage.setItem(BOM_LIST_EDITED_SC_STORAGE_KEY, JSON.stringify([...set]))
+  } catch {
+    // 存储满或隐私模式时忽略
+  }
+}
+
+const editedBomScSet = ref(readEditedBomScSetFromStorage())
+
+function markBomListRowAsEdited(systemcode) {
+  const sc = String(systemcode ?? '').trim()
+  if (!sc || editedBomScSet.value.has(sc)) return
+  const next = new Set(editedBomScSet.value)
+  next.add(sc)
+  editedBomScSet.value = next
+  persistEditedBomScSet(next)
+}
+
+function isBomListRowEdited(row) {
+  const sc = String(row?.systemcode ?? '').trim()
+  return sc ? editedBomScSet.value.has(sc) : false
+}
+
+/** 打开编辑弹窗时主档快照（JSON），用于保存前判断是否真有改动 */
+const editMasterBaselineJson = ref('')
+/** 配件表首次加载完成后的快照（JSON） */
+const editPartsBaselineJson = ref('')
+
 const editDialogTitle = computed(() => {
   if (editMode.value === 'add' && editOpenedFromCopy.value) return '新增 BOM 主档（复制）'
   return editMode.value === 'add' ? '新增 BOM 主档' : '编辑 BOM 主档'
@@ -1976,7 +1949,65 @@ function onEditClosed() {
   editPartsPickerTargetKey.value = null
   editOpenedFromCopy.value = false
   editPartsPendingDeleteIds.value = []
+  editMasterBaselineJson.value = ''
+  editPartsBaselineJson.value = ''
   resetEditForm()
+}
+
+function captureEditMasterBaseline() {
+  editMasterBaselineJson.value = JSON.stringify(buildBomMasterPayload())
+}
+
+function masterPayloadDiffersFromBaseline() {
+  if (!editMasterBaselineJson.value) return false
+  return editMasterBaselineJson.value !== JSON.stringify(buildBomMasterPayload())
+}
+
+/** 配件对比用数值串（与保存舍入一致） */
+function editPartCompareDecKey(v) {
+  const n = Number(v)
+  return Number.isFinite(n) ? n.toFixed(6) : ''
+}
+
+/** 编辑弹窗配件在册行 + 待删 id，序列化后用于保存前后 diff */
+function serializeEditPartsForCompare(partsList, pendingDeleteIds) {
+  let seqAcc = 0
+  /** @type {Record<string, unknown>[]} */
+  const kept = []
+  for (const r of partsList ?? []) {
+    if (!String(r.kcaa01 ?? '').trim()) continue
+    if (!bomPartDelLooksActive(r?.del)) continue
+    seqAcc += 1
+    kept.push({
+      id: r.id != null && Number(r.id) > 0 ? Number(r.id) : 0,
+      kcaa01: String(r.kcaa01 ?? '').trim(),
+      kcac04: editPartCompareDecKey(r.kcac04),
+      kcac05: editPartCompareDecKey(r.kcac05),
+      kcac06: editPartCompareDecKey(r.kcac06),
+      cost_price: editPartCompareDecKey(r.cost_price),
+      remark: String(r.remark ?? '').trim(),
+      seq: seqAcc,
+    })
+  }
+  kept.sort((a, b) => a.seq - b.seq || a.id - b.id || String(a.kcaa01).localeCompare(String(b.kcaa01)))
+  const dels = [...(pendingDeleteIds ?? [])]
+    .map((id) => Number(id))
+    .filter((n) => Number.isFinite(n) && n > 0)
+    .sort((a, b) => a - b)
+  return JSON.stringify({ kept, dels })
+}
+
+function captureEditPartsBaseline() {
+  editPartsBaselineJson.value = serializeEditPartsForCompare(
+    editPartsList.value,
+    editPartsPendingDeleteIds.value,
+  )
+}
+
+function editPartsDiffersFromBaseline() {
+  const cur = serializeEditPartsForCompare(editPartsList.value, editPartsPendingDeleteIds.value)
+  if (!editPartsBaselineJson.value) return cur !== JSON.stringify({ kept: [], dels: [] })
+  return cur !== editPartsBaselineJson.value
 }
 
 function openAddBom() {
@@ -2327,12 +2358,14 @@ async function submitBomEdit() {
       ElMessage.warning('缺少 systemcode，无法保存')
       return
     }
+    const masterChanged = masterPayloadDiffersFromBaseline()
     const res = await axios.put('/api/inventory/bom', payload)
     if (res.data?.code !== 200) {
       ElMessage.error(res.data?.msg || '保存失败')
       return
     }
     ElMessage.success('保存成功')
+    if (masterChanged) markBomListRowAsEdited(payload.systemcode)
     editVisible.value = false
     await loadData()
   } catch (e) {
@@ -2744,10 +2777,12 @@ async function loadEditBomParts() {
       syncPartKcac06(row)
       return row
     })
+    captureEditPartsBaseline()
   } catch (e) {
     if (editPartsLoadedToken.value !== token) return
     editPartsError.value = String(e?.response?.data?.msg ?? e?.message ?? '网络错误')
     editPartsList.value = []
+    editPartsBaselineJson.value = ''
   } finally {
     if (editPartsLoadedToken.value === token) editPartsLoading.value = false
   }
@@ -2800,6 +2835,7 @@ async function saveEditBomParts() {
       ElMessage.warning('没有需要保存的变更')
       return
     }
+    const partsChanged = editPartsDiffersFromBaseline()
     const res = await axios.put(`/api/inventory/bom/parts/${encodeURIComponent(sc)}`, { lines })
     const body = res.data
     if (body?.code !== 200) {
@@ -2807,8 +2843,10 @@ async function saveEditBomParts() {
       return
     }
     ElMessage.success('配件明细已保存')
+    if (partsChanged) markBomListRowAsEdited(sc)
     editPartsPendingDeleteIds.value = []
     await loadEditBomParts()
+    await loadData()
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '保存失败'))
   }
@@ -3478,6 +3516,8 @@ async function onEdit(row) {
       return
     }
     fillEditFormFromBasic(basic)
+    captureEditMasterBaseline()
+    editPartsBaselineJson.value = ''
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '网络错误'))
     editVisible.value = false
@@ -3570,6 +3610,40 @@ loadData()
 .bom-list-actions :deep(.el-button) {
   margin-left: 0;
   margin-right: 0;
+}
+/* 列表操作：已保存过且有实质改动的未审 BOM — 默认即土黄「已编辑」（非 plain，避免悬停才显色） */
+.bom-list-actions :deep(.el-button.bom-list-btn--edited) {
+  --el-button-bg-color: #f5e6c8;
+  --el-button-border-color: #c9a227;
+  --el-button-text-color: #8b6914;
+  --el-button-hover-bg-color: #edd9a8;
+  --el-button-hover-border-color: #b8941f;
+  --el-button-hover-text-color: #6b5010;
+  --el-button-active-bg-color: #e5cf98;
+  --el-button-active-border-color: #a88418;
+  --el-button-active-text-color: #5c4610;
+  --el-button-disabled-bg-color: #f0e2c4;
+  --el-button-disabled-border-color: #d4bc7a;
+  --el-button-disabled-text-color: #a89870;
+  background-color: #f5e6c8;
+  border-color: #c9a227;
+  color: #8b6914;
+}
+.bom-list-actions :deep(.el-button.bom-list-btn--edited:hover),
+.bom-list-actions :deep(.el-button.bom-list-btn--edited:focus-visible) {
+  background-color: #edd9a8;
+  border-color: #b8941f;
+  color: #6b5010;
+}
+.bom-list-actions :deep(.el-button.bom-list-btn--edited:active) {
+  background-color: #e5cf98;
+  border-color: #a88418;
+  color: #5c4610;
+}
+.bom-list-actions :deep(.el-button.bom-list-btn--edited.is-disabled) {
+  background-color: #f0e2c4;
+  border-color: #d4bc7a;
+  color: #a89870;
 }
 /* 列表「运算」列：方框徽章 + 图标（颜色与 element-override 语义色一致） */
 .bom-usage-calc-badge {

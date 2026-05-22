@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   buildCutMatchingByMajorFirstNonEmpty,
+  buildMaterialGlobalSeqMap,
   cutMajorFromCutSeq,
   materialGroupMatchesCut,
   PAPER_PATTERN_BOM_PARTS_VERSION,
@@ -14,6 +15,7 @@ import {
   resolveAccessoryKcac456,
   resolveCutDescribeForBomParts,
 } from './paperPatternImportCommitBomParts.js'
+import { erpCodeLookupKey } from './paperPatternErpCodeNormalize.js'
 
 test('纸格 Bom_parts 常量', () => {
   assert.equal(PAPER_PATTERN_CUT_BOM_PARTS_REMARK, '纸格系统导入')
@@ -43,6 +45,17 @@ test('materialGroupMatchesCut', () => {
   assert.equal(materialGroupMatchesCut('3', '3-1'), true)
   assert.equal(materialGroupMatchesCut(3, '3-44'), true)
   assert.equal(materialGroupMatchesCut('2', '3-1'), false)
+})
+
+test('buildMaterialGlobalSeqMap 按 Material 列表首次出现赋全局 Seq', () => {
+  const map = buildMaterialGlobalSeqMap([
+    { materialCode: 'LA-0368/xx' },
+    { materialCode: 'NN-0021/xx' },
+    { materialCode: 'LA-0368/xx' },
+  ])
+  assert.equal(map.size, 2)
+  assert.equal(map.get(erpCodeLookupKey('LA-0368/xx')), 1)
+  assert.equal(map.get(erpCodeLookupKey('NN-0021/xx')), 2)
 })
 
 test('parsePaperPatternQty', () => {

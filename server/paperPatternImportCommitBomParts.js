@@ -72,6 +72,27 @@ export function materialGroupMatchesCut(groupNo, cutSeq) {
   return String(groupNo ?? '').trim() === cutMajorFromCutSeq(cutSeq)
 }
 
+/**
+ * Material 列表全局序号：与纸格导入页 Material 表顺序一致（同编码取首次出现）
+ * @param {Array<{ materialCode?: string }>} materials
+ * @returns {Map<string, number>} erpCodeLookupKey → 1-based Seq
+ */
+export function buildMaterialGlobalSeqMap(materials) {
+  /** @type {Map<string, number>} */
+  const map = new Map()
+  if (!Array.isArray(materials)) return map
+  let seq = 0
+  for (const m of materials) {
+    const code = normalizeErpCodeDisplay(m?.materialCode ?? '')
+    if (!code) continue
+    const key = erpCodeLookupKey(code)
+    if (!key || map.has(key)) continue
+    seq += 1
+    map.set(key, seq)
+  }
+  return map
+}
+
 /** @param {unknown} raw */
 export function parsePaperPatternQty(raw) {
   const n = Number(String(raw ?? '').replace(/,/g, '').trim())
@@ -255,6 +276,8 @@ export async function writePaperPatternBomPartsInTx(tx, pool, p) {
   let inserted = 0
 
   const cutMatchingByMajor = buildCutMatchingByMajorFirstNonEmpty(cuts)
+  const materialGlobalSeqMap = buildMaterialGlobalSeqMap(mats)
+  const materialGlobalSeqMax = materialGlobalSeqMap.size
 
   /** @type {string[]} */
   const codesForPrefetch = []
@@ -337,7 +360,7 @@ export async function writePaperPatternBomPartsInTx(tx, pool, p) {
         remark: accRemark,
         cost_price: accCost,
         sale_price: accSale,
-        seq: accSeq,
+        seq: materialGlobalSeqMax + accSeq,
         describe: accDescribe,
         kcac03FromMaster: row?.kcaa04 ?? '',
         kcaa02EnFromBom000: String(row?.kcaa02_en ?? '').trim(),
@@ -359,7 +382,6 @@ export async function writePaperPatternBomPartsInTx(tx, pool, p) {
     if (!parentSc || !cutSeq) continue
 
     const groupMats = mats.filter((m) => materialGroupMatchesCut(m?.groupNo, cutSeq))
-    let mSeq = 1
     for (const m of groupMats) {
       const code = normalizeErpCodeDisplay(m?.materialCode ?? '')
       if (!code) continue
@@ -372,6 +394,7 @@ export async function writePaperPatternBomPartsInTx(tx, pool, p) {
       const kcac04Child = cutChildKcac04FromUnitConsumption(c.unitConsumption)
       const remark = String(m.remark ?? '').trim()
       const describeMat = resolveCutDescribeForBomParts(cutSeq, c.matching, cutMatchingByMajor)
+      const globalSeq = key ? materialGlobalSeqMap.get(key) : null
       await insertBomPartsLinePaperPattern(
         tx,
         partColset,
@@ -383,7 +406,7 @@ export async function writePaperPatternBomPartsInTx(tx, pool, p) {
           kcac04: kcac04Child,
           kcac05: loss,
           remark,
-          seq: mSeq,
+          seq: globalSeq != null && Number.isFinite(Number(globalSeq)) ? Number(globalSeq) : 999999,
           describe: describeMat,
           kcac03FromMaster: row?.kcaa04 ?? '',
           version: PAPER_PATTERN_BOM_PARTS_VERSION,
@@ -391,7 +414,6 @@ export async function writePaperPatternBomPartsInTx(tx, pool, p) {
         partsAudit,
         paperPatternPrefetch,
       )
-      mSeq += 1
       inserted += 1
     }
   }

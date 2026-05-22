@@ -417,10 +417,11 @@ export function resolveCutsResolvedForColor(cutsIn, ctx) {
   const importTypeFlag5 = String(ctx.importTypeFlag5 ?? '').trim()
   const styleNo = String(ctx.styleNo ?? '').trim()
   const colorNo = String(ctx.colorNo ?? '').trim()
+  const clearanceOrder = ctx.clearanceOrder
   return (Array.isArray(cutsIn) ? cutsIn : []).map((c) => {
     const cutSeq = String(c?.cutSeq ?? '').trim()
     const cutName = String(c?.cutName ?? c?.cutNameDisplay ?? '').trim()
-    const cutCode = buildCutCode({ importTypeFlag5, styleNo, colorNo, cutSeq })
+    const cutCode = buildCutCode({ importTypeFlag5, styleNo, colorNo, cutSeq, clearanceOrder })
     const kcaa03Cut = formatPaperPatternCutKcaa03(c?.length, c?.width)
     return {
       cutSeq,
@@ -459,6 +460,8 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
       return
     }
     const importTypeFlag5 = String(body.importTypeFlag5 ?? '').trim()
+    const clearanceOrder =
+      body.clearanceOrder === true || body.clearanceOrder === 'true' || body.clearanceOrder === 1
     const factoryStyleNo = String(body.factoryStyleNo ?? '').trim()
     const customerStyleNo = String(body.customerStyleNo ?? '').trim()
     const groupLabel = String(body.groupLabel ?? '').trim()
@@ -501,7 +504,7 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
     }
 
     const mainBomCodes = colorNos.map((colorNo) =>
-      buildMainBomCode({ importTypeFlag5, styleNo, colorNo }),
+      buildMainBomCode({ importTypeFlag5, styleNo, colorNo, clearanceOrder }),
     )
     if (mainBomCodes.some((c) => !c)) {
       res.status(400).json({ success: false, message: '无法生成主 BOM 编码（请检查导入类型、厂款号、颜色编码）' })
@@ -540,7 +543,7 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
     }
 
     const cutsByColor = colorNos.map((colorNo) =>
-      resolveCutsResolvedForColor(cutsIn, { importTypeFlag5, styleNo, colorNo }),
+      resolveCutsResolvedForColor(cutsIn, { importTypeFlag5, styleNo, colorNo, clearanceOrder }),
     )
     const badCut = cutsByColor.flat().find((x) => !x.cutCode || !x.cutSeq)
     if (badCut) {

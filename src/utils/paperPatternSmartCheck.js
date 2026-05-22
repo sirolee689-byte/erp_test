@@ -208,6 +208,7 @@ export function cloneParseResultForSessionSnapshot(parseResult, materialPreviewR
  *   fileName?: string,
  *   basicFormList?: any[],
  *   sharedImportTypeFlag5?: string,
+ *   sharedClearanceOrder?: boolean,
  *   cutPreviewColorNo?: string,
  *   parseResultSnapshot?: any,
  *   commitInProgress?: boolean,
@@ -223,6 +224,7 @@ export function saveImportPageSession(data) {
       fileName: String(data?.fileName ?? '').trim(),
       basicFormList: Array.isArray(data?.basicFormList) ? data.basicFormList : [],
       sharedImportTypeFlag5: String(data?.sharedImportTypeFlag5 ?? '').trim(),
+      sharedClearanceOrder: data?.sharedClearanceOrder === true,
       cutPreviewColorNo: String(data?.cutPreviewColorNo ?? '').trim(),
       parseResultSnapshot: snap && typeof snap === 'object' ? snap : null,
       commitInProgress: !!data?.commitInProgress,
@@ -236,6 +238,7 @@ export function saveImportPageSession(data) {
  *   fileName: string,
  *   basicFormList: any[],
  *   sharedImportTypeFlag5: string,
+ *   sharedClearanceOrder: boolean,
  *   cutPreviewColorNo: string,
  *   parseResultSnapshot: any | null,
  *   commitInProgress: boolean,
@@ -252,6 +255,7 @@ export function readImportPageSession() {
       fileName: String(o?.fileName ?? '').trim(),
       basicFormList: Array.isArray(o?.basicFormList) ? o.basicFormList : [],
       sharedImportTypeFlag5: String(o?.sharedImportTypeFlag5 ?? '').trim(),
+      sharedClearanceOrder: o?.sharedClearanceOrder === true,
       cutPreviewColorNo: String(o?.cutPreviewColorNo ?? '').trim(),
       parseResultSnapshot:
         snap && typeof snap === 'object' && !Array.isArray(snap) ? snap : null,
@@ -281,6 +285,7 @@ export function mergeWorkbenchIntoImportPageSession(fileId) {
     fileName: sess?.fileName || '',
     basicFormList: sess?.basicFormList || [],
     sharedImportTypeFlag5: sess?.sharedImportTypeFlag5 || '',
+    sharedClearanceOrder: sess?.sharedClearanceOrder === true,
     cutPreviewColorNo: sess?.cutPreviewColorNo || '',
     commitInProgress: !!sess?.commitInProgress,
     parseResultSnapshot: {
@@ -360,6 +365,10 @@ export function readWorkbenchPayload() {
   } catch {
     return null
   }
+}
+
+export function clearWorkbenchPayload() {
+  sessionStorage.removeItem(ERP_WORKBENCH_STORAGE)
 }
 
 /**

@@ -4,6 +4,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import os from 'node:os'
 import {
+  buildPaperPatternUploaderSql,
   formatSystemUploadFilesizeKb,
   parseFilesizeKeywordPart,
   parseSystemUploadFilesizeBytes,
@@ -29,6 +30,20 @@ describe('paperPatternImportFilesList', () => {
     assert.deepEqual(parseFilesizeKeywordPart('181'), { mode: 'bytes', value: '181' })
     assert.deepEqual(parseFilesizeKeywordPart('670 KB'), { mode: 'kb', value: '670' })
     assert.deepEqual(parseFilesizeKeywordPart('PQ-3672'), { mode: 'none', value: '' })
+  })
+
+  test('buildPaperPatternUploaderSql 优先 Sys_Users.truename', () => {
+    const meta = {
+      qb: (low) => {
+        const m = { userid: '[UserID]', truename: '[truename]' }
+        return m[low] ?? null
+      },
+    }
+    const { joinSql, uploaderSql, uploaderSearchSql } = buildPaperPatternUploaderSql(meta)
+    assert.match(joinSql, /LEFT JOIN Sys_Users AS su/)
+    assert.match(joinSql, /su\.\[UserID\]/)
+    assert.match(uploaderSql, /su\.\[truename\]/)
+    assert.match(uploaderSearchSql, /su\.\[truename\]/)
   })
 })
 
