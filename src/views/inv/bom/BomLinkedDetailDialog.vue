@@ -2,7 +2,7 @@
   <ErpPageDialog
     v-model="open"
     :title="dialogTitle"
-    dialog-class="bom-detail-dialog bom-linked-detail-dialog"
+    dialog-class="bom-detail-dialog bom-linked-detail-dialog erp-detail-form-context"
     append-to-body
     :modal="stackModal"
     @closed="onClosed"
@@ -13,7 +13,7 @@
         <template v-else-if="bomBasic">
           <el-tabs v-model="activeTab">
             <el-tab-pane label="基础资料" name="basic">
-              <div v-loading="basicFullLoading" class="bom-detail-body">
+              <div v-loading="basicFullLoading" class="bom-detail-body erp-detail-form-surface">
                 <BomDetailBasicReadonly :basic="bomBasic" />
               </div>
             </el-tab-pane>
@@ -86,7 +86,7 @@
                         :min="0"
                         :precision="6"
                         :step="0.000001"
-                        controls-position="right"
+                        :controls="false"
                         class="bom-parts-num"
                         @change="
                           () => {
@@ -105,7 +105,7 @@
                         :min="0"
                         :precision="2"
                         :step="0.1"
-                        controls-position="right"
+                        :controls="false"
                         class="bom-parts-num"
                         @update:model-value="(v) => onLossPctChange(row, v)"
                       />
@@ -122,7 +122,7 @@
                         :min="0"
                         :precision="4"
                         :step="0.0001"
-                        controls-position="right"
+                        :controls="false"
                         class="bom-parts-num"
                         @change="markPartsDirty"
                       />

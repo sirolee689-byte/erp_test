@@ -108,6 +108,31 @@ export function clipNvarcharForColumn(value, maxLen) {
 }
 
 /**
+ * 按登录账号 usercode 查 Sys_Users.truename（业务表 utruename/uptruename 等审计姓名）
+ * @param {import('mssql').ConnectionPool | null | undefined} pool
+ * @param {string | null | undefined} usercode
+ * @returns {Promise<string | null>}
+ */
+export async function resolveSysUsersTruenameByUsercode(pool, usercode) {
+  const code = String(usercode ?? '').trim()
+  if (!pool || !code) return null
+  const meta = await getSysUsersColumnsMeta(pool)
+  const qUsercode = meta.qb('usercode')
+  const qTruename = meta.qb('truename')
+  if (!qUsercode || !qTruename) return null
+  const r = await pool
+    .request()
+    .input('auditUsercode', sql.NVarChar(80), code)
+    .query(`
+    SELECT TOP (1) LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(u.${qTruename}, N'')))) AS truename
+    FROM Sys_Users AS u
+    WHERE LTRIM(RTRIM(CAST(ISNULL(u.${qUsercode}, N'') AS NVARCHAR(100)))) = @auditUsercode
+  `)
+  const tn = String(r.recordset?.[0]?.truename ?? '').trim()
+  return tn || null
+}
+
+/**
  * password 列不足 bcrypt 时自动扩至 NVARCHAR(200)（无需手工跑脚本）
  * @param {import('mssql').ConnectionPool} pool
  * @param {SysUsersColumnsMeta} [metaIn]

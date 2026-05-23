@@ -28,12 +28,14 @@
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/inv/bom/list` | 分页列表；`recycled=1` 回收站；否则 `pass` + 在册 `del`；返回含 **`systemcode`** |
+| GET | `/api/inv/bom/list` | 分页列表；`recycled=1` 回收站；否则 `pass` + 在册 `del`；可选 **`bom_code_id`**（`Bom_code.id`，按 flag5 前缀筛 `kcaa01`）；返回含 **`systemcode`** |
+| GET | `/api/inv/bom/bom-code-categories` | BOM 分类下拉（`Bom_code`，按 `id` 升序） |
 | GET | `/api/inventory/bom/:id` | 详情，`:id` = `kcaa01`（URL 编码）；**含已删行**（便于回收站查看） |
 | POST | `/api/inventory/bom/save-main` | **新增主档（标准）**：与旧版 `POST /api/inventory/bom` 共用逻辑 |
 | POST | `/api/inventory/bom` | 新增主档（兼容；与 `save-main` 相同） |
 | PUT | `/api/inventory/bom` | 保存（body 含 `systemcode`，**未审且在册**） |
 | PUT | `/api/inventory/bom/audit` | 审核 `body: { systemcode }` |
+| PUT | `/api/inventory/bom/audit-batch` | 批量审核 `body: { systemcodes }`（仅当前页，最多 200） |
 | PUT | `/api/inventory/bom/unaudit` | 反审 |
 | PUT | `/api/inventory/bom/restore` | 回收站恢复 |
 | DELETE | `/api/inventory/bom/systemcode/:systemcode` | 软删（**已审拒绝**） |
@@ -44,8 +46,9 @@
 
 ## 标准件交互（对齐颜色编码）
 
+- **BOM 分类筛选**：工具栏下拉来自 **`Bom_code`**（按 `id` 排序，展示 `flag1` 如「产品」）；查询传 **`bom_code_id`**，按该分类 **`flag5` 前缀** 匹配物料编码 `kcaa01`；默认「全部分类」。列表「分类」列仍为材料分类（`Bom_material` / `kcaa05`），与筛选项不是同一张表
 - **默认**：列表 `pass=1`（已审核）
-- **显示未审核**：`pass=0`；此时显示「编辑」入口
+- **显示未审核**：`pass=0`；此时显示「编辑」入口；工具栏 **批量审核（仅当前页）** 只审当前分页行（如 10 条/页最多 10 条）
 - **回收站**：仅 `del=1`；操作「恢复」「彻底删除」；与「显示未审核」互斥
 - **二次确认**：审核 / 反审 / 软删 / 恢复 / 彻底删除均需 `ElMessageBox.confirm`；彻底删除为危险确认
 - **已审核**：禁止编辑、禁止软删；彻底删除在回收站内对已审行按钮禁用（需先恢复再反审后再删，按业务）

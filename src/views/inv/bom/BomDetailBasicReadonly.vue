@@ -1,5 +1,11 @@
 <template>
-  <el-form v-if="basic" class="bom-detail-form" label-position="right" label-width="112px" size="default">
+  <el-form
+    v-if="basic"
+    class="erp-detail-form bom-detail-form"
+    label-position="right"
+    label-width="112px"
+    size="default"
+  >
     <div class="bom-section-title">系统</div>
     <el-row :gutter="12" class="bom-edit-row-system">
       <el-col :xs="24" :sm="15">

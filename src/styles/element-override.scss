@@ -46,6 +46,36 @@
   --erp-shell-user-size: 14px;
   --erp-sidebar-logo-size: 16px;
   --erp-sidebar-menu-size: 14px;
+
+  /* ---------- 详情/大表单 · 蓝灰专业系（erp-detail-form.css）DIY ---------- */
+  /* 弹窗正文浅蓝灰底 */
+  --erp-detail-page-bg: #eef2f7;
+  /* 标题栏深蓝色带 */
+  --erp-detail-header-bg: #1e3a5f;
+  --erp-detail-header-text: #ffffff;
+  --erp-detail-header-border: #16325c;
+  --erp-detail-header-title-size: 17px;
+  /* Tab 栏浅蓝灰底；激活/未激活文字 */
+  --erp-detail-tab-bar-bg: #e4ebf3;
+  --erp-detail-tab-active-color: #1d4ed8;
+  --erp-detail-tab-inactive-color: #5a6d85;
+  /* 分区标题：深蓝字 + 底部分隔线（无色块） */
+  --erp-detail-section-color: #1e40af;
+  --erp-detail-section-divider: #1d4ed8;
+  --erp-detail-section-divider-width: 2px;
+  --erp-detail-section-font-size: 16px;
+  /* 字段标签：小号灰蓝 */
+  --erp-detail-label-color: #5a6d85;
+  --erp-detail-label-font-size: 13px;
+  /* 字段值：深色加粗 */
+  --erp-detail-value-color: #1a1a1a;
+  --erp-detail-value-font-weight: 600;
+  /* 输入框：可编辑纯白 / 只读浅蓝灰；边框略深于 EP 默认 */
+  --erp-detail-input-editable-bg: #ffffff;
+  --erp-detail-input-readonly-bg: #e4ebf3;
+  --erp-detail-input-border: #a8b8c8;
+  --erp-detail-input-border-hover: #7f94a8;
+  --erp-detail-input-height: 40px;
 }
 
 html {
@@ -127,6 +157,11 @@ html[data-ui='comfortable'] {
   /* 弹窗关闭（×）DIY（舒适模式）：覆盖 :root 同名变量 */
   --erp-dialog-close-size: 40px;
   --erp-dialog-close-icon-size: 30px;
+  /* 详情表单：舒适模式略加大标题、标签、输入框 */
+  --erp-detail-header-title-size: 18px;
+  --erp-detail-section-font-size: 17px;
+  --erp-detail-label-font-size: 14px;
+  --erp-detail-input-height: 44px;
 
   /* 【触控】控件最小高度 44px */
   --el-component-size-large: 48px;
@@ -263,8 +298,9 @@ html[data-ui='comfortable'] .erp-module-page .erp-list-table .el-table__body td.
   );
 }
 
-/* BOM 主列表：7 钮 4+3 两行，压扁间距（勿用 --erp-action-gap 8px） */
+/* BOM 主列表：固定 4 列 Grid，第一行 编辑/复制/查看/一键*，第二行 删除/审核|反审（见 index.vue 按钮顺序） */
 .erp-module-page .erp-list-table .bom-list-actions.erp-table-actions--grid {
+  --erp-table-actions-cols: 4 !important;
   column-gap: var(--erp-bom-list-action-col-gap);
   row-gap: var(--erp-bom-list-action-row-gap);
   overflow: visible;
@@ -641,8 +677,9 @@ html[data-ui='comfortable'] .bom-list-cell-wrap {
   font-size: var(--erp-table-meta-size);
 }
 
+html[data-ui='comfortable'] .erp-detail-section-title,
 html[data-ui='comfortable'] .bom-section-title {
-  font-size: var(--el-font-size-large) !important;
+  font-size: var(--erp-detail-section-font-size) !important;
   font-weight: var(--erp-font-weight-heading) !important;
 }
 

@@ -17,6 +17,7 @@
 | `element-override.scss` | Element Plus CSS 变量、触控 44px、对比度、表格/按钮全局规则 |
 
 | `erp-module-page.css` | 业务模块页 `.erp-module-page` 标题/说明/工具条；页面级弹窗 `.erp-page-dialog` |
+| `erp-detail-form.css` | 详情/大表单 **蓝灰专业系**：`erp-detail-form-context`（`ErpPageDialog` 默认）+ `erp-detail-form` + `erp-detail-form-surface`；变量 `--erp-detail-*` |
 | `components/erp/ErpPageDialog.vue` | 页面级详情/大表单弹窗封装（近全屏方案 A） |
 | `components/erp/ErpTableActions.vue` | 表格操作列容器（Grid 两行、按可见按钮数设列） |
 
@@ -99,6 +100,8 @@
 4. **关闭方式**：`ErpPageDialog` 默认**禁止**点灰色遮罩、按 Esc 关闭；仅右上角 **×**（或页内「取消」按钮）可关。小表单窗建议同样设 `:close-on-click-modal="false"`。× 按钮 DIY：改 `element-override.scss` 中 `--erp-dialog-close-size` / `--erp-dialog-close-icon-size`（文件内搜索「弹窗关闭」）；前端 UI 任务可 @ 项目 skill `erp-frontend-ui`。
 
 5. 表单级（新增颜色、改密码等）继续 `width="480px"`～`560px`，**勿**加 `erp-page-dialog`。
+
+6. **详情蓝灰风格**：`ErpPageDialog` 已默认 `erp-detail-form-context`（深蓝标题栏、浅蓝灰底、Tab/分区/输入框见 `erp-detail-form.css`）。中等弹窗在 `el-dialog` 上自加 `erp-detail-form-context`；表单区 `erp-detail-form-surface`，`el-form` 加 `erp-detail-form`；分区标题 `bom-section-title` / `erp-detail-section-title`。DIY：`element-override.scss` 的 `--erp-detail-*`。
 
 
 

@@ -68,12 +68,14 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   { method: 'DELETE', path: '/api/sys/logs/clear', action: '清空操作日志', targetTable: 'Sys_OperationLogs' },
 
   { method: 'GET', path: '/api/inv/bom/list', action: '查询BOM资料列表', targetTable: 'bom_000' },
+  { method: 'GET', path: '/api/inv/bom/bom-code-categories', action: '查询BOM分类下拉', targetTable: 'Bom_code' },
   { method: 'GET', path: '/api/inventory/bom/check-code', action: '校验BOM编码重复', targetTable: 'bom_000' },
   { method: 'GET', path: '/api/inventory/bom/unit-rate-suggest', action: '查询BOM单位换算建议', targetTable: 'Bom_unit_change' },
   { method: 'POST', path: '/api/inventory/bom/save-main', action: '保存BOM主资料(save-main)', targetTable: 'bom_000' },
   { method: 'POST', path: '/api/inventory/bom', action: '新增BOM主档', targetTable: 'bom_000' },
   { method: 'PUT', path: '/api/inventory/bom', action: '保存BOM主档', targetTable: 'bom_000' },
   { method: 'PUT', path: '/api/inventory/bom/audit', action: '审核BOM主档', targetTable: 'bom_000' },
+  { method: 'PUT', path: '/api/inventory/bom/audit-batch', action: '批量审核BOM主档', targetTable: 'bom_000' },
   { method: 'PUT', path: '/api/inventory/bom/unaudit', action: '反审BOM主档', targetTable: 'bom_000' },
   { method: 'PUT', path: '/api/inventory/bom/restore', action: '恢复BOM主档', targetTable: 'bom_000' },
   {

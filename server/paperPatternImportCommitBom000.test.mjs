@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { resolveSysUsersTruenameByUsercode } from './sysUsersDb.js'
 import {
   appendBom000PaperPatternAuditColumns,
   formatPaperPatternCutKcaa03,
@@ -51,6 +52,12 @@ test('resolveCutsResolvedForColor 清仓单 CUT 编号带 -OUT', () => {
     { importTypeFlag5: 'BAG', styleNo: 'PQ2803H1', colorNo: 'R-TEST', clearanceOrder: true },
   )
   assert.equal(rows[0].cutCode, 'CUT-BAGPQ2803H1/R-TEST-OUT<1-2>')
+})
+
+test('resolveSysUsersTruenameByUsercode 无 pool 或空账号返回 null', async () => {
+  assert.equal(await resolveSysUsersTruenameByUsercode(null, 'u01'), null)
+  assert.equal(await resolveSysUsersTruenameByUsercode(null, ''), null)
+  assert.equal(await resolveSysUsersTruenameByUsercode(null, '  '), null)
 })
 
 test('appendBom000PaperPatternAuditColumns 列存在时写入审计字段', () => {

@@ -21,6 +21,7 @@
 <script setup>
 /**
  * 页面级弹窗（近全屏方案 A）：宽近铺满视口，正文在 dialog body 内纵向滚动。
+ * 默认附带 erp-detail-form-context（蓝灰详情风格，见 erp-detail-form.css）。
  * 表单级小窗请继续用 el-dialog + 固定 width（480–560px），勿套用本组件。
  */
 import { computed } from 'vue'
@@ -51,7 +52,7 @@ const open = computed({
 })
 
 const dialogClassMerged = computed(() => {
-  const parts = ['erp-page-dialog']
+  const parts = ['erp-page-dialog', 'erp-detail-form-context']
   if (props.dialogClass) parts.push(props.dialogClass)
   return parts.join(' ')
 })

@@ -6,6 +6,7 @@ import path from 'node:path'
 import sql from 'mssql'
 import { getPool } from './db.js'
 import { getActorAuditTripletFromReq } from './businessAuditFields.js'
+import { resolveSysUsersTruenameByUsercode } from './sysUsersDb.js'
 import { getRequestIp } from './operationAuditMiddleware.js'
 import {
   buildCutCode,
@@ -585,6 +586,9 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
     }
 
     const actor = getActorAuditTripletFromReq(req)
+    const loginUsercode = String(req.user?.userCode ?? '').trim()
+    const bomUtruename = await resolveSysUsersTruenameByUsercode(pool, loginUsercode)
+    const actorForBom = { ...actor, utruename: bomUtruename }
     const commitDate = new Date()
     const clientIp = String(getRequestIp(req) ?? '').trim()
 
@@ -725,7 +729,7 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
           addtime,
           ip: clientIp,
           decimalStr: '3',
-          actor,
+          actor: actorForBom,
         })
 
         const cutSystemcodeByCutCode = new Map()
@@ -762,7 +766,7 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
             addtime,
             ip: clientIp,
             decimalStr: '3',
-            actor,
+            actor: actorForBom,
           })
         }
 
@@ -774,7 +778,7 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
           cutSystemcodeByCutCode,
           accessories: filterAccessoriesForCommitColor(accessoriesIn, colorNo),
           materials: materialsForColor,
-          actor,
+          actor: actorForBom,
           addtime,
           bomMap: bomMapPrefetched,
         })

@@ -1,0 +1,170 @@
+/**
+ * 详情 / 大表单 — 蓝灰专业系（全局）
+ * 用法：
+ *   - 弹窗根：class 含 erp-detail-form-context（ErpPageDialog 已默认带上）
+ *   - 内容区：erp-detail-form-surface
+ *   - 表单：erp-detail-form
+ *   - 分区标题：erp-detail-section-title 或 bom-section-title
+ * DIY 变量见 element-override.scss 中 --erp-detail-*
+ */
+
+/* ---------- 弹窗：浅蓝灰底 + 深蓝标题栏 ---------- */
+.erp-detail-form-context.el-dialog,
+.erp-detail-form-context .el-dialog__body {
+  background-color: var(--erp-detail-page-bg);
+}
+
+.erp-detail-form-context .el-dialog__header {
+  background-color: var(--erp-detail-header-bg);
+  border-bottom: 1px solid var(--erp-detail-header-border, #16325c);
+  margin-right: 0;
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+.erp-detail-form-context .el-dialog__title {
+  color: var(--erp-detail-header-text);
+  font-weight: 600;
+  font-size: var(--erp-detail-header-title-size, 17px);
+}
+
+.erp-detail-form-context .el-dialog__footer {
+  background-color: var(--erp-detail-page-bg);
+  border-top: 1px solid var(--erp-detail-input-border);
+}
+
+/* ---------- 内容区（与弹窗底同色，仅留白） ---------- */
+.erp-detail-form-surface {
+  background-color: transparent;
+  padding: 12px 14px 18px;
+  border-radius: 0;
+}
+
+/* ---------- 分区标题：深蓝字 + 底部分隔线，无色块 ---------- */
+.erp-detail-section-title,
+.bom-section-title {
+  display: block;
+  font-size: var(--erp-detail-section-font-size);
+  font-weight: 700;
+  line-height: 1.45;
+  color: var(--erp-detail-section-color);
+  margin: 20px 0 12px;
+  padding: 0 0 8px;
+  background: none;
+  border: none;
+  border-left: none;
+  border-bottom: var(--erp-detail-section-divider-width, 2px) solid
+    var(--erp-detail-section-divider);
+  border-radius: 0;
+}
+
+.erp-detail-form > .erp-detail-section-title:first-child,
+.erp-detail-form > .bom-section-title:first-child,
+.erp-detail-form-surface > .erp-detail-form > .bom-section-title:first-child {
+  margin-top: 0;
+}
+
+/* ---------- 字段标签（小号灰蓝） vs 内容（深色加粗） ---------- */
+.erp-detail-form .el-form-item__label {
+  color: var(--erp-detail-label-color) !important;
+  font-size: var(--erp-detail-label-font-size) !important;
+  font-weight: 500 !important;
+  line-height: 1.45;
+}
+
+.erp-detail-form .el-form-item__label::before {
+  color: var(--el-color-danger);
+}
+
+.erp-detail-form .el-input__inner,
+.erp-detail-form .el-textarea__inner,
+.erp-detail-form .el-select__selected-item,
+.erp-detail-form .el-select__placeholder,
+.erp-detail-form .el-input-number .el-input__inner {
+  color: var(--erp-detail-value-color);
+  font-weight: var(--erp-detail-value-font-weight, 600);
+}
+
+/* ---------- 输入框：浅蓝灰边框、白底可编辑 / 浅蓝灰只读 ---------- */
+.erp-detail-form-context {
+  --el-border-color: var(--erp-detail-input-border);
+  --el-border-color-hover: var(--erp-detail-input-border-hover);
+  --el-component-size: var(--erp-detail-input-height);
+}
+
+.erp-detail-form .el-input__wrapper,
+.erp-detail-form .el-select__wrapper,
+.erp-detail-form .el-textarea__inner {
+  box-shadow: 0 0 0 1px var(--erp-detail-input-border) inset;
+}
+
+.erp-detail-form .el-input__wrapper,
+.erp-detail-form .el-select__wrapper {
+  min-height: var(--erp-detail-input-height);
+  background-color: var(--erp-detail-input-editable-bg) !important;
+}
+
+.erp-detail-form .el-textarea__inner {
+  background-color: var(--erp-detail-input-editable-bg);
+}
+
+.erp-detail-form .el-input-number {
+  width: 100%;
+}
+
+.erp-detail-form .el-input-number .el-input__wrapper {
+  min-height: var(--erp-detail-input-height);
+}
+
+.erp-detail-form .el-input.is-disabled .el-input__wrapper,
+.erp-detail-form .el-select.is-disabled .el-select__wrapper,
+.erp-detail-form .el-textarea.is-disabled .el-textarea__inner,
+.erp-detail-form .el-input-number.is-disabled .el-input__wrapper {
+  background-color: var(--erp-detail-input-readonly-bg) !important;
+  box-shadow: 0 0 0 1px var(--erp-detail-input-border) inset;
+}
+
+.erp-detail-form .el-input:has(.el-input__inner[readonly]) .el-input__wrapper,
+.erp-detail-form .el-input:has(input[readonly]) .el-input__wrapper {
+  background-color: var(--erp-detail-input-readonly-bg) !important;
+}
+
+.erp-detail-form .el-textarea:has(.el-textarea__inner[readonly]) .el-textarea__inner,
+.erp-detail-form .el-textarea:has(textarea[readonly]) .el-textarea__inner {
+  background-color: var(--erp-detail-input-readonly-bg) !important;
+}
+
+.erp-detail-form .el-checkbox.is-disabled .el-checkbox__label {
+  color: var(--erp-detail-label-color);
+}
+
+/* ---------- Tab：浅蓝灰底栏，激活深蓝+下划线，未激活中灰蓝 ---------- */
+.erp-detail-form-context .el-tabs__header {
+  background-color: var(--erp-detail-tab-bar-bg);
+  margin: 0 0 12px;
+  padding: 4px 12px 0;
+  border-radius: var(--el-border-radius-base);
+}
+
+.erp-detail-form-context .el-tabs__item {
+  color: var(--erp-detail-tab-inactive-color);
+  font-weight: 500;
+}
+
+.erp-detail-form-context .el-tabs__item:hover {
+  color: var(--erp-detail-tab-active-color);
+}
+
+.erp-detail-form-context .el-tabs__item.is-active {
+  color: var(--erp-detail-tab-active-color);
+  font-weight: 600;
+}
+
+.erp-detail-form-context .el-tabs__active-bar {
+  background-color: var(--erp-detail-tab-active-color);
+  height: 3px;
+}
+
+.erp-detail-form-context .el-tabs__nav-wrap::after {
+  background-color: var(--erp-detail-input-border);
+}

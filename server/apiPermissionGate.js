@@ -368,6 +368,14 @@ export function matchApiPermissionRule(method, path, body, params) {
       ],
     }
   }
+  if (m === 'PUT' && path === '/api/inventory/bom/audit-batch') {
+    return {
+      anyOf: [
+        { menuPath: 'inv/bom', action: 'audit' },
+        { menuPath: 'inventory/basic/bom-data', action: 'audit' },
+      ],
+    }
+  }
   if (m === 'PUT' && path === '/api/inventory/bom/unaudit') {
     return {
       anyOf: [
@@ -404,6 +412,16 @@ export function matchApiPermissionRule(method, path, body, params) {
 
   /* v1.3.0+：BOM 列表（bom_cost 用量聚合改为单次 GROUP BY，非逐行 SQL） */
   if (m === 'GET' && path === '/api/inv/bom/list') {
+    return {
+      anyOf: [
+        { menuPath: 'inv/bom', action: 'view' },
+        { menuPath: 'inventory/basic/bom-data', action: 'view' },
+        { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' },
+        { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'view' },
+      ],
+    }
+  }
+  if (m === 'GET' && path === '/api/inv/bom/bom-code-categories') {
     return {
       anyOf: [
         { menuPath: 'inv/bom', action: 'view' },
@@ -520,8 +538,15 @@ export function matchApiPermissionRule(method, path, body, params) {
   }
 
   /* 销售/采购/外协管理 — 日常工作：采购报价（主从表） */
+  /* 按编码查 BOM 一行：采购报价选材 + BOM 配件选材共用；有 BOM 或采购报价 view 之一即可 */
   if (m === 'GET' && path === '/api/supply-chain/purchase-quotations/bom-detail') {
-    return { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' }
+    return {
+      anyOf: [
+        { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' },
+        { menuPath: 'inv/bom', action: 'view' },
+        { menuPath: 'inventory/basic/bom-data', action: 'view' },
+      ],
+    }
   }
   if (m === 'GET' && path === '/api/supply-chain/purchase-quotations/list') {
     return { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' }
@@ -564,8 +589,15 @@ export function matchApiPermissionRule(method, path, body, params) {
   }
 
   /* 销售/采购/外协管理 — 日常工作：外协报价（主从表） */
+  /* 按编码查 BOM 一行：外协报价选材 + BOM 配件选材共用；有 BOM 或外协报价 view 之一即可 */
   if (m === 'GET' && path === '/api/supply-chain/outsourcing-quotations/bom-detail') {
-    return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'view' }
+    return {
+      anyOf: [
+        { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'view' },
+        { menuPath: 'inv/bom', action: 'view' },
+        { menuPath: 'inventory/basic/bom-data', action: 'view' },
+      ],
+    }
   }
   if (m === 'GET' && path === '/api/supply-chain/outsourcing-quotations/list') {
     return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'view' }

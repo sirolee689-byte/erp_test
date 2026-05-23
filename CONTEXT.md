@@ -24,15 +24,33 @@
 
 ## 三、通用字段约定
 
-### 审计字段（所有业务表必须包含）
-| 字段 | 说明 |
+### 审计字段（业务表：bom_000、Bom_parts、颜色编码等）
+
+记录**本条业务数据**的录入/修改人，与 `Sys_Users` 上「创建人」列不是同一套语义。
+
+| 字段 | 说明 | 与 Sys_Users 的对应 |
+|---|---|---|
+| uid | 当前操作人 ID | `UserID` |
+| uname | 当前操作人**登录账号** | 写入值应对 **`usercode`**（勿读 `Sys_Users.uname`） |
+| utruename | 当前操作人**真实姓名** | 写入值应对 **`truename`**（用当前登录 `usercode` 查库，禁止用令牌显示名或 `Sys_Users.name`） |
+| addtime | 录入时间（nvarchar 业务时间串） | — |
+| edittime | 修改时间 | — |
+| deltime | 删除时间 | — |
+
+**修改人（仅部分主档 UPDATE）**：`bom_000.uptruename` = 保存时当前操作人的 **`truename`**（同样按登录 **`usercode`** 查库）。
+
+> 查真实姓名：只用登录 **`usercode`** 精确匹配 `Sys_Users.usercode` → 取 `truename`。与 `Sys_Users.uname`（创建人姓名）无关。
+
+### 操作员表 Sys_Users（列名勿与业务表审计列混用）
+
+| 列 / 概念 | 说明 |
 |---|---|
-| uid | 操作人ID |
-| uname | 操作人账号 |
-| utruename | 操作人真实姓名 |
-| addtime | 录入时间（nvarchar业务时间串）|
-| edittime | 修改时间（nvarchar业务时间串）|
-| deltime | 删除时间（nvarchar业务时间串）|
+| **usercode** | 本账号**登录账号**（操作人账号）；全表唯一；与 `username` 同步 |
+| **truename** | 本账号**真实姓名**（界面「姓名」） |
+| **uname** | **创建本账号的人**的 **`truename`**（创建人真实姓名，不是登录账号） |
+| **utruename** | （若库中存在）与操作员模块审计约定一致；**不等于**业务表里的「操作人真实姓名」列语义，以操作员模块实现为准 |
+
+**登录**：令牌中的 `userCode` 来自 `Sys_Users.usercode`；业务表审计写 `uname` / `utruename` 时应对 `usercode` / `truename`，不得把 `Sys_Users.uname` 当成当前登录账号。
 
 ### 状态位约定
 | 字段 | 值 | 含义 |
