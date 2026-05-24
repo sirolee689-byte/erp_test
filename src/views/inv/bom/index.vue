@@ -632,9 +632,7 @@
                   </el-button>
                   <el-button :disabled="!bomUsageTreeData.length" @click="expandAllBomUsageTree">展开全部</el-button>
                   <el-button :disabled="!bomUsageTreeData.length" @click="collapseAllBomUsageTree">关闭全部</el-button>
-                  <span class="bom-usage-calc-toolbar__hint">
-                    若库内已有 bom_cost（pq+sid），打开用量相关 Tab 将直接读缓存，不自动递归；「运算」仅首次写入；「重新运算」删除旧数据后重算并覆盖；「刷新」仅重新 GET
-                  </span>
+              
                 </div>
                 <el-alert
                   v-if="bomUsageTreeError"
@@ -689,7 +687,7 @@
                 </div>
               </el-tab-pane>
               <el-tab-pane label="成本BOM用量表" name="costBomUsage" lazy :disabled="!bomBasic">
-                <div class="bom-cost-usage-toolbar bom-parts-toolbar">
+                <div class="bom-cost-usage-toolbar bom-parts-toolbar no-print">
                   <template v-if="bomUsageCostBlockReady">
                     <div class="bom-cost-hide-prefix-bar">
                       <span class="bom-cost-hide-prefix-bar__label">隐藏编码前缀</span>
@@ -698,26 +696,23 @@
                       </el-button>
                       <span class="bom-cost-hide-prefix-bar__summary">{{ bomCostHidePrefixSummaryText }}</span>
                     </div>
-                    <span class="bom-usage-calc-toolbar__hint bom-cost-usage-toolbar__hint">
-                      {{
-                        bomUsageHasCache
-                          ? '命中 bom_cost 缓存：由库表明细还原平铺，下表按「编码+备注」本地合并展示'
-                          : '「运算」写入 bom_cost；下表为本地筛选合并（按编码+备注），调整前缀后立即重算'
-                      }}
-                    </span>
+                    <div class="bom-cost-usage-actions no-print">
+                      <el-button size="small" type="success" @click="exportBomCostUsageXls">导出信息</el-button>
+                      <el-button size="small" @click="onPrintBomCostUsage">点击此处打印</el-button>
+                    </div>
                   </template>
                   <span v-else class="bom-usage-calc-toolbar__hint bom-cost-usage-toolbar__hint">
                     请切换到「BOM用量表运算」或本 Tab，将自动从服务器加载（有缓存则直读 bom_cost，无缓存则 DFS 预览）
                   </span>
                 </div>
                 <div v-loading="bomUsageTreeLoading" class="bom-cost-usage-wrap">
-                  <div v-if="bomCostUsageFlatRows.length" class="bom-cost-usage-table-outer">
+                  <div v-if="bomCostUsageFlatRows.length" class="bom-cost-usage-table-outer bom-cost-usage-print-area">
                     <el-table
                       :data="bomCostUsageFlatRows"
                       border
                       stripe
                       :size="detailTableSize"
-                      class="bom-cost-usage-table"
+                      class="bom-cost-usage-table bom-cost-usage-screen-table"
                       max-height="calc(100vh - 280px)"
                       row-key="__bomCostRowKey"
                       show-summary
@@ -752,6 +747,41 @@
                         <template #default="{ row }">{{ formatQty(row.total_qty) }}</template>
                       </el-table-column>
                     </el-table>
+                    <table class="bom-cost-usage-print-only-table" aria-hidden="true">
+                      <thead>
+                        <tr>
+                          <th>编码</th>
+                          <th>名称</th>
+                          <th>规格</th>
+                          <th>单位</th>
+                          <th>备注</th>
+                          <th>用量</th>
+                          <th>损耗</th>
+                          <th>合计</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="row in bomCostUsageFlatRows" :key="`print-${row.__bomCostRowKey}`">
+                          <td>{{ dVal(row.kcaa01) }}</td>
+                          <td>{{ dVal(row.kcaa02) }}</td>
+                          <td>{{ dVal(row.kcaa03) }}</td>
+                          <td>{{ dVal(row.kcaa04) }}</td>
+                          <td>{{ dVal(row.Describe) }}</td>
+                          <td class="num">{{ formatQty(row.yl) }}</td>
+                          <td class="num">{{ formatQty(row.loss_rate) }}</td>
+                          <td class="num">{{ formatQty(row.total_qty) }}</td>
+                        </tr>
+                      </tbody>
+                      <tfoot>
+                        <tr>
+                          <td>合计</td>
+                          <td colspan="4" />
+                          <td class="num">{{ formatQty(bomCostUsageTotals.sumYl) }}</td>
+                          <td />
+                          <td class="num">{{ formatQty(bomCostUsageTotals.sumTotalQty) }}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
                   </div>
                   <el-empty
                     v-else-if="!bomUsageTreeLoading && bomUsageCostBlockReady"
@@ -1244,14 +1274,9 @@
                       </el-button>
                     </template>
                   </el-table-column>
-                  <el-table-column
-                    type="index"
-                    label="序号"
-                    width="52"
-                    align="center"
-                    fixed="left"
-                    :index="partsRowIndex"
-                  />
+                  <el-table-column label="序号" width="52" align="center" fixed="left">
+                    <template #default="{ row }">{{ editPartSeqDisplay(row) }}</template>
+                  </el-table-column>
                   <el-table-column label="操作" min-width="260" align="center" fixed="left">
                     <template #default="{ row }">
                       <ErpTableActions>
@@ -1375,6 +1400,7 @@ import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
 import ErpPageDialog from '@/components/erp/ErpPageDialog.vue'
 import BomDetailBasicReadonly from './BomDetailBasicReadonly.vue'
 import BomLinkedDetailDialog from './BomLinkedDetailDialog.vue'
+import ExcelJS from 'exceljs'
 import { aggregateBomCostUsageFlatForDisplay } from '@/utils/bomCostUsageAggregate.js'
 
 const { detailTableSize } = useUiDensity()
@@ -1716,6 +1742,106 @@ function bomCostUsageSummaryMethod({ columns, data }) {
     else sums[index] = ''
   })
   return sums
+}
+
+const BOM_COST_USAGE_EXPORT_HEADERS = ['编码', '名称', '规格', '单位', '备注', '用量', '损耗', '合计']
+
+/** 成本 BOM 用量表：用量/合计列汇总（导出、打印与表尾一致） */
+function bomCostUsageSummaryTotals(rows) {
+  const list = Array.isArray(rows) ? rows : []
+  let sumYl = 0
+  let sumTotalQty = 0
+  for (let i = 0; i < list.length; i++) {
+    const row = list[i]
+    const yl = Number(row?.yl ?? 0)
+    const tq = Number(row?.total_qty ?? 0)
+    if (Number.isFinite(yl)) sumYl += yl
+    if (Number.isFinite(tq)) sumTotalQty += tq
+  }
+  return { sumYl, sumTotalQty }
+}
+
+const bomCostUsageTotals = computed(() => bomCostUsageSummaryTotals(bomCostUsageFlatRows.value))
+
+function bomCostUsagePad2(n) {
+  return String(n).padStart(2, '0')
+}
+
+function bomCostUsageSafeFilePart(s) {
+  const t = String(s ?? '').trim().replace(/[\\/:*?"<>|]/g, '_')
+  return t.slice(0, 80) || 'BOM'
+}
+
+function bomCostUsageExportStamp() {
+  const d = new Date()
+  return `${d.getFullYear()}${bomCostUsagePad2(d.getMonth() + 1)}${bomCostUsagePad2(d.getDate())}`
+}
+
+/** @param {Record<string, unknown>} row */
+function bomCostUsageRowToExportCells(row) {
+  return [
+    dVal(row.kcaa01),
+    dVal(row.kcaa02),
+    dVal(row.kcaa03),
+    dVal(row.kcaa04),
+    dVal(row.Describe),
+    formatQty(row.yl),
+    formatQty(row.loss_rate),
+    formatQty(row.total_qty),
+  ]
+}
+
+async function exportBomCostUsageXls() {
+  const rows = bomCostUsageFlatRows.value
+  if (!rows?.length) {
+    ElMessage.warning('暂无数据可导出')
+    return
+  }
+  const { sumYl, sumTotalQty } = bomCostUsageSummaryTotals(rows)
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet('成本BOM用量表', { views: [{ state: 'frozen', ySplit: 1 }] })
+  ws.addRow([...BOM_COST_USAGE_EXPORT_HEADERS])
+  ws.getRow(1).font = { bold: true }
+  for (const row of rows) {
+    ws.addRow(bomCostUsageRowToExportCells(row))
+  }
+  ws.addRow(['合计', '', '', '', '', formatQty(sumYl), '', formatQty(sumTotalQty)])
+  ws.getRow(ws.rowCount).font = { bold: true }
+  ws.columns.forEach((col) => {
+    let max = 10
+    col.eachCell?.({ includeEmpty: true }, (cell) => {
+      const len = String(cell.value ?? '').length
+      if (len > max) max = len
+    })
+    col.width = Math.min(42, Math.max(10, max + 2))
+  })
+  const buf = await wb.xlsx.writeBuffer()
+  const blob = new Blob([buf], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  const code = bomCostUsageSafeFilePart(bomBasic.value?.kcaa01)
+  a.download = `成本BOM用量表_${code}_${bomCostUsageExportStamp()}.xlsx`
+  a.click()
+  URL.revokeObjectURL(url)
+  ElMessage.success('已导出')
+}
+
+function onPrintBomCostUsage() {
+  if (!bomCostUsageFlatRows.value.length) {
+    ElMessage.warning('暂无数据可打印')
+    return
+  }
+  detailActiveTab.value = 'costBomUsage'
+  document.documentElement.classList.add('print-bom-cost-usage')
+  nextTick(() => {
+    setTimeout(() => {
+      window.print()
+      setTimeout(() => document.documentElement.classList.remove('print-bom-cost-usage'), 800)
+    }, 120)
+  })
 }
 
 /** 遍历树（先序），供展开/折叠 */
@@ -2121,13 +2247,13 @@ function editPartCompareDecKey(v) {
 
 /** 编辑弹窗配件在册行 + 待删 id，序列化后用于保存前后 diff */
 function serializeEditPartsForCompare(partsList, pendingDeleteIds) {
-  let seqAcc = 0
   /** @type {Record<string, unknown>[]} */
   const kept = []
   for (const r of partsList ?? []) {
     if (!String(r.kcaa01 ?? '').trim()) continue
     if (!bomPartDelLooksActive(r?.del)) continue
-    seqAcc += 1
+    const seqNum = partSeqForSave(r)
+    if (!seqNum) continue
     kept.push({
       id: r.id != null && Number(r.id) > 0 ? Number(r.id) : 0,
       kcaa01: String(r.kcaa01 ?? '').trim(),
@@ -2136,7 +2262,7 @@ function serializeEditPartsForCompare(partsList, pendingDeleteIds) {
       kcac06: editPartCompareDecKey(r.kcac06),
       cost_price: editPartCompareDecKey(r.cost_price),
       remark: String(r.remark ?? '').trim(),
-      seq: seqAcc,
+      seq: seqNum,
     })
   }
   kept.sort((a, b) => a.seq - b.seq || a.id - b.id || String(a.kcaa01).localeCompare(String(b.kcaa01)))
@@ -2555,9 +2681,42 @@ function partsRowKey(row) {
   return String(row?._localKey ?? '')
 }
 
-/** 序号列：仅展示用；保存时按当前列表顺序写入 Bom_parts.[Seq]（1 起连续递增） */
+/** 查看详情配件表序号列：按当前行位置 1 起 */
 function partsRowIndex(i) {
   return i + 1
+}
+
+/** 编辑配件行 Bom_parts.[Seq]（正整数） */
+function partSeqForSave(row) {
+  const n = Number(row?.seq)
+  if (Number.isFinite(n) && n > 0) return Math.floor(n)
+  return null
+}
+
+function maxPartSeqInList(list) {
+  let max = 0
+  for (const r of list ?? []) {
+    const n = partSeqForSave(r)
+    if (n != null && n > max) max = n
+  }
+  return max
+}
+
+/** 编辑弹窗新增行：下一条 Seq（已有 23 行 → 24） */
+function nextEditPartSeq() {
+  return maxPartSeqInList(editPartsList.value) + 1
+}
+
+function editPartSeqDisplay(row) {
+  const n = partSeqForSave(row)
+  return n != null ? String(n) : '—'
+}
+
+/** 新增行插到表顶（编辑选材/空行）；不改变其它行 seq */
+function prependEditPartRow(row) {
+  if (!row) return
+  if (partSeqForSave(row) == null) row.seq = nextEditPartSeq()
+  editPartsList.value.unshift(row)
 }
 
 /** 用量合计 = kcac04 * (1 + kcac05)；损耗率为小数（5% → 0.05） */
@@ -2706,7 +2865,7 @@ async function batchRemoveEditPartsSelected() {
 
 function appendEditPartBlankRow() {
   if (editPartsReadOnly.value || !editBomSystemcode.value) return
-  editPartsList.value.push({
+  prependEditPartRow({
     _localKey: genLocalKey(),
     id: null,
     kcac01: '',
@@ -2720,6 +2879,7 @@ function appendEditPartBlankRow() {
     kcac06: 0,
     cost_price: 0,
     remark: '',
+    seq: nextEditPartSeq(),
     _partsMarkSelected: false,
   })
 }
@@ -2918,12 +3078,13 @@ async function loadEditBomParts() {
     const list = Array.isArray(body?.data?.list) ? body.data.list : []
     if (editPartsLoadedToken.value !== token) return
     editPartsPendingDeleteIds.value = []
-    editPartsList.value = list.map((r) => {
+    editPartsList.value = list.map((r, i) => {
       const row = {
         ...r,
         _localKey: genLocalKey(),
         _partsMarkSelected: false,
       }
+      if (partSeqForSave(row) == null) row.seq = i + 1
       syncPartKcac06(row)
       return row
     })
@@ -2950,13 +3111,16 @@ async function saveEditBomParts() {
     return
   }
   try {
-    let seqAcc = 0
     const kept = []
     for (const r of editPartsList.value ?? []) {
       if (!String(r.kcaa01 ?? '').trim()) continue
       if (!bomPartDelLooksActive(r?.del)) continue
+      const seqNum = partSeqForSave(r)
+      if (!seqNum) {
+        ElMessage.warning('存在未分配序号的配件行，请删除空行或重新添加后再保存')
+        return
+      }
       syncPartKcac06(r)
-      seqAcc += 1
       kept.push({
         id: r.id != null && Number(r.id) > 0 ? Number(r.id) : undefined,
         pendingDelete: false,
@@ -2971,9 +3135,10 @@ async function saveEditBomParts() {
         kcac06: r.kcac06,
         cost_price: r.cost_price,
         remark: r.remark,
-        seq: seqAcc,
+        seq: seqNum,
       })
     }
+    kept.sort((a, b) => a.seq - b.seq || Number(a.id ?? 0) - Number(b.id ?? 0))
     const dels = (editPartsPendingDeleteIds.value ?? []).map((pid) => ({
       id: Number(pid),
       pendingDelete: true,
@@ -3036,10 +3201,11 @@ function onEditMaterialPicked(payload) {
     kcac06: 1,
     cost_price: 0,
     remark: '',
+    seq: nextEditPartSeq(),
     _partsMarkSelected: false,
   }
   syncPartKcac06(row)
-  editPartsList.value.push(row)
+  prependEditPartRow(row)
 }
 
 /** GET /api/bom/tree：缓存直读或 DFS 预览（不写入） */
@@ -4043,6 +4209,37 @@ loadData()
 .bom-cost-usage-toolbar {
   margin-bottom: 0;
 }
+.bom-cost-usage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 4px;
+}
+.bom-cost-usage-print-only-table {
+  display: none;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.bom-cost-usage-print-only-table th,
+.bom-cost-usage-print-only-table td {
+  border: 1px solid #333;
+  padding: 4px 6px;
+  vertical-align: top;
+}
+.bom-cost-usage-print-only-table th {
+  background: #f0f0f0;
+  font-weight: 600;
+}
+.bom-cost-usage-print-only-table td.num,
+.bom-cost-usage-print-only-table th:nth-child(n + 6) {
+  text-align: right;
+}
+.bom-cost-usage-print-only-table tfoot td {
+  font-weight: 600;
+}
 
 .bom-cost-hide-prefix-bar {
   display: flex;
@@ -4181,5 +4378,43 @@ loadData()
 /* 单位与损耗：多行分区，行间距略收紧以贴近参考稿 */
 .bom-unit-loss-block > .el-row:not(:last-child) {
   margin-bottom: 4px;
+}
+</style>
+
+<style>
+/* 成本 BOM 用量表：浏览器打印（与 onPrintBomCostUsage 的 html class 配合） */
+@media print {
+  html.print-bom-cost-usage .no-print {
+    display: none !important;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-screen-table {
+    display: none !important;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-print-only-table {
+    display: table !important;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-wrap {
+    border: none;
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 0;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-table-outer {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  html.print-bom-cost-usage .bom-detail-dialog .el-dialog__header,
+  html.print-bom-cost-usage .bom-detail-dialog .el-tabs__header {
+    display: none !important;
+  }
+  html.print-bom-cost-usage .bom-detail-dialog .el-tab-pane {
+    display: none !important;
+  }
+  html.print-bom-cost-usage .bom-detail-dialog #pane-costBomUsage {
+    display: block !important;
+  }
+  html.print-bom-cost-usage .bom-detail-dialog .el-dialog__body {
+    padding: 8px 12px;
+  }
 }
 </style>
