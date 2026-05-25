@@ -1,5 +1,10 @@
 {
   "mcpServers": {
+    "codegraph": {
+      "command": "npx",
+      "args": ["codegraph", "serve", "--mcp"],
+      "cwd": "${workspaceFolder}"
+    },
     "user-sqlserver": {
       "command": "npx",
       "args": ["-y", "mssql-mcp@latest"],

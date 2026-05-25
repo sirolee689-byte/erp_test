@@ -31,4 +31,8 @@ server/tmp/
 logs/
 e2e-output/
 
+# --- CodeGraph（本地索引与安装器生成的 Agent 规则，勿提交）---
+.codegraph/
+.cursor/rules/codegraph.mdc
+
 docs/

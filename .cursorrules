@@ -143,7 +143,7 @@ npm run dev:server
 ### 17.2 自检
 
 - 控制台应出现 **`[启动指纹] bootAt=...`** 及与本次改动相关的 **指纹行**（如 `BOM-Tree-...`）。
-- 后端重启后须 **重新登录**（`erp_token` 失效），见 §14.1。
+- 后端重启后须 **重新登录**（`erp_token` 失效）；Agent 硬性三条见 `.cursor/rules/backend-api-restart.mdc`。
 
 ### 17.3 核心杀进程命令（单独执行亦可）
 
