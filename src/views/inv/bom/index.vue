@@ -805,6 +805,51 @@
       </el-skeleton>
     </ErpPageDialog>
 
+    <section class="bom-cost-usage-print-document" aria-hidden="true">
+      <h1>成本BOM用量表</h1>
+      <div class="bom-cost-usage-print-meta">
+        <span>编码：{{ dVal(bomBasic?.kcaa01) }}</span>
+        <span>名称：{{ dVal(bomBasic?.kcaa02) }}</span>
+        <span>规格：{{ dVal(bomBasic?.kcaa03) }}</span>
+        <span>客户款号：{{ dVal(bomBasic?.kcaa06) }}</span>
+      </div>
+      <table v-if="bomCostUsageFlatRows.length" class="bom-cost-usage-print-document-table">
+        <thead>
+          <tr>
+            <th>编码</th>
+            <th>名称</th>
+            <th>规格</th>
+            <th>单位</th>
+            <th>备注</th>
+            <th>用量</th>
+            <th>损耗</th>
+            <th>合计</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in bomCostUsageFlatRows" :key="`print-doc-${row.__bomCostRowKey}`">
+            <td>{{ dVal(row.kcaa01) }}</td>
+            <td>{{ dVal(row.kcaa02) }}</td>
+            <td>{{ dVal(row.kcaa03) }}</td>
+            <td>{{ dVal(row.kcaa04) }}</td>
+            <td>{{ dVal(row.Describe) }}</td>
+            <td class="num">{{ formatQty(row.yl) }}</td>
+            <td class="num">{{ formatQty(row.loss_rate) }}</td>
+            <td class="num">{{ formatQty(row.total_qty) }}</td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr>
+            <td>合计</td>
+            <td colspan="4" />
+            <td class="num">{{ formatQty(bomCostUsageTotals.sumYl) }}</td>
+            <td />
+            <td class="num">{{ formatQty(bomCostUsageTotals.sumTotalQty) }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </section>
+
     <!-- 配件行「查看」：每层独立大弹窗，可多层叠放 -->
     <BomLinkedDetailDialog
       v-for="(layer, layerIdx) in linkedDetailStack"
@@ -1835,11 +1880,16 @@ function onPrintBomCostUsage() {
     return
   }
   detailActiveTab.value = 'costBomUsage'
+  const cleanupPrintClass = () => {
+    document.documentElement.classList.remove('print-bom-cost-usage')
+    window.removeEventListener('afterprint', cleanupPrintClass)
+  }
   document.documentElement.classList.add('print-bom-cost-usage')
+  window.addEventListener('afterprint', cleanupPrintClass)
   nextTick(() => {
     setTimeout(() => {
       window.print()
-      setTimeout(() => document.documentElement.classList.remove('print-bom-cost-usage'), 800)
+      setTimeout(cleanupPrintClass, 3000)
     }, 120)
   })
 }
@@ -4240,6 +4290,9 @@ loadData()
 .bom-cost-usage-print-only-table tfoot td {
   font-weight: 600;
 }
+.bom-cost-usage-print-document {
+  display: none;
+}
 
 .bom-cost-hide-prefix-bar {
   display: flex;
@@ -4384,10 +4437,73 @@ loadData()
 <style>
 /* 成本 BOM 用量表：浏览器打印（与 onPrintBomCostUsage 的 html class 配合） */
 @media print {
+  @page {
+    size: A4 landscape;
+    margin: 6mm;
+  }
+  html.print-bom-cost-usage,
+  html.print-bom-cost-usage body {
+    width: 100% !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+  html.print-bom-cost-usage body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  html.print-bom-cost-usage body * {
+    visibility: hidden !important;
+  }
+  html.print-bom-cost-usage .erp-layout,
+  html.print-bom-cost-usage .erp-main-column,
+  html.print-bom-cost-usage .erp-main,
+  html.print-bom-cost-usage .erp-content-card,
+  html.print-bom-cost-usage .erp-module-page {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    box-shadow: none !important;
+  }
+  html.print-bom-cost-usage .erp-layout > .el-aside,
+  html.print-bom-cost-usage .erp-header,
+  html.print-bom-cost-usage .erp-tags-wrap {
+    display: none !important;
+  }
+  html.print-bom-cost-usage .bom-detail-dialog,
+  html.print-bom-cost-usage .bom-detail-dialog *,
+  html.print-bom-cost-usage .bom-cost-usage-print-area,
+  html.print-bom-cost-usage .bom-cost-usage-print-area * {
+    visibility: visible !important;
+  }
+  html.print-bom-cost-usage .el-overlay,
+  html.print-bom-cost-usage .el-overlay-dialog,
+  html.print-bom-cost-usage .bom-detail-dialog,
+  html.print-bom-cost-usage .bom-detail-dialog .el-dialog,
+  html.print-bom-cost-usage .bom-detail-dialog .el-dialog__body {
+    position: static !important;
+    inset: auto !important;
+    width: auto !important;
+    max-width: none !important;
+    height: auto !important;
+    max-height: none !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    background: #fff !important;
+  }
   html.print-bom-cost-usage .no-print {
     display: none !important;
   }
-  html.print-bom-cost-usage .bom-cost-usage-screen-table {
+  html.print-bom-cost-usage .bom-cost-usage-screen-table,
+  html.print-bom-cost-usage .bom-cost-usage-screen-table * {
     display: none !important;
   }
   html.print-bom-cost-usage .bom-cost-usage-print-only-table {
@@ -4400,8 +4516,14 @@ loadData()
     padding: 0;
   }
   html.print-bom-cost-usage .bom-cost-usage-table-outer {
+    height: auto !important;
     max-height: none !important;
     overflow: visible !important;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-table-outer::-webkit-scrollbar,
+  html.print-bom-cost-usage .bom-cost-usage-wrap::-webkit-scrollbar,
+  html.print-bom-cost-usage .bom-detail-dialog ::-webkit-scrollbar {
+    display: none !important;
   }
   html.print-bom-cost-usage .bom-detail-dialog .el-dialog__header,
   html.print-bom-cost-usage .bom-detail-dialog .el-tabs__header {
@@ -4415,6 +4537,92 @@ loadData()
   }
   html.print-bom-cost-usage .bom-detail-dialog .el-dialog__body {
     padding: 8px 12px;
+  }
+  html.print-bom-cost-usage .erp-module-page > :not(.bom-cost-usage-print-document) {
+    display: none !important;
+  }
+  html.print-bom-cost-usage body > .el-overlay,
+  html.print-bom-cost-usage body > .el-overlay-dialog,
+  html.print-bom-cost-usage .bom-detail-dialog {
+    display: none !important;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-print-document,
+  html.print-bom-cost-usage .bom-cost-usage-print-document * {
+    visibility: visible !important;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-print-document {
+    display: block !important;
+    position: static !important;
+    box-sizing: border-box !important;
+    width: 98% !important;
+    max-width: 275mm !important;
+    margin: 0 auto !important;
+    color: #000 !important;
+    background: #fff !important;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-print-document h1 {
+    margin: 0 0 8px;
+    text-align: center;
+    font-size: 18px;
+    line-height: 1.4;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-print-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 11px;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table thead {
+    display: table-header-group;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table tfoot {
+    display: table-footer-group;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table th,
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table td {
+    border: 1px solid #333;
+    padding: 3px 5px;
+    vertical-align: top;
+    word-break: break-word;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table th {
+    background: #f0f0f0 !important;
+    font-weight: 600;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table .num,
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(n + 6) {
+    text-align: right;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(1) {
+    width: 22%;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(2),
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(3) {
+    width: 13%;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(4) {
+    width: 6%;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(5) {
+    width: 12%;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(n + 6) {
+    width: 9%;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table tfoot td {
+    font-weight: 600;
   }
 }
 </style>
