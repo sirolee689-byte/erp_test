@@ -4,7 +4,7 @@
 
 > 约定：本文只维护“项目当前明确使用到”的表与字段；如需扩展，请同时补充迁移脚本（见 `docs/sql/` 与 `scripts/migrations/`）和相关设计文档。
 
-## 1. 全局概览（当前确认：19 张表）
+## 1. 全局概览（当前确认：25 张表）
 
 - **HR_Departments**：部门 / 岗位（旧系统表接管）
 - **Hr_staff**：人事档案资料（精简字段查询）
@@ -27,6 +27,12 @@
 - **Outsourcing_Quotation**：销售/采购/外协管理 — 日常工作 — 外协报价主表（与采购报价同一套主从/审核/回收站接口形态；字段列名 `wxaa*`）
 - **Outsourcing_Quotation_list**：外协报价明细表（与主表 `wxaa01` = 明细 `wxab01` 业务关联；汇总 `wxab04`/`wxab05`）
 - **System_uplod_file**：纸格资料上传记录（旧系统表；管理页只读列表，见 `docs/System_uplod_file.txt`）
+- **UB_ERP_Sales_order**：销售订单主表（PI 号 `xsaj01`、系统单号、客户/币别快照、审核/软删、运算状态）
+- **UB_ERP_Sales_order_list**：销售订单明细（`xsak01` = PI 号；`kcaa01` + 订货数量 `plan_quantity`）
+- **UB_ERP_Bom_Sales**：PI 销售 BOM 头（`sid` = PI 号；每款成品 `kcaa01` 一行）
+- **UB_ERP_Bom_Sales_list**：PI 销售 BOM 配件行（`sid` = PI 号；结构同 `Bom_parts`）
+- **UB_ERP_Bom_pi_cost**：销售订单一键运算 — 物料明细（`sid` = PI 号）
+- **UB_ERP_Bom_pi_consumption**：销售订单一键运算 — 子件汇总（`sid` = PI 号；表缺失时 API 内存合并）
 
 ## 2. 表关系（ER 摘要）
 
@@ -43,6 +49,17 @@
 - **`Outsourcing_Quotation_list` → `Outsourcing_Quotation`**
   - 业务关联：**`Outsourcing_Quotation.wxaa01` = `Outsourcing_Quotation_list.wxab01`**
   - 说明：实现见 `server/outsourcingQuotationHandlers.js`；列表汇总明细 **`wxab04`（不含税）/`wxab05`（含税）**，税点合计为二者之差（SQL `SUM`）。
+
+- **`UB_ERP_Sales_order_list` → `UB_ERP_Sales_order`**
+  - 业务关联：**`UB_ERP_Sales_order.xsaj01` = `UB_ERP_Sales_order_list.xsak01`**（PI 号，无库级 FK 时按此约定）
+  - 说明：保存时明细整批替换；合并同 PI + 同 `kcaa01` 的订货数量。
+
+- **PI 号 `sid` 串联 PI BOM 与物料单（同一 PI 业务键）**
+  - **`UB_ERP_Sales_order.xsaj01` = `UB_ERP_Bom_Sales.sid` = `UB_ERP_Bom_Sales_list.sid` = `UB_ERP_Bom_pi_cost.sid` = `UB_ERP_Bom_pi_consumption.sid`**
+  - **`UB_ERP_Bom_Sales`（成品头）↔ `UB_ERP_Bom_Sales_list`（配件）**：按款 `kcaa01` 对应一头；子件挂接规则同主 BOM `Bom_parts`（`kcac01` 父 `systemcode` 等）。
+  - **订单明细款集合** 须与 **`UB_ERP_Bom_Sales.kcaa01` 集合一致**（保存流水线「PI BOM 对齐」）；删明细款 → 物理删该款 PI 头及全部 list 行。
+  - **主 BOM**：`bom_000` + `Bom_parts`（环境变量 `INV_BOM_MASTER_TABLE` / `INV_BOM_PARTS_TABLE`）；仅 **同步 BOM**、保存时 **新款/删款再加** 从主 BOM 写入 PI 表。
+  - **物料单** 仅 **一键运算** 写入 `pi_*`；**已运算** 下游方可订料；改明细货品行/数量、同步 BOM、保存 PI BOM → 主表 **未运算**。
 
 ## 3. 表明细
 
@@ -439,6 +456,31 @@
 - **权限（按钮级）**
   - 菜单 path：`supply-chain/daily/purchase-quote`：`view`、`add`、`edit`、`audit`、`delete`
 
+### 3.16 销售订单与 PI BOM / 物料单（`UB_ERP_Sales_order*`、`UB_ERP_Bom_Sales*`、`UB_ERP_Bom_pi_*`）
+
+- **Schema**：`dbo`
+- **实现文件**：`server/salesOrderHandlers.js` 及 `server/salesOrder*.js`（保存、生命周期、同步 BOM、运算、PI BOM 维护）
+- **模块/页面**
+  - 前端：`src/views/supply-chain/daily/sales-order/index.vue`
+  - 模块说明：`src/views/supply-chain/daily/sales-order/README.md`
+  - 领域：`CONTEXT.md` §七；验收：`.scratch/sales-order/E2E-ACCEPTANCE.md`
+- **PI 号关联（核心）**
+  - 主表 **`xsaj01`**：用户手填 PI 号，**全表唯一**（含 `del='1'`）；软删后不可复用，**彻底删除** 后可用。
+  - 明细 **`xsak01`**、PI BOM / 物料单 **`sid`**：均等于该 PI 号（字符串 trim 后比对）。
+  - 系统单号 **`syscode`**：`PI-YYYYMMDD-XXX`，仅展示/检索，保存后不改 PI 号。
+- **接口（摘要）**
+  - `GET /api/sales-order/list`、`GET /api/sales-order/:id`、`GET /api/sales-order/currency-options`
+  - `POST` / `PUT /api/sales-order`：事务 — 主表 + 明细替换 + PI BOM 按款对齐（深度 ≤4）
+  - `POST .../approve|unapprove|soft-delete|restore|hard-delete`
+  - `POST .../sync-bom` — body `{ kcaa01 }`；`POST .../calculate` — 可选 `{ syncedKcaa01[] }`
+  - `GET .../material-bill`、`GET|PUT .../pi-bom`
+- **关键字段**
+  - 主表：`pass`（审核）、`del`（软删）、运算列（探测 `isok` 或 `is_pur`）、`kehu`/客户名快照、币别快照、`xsaj02` 销售日期等
+  - 明细：`kcaa01`（货品编码）、`plan_quantity`（订货数量，**不参与** 运算写入）、展示字段来自 `bom_000` 快照
+  - PI BOM list：`kcac04` 用量、`kcac05` 损耗、`Describe` 备注（维护 UI 可改）
+- **权限（按钮级）**
+  - 菜单 path：`supply-chain/daily/sales-order`：`view`、`add`、`edit`、`audit`、`delete`
+
 ### 3.15b `Outsourcing_Quotation` / `Outsourcing_Quotation_list`（外协报价主从）
 
 - **Schema**：`dbo`
@@ -545,4 +587,7 @@
 - **`dbo.[System_uplod_file]`**
   - 来源：`server/paperPatternImportFilesList.js`（`GET /api/paper-pattern/import/files/list`）；列表范围 `filepath` 含 `ub_bom`；环境变量 `SYSTEM_UPLOAD_FILE_TABLE`
   - 磁盘：`PAPER_PATTERN_UPLOAD_DIR` / `PAPER_PATTERN_DOWNLOAD_ROOT`（`server/paperPatternFilePaths.js`）
+
+- **`dbo.[UB_ERP_Sales_order]` / `dbo.[UB_ERP_Sales_order_list]` / `dbo.[UB_ERP_Bom_Sales]` / `dbo.[UB_ERP_Bom_Sales_list]` / `dbo.[UB_ERP_Bom_pi_cost]` / `dbo.[UB_ERP_Bom_pi_consumption]`**
+  - 来源：`server/salesOrderHandlers.js` 及 `server/salesOrder*.js`（销售订单 REST）
 

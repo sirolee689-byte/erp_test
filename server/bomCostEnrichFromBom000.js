@@ -78,35 +78,48 @@ function bom000IntColSql(colName) {
         END`
 }
 
-/** bom_cost 物理列（小写）缓存 */
-let BOM_COST_COLSET_PROMISE = null
+/** 物理列（小写）缓存：表名 → Promise<Set> */
+const COST_TABLE_COLSET_CACHE = new Map()
+
+/**
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {string} [tableName]
+ * @returns {Promise<Set<string>>}
+ */
+export async function getCostTableColumnSet(pool, tableName = BOM_COST_TABLE) {
+  const tbl = String(tableName ?? BOM_COST_TABLE).trim()
+  if (!/^[A-Za-z0-9_]+$/.test(tbl)) return new Set()
+  let p = COST_TABLE_COLSET_CACHE.get(tbl)
+  if (!p) {
+    p = (async () => {
+      try {
+        const r = await pool.request().input('tn', sql.NVarChar(128), tbl).query(`
+          SELECT COLUMN_NAME AS name
+          FROM INFORMATION_SCHEMA.COLUMNS
+          WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = @tn
+        `)
+        const set = new Set()
+        for (const row of r.recordset ?? []) {
+          const n = String(row?.name ?? '').trim()
+          if (n) set.add(n.toLowerCase())
+        }
+        return set
+      } catch (err) {
+        console.warn(`[${tbl}] 读取列清单失败：`, err?.message ?? err)
+        return new Set()
+      }
+    })()
+    COST_TABLE_COLSET_CACHE.set(tbl, p)
+  }
+  return p
+}
 
 /**
  * @param {import('mssql').ConnectionPool} pool
  * @returns {Promise<Set<string>>}
  */
 export async function getBomCostColumnSet(pool) {
-  if (BOM_COST_COLSET_PROMISE) return BOM_COST_COLSET_PROMISE
-  const tbl = BOM_COST_TABLE
-  BOM_COST_COLSET_PROMISE = (async () => {
-    try {
-      const r = await pool.request().input('tn', sql.NVarChar(128), tbl).query(`
-        SELECT COLUMN_NAME AS name
-        FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = @tn
-      `)
-      const set = new Set()
-      for (const row of r.recordset ?? []) {
-        const n = String(row?.name ?? '').trim()
-        if (n) set.add(n.toLowerCase())
-      }
-      return set
-    } catch (err) {
-      console.warn('[bom_cost] 读取列清单失败：', err?.message ?? err)
-      return new Set()
-    }
-  })()
-  return BOM_COST_COLSET_PROMISE
+  return getCostTableColumnSet(pool, BOM_COST_TABLE)
 }
 
 /**
@@ -397,16 +410,20 @@ function bindBomCostInsertValue(req, param, spec, val) {
 }
 
 /**
- * 批量 INSERT bom_cost（按物理列动态拼接；isok=0）
+ * 批量 INSERT 成本用量表（bom_cost / UB_ERP_Bom_pi_cost 等；isok=0 若列存在）
  * @param {import('mssql').ConnectionPool} pool
  * @param {import('mssql').Transaction} tx
+ * @param {string} tableName
  * @param {string} pq
  * @param {string} sid
  * @param {Array<Record<string, unknown>>} rows
  */
-export async function insertBomCostBulkEnriched(pool, tx, pq, sid, rows) {
+export async function insertCostBulkEnriched(pool, tx, tableName, pq, sid, rows) {
   if (!rows.length) return
-  const colset = await getBomCostColumnSet(pool)
+  const tbl = String(tableName ?? BOM_COST_TABLE).trim()
+  if (!/^[A-Za-z0-9_]+$/.test(tbl)) return
+  const costFrom = `dbo.[${tbl}]`
+  const colset = await getCostTableColumnSet(pool, tbl)
   const pqV = String(pq ?? '').trim()
   const sidV = String(sid ?? '').trim()
 
@@ -442,8 +459,20 @@ export async function insertBomCostBulkEnriched(pool, tx, pq, sid, rows) {
       valueTuples.push(`(${placeholders.join(', ')})`)
     }
     await req.query(`
-      INSERT INTO ${BOM_COST_FROM} (${insCols.join(', ')})
+      INSERT INTO ${costFrom} (${insCols.join(', ')})
       VALUES ${valueTuples.join(',\n')}
     `)
   }
+}
+
+/**
+ * 批量 INSERT bom_cost（按物理列动态拼接；isok=0）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {import('mssql').Transaction} tx
+ * @param {string} pq
+ * @param {string} sid
+ * @param {Array<Record<string, unknown>>} rows
+ */
+export async function insertBomCostBulkEnriched(pool, tx, pq, sid, rows) {
+  return insertCostBulkEnriched(pool, tx, BOM_COST_TABLE, pq, sid, rows)
 }

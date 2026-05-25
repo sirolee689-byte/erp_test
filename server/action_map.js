@@ -160,6 +160,113 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
     action: '采购报价明细查看BOM资料',
     targetTable: 'bom_000',
   },
+  {
+    method: 'GET',
+    path: '/api/sales-order/currency-options',
+    action: '查询销售订单币别选项',
+    targetTable: 'bom_currency',
+  },
+  { method: 'GET', path: '/api/sales-order/list', action: '查询销售订单列表', targetTable: 'UB_ERP_Sales_order' },
+  { method: 'GET', path: /^\/api\/sales-order\/\d+$/, action: '查看销售订单', targetTable: 'UB_ERP_Sales_order' },
+  {
+    method: 'POST',
+    path: '/api/sales-order',
+    action: '新增销售订单',
+    targetTable: 'UB_ERP_Sales_order',
+    detail: (body) => {
+      const pi = String(body?.header?.piNo ?? '').trim()
+      const n = Array.isArray(body?.lines) ? body.lines.length : 0
+      return pi ? `PI 号：${pi}；明细 ${n} 款` : `明细 ${n} 款`
+    },
+  },
+  {
+    method: 'PUT',
+    path: /^\/api\/sales-order\/\d+$/,
+    action: '保存销售订单',
+    targetTable: 'UB_ERP_Sales_order',
+    detail: (body) => {
+      const n = Array.isArray(body?.lines) ? body.lines.length : 0
+      return `明细 ${n} 款`
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/api\/sales-order\/\d+\/approve$/,
+    action: '审核销售订单',
+    targetTable: 'UB_ERP_Sales_order',
+  },
+  {
+    method: 'POST',
+    path: /^\/api\/sales-order\/\d+\/unapprove$/,
+    action: '反审销售订单',
+    targetTable: 'UB_ERP_Sales_order',
+  },
+  {
+    method: 'POST',
+    path: /^\/api\/sales-order\/\d+\/soft-delete$/,
+    action: '删除销售订单',
+    targetTable: 'UB_ERP_Sales_order',
+  },
+  {
+    method: 'POST',
+    path: /^\/api\/sales-order\/\d+\/restore$/,
+    action: '恢复销售订单',
+    targetTable: 'UB_ERP_Sales_order',
+  },
+  {
+    method: 'POST',
+    path: /^\/api\/sales-order\/\d+\/hard-delete$/,
+    action: '彻底删除销售订单',
+    targetTable: 'UB_ERP_Sales_order',
+  },
+  {
+    method: 'POST',
+    path: /^\/api\/sales-order\/\d+\/sync-bom$/,
+    action: '同步销售订单 BOM',
+    targetTable: 'UB_ERP_Bom_Sales',
+    detail: (body) => {
+      const kc = String(body?.kcaa01 ?? '').trim()
+      return kc ? `款号：${kc}` : ''
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/api\/sales-order\/\d+\/calculate$/,
+    action: '一键运算销售订单物料单',
+    targetTable: 'UB_ERP_Bom_pi_cost',
+    detail: (body) => {
+      const n = Array.isArray(body?.syncedKcaa01) ? body.syncedKcaa01.length : 0
+      return n > 0 ? `部分重算 ${n} 款` : '整单运算'
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/api\/sales-order\/\d+\/material-bill$/,
+    action: '查看销售订单物料单',
+    targetTable: 'UB_ERP_Bom_pi_cost',
+  },
+  {
+    method: 'GET',
+    path: /^\/api\/sales-order\/\d+\/pi-bom$/,
+    action: '查看销售订单 PI BOM',
+    targetTable: 'UB_ERP_Bom_Sales_list',
+    detail: (_body, _params, query) => {
+      const kc = String(query?.kcaa01 ?? '').trim()
+      return kc ? `款号：${kc}` : '款列表'
+    },
+  },
+  {
+    method: 'PUT',
+    path: /^\/api\/sales-order\/\d+\/pi-bom$/,
+    action: '保存销售订单 PI BOM',
+    targetTable: 'UB_ERP_Bom_Sales_list',
+    detail: (body) => {
+      const kc = String(body?.kcaa01 ?? '').trim()
+      const n = Array.isArray(body?.lines) ? body.lines.length : 0
+      return kc ? `款号：${kc}，${n} 行` : ''
+    },
+  },
+
   { method: 'GET', path: '/api/supply-chain/purchase-quotations/list', action: '查询采购报价列表', targetTable: 'Purchase_Quotation' },
   {
     method: 'GET',

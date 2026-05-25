@@ -548,6 +548,53 @@ export function matchApiPermissionRule(method, path, body, params) {
       ],
     }
   }
+  /* 销售/采购/外协管理 — 日常工作：销售订单（主从表，只读列表/详情 issue 01） */
+  if (m === 'GET' && path === '/api/sales-order/currency-options') {
+    return { menuPath: 'supply-chain/daily/sales-order', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/sales-order/list') {
+    return { menuPath: 'supply-chain/daily/sales-order', action: 'view' }
+  }
+  if (m === 'GET' && /^\/api\/sales-order\/\d+$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/sales-order', action: 'view' }
+  }
+  if (m === 'POST' && path === '/api/sales-order') {
+    return { menuPath: 'supply-chain/daily/sales-order', action: 'add' }
+  }
+  if (m === 'PUT' && /^\/api\/sales-order\/\d+$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/sales-order', action: 'edit' }
+  }
+  if (m === 'POST' && /^\/api\/sales-order\/\d+\/approve$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/sales-order', action: 'audit' }
+  }
+  if (m === 'POST' && /^\/api\/sales-order\/\d+\/unapprove$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/sales-order', action: 'audit' }
+  }
+  if (m === 'POST' && /^\/api\/sales-order\/\d+\/soft-delete$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/sales-order', action: 'delete' }
+  }
+  if (m === 'POST' && /^\/api\/sales-order\/\d+\/restore$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/sales-order', action: 'edit' }
+  }
+  if (m === 'POST' && /^\/api\/sales-order\/\d+\/hard-delete$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/sales-order', action: 'delete' }
+  }
+  if (m === 'POST' && /^\/api\/sales-order\/\d+\/sync-bom$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/sales-order', action: 'edit' }
+  }
+  if (m === 'POST' && /^\/api\/sales-order\/\d+\/calculate$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/sales-order', action: 'edit' }
+  }
+  if (m === 'GET' && /^\/api\/sales-order\/\d+\/material-bill$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/sales-order', action: 'view' }
+  }
+  if (m === 'GET' && /^\/api\/sales-order\/\d+\/pi-bom$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/sales-order', action: 'view' }
+  }
+  if (m === 'PUT' && /^\/api\/sales-order\/\d+\/pi-bom$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/sales-order', action: 'edit' }
+  }
+
   if (m === 'GET' && path === '/api/supply-chain/purchase-quotations/list') {
     return { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' }
   }
