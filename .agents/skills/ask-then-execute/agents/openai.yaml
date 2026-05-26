@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ask Then Execute"
+  short_description: "先定稿确认，再按口令执行改动"
+  default_prompt: "Use $ask-then-execute to discuss and finalize a change before implementing it."

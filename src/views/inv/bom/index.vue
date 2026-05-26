@@ -477,7 +477,8 @@
                   </el-button>
                   <el-button
                     type="success"
-                    :disabled="partsReadOnly || !bomSystemcode || partsLoading"
+                    :loading="partsSaving"
+                    :disabled="partsReadOnly || !bomSystemcode || partsLoading || partsSaving"
                     @click="saveBomParts"
                   >
                     保存配件明细
@@ -671,8 +672,6 @@
                       <el-table-column prop="Describe" label="备注" min-width="100" show-overflow-tooltip />
                       <el-table-column prop="Seq" label="Seq" width="64" align="center" />
                       <el-table-column prop="level" label="层级" width="64" align="center" />
-                      <el-table-column prop="kcac02" label="下层BOM(kcac02)" min-width="160" show-overflow-tooltip />
-                      <el-table-column prop="systemcode" label="行systemcode" min-width="160" show-overflow-tooltip />
                     </el-table>
                   </div>
                   <el-empty
@@ -718,30 +717,30 @@
                       show-summary
                       :summary-method="bomCostUsageSummaryMethod"
                     >
-                      <el-table-column label="编码" min-width="200" fixed="left" show-overflow-tooltip>
+                      <el-table-column label="编码" min-width="200" fixed="left" class-name="bom-cost-usage-wrap-cell">
                         <template #default="{ row }">
                           <span class="bom-cost-usage-code" :style="bomCostUsageCodeCellStyle(row)">{{
                             dVal(row.kcaa01)
                           }}</span>
                         </template>
                       </el-table-column>
-                      <el-table-column prop="kcaa02" label="名称" min-width="140" show-overflow-tooltip>
+                      <el-table-column prop="kcaa02" label="名称" min-width="140" class-name="bom-cost-usage-wrap-cell">
                         <template #default="{ row }">{{ dVal(row.kcaa02) }}</template>
                       </el-table-column>
-                      <el-table-column prop="kcaa03" label="规格" min-width="160" show-overflow-tooltip>
+                      <el-table-column prop="kcaa03" label="规格" min-width="160" class-name="bom-cost-usage-wrap-cell">
                         <template #default="{ row }">{{ dVal(row.kcaa03) }}</template>
                       </el-table-column>
-                      <el-table-column prop="kcaa04" label="单位" width="80" align="center" show-overflow-tooltip>
+                      <el-table-column prop="kcaa04" label="单位" width="80" align="center" class-name="bom-cost-usage-wrap-cell">
                         <template #default="{ row }">{{ dVal(row.kcaa04) }}</template>
                       </el-table-column>
-                      <el-table-column prop="Describe" label="备注" min-width="120" show-overflow-tooltip>
+                      <el-table-column prop="Describe" label="备注" min-width="120" class-name="bom-cost-usage-wrap-cell">
                         <template #default="{ row }">{{ dVal(row.Describe) }}</template>
                       </el-table-column>
                       <el-table-column label="用量" width="110" align="right">
                         <template #default="{ row }">{{ formatQty(row.yl) }}</template>
                       </el-table-column>
                       <el-table-column label="损耗" width="100" align="right">
-                        <template #default="{ row }">{{ formatQty(row.loss_rate) }}</template>
+                        <template #default="{ row }">{{ formatLossRate(row.loss_rate) }}</template>
                       </el-table-column>
                       <el-table-column label="合计" width="110" align="right">
                         <template #default="{ row }">{{ formatQty(row.total_qty) }}</template>
@@ -768,7 +767,7 @@
                           <td>{{ dVal(row.kcaa04) }}</td>
                           <td>{{ dVal(row.Describe) }}</td>
                           <td class="num">{{ formatQty(row.yl) }}</td>
-                          <td class="num">{{ formatQty(row.loss_rate) }}</td>
+                          <td class="num">{{ formatLossRate(row.loss_rate) }}</td>
                           <td class="num">{{ formatQty(row.total_qty) }}</td>
                         </tr>
                       </tbody>
@@ -834,7 +833,7 @@
             <td>{{ dVal(row.kcaa04) }}</td>
             <td>{{ dVal(row.Describe) }}</td>
             <td class="num">{{ formatQty(row.yl) }}</td>
-            <td class="num">{{ formatQty(row.loss_rate) }}</td>
+            <td class="num">{{ formatLossRate(row.loss_rate) }}</td>
             <td class="num">{{ formatQty(row.total_qty) }}</td>
           </tr>
         </tbody>
@@ -1287,7 +1286,8 @@
                 </el-button>
                 <el-button
                   type="success"
-                  :disabled="editPartsReadOnly || !editBomSystemcode || editPartsLoading"
+                  :loading="editPartsSaving"
+                  :disabled="editPartsReadOnly || !editBomSystemcode || editPartsLoading || editPartsSaving"
                   @click="saveEditBomParts"
                 >
                   保存配件明细
@@ -1423,7 +1423,8 @@
         <el-button type="primary" :loading="editSaving" @click="submitBomEdit">保存主档</el-button>
         <el-button
           type="success"
-          :disabled="!editBomSystemcode || editPartsReadOnly"
+          :loading="editPartsSaving"
+          :disabled="!editBomSystemcode || editPartsReadOnly || editPartsLoading || editPartsSaving"
           @click="saveEditBomParts"
         >
           保存配件明细
@@ -1831,7 +1832,7 @@ function bomCostUsageRowToExportCells(row) {
     dVal(row.kcaa04),
     dVal(row.Describe),
     formatQty(row.yl),
-    formatQty(row.loss_rate),
+    formatLossRate(row.loss_rate),
     formatQty(row.total_qty),
   ]
 }
@@ -1926,6 +1927,7 @@ function collapseAllBomUsageTree() {
 /** 配件明细 Tab */
 const partsList = ref([])
 const partsLoading = ref(false)
+const partsSaving = ref(false)
 const partsError = ref('')
 const materialSelectorVisible = ref(false)
 /** 配件 GET 请求序号：换主档/关弹窗时递增，作废进行中的响应并可靠关闭 loading */
@@ -2057,6 +2059,7 @@ const editMasterPass = ref('0')
 /** 编辑弹窗内配件明细（独立自详情页 partsList） */
 const editPartsList = ref([])
 const editPartsLoading = ref(false)
+const editPartsSaving = ref(false)
 const editPartsError = ref('')
 const editPartsMaterialSelectorVisible = ref(false)
 /** 选材弹窗回填目标行（`_localKey`）；null 表示追加到末尾 */
@@ -2826,6 +2829,16 @@ function formatQty(n) {
   return x.toFixed(4)
 }
 
+function formatLossRate(n) {
+  const x = Number(n)
+  if (!Number.isFinite(x) || x === 0) return '0'
+  const trimmed = x.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')
+  const [intPart, decPart = ''] = trimmed.split('.')
+  if (!decPart) return `${intPart}.00`
+  if (decPart.length === 1) return `${intPart}.${decPart}0`
+  return trimmed
+}
+
 /** 底部「实际用量总和」等与 kcac06 精度一致 */
 function formatQtySumFooter(n) {
   return bomRound6(n).toFixed(6)
@@ -2924,10 +2937,10 @@ function appendEditPartBlankRow() {
     kcaa03: '',
     kcaa04: '',
     kcaa11: '',
-    kcac04: 0,
+    kcac04: null,
     kcac05: 0,
     kcac06: 0,
-    cost_price: 0,
+    cost_price: null,
     remark: '',
     seq: nextEditPartSeq(),
     _partsMarkSelected: false,
@@ -3057,9 +3070,16 @@ async function saveBomParts() {
     ElMessage.warning('已审核的 BOM 不可修改配件')
     return
   }
+  if (partsSaving.value) return
+  partsSaving.value = true
   try {
     // 仅提交在册行（del 空/0）；历史 del=1 行不写入，避免 UPDATE 命中 0 行导致 Seq 错乱
     const activeRows = (partsList.value ?? []).filter((r) => bomPartDelLooksActive(r?.del))
+    const blankRows = activeRows.filter((r) => !String(r.kcaa01 ?? '').trim())
+    if (blankRows.length) {
+      ElMessage.warning(`还有 ${blankRows.length} 行配件明细未选择编码，请先补齐或删除空行后再保存`)
+      return
+    }
     const kept = activeRows.map((r, idx) => {
       syncPartKcac06(r)
       return {
@@ -3098,9 +3118,12 @@ async function saveBomParts() {
     }
     ElMessage.success('配件明细已保存')
     partsPendingDeleteIds.value = []
+    resetBomUsageBlockState()
     await loadBomParts({ force: true })
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '保存失败'))
+  } finally {
+    partsSaving.value = false
   }
 }
 
@@ -3160,7 +3183,16 @@ async function saveEditBomParts() {
     ElMessage.warning('已审核的 BOM 不可修改配件')
     return
   }
+  if (editPartsSaving.value) return
+  editPartsSaving.value = true
   try {
+    const blankRows = (editPartsList.value ?? []).filter(
+      (r) => bomPartDelLooksActive(r?.del) && !String(r.kcaa01 ?? '').trim(),
+    )
+    if (blankRows.length) {
+      ElMessage.warning(`还有 ${blankRows.length} 行配件明细未选择编码，请先补齐或删除空行后再保存`)
+      return
+    }
     const kept = []
     for (const r of editPartsList.value ?? []) {
       if (!String(r.kcaa01 ?? '').trim()) continue
@@ -3209,11 +3241,14 @@ async function saveEditBomParts() {
     }
     ElMessage.success('配件明细已保存')
     if (partsChanged) markBomListRowAsEdited(sc)
+    resetBomUsageBlockState()
     editPartsPendingDeleteIds.value = []
     await loadEditBomParts()
     await loadData()
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '保存失败'))
+  } finally {
+    editPartsSaving.value = false
   }
 }
 
@@ -3233,7 +3268,6 @@ function onEditMaterialPicked(payload) {
     target.kcaa03 = String(payload?.kcaa03 ?? '').trim()
     target.kcaa04 = String(payload?.kcaa05 ?? payload?.kcaa04 ?? '').trim()
     target.kcaa11 = String(payload?.kcaa11 ?? '').trim()
-    if (!(Number(target.kcac04) > 0)) target.kcac04 = 1
     syncPartKcac06(target)
     return
   }
@@ -3246,10 +3280,10 @@ function onEditMaterialPicked(payload) {
     kcaa03: String(payload?.kcaa03 ?? '').trim(),
     kcaa04: String(payload?.kcaa05 ?? payload?.kcaa04 ?? '').trim(),
     kcaa11: String(payload?.kcaa11 ?? '').trim(),
-    kcac04: 1,
+    kcac04: null,
     kcac05: 0,
-    kcac06: 1,
-    cost_price: 0,
+    kcac06: 0,
+    cost_price: null,
     remark: '',
     seq: nextEditPartSeq(),
     _partsMarkSelected: false,
@@ -4255,6 +4289,14 @@ loadData()
 }
 .bom-cost-usage-table {
   min-width: 920px;
+}
+.bom-cost-usage-screen-table :deep(.bom-cost-usage-wrap-cell .cell) {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 .bom-cost-usage-toolbar {
   margin-bottom: 0;

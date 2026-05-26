@@ -30,3 +30,111 @@
 [BOM列表] LIST 查询耗时 907ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件
 [BOM列表] LIST 查询耗时 537ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件
 [BOM列表] LIST 查询耗时 535ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件
+[BOM列表] LIST 查询耗时 928ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件
+[BOM列表] LIST 查询耗时 543ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件
+[BOM列表] LIST 查询耗时 562ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件
+PUT /api/inventory/bom/parts/:systemcode 失败： RequestError: DISTINCT operator is not allowed in the recursive part of a recursive common table expression 'affected'.
+    at handleError (D:\my_projects\ERP_TEST\node_modules\mssql\lib\tedious\request.js:384:15)
+    at Connection.emit (node:events:508:28)
+    at Connection.emit (D:\my_projects\ERP_TEST\node_modules\tedious\lib\connection.js:1013:18)
+    at RequestTokenHandler.onErrorMessage (D:\my_projects\ERP_TEST\node_modules\tedious\lib\token\handler.js:285:21)
+    at Readable.<anonymous> (D:\my_projects\ERP_TEST\node_modules\tedious\lib\token\token-stream-parser.js:19:33)
+    at Readable.emit (node:events:508:28)
+    at addChunk (node:internal/streams/readable:563:12)
+    at readableAddChunkPushObjectMode (node:internal/streams/readable:540:3)
+    at Readable.push (node:internal/streams/readable:395:5)
+    at nextAsync (node:internal/streams/from:194:22) {
+  code: 'EREQUEST',
+  originalError: Error: DISTINCT operator is not allowed in the recursive part of a recursive common table expression 'affected'.
+      at handleError (D:\my_projects\ERP_TEST\node_modules\mssql\lib\tedious\request.js:382:19)
+      at Connection.emit (node:events:508:28)
+      at Connection.emit (D:\my_projects\ERP_TEST\node_modules\tedious\lib\connection.js:1013:18)
+      at RequestTokenHandler.onErrorMessage (D:\my_projects\ERP_TEST\node_modules\tedious\lib\token\handler.js:285:21)
+      at Readable.<anonymous> (D:\my_projects\ERP_TEST\node_modules\tedious\lib\token\token-stream-parser.js:19:33)
+      at Readable.emit (node:events:508:28)
+      at addChunk (node:internal/streams/readable:563:12)
+      at readableAddChunkPushObjectMode (node:internal/streams/readable:540:3)
+      at Readable.push (node:internal/streams/readable:395:5)
+      at nextAsync (node:internal/streams/from:194:22) {
+    info: ErrorMessageToken {
+      name: 'ERROR',
+      handlerName: 'onErrorMessage',
+      number: 460,
+      state: 1,
+      class: 16,
+      message: "DISTINCT operator is not allowed in the recursive part of a recursive common table expression 'affected'.",
+      serverName: 'UB',
+      procName: '',
+      lineNumber: 2
+    }
+  },
+  number: 460,
+  lineNumber: 2,
+  state: 1,
+  class: 16,
+  serverName: 'UB',
+  procName: '',
+  precedingErrors: []
+}
+[BOM列表] LIST 查询耗时 728ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件
+[BOM列表] LIST 查询耗时 563ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件
+[BOM列表] LIST 查询耗时 692ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件
+[BOM列表] LIST 查询耗时 526ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件
+PUT /api/inventory/bom/parts/:systemcode 失败： RequestError: DISTINCT operator is not allowed in the recursive part of a recursive common table expression 'affected'.
+    at handleError (D:\my_projects\ERP_TEST\node_modules\mssql\lib\tedious\request.js:384:15)
+    at Connection.emit (node:events:508:28)
+    at Connection.emit (D:\my_projects\ERP_TEST\node_modules\tedious\lib\connection.js:1013:18)
+    at RequestTokenHandler.onErrorMessage (D:\my_projects\ERP_TEST\node_modules\tedious\lib\token\handler.js:285:21)
+    at Readable.<anonymous> (D:\my_projects\ERP_TEST\node_modules\tedious\lib\token\token-stream-parser.js:19:33)
+    at Readable.emit (node:events:508:28)
+    at addChunk (node:internal/streams/readable:563:12)
+    at readableAddChunkPushObjectMode (node:internal/streams/readable:540:3)
+    at Readable.push (node:internal/streams/readable:395:5)
+    at nextAsync (node:internal/streams/from:194:22) {
+  code: 'EREQUEST',
+  originalError: Error: DISTINCT operator is not allowed in the recursive part of a recursive common table expression 'affected'.
+      at handleError (D:\my_projects\ERP_TEST\node_modules\mssql\lib\tedious\request.js:382:19)
+      at Connection.emit (node:events:508:28)
+      at Connection.emit (D:\my_projects\ERP_TEST\node_modules\tedious\lib\connection.js:1013:18)
+      at RequestTokenHandler.onErrorMessage (D:\my_projects\ERP_TEST\node_modules\tedious\lib\token\handler.js:285:21)
+      at Readable.<anonymous> (D:\my_projects\ERP_TEST\node_modules\tedious\lib\token\token-stream-parser.js:19:33)
+      at Readable.emit (node:events:508:28)
+      at addChunk (node:internal/streams/readable:563:12)
+      at readableAddChunkPushObjectMode (node:internal/streams/readable:540:3)
+      at Readable.push (node:internal/streams/readable:395:5)
+      at nextAsync (node:internal/streams/from:194:22) {
+    info: ErrorMessageToken {
+      name: 'ERROR',
+      handlerName: 'onErrorMessage',
+      number: 460,
+      state: 1,
+      class: 16,
+      message: "DISTINCT operator is not allowed in the recursive part of a recursive common table expression 'affected'.",
+      serverName: 'UB',
+      procName: '',
+      lineNumber: 2
+    }
+  },
+  number: 460,
+  lineNumber: 2,
+  state: 1,
+  class: 16,
+  serverName: 'UB',
+  procName: '',
+  precedingErrors: []
+}
+[BOM列表] LIST 查询耗时 734ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件
+[BOM列表] LIST 查询耗时 558ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件
+[BOM列表] LIST 查询耗时 854ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件
+[BOM列表] LIST 查询耗时 548ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件
+[BOM列表] LIST 查询耗时 522ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件
+[BOM配件明细] 物理删跳过：未找到 id=2898280 且 kcac01 匹配主档 systemcode=20192266FE8F2BD3D0AE4AFBDD98B7D3DC822B5 的行
+[BOM配件明细] 物理删跳过：未找到 id=2898281 且 kcac01 匹配主档 systemcode=20192266FE8F2BD3D0AE4AFBDD98B7D3DC822B5 的行
+[BOM列表] LIST 查询耗时 3183ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件
+[BOM列表] LIST 查询耗时 584ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件
+[BOM列表] LIST 查询耗时 765ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件
+[BOM列表] LIST 查询耗时 555ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件
+[BOM列表] LIST 查询耗时 807ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件
+[BOM列表] LIST 查询耗时 514ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件
+[BOM列表] LIST 查询耗时 512ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件
+[BOM列表] LIST 查询耗时 510ms（>500ms）：建议 DBA 检查执行计划；大表可考虑全文检索优化含前导 % 的模糊条件

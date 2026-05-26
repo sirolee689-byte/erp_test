@@ -3687,7 +3687,7 @@ function bomPartsBuildKcaaSyncAssignments(partColset, alias = 'b0') {
   for (const col of BOM_PARTS_KCAA_SYNC_NAMES) {
     if (!partColset.has(col)) continue
     if (col === 'kcaa01') {
-      parts.push(`p.[kcaa01] = ISNULL(${alias}.[kcaa01], @kcaa01Up)`)
+      parts.push(`p.[kcaa01] = @kcaa01Up`)
       continue
     }
     if (BOM_PARTS_KCAA_PAYLOAD_FALLBACK.has(col)) {
@@ -3697,6 +3697,41 @@ function bomPartsBuildKcaaSyncAssignments(partColset, alias = 'b0') {
     }
   }
   return parts
+}
+
+async function bomPartsAssertSubmittedCodesPersisted(tx, systemcode, submittedCodes) {
+  const codes = [...new Set((submittedCodes ?? []).map((c) => String(c ?? '').trim()).filter(Boolean))]
+  if (!codes.length) return
+
+  const q = new sql.Request(tx)
+  q.input('kcac01', sql.NVarChar(100), systemcode)
+  codes.forEach((code, i) => q.input(`code${i}`, sql.NVarChar(300), code))
+
+  const valuesSql = codes.map((_, i) => `(@code${i})`).join(',\n        ')
+  const rs = await q.query(`
+    ;WITH expected(kcaa01) AS (
+      SELECT v.kcaa01
+      FROM (VALUES
+        ${valuesSql}
+      ) AS v(kcaa01)
+    ),
+    saved AS (
+      SELECT DISTINCT LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p.kcaa01, N'')))) AS kcaa01
+      FROM ${INV_BOM_PARTS_FROM} AS p
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) =
+            LTRIM(RTRIM(CONVERT(nvarchar(100), @kcac01)))
+        AND (ISNULL(p.del, N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), p.del), N''))) = N'0')
+    )
+    SELECT e.kcaa01
+    FROM expected AS e
+    LEFT JOIN saved AS s
+      ON s.kcaa01 = e.kcaa01
+    WHERE s.kcaa01 IS NULL
+  `)
+  const missing = (rs.recordset ?? []).map((row) => String(row.kcaa01 ?? '').trim()).filter(Boolean)
+  if (missing.length) {
+    throw new Error(`保存后配件编码对账失败，以下编码未按原编码保存：${missing.join('、')}`)
+  }
 }
 
 /** 子 BOM 在 bom_000 的 systemcode（与 kcac02 同源） */
@@ -8259,6 +8294,58 @@ async function fetchBomUsageHeadBySystemcode(pool, systemcode) {
   return { sid, pq }
 }
 
+/**
+ * 配件明细变化后，成本用量缓存必须失效。
+ * 例：PQ 下挂 TAG，TAG 的单位用量或下层明细变化后，PQ 的 bom_cost 也要删掉，
+ * 否则 GET /api/bom/tree 会命中旧 bom_cost，页面看起来像“单位用量没参与运算”。
+ * @param {import('mssql').ConnectionPool | import('mssql').Transaction} executor
+ * @param {string} systemcode 本次保存的 BOM systemcode
+ * @returns {Promise<{ affected: number, deleted: number }>}
+ */
+async function invalidateBomCostCacheForPartsChange(executor, systemcode) {
+  const sc = String(systemcode ?? '').trim()
+  if (!sc) return { affected: 0, deleted: 0 }
+  const rs = await new sql.Request(executor).input('sc', sql.NVarChar(100), sc).query(`
+    ;WITH affected AS (
+      SELECT
+        LTRIM(RTRIM(CONVERT(nvarchar(100), @sc))) AS systemcode,
+        0 AS depth
+      UNION ALL
+      SELECT
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) AS systemcode,
+        a.depth + 1 AS depth
+      FROM ${INV_BOM_PARTS_FROM} AS p
+      INNER JOIN affected AS a
+        ON LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac02, N'')))) = a.systemcode
+      WHERE a.depth < 20
+        AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) <> N''
+    ),
+    affected_unique AS (
+      SELECT DISTINCT systemcode
+      FROM affected
+    ),
+    heads AS (
+      SELECT DISTINCT
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS sid,
+        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) AS pq
+      FROM ${INV_BOM_MASTER_FROM} AS b
+      INNER JOIN affected_unique AS a
+        ON LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) = a.systemcode
+      WHERE (ISNULL(b.del, N'') = N'' OR b.del = N'0')
+        AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) <> N''
+        AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) <> N''
+    )
+    DELETE c
+    FROM ${BOM_COST_FROM} AS c
+    INNER JOIN heads AS h
+      ON LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.sid, N'')))) = h.sid
+     AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.pq, N'')))) = h.pq
+    OPTION (MAXRECURSION 20)
+  `)
+  const deleted = (rs.rowsAffected ?? []).reduce((sum, n) => sum + Number(n ?? 0), 0)
+  return { affected: deleted > 0 ? 1 : 0, deleted }
+}
+
 /** 查询行 → 前端 bom_cost DTO */
 function mapBomCostRecordToDto(r) {
   return {
@@ -8697,6 +8784,7 @@ async function handleInventoryBomPartsPut(req, res) {
       let deleted = 0
       let updated = 0
       let inserted = 0
+      const submittedPartCodes = []
 
       /** 先处理 pendingDelete，再更新/新增，避免「未删完就 INSERT」产生重复在册行 */
       const orderedLines = [...lines].sort((a, b) => {
@@ -8766,6 +8854,10 @@ async function handleInventoryBomPartsPut(req, res) {
 
         if (hasId && !pendingDelete) {
           const kcaa01Up = String(raw?.kcaa01 ?? '').trim()
+          if (!kcaa01Up) {
+            throw new Error('配件明细缺少配件编码 kcaa01')
+          }
+          if (kcaa01Up) submittedPartCodes.push(kcaa01Up)
           const subSc = await bomPartsLookupSubBomSystemcode(tx, kcaa01Up)
           const upRes = await bomPartsApplyFullLineUpdate(tx, partColset, systemcode, raw?.id, raw)
           const affUp = upRes.rowsAffected
@@ -8788,6 +8880,7 @@ async function handleInventoryBomPartsPut(req, res) {
           if (!kcaa01) {
             throw new Error('新增行缺少配件编码 kcaa01')
           }
+          submittedPartCodes.push(kcaa01)
           const kcac04 = bomPartRoundDecimal6(raw?.kcac04)
           const kcac05 = bomPartRoundDecimal6(raw?.kcac05)
           const kcac06Ins = bomPartRoundDecimal6(
@@ -8941,6 +9034,15 @@ async function handleInventoryBomPartsPut(req, res) {
         }
       }
 
+      await bomPartsAssertSubmittedCodesPersisted(tx, systemcode, submittedPartCodes)
+      const cacheInvalidated = await invalidateBomCostCacheForPartsChange(tx, systemcode)
+      if (cacheInvalidated.deleted > 0) {
+        console.log(
+          '[bom-cost-cache-invalidated]',
+          JSON.stringify({ systemcode, deleted: cacheInvalidated.deleted }),
+        )
+      }
+
       await tx.commit()
 
       for (const row of auditPhysicalPartDeletes) {
@@ -8989,6 +9091,7 @@ async function handleInventoryBomPartsPut(req, res) {
           deleted,
           updated,
           inserted,
+          bomCostCacheDeleted: cacheInvalidated.deleted,
           /** @deprecated 兼容旧前端；数值同 deleted */
           softDeleted: deleted,
         },

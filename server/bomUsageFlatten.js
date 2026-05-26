@@ -4,7 +4,6 @@
 import {
   bomCostMaterialStartsWithCutPrefix,
   bomCostUsageMatchesHidePrefix,
-  computeBomUsageYlFromParent,
   resolveBomCostTopFields,
 } from './bomUsageYl.js'
 
@@ -28,6 +27,8 @@ export function flattenBomPartsCostUsageFlat(
   const out = acc ?? []
   if (!Array.isArray(treeNodes) || !treeNodes.length) return out
   const isRootLevel = parentYl == null || parentYl === undefined
+  const parentFactor = isRootLevel ? 1 : Number(parentYl)
+  const safeParentFactor = Number.isFinite(parentFactor) ? parentFactor : 1
   for (let i = 0; i < treeNodes.length; i++) {
     const node = treeNodes[i]
     const selfCode = node?.kcaa01 != null ? String(node.kcaa01) : ''
@@ -40,7 +41,7 @@ export function flattenBomPartsCostUsageFlat(
       parentTopKcaa02,
     )
     const kcac04 = Number(node?.kcac04 ?? 0)
-    const yl = computeBomUsageYlFromParent(kcac04, parentYl, parentIsCut)
+    const yl = safeParentFactor * kcac04
     const kcac05 = Number(node?.kcac05 ?? 0)
     const kcaa33 = Number(node?.kcaa33 ?? 0)
     let loss_rate = 0
@@ -68,8 +69,9 @@ export function flattenBomPartsCostUsageFlat(
     })
     const ch = node?.children
     const thisIsCut = bomCostMaterialStartsWithCutPrefix(node?.kcaa01)
+    const nextParentFactor = thisIsCut ? safeParentFactor : yl
     if (Array.isArray(ch) && ch.length) {
-      flattenBomPartsCostUsageFlat(ch, yl, out, thisIsCut, selfCode, selfName)
+      flattenBomPartsCostUsageFlat(ch, nextParentFactor, out, thisIsCut, selfCode, selfName)
     }
   }
   return out
