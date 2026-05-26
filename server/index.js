@@ -8294,6 +8294,148 @@ async function fetchBomUsageHeadBySystemcode(pool, systemcode) {
   return { sid, pq }
 }
 
+async function fetchBomUsageCalcEligibility(pool, systemcode) {
+  const sc = String(systemcode ?? '').trim()
+  if (!sc) return null
+  const rs = await pool
+    .request()
+    .input('sc', sql.NVarChar(100), sc)
+    .query(`
+      SELECT TOP 1
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS systemcode,
+        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) AS kcaa01,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.[GUID], N'')))) AS master_guid,
+        CASE
+          WHEN LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.del), N''))) = N'1' THEN 0
+          WHEN EXISTS (
+            SELECT 1
+            FROM ${INV_BOM_CODE_FROM} AS bc
+            WHERE LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(bc.copen, N'')))) = N'1'
+              AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc.flag5, N'')))) <> N''
+              AND LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa01, N'')))) LIKE (
+                LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc.flag5, N'')))) + N'%'
+              )
+          ) THEN 1
+          ELSE 0
+        END AS is_need_calc,
+        CASE
+          WHEN EXISTS (
+            SELECT 1
+            FROM ${BOM_COST_FROM} AS c
+            WHERE LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.pq, N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N''))))
+              AND (
+                LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.sid, N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.[GUID], N''))))
+                OR LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.sid, N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.systemcode, N''))))
+              )
+          ) THEN 1
+          ELSE 0
+        END AS has_bom_cost_cached
+      FROM ${INV_BOM_MASTER_FROM} AS b
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) = @sc
+        AND (ISNULL(b.del, N'') = N'' OR b.del = N'0')
+    `)
+  const row = rs.recordset?.[0] ?? null
+  if (!row) return null
+  const sid = String(row.systemcode ?? '').trim()
+  const pq = String(row.kcaa01 ?? '').trim() || sc
+  if (!sid) return null
+  return {
+    sid,
+    pq,
+    systemcode: sid,
+    code: pq,
+    isNeedCalc: Number(row.is_need_calc ?? 0) === 1,
+    hasBomCostCached: Number(row.has_bom_cost_cached ?? 0) === 1,
+  }
+}
+
+async function runBomUsageCalcForHead(pool, head, hidePrefixes, actor) {
+  const systemcode = String(head?.sid ?? head?.systemcode ?? '').trim()
+  const pq = String(head?.pq ?? '').trim()
+  if (!systemcode || !pq) throw new Error('主档缺少 systemcode 或物料编码')
+
+  const tCalc0 = Date.now()
+  const bomHeadStack = new Set([systemcode])
+  const tTree0 = Date.now()
+  const data = await buildBomPartsUsageTreeNodes(pool, systemcode, 1, bomHeadStack)
+  const treeMs = Date.now() - tTree0
+  const tFlat0 = Date.now()
+  const flatCostUsageRaw = flattenBomPartsCostUsageFlat(data, null, [])
+  const flatMs = Date.now() - tFlat0
+  const bomCostInsertPayload = buildBomCostInsertPayloadFromFlatUsage(flatCostUsageRaw, hidePrefixes, pq)
+  const tEnrich0 = Date.now()
+  const bom000Map = await fetchBom000ForBomCostEnrich(
+    pool,
+    bomCostInsertPayload.map((r) => r.kcaa01),
+  )
+  const bomCostRowsEnriched = enrichBomCostInsertRowsFromBom000(bomCostInsertPayload, bom000Map)
+  const enrichMs = Date.now() - tEnrich0
+  const bomCostRowsFinal = applyBomCostAuditToRows(bomCostRowsEnriched, {
+    actor,
+    addtime: formatBomCostAuditTimestamp(),
+  })
+
+  const tTx0 = Date.now()
+  const tx = new sql.Transaction(pool)
+  await tx.begin()
+  try {
+    const delBc = new sql.Request(tx)
+    delBc.input('pq', sql.NVarChar(300), pq)
+    delBc.input('sid', sql.NVarChar(100), systemcode)
+    await delBc.query(`DELETE FROM ${BOM_COST_FROM} WHERE pq = @pq AND sid = @sid`)
+
+    if (bomCostRowsFinal.length) {
+      await insertBomCostBulkEnriched(pool, tx, pq, systemcode, bomCostRowsFinal)
+    }
+
+    const upOk = new sql.Request(tx)
+    upOk.input('pq', sql.NVarChar(300), pq)
+    upOk.input('sid', sql.NVarChar(100), systemcode)
+    await upOk.query(`UPDATE ${BOM_COST_FROM} SET isok = 1 WHERE pq = @pq AND sid = @sid AND isok = 0`)
+
+    await tx.commit()
+  } catch (innerErr) {
+    try {
+      await tx.rollback()
+    } catch {
+      // ignore
+    }
+    console.error('POST /api/bom/usage-calc 事务失败：', innerErr)
+    throw new Error('bom_cost写入失败')
+  }
+
+  const selBc = await pool
+    .request()
+    .input('pq', sql.NVarChar(300), pq)
+    .input('sid', sql.NVarChar(100), systemcode)
+    .query(`
+      SELECT id, pq, sid, kcaa01, kcaa02, kcaa03, kcaa04, kcac04, kcac05, kcac06, kcac07, kcac08, [Describe], isok
+      FROM ${BOM_COST_FROM}
+      WHERE pq = @pq AND sid = @sid
+      ORDER BY id ASC
+    `)
+
+  const bomCost = (selBc.recordset ?? []).map(mapBomCostRecordToDto)
+  const txMs = Date.now() - tTx0
+  const totalMs = Date.now() - tCalc0
+  return {
+    total: bomCost.length,
+    data,
+    flatCostUsageRaw,
+    bomCost,
+    metrics: {
+      systemcode,
+      flatRows: flatCostUsageRaw.length,
+      bomCostRows: bomCost.length,
+      treeMs,
+      flatMs,
+      enrichMs,
+      txMs,
+      totalMs,
+    },
+  }
+}
+
 /**
  * 配件明细变化后，成本用量缓存必须失效。
  * 例：PQ 下挂 TAG，TAG 的单位用量或下层明细变化后，PQ 的 bom_cost 也要删掉，
@@ -8503,6 +8645,81 @@ app.post('/api/bom/usage-calc', async (req, res) => {
     }
     console.error('POST /api/bom/usage-calc 失败：', err)
     res.status(500).json({ success: false, msg: 'bom_cost写入失败', total: 0 })
+  }
+})
+
+/**
+ * BOM 主页批量运算：只处理前端传入的当前页 systemcode；已运算或不需要运算的行跳过。
+ */
+app.post('/api/bom/usage-calc-batch', async (req, res) => {
+  try {
+    const rawSystemcodes = Array.isArray(req.body?.systemcodes) ? req.body.systemcodes : []
+    const systemcodes = []
+    const seen = new Set()
+    for (const raw of rawSystemcodes) {
+      const sc = String(raw ?? '').trim()
+      if (!sc || seen.has(sc)) continue
+      seen.add(sc)
+      systemcodes.push(sc)
+    }
+    if (!systemcodes.length) {
+      res.status(400).json({ code: 400, msg: '参数错误：systemcodes 不能为空', data: null })
+      return
+    }
+    if (systemcodes.length > 100) {
+      res.status(400).json({ code: 400, msg: '批量运算数量过多（最多 100 条）', data: null })
+      return
+    }
+
+    const hidePrefixes = normalizeBomCostHidePrefixesServer(
+      Array.isArray(req.body?.hidePrefixes) ? req.body.hidePrefixes : [],
+    )
+    const actor = getActorAuditTripletFromReq(req)
+    const pool = await getPool()
+    const success = []
+    const skipped = []
+    const failed = []
+
+    for (const systemcode of systemcodes) {
+      try {
+        const head = await fetchBomUsageCalcEligibility(pool, systemcode)
+        if (!head) {
+          skipped.push({ systemcode, reason: '未找到在册 BOM 主档或主档缺少 systemcode' })
+          continue
+        }
+        if (!head.isNeedCalc) {
+          skipped.push({ systemcode, code: head.code, reason: '不需要运算' })
+          continue
+        }
+        if (head.hasBomCostCached) {
+          skipped.push({ systemcode, code: head.code, reason: '已运算，跳过' })
+          continue
+        }
+        const calc = await runBomUsageCalcForHead(pool, head, hidePrefixes, actor)
+        console.log('[bom-usage-calc-batch:item]', JSON.stringify(calc.metrics))
+        success.push({ systemcode, code: head.code, total: calc.total })
+      } catch (err) {
+        failed.push({
+          systemcode,
+          msg: String(err?.message ?? '运算失败'),
+        })
+      }
+    }
+
+    res.json({
+      code: 200,
+      msg: 'success',
+      data: {
+        successCount: success.length,
+        skipped,
+        failed,
+        success,
+      },
+    })
+  } catch (err) {
+    console.error('POST /api/bom/usage-calc-batch 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '批量运算失败')
+    res.status(500).json({ code: 500, msg: `批量运算失败：${detail}`, data: null })
   }
 })
 

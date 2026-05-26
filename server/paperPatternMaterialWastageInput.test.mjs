@@ -18,6 +18,7 @@ describe('paperPatternMaterialWastageInput', () => {
   it('formatFractionAsDecimalText', () => {
     assert.equal(formatFractionAsDecimalText(0.06), '0.06')
     assert.equal(formatFractionAsDecimalText(0.03), '0.03')
+    assert.equal(formatFractionAsDecimalText(0.123456), '0.123456')
     assert.equal(formatFractionAsDecimalText(null), '')
   })
 

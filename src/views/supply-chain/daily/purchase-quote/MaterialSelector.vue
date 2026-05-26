@@ -123,6 +123,7 @@ const props = defineProps({
   modelValue: { type: Boolean, default: false },
   /** 批量模式：多选 + 确认添加 */
   multiple: { type: Boolean, default: false },
+  initialKeyword: { type: String, default: '' },
 })
 
 const emit = defineEmits(['update:modelValue', 'picked', 'batchConfirm'])
@@ -364,7 +365,7 @@ watch(
   () => props.modelValue,
   (open) => {
     if (open) {
-      keywordKw.value = ''
+      keywordKw.value = String(props.initialKeyword ?? '').trim()
       searchQuery.bom_code_id = ''
       searchQuery.bom_cut = 0
       page.value = 1

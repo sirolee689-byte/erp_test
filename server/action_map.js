@@ -92,6 +92,12 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
     targetTable: 'bom_cost',
   },
   {
+    method: 'POST',
+    path: '/api/bom/usage-calc-batch',
+    action: '批量BOM用量运算并写入bom_cost明细',
+    targetTable: 'bom_cost',
+  },
+  {
     method: 'GET',
     path: '/api/bom/tree',
     action: '查询BOM用量树(只读递归)+成本用量平铺(内存不落库)',

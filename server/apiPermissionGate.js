@@ -258,7 +258,7 @@ export function matchApiPermissionRule(method, path, body, params) {
   }
 
   /* BOM 用量运算：写 bom_cost（须先于 GET /api/bom/tree） */
-  if (m === 'POST' && path === '/api/bom/usage-calc') {
+  if (m === 'POST' && (path === '/api/bom/usage-calc' || path === '/api/bom/usage-calc-batch')) {
     return {
       anyOf: [
         { menuPath: 'inv/bom', action: 'edit' },

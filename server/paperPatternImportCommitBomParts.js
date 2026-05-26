@@ -192,6 +192,19 @@ export function resolveAccessoryKcac456(usageRaw, wastageRaw, lineTotalRaw, dbKc
   return { kcac04, kcac05, kcac06FromExcel }
 }
 
+export function resolveMaterialWastageFraction(wastageFraction, dbKcaa33) {
+  if (
+    wastageFraction !== undefined &&
+    wastageFraction !== null &&
+    Number.isFinite(Number(wastageFraction))
+  ) {
+    return bomPartRound6(wastageFraction)
+  }
+  return dbKcaa33 !== null && dbKcaa33 !== undefined && Number.isFinite(Number(dbKcaa33))
+    ? bomPartRound6(dbKcaa33)
+    : 0
+}
+
 /**
  * @param {import('mssql').Transaction} tx
  * @param {import('mssql').ConnectionPool} pool
@@ -387,10 +400,7 @@ export async function writePaperPatternBomPartsInTx(tx, pool, p) {
       if (!code) continue
       const key = erpCodeLookupKey(code)
       const row = key ? bomMap.get(key) : null
-      const dbLoss = row && row.kcaa33 !== null && row.kcaa33 !== undefined ? Number(row.kcaa33) : 0
-      const wf = m.wastageFraction
-      const loss =
-        wf !== undefined && wf !== null && Number.isFinite(Number(wf)) ? Number(wf) : dbLoss
+      const loss = resolveMaterialWastageFraction(m.wastageFraction, row?.kcaa33)
       const kcac04Child = cutChildKcac04FromUnitConsumption(c.unitConsumption)
       const remark = String(m.remark ?? '').trim()
       const describeMat = resolveCutDescribeForBomParts(cutSeq, c.matching, cutMatchingByMajor)

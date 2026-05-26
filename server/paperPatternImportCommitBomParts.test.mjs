@@ -14,6 +14,7 @@ import {
   cutChildKcac04FromUnitConsumption,
   resolveAccessoryKcac456,
   resolveCutDescribeForBomParts,
+  resolveMaterialWastageFraction,
 } from './paperPatternImportCommitBomParts.js'
 import { erpCodeLookupKey } from './paperPatternErpCodeNormalize.js'
 
@@ -102,4 +103,11 @@ test('bom000PriceToBomPartsOrNull 六位小数与空值', () => {
   assert.equal(bom000PriceToBomPartsOrNull(undefined), null)
   assert.equal(bom000PriceToBomPartsOrNull(1.23456789), 1.234568)
   assert.equal(bom000PriceToBomPartsOrNull('2.1'), 2.1)
+})
+test('resolveMaterialWastageFraction keeps 6 decimal user input', () => {
+  assert.equal(resolveMaterialWastageFraction(0.123456, 0.06), 0.123456)
+  assert.equal(resolveMaterialWastageFraction(0.1234567, 0.06), 0.123457)
+  assert.equal(resolveMaterialWastageFraction(0, 0.06), 0)
+  assert.equal(resolveMaterialWastageFraction(null, 0.654321), 0.654321)
+  assert.equal(resolveMaterialWastageFraction(undefined, null), 0)
 })

@@ -66,6 +66,18 @@
         >
           批量审核（仅当前页）
         </el-button>
+        <el-button
+          v-if="!showRecycle"
+          v-permission="'edit'"
+          class="bom-btn-batch-usage-calc"
+          type="primary"
+          plain
+          :loading="batchUsageCalculating"
+          :disabled="batchUsageCalculating || loading || batchUsageCalcPendingCount === 0"
+          @click="doBatchUsageCalcCurrentPage"
+        >
+          批量运算（当前页）
+        </el-button>
         <el-button @click="onReset">重置</el-button>
         <el-button v-if="!showRecycle" v-permission="'add'" type="success" @click="openAddBom">新增 BOM</el-button>
       </div>
@@ -439,7 +451,7 @@
     <ErpPageDialog
       v-model="detailVisible"
       :title="detailDialogTitle"
-      dialog-class="bom-detail-dialog erp-detail-form-context"
+      dialog-class="bom-detail-dialog bom-main-detail-dialog erp-detail-form-context"
       @closed="onDetailClosed"
     >
       <el-skeleton :loading="detailLoading" animated :rows="10">
@@ -505,7 +517,7 @@
                       fixed="left"
                       :index="partsRowIndex"
                     />
-                    <el-table-column label="操作" width="168" align="center" fixed="left">
+                    <el-table-column label="操作" :width="partsDetailActionsColWidth" align="center" fixed="left">
                       <template #default="{ row }">
                         <ErpTableActions>
                           <el-button
@@ -529,9 +541,25 @@
                       </template>
                     </el-table-column>
                     <!-- 编码/名称/规格/颜色：GET 已按 bom_000.kcaa01 关联优先取主档 -->
-                    <el-table-column prop="kcaa01" label="编码" min-width="120" fixed="left" show-overflow-tooltip />
-                    <el-table-column prop="kcaa02" label="名称" min-width="108" show-overflow-tooltip />
-                    <el-table-column prop="kcaa03" label="规格" min-width="92" show-overflow-tooltip />
+                    <el-table-column
+                      prop="kcaa01"
+                      label="编码"
+                      :min-width="partsDetailColumnWidths.kcaa01"
+                      fixed="left"
+                      show-overflow-tooltip
+                    />
+                    <el-table-column
+                      prop="kcaa02"
+                      label="名称"
+                      :min-width="partsDetailColumnWidths.kcaa02"
+                      show-overflow-tooltip
+                    />
+                    <el-table-column
+                      prop="kcaa03"
+                      label="规格"
+                      :min-width="partsDetailColumnWidths.kcaa03"
+                      show-overflow-tooltip
+                    />
                     <el-table-column prop="kcaa11" label="颜色" width="80" show-overflow-tooltip />
                     <el-table-column prop="kcaa04" label="单位" width="64" show-overflow-tooltip />
                     <el-table-column label="单位用量" width="118">
@@ -588,7 +616,7 @@
                     <el-table-column label="成本合计" width="110" align="right">
                       <template #default="{ row }">{{ formatMoney(partCostSum(row)) }}</template>
                     </el-table-column>
-                    <el-table-column label="备注" min-width="140">
+                    <el-table-column label="备注" :min-width="partsDetailColumnWidths.remark">
                       <template #default="{ row }">
                         <el-input
                           v-model="row.remark"
@@ -605,7 +633,11 @@
                   <span>实际用量总和：<strong>{{ formatQtySumFooter(partsSumActualUsage) }}</strong></span>
                   <span class="bom-parts-sum-gap">总成本：<strong>{{ formatMoney(partsSumCost) }}</strong></span>
                 </div>
-                <MaterialSelector v-model="materialSelectorVisible" @picked="onMaterialPicked" />
+                <MaterialSelector
+                  v-model="materialSelectorVisible"
+                  :initial-keyword="partsMaterialSelectorInitialKeyword"
+                  @picked="onMaterialPicked"
+                />
               </el-tab-pane>
               <el-tab-pane label="BOM用量表运算" name="usageCalc" lazy :disabled="!bomBasic">
                 <div class="bom-parts-toolbar bom-usage-calc-toolbar">
@@ -1322,7 +1354,7 @@
                   <el-table-column label="序号" width="52" align="center" fixed="left">
                     <template #default="{ row }">{{ editPartSeqDisplay(row) }}</template>
                   </el-table-column>
-                  <el-table-column label="操作" min-width="260" align="center" fixed="left">
+                  <el-table-column label="操作" :width="partsEditActionsColWidth" align="center" fixed="left">
                     <template #default="{ row }">
                       <ErpTableActions>
                         <el-button
@@ -1345,9 +1377,25 @@
                       </ErpTableActions>
                     </template>
                   </el-table-column>
-                  <el-table-column prop="kcaa01" label="编码" min-width="150" fixed="left" show-overflow-tooltip />
-                  <el-table-column prop="kcaa02" label="名称" min-width="120" show-overflow-tooltip />
-                  <el-table-column prop="kcaa03" label="规格" min-width="100" show-overflow-tooltip />
+                  <el-table-column
+                    prop="kcaa01"
+                    label="编码"
+                    :min-width="partsEditColumnWidths.kcaa01"
+                    fixed="left"
+                    show-overflow-tooltip
+                  />
+                  <el-table-column
+                    prop="kcaa02"
+                    label="名称"
+                    :min-width="partsEditColumnWidths.kcaa02"
+                    show-overflow-tooltip
+                  />
+                  <el-table-column
+                    prop="kcaa03"
+                    label="规格"
+                    :min-width="partsEditColumnWidths.kcaa03"
+                    show-overflow-tooltip
+                  />
                   <el-table-column prop="kcaa11" label="颜色" width="88" show-overflow-tooltip />
                   <el-table-column prop="kcaa04" label="单位" width="72" show-overflow-tooltip />
                   <el-table-column label="单位用量" width="118">
@@ -1381,7 +1429,7 @@
                   <el-table-column label="用量合计(kcac06)" width="128" align="right">
                     <template #default="{ row }">{{ formatUsageTotal(row) }}</template>
                   </el-table-column>
-                  <el-table-column label="说明" min-width="105">
+                  <el-table-column label="说明" :min-width="partsEditColumnWidths.remark">
                     <template #default="{ row }">
                       <el-input
                         v-model="row.remark"
@@ -1413,15 +1461,20 @@
                 <span>实际用量总和：<strong>{{ formatQtySumFooter(editPartsSumActualUsage) }}</strong></span>
                 <span class="bom-parts-sum-gap">总成本：<strong>{{ formatMoney(editPartsSumCost) }}</strong></span>
               </div>
-              <MaterialSelector v-model="editPartsMaterialSelectorVisible" @picked="onEditMaterialPicked" />
+              <MaterialSelector
+                v-model="editPartsMaterialSelectorVisible"
+                :initial-keyword="editPartsMaterialSelectorInitialKeyword"
+                @picked="onEditMaterialPicked"
+              />
             </template>
           </el-tab-pane>
         </el-tabs>
       </div>
       <template #footer>
         <el-button @click="editVisible = false">关闭</el-button>
-        <el-button type="primary" :loading="editSaving" @click="submitBomEdit">保存主档</el-button>
+        <el-button v-if="editActiveTab === 'main'" type="primary" :loading="editSaving" @click="submitBomEdit">保存主档</el-button>
         <el-button
+          v-if="editActiveTab === 'parts'"
           type="success"
           :loading="editPartsSaving"
           :disabled="!editBomSystemcode || editPartsReadOnly || editPartsLoading || editPartsSaving"
@@ -1513,6 +1566,8 @@ watch(bomListActionsColWidth, async () => {
 const busySystemcode = ref('')
 /** 列表「批量审核（仅当前页）」进行中 */
 const batchAuditing = ref(false)
+/** 列表「批量运算（当前页）」进行中 */
+const batchUsageCalculating = ref(false)
 /** 当前页可批量审核条数（未审且有 systemcode） */
 const batchAuditableCount = computed(() => {
   if (!showUnAudited.value || showRecycle.value) return 0
@@ -1521,6 +1576,15 @@ const batchAuditableCount = computed(() => {
     return sc && !rowIsAudited(row)
   }).length
 })
+/** 当前页可批量运算条数（需要运算且未运算） */
+const batchUsageCalcPendingRows = computed(() => {
+  if (showRecycle.value) return []
+  return (tableList.value ?? []).filter((row) => {
+    const sc = String(row?.systemcode ?? '').trim()
+    return sc && row?.isNeedCalc && String(row?.usageCalcStatus ?? '') === 'pending'
+  })
+})
+const batchUsageCalcPendingCount = computed(() => batchUsageCalcPendingRows.value.length)
 /** 列表行正在「一键更新」 */
 const busyPropagateSystemcode = ref('')
 /** 列表行正在「一键运算」 */
@@ -1586,6 +1650,7 @@ const bomCostHidePrefixes = ref([
   'PS-',
   'CP-',
   'RP-PQ',
+  'RMP-',
   'RCP-',
   'HL-',
   'CH-',
@@ -1930,6 +1995,71 @@ const partsLoading = ref(false)
 const partsSaving = ref(false)
 const partsError = ref('')
 const materialSelectorVisible = ref(false)
+function pqPartSearchKeyword(code) {
+  const text = String(code ?? '').trim()
+  return text.toUpperCase().startsWith('PQ-') ? text.slice(3).trim() : ''
+}
+const partsMaterialSelectorInitialKeyword = computed(() =>
+  pqPartSearchKeyword(bomBasic.value?.kcaa01),
+)
+
+const PARTS_TEXT_COLUMN_DEFAULTS = Object.freeze({
+  kcaa01: { min: 120, max: 340, label: '编码', asciiPx: 8.8, widePx: 14 },
+  kcaa02: { min: 108, max: 260, label: '名称', asciiPx: 8.2, widePx: 14 },
+  kcaa03: { min: 92, max: 280, label: '规格', asciiPx: 8.2, widePx: 14 },
+  remark: { min: 140, max: 320, label: '备注', asciiPx: 8, widePx: 14 },
+})
+
+function clampPartColumnWidth(width, min, max) {
+  const w = Number(width)
+  const lo = Number(min)
+  const hi = Number(max)
+  return Math.min(hi, Math.max(lo, Number.isFinite(w) ? w : lo))
+}
+
+function estimatePartTextWidth(text, options) {
+  const s = String(text ?? '')
+  let width = 0
+  for (const ch of s) {
+    width += ch.charCodeAt(0) > 255 ? options.widePx : options.asciiPx
+  }
+  return width
+}
+
+function getPartsTextColumnWidth(rows, field, override = {}) {
+  const options = { ...(PARTS_TEXT_COLUMN_DEFAULTS[field] ?? PARTS_TEXT_COLUMN_DEFAULTS.kcaa02), ...override }
+  let contentWidth = estimatePartTextWidth(options.label, options)
+  for (const row of rows ?? []) {
+    const val = field === 'remark' ? row?.remark : row?.[field]
+    contentWidth = Math.max(contentWidth, estimatePartTextWidth(val, options))
+  }
+  return Math.ceil(clampPartColumnWidth(contentWidth + 34, options.min, options.max))
+}
+
+function getPartsTableColumnWidths(rows, overrides = {}) {
+  return {
+    kcaa01: getPartsTextColumnWidth(rows, 'kcaa01', overrides.kcaa01),
+    kcaa02: getPartsTextColumnWidth(rows, 'kcaa02', overrides.kcaa02),
+    kcaa03: getPartsTextColumnWidth(rows, 'kcaa03', overrides.kcaa03),
+    remark: getPartsTextColumnWidth(rows, 'remark', overrides.remark),
+  }
+}
+
+const partsDetailActionsColWidth = 152
+const partsEditActionsColWidth = getErpTableActionsColMinWidth(2)
+const partsDetailColumnWidths = computed(() =>
+  getPartsTableColumnWidths(partsList.value, {
+    kcaa01: { min: 120, max: 360 },
+  }),
+)
+const partsEditColumnWidths = computed(() =>
+  getPartsTableColumnWidths(editPartsList.value, {
+    kcaa01: { min: 150, max: 380 },
+    kcaa02: { min: 120 },
+    kcaa03: { min: 100 },
+    remark: { min: 105 },
+  }),
+)
 /** 配件 GET 请求序号：换主档/关弹窗时递增，作废进行中的响应并可靠关闭 loading */
 const partsRequestSeq = ref(0)
 /** 当前主档配件已加载过的 systemcode（Tab 切回时不重复 GET） */
@@ -2166,6 +2296,9 @@ function createEmptyEditForm() {
 const editForm = reactive(createEmptyEditForm())
 
 const editBomSystemcode = computed(() => String(editForm.systemcode ?? '').trim())
+const editPartsMaterialSelectorInitialKeyword = computed(() =>
+  pqPartSearchKeyword(editForm.kcaa01),
+)
 
 const editPartsReadOnly = computed(() => String(editMasterPass.value ?? '').trim() === '1')
 
@@ -3735,6 +3868,65 @@ async function onOneClickUsageCalc(row) {
   }
 }
 
+/** 批量运算：仅当前页「需要运算且未运算」行；已运算由后端再次保护并跳过 */
+async function doBatchUsageCalcCurrentPage() {
+  if (showRecycle.value) return
+  const rows = batchUsageCalcPendingRows.value
+  const systemcodes = rows
+    .map((row) => String(row?.systemcode ?? '').trim())
+    .filter(Boolean)
+  const n = systemcodes.length
+  if (!n) {
+    ElMessage.warning('当前页没有未运算的 BOM')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定批量运算当前页 ${n} 条未运算 BOM 吗？已运算的数据会跳过，不会覆盖旧 bom_cost。`,
+      '确认批量运算',
+      {
+        type: 'warning',
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch {
+    return
+  }
+  batchUsageCalculating.value = true
+  try {
+    const hidePrefixes = normalizeBomCostHidePrefixes(bomCostHidePrefixes.value)
+    const res = await axios.post('/api/bom/usage-calc-batch', { systemcodes, hidePrefixes })
+    const body = res.data
+    if (body?.code !== 200) {
+      ElMessage.error(String(body?.msg ?? '批量运算失败'))
+      return
+    }
+    const data = body?.data ?? {}
+    const successCount = Number(data.successCount ?? 0)
+    const skipped = Array.isArray(data.skipped) ? data.skipped : []
+    const failed = Array.isArray(data.failed) ? data.failed : []
+    const skippedCount = skipped.length
+    const failedCount = failed.length
+    if (failedCount > 0) {
+      ElMessage.warning(`批量运算完成：成功 ${successCount} 条，跳过 ${skippedCount} 条，失败 ${failedCount} 条（可打开控制台查看详情）`)
+      // eslint-disable-next-line no-console
+      console.warn('[BOM 批量运算失败明细]', failed)
+      if (skippedCount > 0) {
+        // eslint-disable-next-line no-console
+        console.info('[BOM 批量运算跳过明细]', skipped)
+      }
+    } else {
+      ElMessage.success(`批量运算完成：成功 ${successCount} 条，跳过 ${skippedCount} 条`)
+    }
+    await loadData()
+  } catch (e) {
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '批量运算失败'))
+  } finally {
+    batchUsageCalculating.value = false
+  }
+}
+
 /** 批量审核：仅当前分页页内未审行（条数随每页条数变化） */
 async function doBatchAuditCurrentPage() {
   if (!showUnAudited.value || showRecycle.value) return
@@ -4164,6 +4356,9 @@ loadData()
 .bom-btn-batch-audit {
   border-radius: 8px;
 }
+.bom-btn-batch-usage-calc {
+  border-radius: 8px;
+}
 /* 列表「运算」列：方框徽章 + 图标（颜色与 element-override 语义色一致） */
 .bom-usage-calc-badge {
   display: inline-flex;
@@ -4290,13 +4485,17 @@ loadData()
 .bom-cost-usage-table {
   min-width: 920px;
 }
+.bom-cost-usage-screen-table :deep(.el-table__body .el-table__cell) {
+  padding: 3px 0;
+  font-weight: 600;
+}
 .bom-cost-usage-screen-table :deep(.bom-cost-usage-wrap-cell .cell) {
   white-space: normal;
   overflow: visible;
   text-overflow: clip;
   word-break: break-word;
   overflow-wrap: anywhere;
-  line-height: 1.35;
+  line-height: 1.2;
 }
 .bom-cost-usage-toolbar {
   margin-bottom: 0;
@@ -4400,7 +4599,7 @@ loadData()
 }
 .bom-parts-table-wrap {
   width: 100%;
-  overflow-x: hidden;
+  overflow-x: auto;
 }
 .bom-parts-table {
   min-width: 1100px;
@@ -4477,6 +4676,27 @@ loadData()
 </style>
 
 <style>
+.bom-main-detail-dialog.el-dialog .el-dialog__header {
+  height: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0 !important;
+  border: 0;
+  background: transparent;
+}
+.bom-main-detail-dialog.el-dialog .el-dialog__title {
+  display: none;
+}
+.bom-main-detail-dialog.el-dialog .el-dialog__headerbtn {
+  top: 14px !important;
+  right: 18px !important;
+  transform: none !important;
+  z-index: 3;
+}
+.bom-main-detail-dialog.el-dialog .el-dialog__body {
+  padding-top: 10px;
+}
+
 /* 成本 BOM 用量表：浏览器打印（与 onPrintBomCostUsage 的 html class 配合） */
 @media print {
   @page {
