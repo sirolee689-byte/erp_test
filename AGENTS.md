@@ -22,6 +22,7 @@
 
 ## Agent skills（摘要）
 
+- **先定稿再执行**：`.agents/skills/ask-then-execute/`（Cursor 经 junction 读 `.cursor/skills/ask-then-execute`；丢失联接时 `npm run link:skill:ask-then-execute`）
 - **Issue tracker**：`.scratch/<feature>/` → [`docs/agents/issue-tracker.md`](./docs/agents/issue-tracker.md)
 - **Triage labels**：默认五类字符串 → [`docs/agents/triage-labels.md`](./docs/agents/triage-labels.md)
 - **Domain docs**：`CONTEXT.md` + `docs/adr/` → [`docs/agents/domain.md`](./docs/agents/domain.md)

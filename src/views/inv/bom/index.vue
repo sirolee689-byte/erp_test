@@ -1,85 +1,87 @@
 <template>
-  <div class="erp-module-page">
+  <div class="erp-module-page" :class="{ 'bom-standalone-window': isBomStandaloneWindow }">
     <!--
       v1.1.8：BOM 主档列表（bom_000），严格服务端分页；合并关键词搜索（kcaa01/kcaa02 全模糊 OR）。
       性能约定：关键词仅在后端「满 3 字」时生效（参数化 LIKE），降低大表扫描风险。
     -->
-    <el-card shadow="never">
+    <el-card v-if="!isBomStandaloneWindow" shadow="never">
       <template #header>
         <span class="page-title">{{ pageTitle }}</span>
       </template>
      
 
-      <div class="search-row erp-action-row">
-        <el-input
-          v-model="keyword"
-          placeholder="输入编码或名称关键词（支持全模糊）"
-          clearable
-          class="bom-keyword-input"
-          @keyup.enter="onSearch"
-        />
-        <el-button type="primary" @click="onSearch">查询</el-button>
-        <el-select
-          v-if="!showRecycle"
-          v-model="searchQuery.bom_code_id"
-          placeholder="分类"
-          class="bom-category-select"
-          clearable
-          filterable
-          @change="onSearch"
-        >
-          <el-option label="全部分类" value="" />
-          <el-option
-            v-for="opt in bomCodeCategoryOptions"
-            :key="opt.id"
-            :label="opt.flag1 || `id=${opt.id}`"
-            :value="opt.id"
+      <div class="bom-toolbar">
+        <div class="bom-toolbar-row bom-toolbar-row--filters search-row erp-action-row">
+          <el-input
+            v-model="keyword"
+            placeholder="输入编码或名称关键词（支持全模糊）"
+            clearable
+            class="bom-keyword-input"
+            @keyup.enter="onSearch"
           />
-        </el-select>
-        <el-select
-          v-if="!showRecycle"
-          v-model="searchQuery.bom_cut"
-          placeholder="裁片过滤"
-          class="bom-cut-select"
-          @change="onSearch"
-        >
-          <el-option label="不包含裁片编码（排除 CUT- 开头）" :value="0" />
-          <el-option label="仅裁片编码（仅 CUT- 开头）" :value="1" />
-        </el-select>
-        <div class="audit-switch">
-          <span class="switch-label">回收站</span>
-          <el-switch v-model="showRecycle" @change="onRecycleChange" />
+          <el-button type="primary" @click="onSearch">查询</el-button>
+          <el-select
+            v-if="!showRecycle"
+            v-model="searchQuery.bom_code_id"
+            placeholder="分类"
+            class="bom-category-select"
+            clearable
+            filterable
+          >
+            <el-option label="全部分类" value="" />
+            <el-option
+              v-for="opt in bomCodeCategoryOptions"
+              :key="opt.id"
+              :label="opt.flag1 || `id=${opt.id}`"
+              :value="opt.id"
+            />
+          </el-select>
+          <el-select
+            v-if="!showRecycle"
+            v-model="searchQuery.bom_cut"
+            placeholder="裁片过滤"
+            class="bom-cut-select"
+          >
+            <el-option label="不包含裁片编码（排除 CUT- 开头）" :value="0" />
+            <el-option label="仅裁片编码（仅 CUT- 开头）" :value="1" />
+          </el-select>
         </div>
-        <div v-if="!showRecycle" class="audit-switch">
-          <span class="switch-label">显示未审核</span>
-          <el-switch v-model="showUnAudited" @change="onSearch" />
+        <div class="bom-toolbar-row bom-toolbar-row--actions search-row erp-action-row">
+          <div class="audit-switch">
+            <span class="switch-label">回收站</span>
+            <el-switch v-model="showRecycle" @change="onRecycleChange" />
+          </div>
+          <div v-if="!showRecycle" class="audit-switch">
+            <span class="switch-label">显示未审核</span>
+            <el-switch v-model="showUnAudited" @change="onSearch" />
+          </div>
+          <el-button
+            v-if="showUnAudited && !showRecycle"
+            v-permission="'audit'"
+            class="bom-btn-batch-audit"
+            type="success"
+            plain
+            :loading="batchAuditing"
+            :disabled="batchAuditing || loading || batchAuditableCount === 0"
+            @click="doBatchAuditCurrentPage"
+          >
+            批量审核（仅当前页）
+          </el-button>
+          <el-button
+            v-if="!showRecycle"
+            v-permission="'edit'"
+            class="bom-btn-batch-usage-calc"
+            type="primary"
+            plain
+            :loading="batchUsageCalculating"
+            :disabled="batchUsageCalculating || loading || batchUsageCalcPendingCount === 0"
+            @click="doBatchUsageCalcCurrentPage"
+          >
+            批量运算（当前页）
+          </el-button>
+          <el-button @click="onReset">重置</el-button>
+          <el-button v-if="!showRecycle" v-permission="'add'" type="success" @click="openAddBom">新增 BOM</el-button>
         </div>
-        <el-button
-          v-if="showUnAudited && !showRecycle"
-          v-permission="'audit'"
-          class="bom-btn-batch-audit"
-          type="success"
-          plain
-          :loading="batchAuditing"
-          :disabled="batchAuditing || loading || batchAuditableCount === 0"
-          @click="doBatchAuditCurrentPage"
-        >
-          批量审核（仅当前页）
-        </el-button>
-        <el-button
-          v-if="!showRecycle"
-          v-permission="'edit'"
-          class="bom-btn-batch-usage-calc"
-          type="primary"
-          plain
-          :loading="batchUsageCalculating"
-          :disabled="batchUsageCalculating || loading || batchUsageCalcPendingCount === 0"
-          @click="doBatchUsageCalcCurrentPage"
-        >
-          批量运算（当前页）
-        </el-button>
-        <el-button @click="onReset">重置</el-button>
-        <el-button v-if="!showRecycle" v-permission="'add'" type="success" @click="openAddBom">新增 BOM</el-button>
       </div>
 
       <el-alert
@@ -145,7 +147,16 @@
               <template #default="{ row }">
                 <ErpTableActions class="bom-list-actions">
                   <template v-if="showRecycle">
-                    <el-button v-permission="'view'" type="info" plain @click="openDetail(row)">
+                    <el-button
+                      v-permission="'view'"
+                      tag="a"
+                      :href="bomStandaloneWindowHref('detail', row?.code)"
+                      target="_blank"
+                      rel="noopener"
+                      type="info"
+                      plain
+                      @click="guardBomStandaloneLink($event, 'detail', row)"
+                    >
                       查看详情
                     </el-button>
                     <el-button
@@ -173,11 +184,15 @@
                     <el-button
                       v-if="showUnAudited"
                       v-permission="'edit'"
+                      tag="a"
+                      :href="bomStandaloneWindowHref('edit', row?.code)"
+                      target="_blank"
+                      rel="noopener"
                       :type="isBomListRowEdited(row) ? 'default' : 'primary'"
                       :plain="!isBomListRowEdited(row)"
                       :class="{ 'bom-list-btn--edited': isBomListRowEdited(row) }"
                       :disabled="rowIsAudited(row)"
-                      @click="onEdit(row)"
+                      @click="guardBomStandaloneLink($event, 'edit', row)"
                     >
                       {{ isBomListRowEdited(row) ? '已编辑' : '编辑' }}
                     </el-button>
@@ -191,7 +206,16 @@
                     >
                       复制
                     </el-button>
-                    <el-button v-permission="'view'" type="info" plain @click="openDetail(row)">查看详情</el-button>
+                    <el-button
+                      v-permission="'view'"
+                      tag="a"
+                      :href="bomStandaloneWindowHref('detail', row?.code)"
+                      target="_blank"
+                      rel="noopener"
+                      type="info"
+                      plain
+                      @click="guardBomStandaloneLink($event, 'detail', row)"
+                    >查看详情</el-button>
                     <el-button
                       v-if="!row.isNeedCalc"
                       v-permission="'edit'"
@@ -451,14 +475,15 @@
     <ErpPageDialog
       v-model="detailVisible"
       :title="detailDialogTitle"
-      dialog-class="bom-detail-dialog bom-main-detail-dialog erp-detail-form-context"
+      :modal="!isBomStandaloneWindow"
+      :dialog-class="detailDialogClass"
       @closed="onDetailClosed"
     >
       <el-skeleton :loading="detailLoading" animated :rows="10">
         <template #default>
           <el-alert v-if="detailError" :title="detailError" type="error" show-icon class="bom-detail-alert" />
           <template v-else-if="bomBasic">
-            <el-tabs v-model="detailActiveTab">
+            <el-tabs v-model="detailActiveTab" class="bom-detail-tabs">
               <el-tab-pane label="基础资料" name="basic">
                 <div v-loading="detailBasicLoading" class="bom-detail-body erp-detail-form-surface">
                   <BomDetailBasicReadonly :basic="bomBasic" />
@@ -521,11 +546,15 @@
                       <template #default="{ row }">
                         <ErpTableActions>
                           <el-button
+                            tag="a"
+                            :href="bomStandaloneWindowHref('detail', row?.kcaa01)"
+                            target="_blank"
+                            rel="noopener"
                             type="info"
                             plain
                             class="bom-part-view-action-btn"
                             :disabled="!String(row.kcaa01 ?? '').trim()"
-                            @click="openLinkedBomDetailFromPart(row)"
+                            @click="guardBomStandaloneLink($event, 'detail', { code: row?.kcaa01 })"
                           >
                             查看
                           </el-button>
@@ -720,31 +749,29 @@
               <el-tab-pane label="成本BOM用量表" name="costBomUsage" lazy :disabled="!bomBasic">
                 <div class="bom-cost-usage-toolbar bom-parts-toolbar no-print">
                   <template v-if="bomUsageCostBlockReady">
-                    <div class="bom-cost-hide-prefix-bar">
-                      <span class="bom-cost-hide-prefix-bar__label">隐藏编码前缀</span>
-                      <el-button size="small" type="primary" plain @click="openBomCostHidePrefixDialog">
-                        配置前缀…
-                      </el-button>
-                      <span class="bom-cost-hide-prefix-bar__summary">{{ bomCostHidePrefixSummaryText }}</span>
-                    </div>
                     <div class="bom-cost-usage-actions no-print">
                       <el-button size="small" type="success" @click="exportBomCostUsageXls">导出信息</el-button>
-                      <el-button size="small" @click="onPrintBomCostUsage">点击此处打印</el-button>
+                      <el-button size="small" @click="startBomCostPrint">点击此处打印</el-button>
                     </div>
+                    <p v-if="bomBasic" class="bom-cost-usage-header no-print">
+                      {{ bomCostUsageHeaderText }}
+                    </p>
                   </template>
                   <span v-else class="bom-usage-calc-toolbar__hint bom-cost-usage-toolbar__hint">
                     请切换到「BOM用量表运算」或本 Tab，将自动从服务器加载（有缓存则直读 bom_cost，无缓存则 DFS 预览）
                   </span>
                 </div>
                 <div v-loading="bomUsageTreeLoading" class="bom-cost-usage-wrap">
-                  <div v-if="bomCostUsageFlatRows.length" class="bom-cost-usage-table-outer bom-cost-usage-print-area">
+                  <div
+                    v-if="bomCostUsageFlatRows.length"
+                    class="bom-cost-usage-table-outer bom-cost-usage-print-area bom-cost-usage-table-outer--fill"
+                  >
                     <el-table
                       :data="bomCostUsageFlatRows"
                       border
                       stripe
                       :size="detailTableSize"
                       class="bom-cost-usage-table bom-cost-usage-screen-table"
-                      max-height="calc(100vh - 280px)"
                       row-key="__bomCostRowKey"
                       show-summary
                       :summary-method="bomCostUsageSummaryMethod"
@@ -802,21 +829,19 @@
                           <td class="num">{{ formatLossRate(row.loss_rate) }}</td>
                           <td class="num">{{ formatQty(row.total_qty) }}</td>
                         </tr>
-                      </tbody>
-                      <tfoot>
-                        <tr>
+                        <tr class="bom-cost-usage-print-summary-row">
                           <td>合计</td>
                           <td colspan="4" />
                           <td class="num">{{ formatQty(bomCostUsageTotals.sumYl) }}</td>
                           <td />
                           <td class="num">{{ formatQty(bomCostUsageTotals.sumTotalQty) }}</td>
                         </tr>
-                      </tfoot>
+                      </tbody>
                     </table>
                   </div>
                   <el-empty
                     v-else-if="!bomUsageTreeLoading && bomUsageCostBlockReady"
-                    description="当前前缀筛选已隐藏全部行，请点击「配置前缀…」减少或清空条目"
+                    description="暂无符合条件的用量明细"
                     :image-size="72"
                   />
                   <el-empty
@@ -837,13 +862,7 @@
     </ErpPageDialog>
 
     <section class="bom-cost-usage-print-document" aria-hidden="true">
-      <h1>成本BOM用量表</h1>
-      <div class="bom-cost-usage-print-meta">
-        <span>编码：{{ dVal(bomBasic?.kcaa01) }}</span>
-        <span>名称：{{ dVal(bomBasic?.kcaa02) }}</span>
-        <span>规格：{{ dVal(bomBasic?.kcaa03) }}</span>
-        <span>客户款号：{{ dVal(bomBasic?.kcaa06) }}</span>
-      </div>
+      <p class="bom-cost-usage-print-header">{{ bomCostUsageHeaderText }}</p>
       <table v-if="bomCostUsageFlatRows.length" class="bom-cost-usage-print-document-table">
         <thead>
           <tr>
@@ -868,16 +887,14 @@
             <td class="num">{{ formatLossRate(row.loss_rate) }}</td>
             <td class="num">{{ formatQty(row.total_qty) }}</td>
           </tr>
-        </tbody>
-        <tfoot>
-          <tr>
+          <tr class="bom-cost-usage-print-summary-row">
             <td>合计</td>
             <td colspan="4" />
             <td class="num">{{ formatQty(bomCostUsageTotals.sumYl) }}</td>
             <td />
             <td class="num">{{ formatQty(bomCostUsageTotals.sumTotalQty) }}</td>
           </tr>
-        </tfoot>
+        </tbody>
       </table>
     </section>
 
@@ -892,74 +909,17 @@
       @closed="removeLinkedDetailLayer(layer.id)"
     />
 
-    <!-- 成本 BOM：隐藏编码前缀（逐行编辑） -->
-    <el-dialog
-      v-model="bomCostHidePrefixDialogVisible"
-      title="配置隐藏编码前缀"
-      width="520px"
-      append-to-body
-      destroy-on-close
-      :close-on-click-modal="false"
-      :close-on-press-escape="false"
-      class="bom-cost-hide-prefix-dialog"
-      @closed="onBomCostHidePrefixDialogClosed"
-    >
-      <p class="bom-cost-hide-prefix-dialog__tip">
-        物料编码以任一前缀开头（忽略大小写）的行不出现在「成本BOM用量表」中；子件用量已在运算结果中。
-      </p>
-      <div class="bom-cost-hide-prefix-dialog__rows">
-        <div
-          v-for="(dRow, dIdx) in bomCostHidePrefixDraftRows"
-          :key="dRow._key"
-          class="bom-cost-hide-prefix-dialog__row"
-        >
-          <el-input
-            v-model="dRow.text"
-            placeholder="例如 CUT-、BAG-"
-            :maxlength="BOM_COST_HIDE_PREFIX_LEN"
-            clearable
-            size="small"
-          />
-          <el-button
-            size="small"
-            type="danger"
-            link
-            class="erp-btn-keep-link"
-            :disabled="bomCostHidePrefixDraftRows.length <= 1"
-            @click="removeBomCostHidePrefixDraftRow(dIdx)"
-          >
-            删除
-          </el-button>
-        </div>
-      </div>
-      <div class="bom-cost-hide-prefix-dialog__actions">
-        <el-button size="small" type="primary" link class="erp-btn-keep-link" @click="addBomCostHidePrefixDraftRow">
-          + 添加一行
-        </el-button>
-        <span class="bom-cost-hide-prefix-dialog__quick-label">常用：</span>
-        <el-button size="small" link type="primary" class="erp-btn-keep-link" @click="appendQuickHidePrefix('CUT-')">
-          CUT-
-        </el-button>
-        <el-button size="small" link type="primary" class="erp-btn-keep-link" @click="appendQuickHidePrefix('BAG-')">
-          BAG-
-        </el-button>
-      </div>
-      <template #footer>
-        <el-button size="small" @click="bomCostHidePrefixDialogVisible = false">取消</el-button>
-        <el-button size="small" type="primary" @click="confirmBomCostHidePrefixDialog">确定</el-button>
-      </template>
-    </el-dialog>
-
     <!-- BOM 主档新增/编辑（bom_000） -->
     <el-dialog
       v-model="editVisible"
       :title="editDialogTitle"
       width="96%"
       top="3vh"
+      :modal="!isBomStandaloneWindow"
       destroy-on-close
       :close-on-click-modal="false"
       :close-on-press-escape="false"
-      class="bom-edit-dialog erp-detail-form-context"
+      :class="['bom-edit-dialog', 'erp-detail-form-context', { 'bom-edit-dialog--standalone': isBomStandaloneWindow }]"
       @closed="onEditClosed"
     >
       <div
@@ -1366,11 +1326,15 @@
                           添加配件
                         </el-button>
                         <el-button
+                          tag="a"
+                          :href="bomStandaloneWindowHref('detail', row?.kcaa01)"
+                          target="_blank"
+                          rel="noopener"
                           type="info"
                           plain
                           class="bom-part-view-action-btn"
                           :disabled="!String(row.kcaa01 ?? '').trim()"
-                          @click="openLinkedBomDetailFromPart(row)"
+                          @click="guardBomStandaloneLink($event, 'detail', { code: row?.kcaa01 })"
                         >
                           查看配件
                         </el-button>
@@ -1471,7 +1435,7 @@
         </el-tabs>
       </div>
       <template #footer>
-        <el-button @click="editVisible = false">关闭</el-button>
+        <el-button @click="closeEditWindowOrDialog">关闭</el-button>
         <el-button v-if="editActiveTab === 'main'" type="primary" :loading="editSaving" @click="submitBomEdit">保存主档</el-button>
         <el-button
           v-if="editActiveTab === 'parts'"
@@ -1492,6 +1456,7 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import axios from 'axios'
 import { Check, Close } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRoute } from 'vue-router'
 import MaterialSelector from '../../supply-chain/daily/purchase-quote/MaterialSelector.vue'
 import { useUiDensity } from '@/composables/useUiDensity'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
@@ -1503,6 +1468,7 @@ import ExcelJS from 'exceljs'
 import { aggregateBomCostUsageFlatForDisplay } from '@/utils/bomCostUsageAggregate.js'
 
 const { detailTableSize } = useUiDensity()
+const route = useRoute()
 
 /**
  * 默认用于「存货管理 / BOM资料查询」路由；
@@ -1517,6 +1483,11 @@ const pageTitle = computed(() => {
   return t || 'BOM资料查询'
 })
 
+const bomWindowMode = computed(() => String(route.query?.mode ?? '').trim().toLowerCase())
+const bomWindowCode = computed(() => String(route.query?.code ?? '').trim())
+const isBomStandaloneWindow = computed(() =>
+  bomWindowMode.value === 'detail' || bomWindowMode.value === 'edit' || bomWindowMode.value === 'cost-print',
+)
 const loading = ref(false)
 const errorMessage = ref('')
 const listTableRef = ref(null)
@@ -1602,6 +1573,15 @@ const bomBasic = ref(null)
 const detailListRow = ref(null)
 const detailActiveTab = ref('basic')
 
+const detailDialogClass = computed(() => {
+  const cls = ['bom-detail-dialog', 'bom-main-detail-dialog', 'erp-detail-form-context']
+  if (isBomStandaloneWindow.value) cls.push('bom-window-standalone-dialog')
+  if (detailVisible.value && detailActiveTab.value === 'costBomUsage') {
+    cls.push('bom-main-detail-dialog--cost-usage-tab')
+  }
+  return cls.join(' ')
+})
+
 /** 配件行「查看」叠层大弹窗（每层一个编码，可多级） */
 let linkedDetailLayerSeq = 0
 const linkedDetailStack = ref([])
@@ -1633,8 +1613,8 @@ const bomUsageHasCache = ref(false)
 /** 避免同单重复 GET /api/bom/tree */
 const lastBomUsageFetchSystemcode = ref('')
 
-/** 成本表不展示的物料编码前缀；由「配置前缀」弹窗确定后写入，变更后本地重算 */
-const bomCostHidePrefixes = ref([
+/** 成本表不展示的物料编码前缀（内置，界面不可配置） */
+const BOM_COST_BUILTIN_HIDE_PREFIXES = [
   'CUT-',
   'PQ-',
   'BAG-',
@@ -1667,7 +1647,7 @@ const bomCostHidePrefixes = ref([
   'PB-',
   'DS-',
   'ASB-',
-])
+]
 
 const BOM_COST_HIDE_PREFIX_CAP = 50
 const BOM_COST_HIDE_PREFIX_LEN = 80
@@ -1677,92 +1657,15 @@ const bomUsageCostBlockReady = computed(
   () => bomCostUsageRawRows.value.length > 0,
 )
 
-let bomCostHidePrefixDraftUid = 0
-function newBomCostHidePrefixDraftKey() {
-  bomCostHidePrefixDraftUid += 1
-  return bomCostHidePrefixDraftUid
+/** @param {Record<string, unknown> | null | undefined} basic */
+function formatBomCostUsageHeaderText(basic) {
+  const code = dVal(basic?.kcaa01)
+  const name = dVal(basic?.kcaa02)
+  const styleNo = dVal(basic?.kcaa06)
+  return `《成本BOM用量表》 编码【${code}】 ， 名称【${name}】 ， 客户款号【${styleNo}】`
 }
 
-const bomCostHidePrefixDialogVisible = ref(false)
-/** @type {import('vue').Ref<{ _key: number, text: string }[]>} */
-const bomCostHidePrefixDraftRows = ref([])
-
-/** 工具栏摘要：完整列表在弹窗内编辑 */
-const bomCostHidePrefixSummaryText = computed(() => {
-  const arr = normalizeBomCostHidePrefixes(bomCostHidePrefixes.value)
-  if (!arr.length) return '当前未配置隐藏前缀'
-  const maxShow = 8
-  const head = arr.slice(0, maxShow).join('、')
-  if (arr.length <= maxShow) return `已配置 ${arr.length} 项：${head}`
-  return `已配置 ${arr.length} 项：${head}…`
-})
-
-function openBomCostHidePrefixDialog() {
-  const cur = normalizeBomCostHidePrefixes(bomCostHidePrefixes.value)
-  if (cur.length) {
-    bomCostHidePrefixDraftRows.value = cur.map((t) => ({
-      _key: newBomCostHidePrefixDraftKey(),
-      text: t,
-    }))
-  } else {
-    bomCostHidePrefixDraftRows.value = [{ _key: newBomCostHidePrefixDraftKey(), text: '' }]
-  }
-  bomCostHidePrefixDialogVisible.value = true
-}
-
-function onBomCostHidePrefixDialogClosed() {
-  bomCostHidePrefixDraftRows.value = []
-}
-
-function addBomCostHidePrefixDraftRow() {
-  if (bomCostHidePrefixDraftRows.value.length >= BOM_COST_HIDE_PREFIX_CAP) {
-    ElMessage.warning(`最多添加 ${BOM_COST_HIDE_PREFIX_CAP} 条前缀`)
-    return
-  }
-  bomCostHidePrefixDraftRows.value.push({ _key: newBomCostHidePrefixDraftKey(), text: '' })
-}
-
-function removeBomCostHidePrefixDraftRow(idx) {
-  if (bomCostHidePrefixDraftRows.value.length <= 1) return
-  bomCostHidePrefixDraftRows.value.splice(idx, 1)
-}
-
-/** 弹窗内是否已有相同前缀（忽略大小写） */
-function bomCostHidePrefixDraftHasText(prefix) {
-  const k = String(prefix ?? '').trim().toLowerCase()
-  if (!k) return false
-  for (const r of bomCostHidePrefixDraftRows.value) {
-    if (String(r.text ?? '').trim().toLowerCase() === k) return true
-  }
-  return false
-}
-
-/** 常用前缀一键填入（不重复则新增一行） */
-function appendQuickHidePrefix(prefix) {
-  const p = String(prefix ?? '').trim().slice(0, BOM_COST_HIDE_PREFIX_LEN)
-  if (!p) return
-  if (bomCostHidePrefixDraftHasText(p)) {
-    ElMessage.info('列表中已有该前缀')
-    return
-  }
-  if (bomCostHidePrefixDraftRows.value.length >= BOM_COST_HIDE_PREFIX_CAP) {
-    ElMessage.warning(`最多 ${BOM_COST_HIDE_PREFIX_CAP} 条前缀`)
-    return
-  }
-  const rows = bomCostHidePrefixDraftRows.value
-  if (rows.length === 1 && !String(rows[0].text ?? '').trim()) {
-    rows[0].text = p
-    return
-  }
-  rows.push({ _key: newBomCostHidePrefixDraftKey(), text: p })
-}
-
-function confirmBomCostHidePrefixDialog() {
-  const texts = bomCostHidePrefixDraftRows.value.map((r) => r.text)
-  bomCostHidePrefixes.value = normalizeBomCostHidePrefixes(texts)
-  bomCostHidePrefixDialogVisible.value = false
-  ElMessage.success('已更新隐藏前缀')
-}
+const bomCostUsageHeaderText = computed(() => formatBomCostUsageHeaderText(bomBasic.value))
 
 /** @param {unknown[]} list */
 function normalizeBomCostHidePrefixes(list) {
@@ -1781,7 +1684,6 @@ function normalizeBomCostHidePrefixes(list) {
   return out
 }
 
-/** 将接口 bom_cost 行转为与 flatCostUsageRaw 一致的结构，便于沿用合并逻辑 */
 function mapBomCostApiRowsToCostUsageRawRows(bomCostRows) {
   const arr = Array.isArray(bomCostRows) ? bomCostRows : []
   return arr.map((r, idx) => ({
@@ -1805,7 +1707,7 @@ function recomputeBomCostUsageDisplay() {
     bomCostUsageFlatRows.value = []
     return
   }
-  const prefixes = normalizeBomCostHidePrefixes(bomCostHidePrefixes.value)
+  const prefixes = normalizeBomCostHidePrefixes(BOM_COST_BUILTIN_HIDE_PREFIXES)
   const merged = aggregateBomCostUsageFlatForDisplay(raw, prefixes)
   bomCostUsageFlatRows.value = merged.map((r, i) => ({
     ...r,
@@ -1814,7 +1716,7 @@ function recomputeBomCostUsageDisplay() {
 }
 
 watch(
-  () => [bomCostHidePrefixes.value, bomCostUsageRawRows.value],
+  () => bomCostUsageRawRows.value,
   () => {
     recomputeBomCostUsageDisplay()
   },
@@ -1874,18 +1776,21 @@ function bomCostUsageSummaryTotals(rows) {
 
 const bomCostUsageTotals = computed(() => bomCostUsageSummaryTotals(bomCostUsageFlatRows.value))
 
-function bomCostUsagePad2(n) {
-  return String(n).padStart(2, '0')
+function bomCostUsageDefaultExportFileName() {
+  return '下载.xls'
 }
 
-function bomCostUsageSafeFilePart(s) {
-  const t = String(s ?? '').trim().replace(/[\\/:*?"<>|]/g, '_')
-  return t.slice(0, 80) || 'BOM'
-}
-
-function bomCostUsageExportStamp() {
-  const d = new Date()
-  return `${d.getFullYear()}${bomCostUsagePad2(d.getMonth() + 1)}${bomCostUsagePad2(d.getDate())}`
+function bomCostUsageNormalizeExportFileName(s) {
+  const raw = String(s ?? '').trim()
+  if (!raw) return ''
+  const safe = raw.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/[. ]+$/g, '').trim()
+  if (!safe) return ''
+  const withExt = /\.(xls|xlsx)$/i.test(safe) ? safe : `${safe}.xls`
+  if (withExt.length <= 170) return withExt
+  const extMatch = withExt.match(/\.(xls|xlsx)$/i)
+  const ext = extMatch?.[0] || '.xls'
+  const base = withExt.replace(/\.(xls|xlsx)$/i, '').slice(0, 170 - ext.length).replace(/[. ]+$/g, '')
+  return `${base || '下载'}${ext}`
 }
 
 /** @param {Record<string, unknown>} row */
@@ -1902,7 +1807,7 @@ function bomCostUsageRowToExportCells(row) {
   ]
 }
 
-async function exportBomCostUsageXls() {
+async function exportBomCostUsageXls(downloadFileName = bomCostUsageDefaultExportFileName()) {
   const rows = bomCostUsageFlatRows.value
   if (!rows?.length) {
     ElMessage.warning('暂无数据可导出')
@@ -1910,9 +1815,14 @@ async function exportBomCostUsageXls() {
   }
   const { sumYl, sumTotalQty } = bomCostUsageSummaryTotals(rows)
   const wb = new ExcelJS.Workbook()
-  const ws = wb.addWorksheet('成本BOM用量表', { views: [{ state: 'frozen', ySplit: 1 }] })
-  ws.addRow([...BOM_COST_USAGE_EXPORT_HEADERS])
+  const headerText = bomCostUsageHeaderText.value || formatBomCostUsageHeaderText(bomBasic.value)
+  const ws = wb.addWorksheet('成本BOM用量表', { views: [{ state: 'frozen', ySplit: 3 }] })
+  ws.addRow([headerText])
   ws.getRow(1).font = { bold: true }
+  ws.mergeCells(1, 1, 1, BOM_COST_USAGE_EXPORT_HEADERS.length)
+  ws.addRow([])
+  ws.addRow([...BOM_COST_USAGE_EXPORT_HEADERS])
+  ws.getRow(3).font = { bold: true }
   for (const row of rows) {
     ws.addRow(bomCostUsageRowToExportCells(row))
   }
@@ -1933,11 +1843,37 @@ async function exportBomCostUsageXls() {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  const code = bomCostUsageSafeFilePart(bomBasic.value?.kcaa01)
-  a.download = `成本BOM用量表_${code}_${bomCostUsageExportStamp()}.xlsx`
+  a.download = bomCostUsageNormalizeExportFileName(downloadFileName) || bomCostUsageDefaultExportFileName()
   a.click()
   URL.revokeObjectURL(url)
   ElMessage.success('已导出')
+}
+
+const BOM_COST_PRINT_PAGE_STYLE_ID = 'bom-cost-print-page-style'
+
+function applyBomCostPrintPageStyle() {
+  let el = document.getElementById(BOM_COST_PRINT_PAGE_STYLE_ID)
+  if (!el) {
+    el = document.createElement('style')
+    el.id = BOM_COST_PRINT_PAGE_STYLE_ID
+    document.head.appendChild(el)
+  }
+  el.textContent = `@media print {
+    @page {
+      size: A4 portrait;
+      margin: 8mm 8mm 16mm;
+      @bottom-center {
+        content: counter(page) " / " counter(pages);
+        font-size: 12px;
+        font-weight: 600;
+        color: #333;
+      }
+    }
+  }`
+}
+
+function removeBomCostPrintPageStyle() {
+  document.getElementById(BOM_COST_PRINT_PAGE_STYLE_ID)?.remove()
 }
 
 function onPrintBomCostUsage() {
@@ -1946,8 +1882,10 @@ function onPrintBomCostUsage() {
     return
   }
   detailActiveTab.value = 'costBomUsage'
+  applyBomCostPrintPageStyle()
   const cleanupPrintClass = () => {
     document.documentElement.classList.remove('print-bom-cost-usage')
+    removeBomCostPrintPageStyle()
     window.removeEventListener('afterprint', cleanupPrintClass)
   }
   document.documentElement.classList.add('print-bom-cost-usage')
@@ -1958,6 +1896,29 @@ function onPrintBomCostUsage() {
       setTimeout(cleanupPrintClass, 3000)
     }, 120)
   })
+}
+
+function startBomCostPrint() {
+  if (!bomCostUsageFlatRows.value.length) {
+    ElMessage.warning('暂无数据可打印')
+    return
+  }
+  const code = String(bomBasic.value?.kcaa01 ?? '').trim()
+  if (!code) {
+    ElMessage.warning('暂无数据可打印')
+    return
+  }
+  if (bomWindowMode.value === 'cost-print') {
+    onPrintBomCostUsage()
+    return
+  }
+  const url = buildBomStandaloneWindowUrl('cost-print', code)
+  const win = window.open(url, '_blank')
+  if (!win) {
+    ElMessage.warning('浏览器拦截了新窗口，请允许本站弹出窗口后重试')
+    return
+  }
+  win.focus?.()
 }
 
 /** 遍历树（先序），供展开/折叠 */
@@ -2141,7 +2102,7 @@ async function onBomUsageTableCalc(opts = {}) {
   bomUsageTreeLoading.value = true
   bomUsageTreeError.value = ''
   try {
-    const hidePrefixes = normalizeBomCostHidePrefixes(bomCostHidePrefixes.value)
+    const hidePrefixes = normalizeBomCostHidePrefixes(BOM_COST_BUILTIN_HIDE_PREFIXES)
     const body = await postBomUsageCalcApi(bomSystemcode.value, hidePrefixes)
     if (!body?.success) {
       const msg = String(body?.msg ?? 'bom_cost写入失败')
@@ -2414,6 +2375,7 @@ function onEditClosed() {
   editMasterBaselineJson.value = ''
   editPartsBaselineJson.value = ''
   resetEditForm()
+  if (isBomStandaloneWindow.value) closeStandaloneBrowserWindow()
 }
 
 function captureEditMasterBaseline() {
@@ -3528,6 +3490,18 @@ function dVal(v) {
   return s || '—'
 }
 
+function closeStandaloneBrowserWindow() {
+  window.close()
+}
+
+function closeEditWindowOrDialog() {
+  if (isBomStandaloneWindow.value) {
+    closeStandaloneBrowserWindow()
+    return
+  }
+  editVisible.value = false
+}
+
 function onDetailClosed() {
   detailError.value = ''
   bomBasic.value = null
@@ -3543,6 +3517,7 @@ function onDetailClosed() {
   bomUsageTreeLoading.value = false
   resetBomUsageBlockState()
   resetBomPartsCacheState()
+  if (isBomStandaloneWindow.value) closeStandaloneBrowserWindow()
 }
 
 const hintShort = computed(() => {
@@ -3675,9 +3650,15 @@ async function loadData() {
   }
 }
 
-function onSearch() {
+async function onSearch() {
   page.value = 1
-  loadData()
+  const shouldResetOneShotFilters =
+    !showRecycle.value && (searchQuery.bom_code_id !== '' || searchQuery.bom_cut !== 0)
+  await loadData()
+  if (shouldResetOneShotFilters) {
+    searchQuery.bom_code_id = ''
+    searchQuery.bom_cut = 0
+  }
 }
 
 function onReset() {
@@ -3709,7 +3690,53 @@ function onPageSizeChange(ps) {
   loadData()
 }
 
-async function openDetail(row) {
+function buildBomStandaloneWindowUrl(mode, code) {
+  const url = new URL(window.location.href)
+  url.pathname = '/inventory/basic/bom-data-window'
+  url.search = ''
+  url.hash = ''
+  url.searchParams.set('mode', mode)
+  url.searchParams.set('code', code)
+  return url.toString()
+}
+
+function bomStandaloneWindowHref(mode, code) {
+  const c = String(code ?? '').trim()
+  return c ? buildBomStandaloneWindowUrl(mode, c) : ''
+}
+
+function guardBomStandaloneLink(ev, mode, row) {
+  const code = String(row?.code ?? row?.kcaa01 ?? '').trim()
+  if (!code) {
+    ev?.preventDefault?.()
+    ElMessage.warning(mode === 'edit' ? '当前行无编码，无法编辑' : '当前行无编码，无法查看详情')
+    return
+  }
+  if (mode === 'edit' && rowIsAudited(row)) {
+    ev?.preventDefault?.()
+    ElMessage.warning('该数据已审核，需要先反审后才能编辑。')
+  }
+}
+
+function openBomStandaloneWindow(mode, row) {
+  const code = String(row?.code ?? row?.kcaa01 ?? '').trim()
+  if (!code) {
+    ElMessage.warning(mode === 'edit' ? '当前行无编码，无法编辑' : '当前行无编码，无法查看详情')
+    return
+  }
+  const win = window.open(buildBomStandaloneWindowUrl(mode, code), '_blank')
+  if (!win) {
+    ElMessage.warning('浏览器拦截了新窗口，请允许本站弹出窗口后重试')
+  } else {
+    win.focus?.()
+  }
+}
+
+function openDetail(row) {
+  openBomStandaloneWindow('detail', row)
+}
+
+async function loadDetailDialog(row) {
   const code = String(row?.code ?? '').trim()
   if (!code) {
     ElMessage.warning('当前行无编码，无法查看详情')
@@ -3757,7 +3784,7 @@ function openLinkedBomDetailFromPart(partRow) {
     ElMessage.warning('已在当前 BOM')
     return
   }
-  pushLinkedDetailLayer(partRow)
+  openBomStandaloneWindow('detail', { code })
 }
 
 /** 主档基础资料变更后：全库同步 Bom_parts / bom_cost 引用行的描述字段（不改用量、不重算） */
@@ -3843,14 +3870,14 @@ async function onOneClickUsageCalc(row) {
   bomUsageTreeLoading.value = true
   bomUsageTreeError.value = ''
   try {
-    const hidePrefixes = normalizeBomCostHidePrefixes(bomCostHidePrefixes.value)
+    const hidePrefixes = normalizeBomCostHidePrefixes(BOM_COST_BUILTIN_HIDE_PREFIXES)
     const body = await postBomUsageCalcApi(sc, hidePrefixes)
     if (!body?.success) {
       const msg = String(body?.msg ?? 'bom_cost写入失败')
       ElMessage.error(msg)
       return
     }
-    await openDetail(row)
+    await loadDetailDialog(row)
     if (detailError.value || !bomBasic.value) {
       await loadData()
       return
@@ -3895,7 +3922,7 @@ async function doBatchUsageCalcCurrentPage() {
   }
   batchUsageCalculating.value = true
   try {
-    const hidePrefixes = normalizeBomCostHidePrefixes(bomCostHidePrefixes.value)
+    const hidePrefixes = normalizeBomCostHidePrefixes(BOM_COST_BUILTIN_HIDE_PREFIXES)
     const res = await axios.post('/api/bom/usage-calc-batch', { systemcodes, hidePrefixes })
     const body = res.data
     if (body?.code !== 200) {
@@ -4196,7 +4223,15 @@ watch(
   },
 )
 
-async function onEdit(row) {
+function onEdit(row) {
+  if (rowIsAudited(row)) {
+    ElMessage.warning('该数据已审核，需要先反审后才能编辑。')
+    return
+  }
+  openBomStandaloneWindow('edit', row)
+}
+
+async function loadEditDialog(row) {
   if (rowIsAudited(row)) {
     ElMessage.warning('该数据已审核，需先反审后才能编辑。')
     return
@@ -4215,6 +4250,11 @@ async function onEdit(row) {
     const basic = res.data?.data?.basic
     if (res.data?.code !== 200 || !basic) {
       ElMessage.error(res.data?.msg || '加载主档失败')
+      editVisible.value = false
+      return
+    }
+    if (rowIsAudited(basic)) {
+      ElMessage.warning('该数据已审核，需要先反审后才能编辑。')
       editVisible.value = false
       return
     }
@@ -4265,8 +4305,37 @@ async function openCopyBom(row) {
   }
 }
 
-loadBomCodeCategoryOptions()
-loadData()
+async function openBomStandaloneFromRoute() {
+  const mode = bomWindowMode.value
+  const code = bomWindowCode.value
+  if (!code) {
+    ElMessage.error('新窗口缺少 BOM 编码，无法打开')
+    return
+  }
+  if (mode === 'detail') {
+    await loadDetailDialog({ code })
+    return
+  }
+  if (mode === 'cost-print') {
+    await loadDetailDialog({ code })
+    if (detailError.value || !bomBasic.value) return
+    detailActiveTab.value = 'costBomUsage'
+    await nextTick()
+    await loadBomUsageTreeOrCache(true)
+    if (!bomUsageTreeError.value) onPrintBomCostUsage()
+    return
+  }
+  if (mode === 'edit') {
+    await loadEditDialog({ code })
+  }
+}
+
+if (isBomStandaloneWindow.value) {
+  void openBomStandaloneFromRoute()
+} else {
+  loadBomCodeCategoryOptions()
+  loadData()
+}
 </script>
 
 <style scoped>
@@ -4281,12 +4350,16 @@ loadData()
   margin: 0 0 12px;
   color: var(--el-text-color-secondary);
 }
-.search-row {
+/* 工具条两行：筛选行 + 操作行；行间距见 --bom-toolbar-row-gap */
+.bom-toolbar {
+  --bom-toolbar-row-gap: 10px;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: var(--bom-toolbar-row-gap);
   margin-bottom: 12px;
+}
+.bom-toolbar-row.search-row {
+  margin-bottom: 0;
 }
 .bom-keyword-input {
   flex: 1;
@@ -4298,14 +4371,13 @@ loadData()
   flex-shrink: 0;
 }
 .bom-cut-select {
-  width: 200px;
+  width: min(320px, 100%);
   flex-shrink: 0;
 }
 .audit-switch {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  margin-left: 4px;
 }
 .switch-label {
   color: var(--el-text-color-regular);
@@ -4469,18 +4541,20 @@ loadData()
   min-width: 1100px;
 }
 
-/* 成本 BOM 用量：普通表 + 横向滚动 + 限高（与超长表约定一致） */
+/* 成本 BOM 用量：抬头在工具条；灰框铺满 Tab 剩余高度，表体内部滚动 */
 .bom-cost-usage-wrap {
-  min-height: 240px;
-  margin-top: 8px;
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 0;
   padding: 8px 4px;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 6px;
 }
 .bom-cost-usage-table-outer {
+  display: block;
   width: 100%;
   overflow-x: auto;
-  max-height: calc(100vh - 260px);
 }
 .bom-cost-usage-table {
   min-width: 920px;
@@ -4498,15 +4572,23 @@ loadData()
   line-height: 1.2;
 }
 .bom-cost-usage-toolbar {
-  margin-bottom: 0;
+  margin-bottom: 6px;
+}
+.bom-cost-usage-header {
+  flex-basis: 100%;
+  margin: 0;
+  padding: 2px 2px 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--el-text-color-primary);
+  word-break: break-word;
 }
 .bom-cost-usage-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  width: 100%;
-  margin-top: 4px;
 }
 .bom-cost-usage-print-only-table {
   display: none;
@@ -4528,61 +4610,13 @@ loadData()
 .bom-cost-usage-print-only-table th:nth-child(n + 6) {
   text-align: right;
 }
-.bom-cost-usage-print-only-table tfoot td {
+.bom-cost-usage-print-only-table .bom-cost-usage-print-summary-row td {
   font-weight: 600;
 }
 .bom-cost-usage-print-document {
   display: none;
 }
 
-.bom-cost-hide-prefix-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-}
-.bom-cost-hide-prefix-bar__label {
-  color: var(--el-text-color-regular);
-  white-space: nowrap;
-}
-.bom-cost-hide-prefix-bar__summary {
-  color: var(--el-text-color-secondary);
-  flex: 1 1 200px;
-  min-width: 0;
-  line-height: var(--erp-line-height-body, 1.6);
-}
-.bom-cost-hide-prefix-dialog__tip {
-  margin: 0 0 12px;
-  color: var(--el-text-color-secondary);
-  line-height: var(--erp-line-height-body, 1.6);
-}
-.bom-cost-hide-prefix-dialog__rows {
-  max-height: min(52vh, 360px);
-  overflow-y: auto;
-  padding-right: 4px;
-}
-.bom-cost-hide-prefix-dialog__row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-.bom-cost-hide-prefix-dialog__row .el-input {
-  flex: 1;
-  min-width: 0;
-}
-.bom-cost-hide-prefix-dialog__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 10px;
-  margin-top: 4px;
-}
-.bom-cost-hide-prefix-dialog__quick-label {
-  color: var(--el-text-color-regular);
-  margin-left: 4px;
-}
 .bom-cost-usage-toolbar__hint {
   margin-left: 0;
   flex-basis: 100%;
@@ -4676,6 +4710,67 @@ loadData()
 </style>
 
 <style>
+.bom-window-standalone-dialog.el-dialog,
+.bom-edit-dialog--standalone.el-dialog {
+  width: 100vw !important;
+  height: 100vh;
+  max-height: none;
+  margin: 0 !important;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.bom-window-standalone-dialog.el-dialog .el-dialog__header,
+.bom-edit-dialog--standalone.el-dialog .el-dialog__header {
+  height: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0 !important;
+  border: 0;
+  background: transparent;
+}
+
+.bom-window-standalone-dialog.el-dialog .el-dialog__title,
+.bom-edit-dialog--standalone.el-dialog .el-dialog__title {
+  display: none;
+}
+
+.bom-window-standalone-dialog.el-dialog .el-dialog__headerbtn,
+.bom-edit-dialog--standalone.el-dialog .el-dialog__headerbtn {
+  top: 10px !important;
+  right: 14px !important;
+  z-index: 5;
+}
+
+.bom-window-standalone-dialog.el-dialog .el-dialog__body,
+.bom-edit-dialog--standalone.el-dialog .el-dialog__body {
+  box-sizing: border-box;
+  height: 100vh;
+  padding: 10px 12px 12px !important;
+  overflow: auto;
+}
+
+.bom-edit-dialog--standalone.el-dialog .el-dialog__body {
+  height: calc(100vh - 48px);
+}
+
+.bom-edit-dialog--standalone.el-dialog .el-dialog__footer {
+  box-sizing: border-box;
+  height: 48px;
+  padding: 8px 12px !important;
+  border-top: 1px solid var(--el-border-color-light);
+}
+
+.bom-edit-dialog--standalone.el-dialog .bom-edit-body {
+  max-height: calc(100vh - 70px);
+}
+
+.bom-edit-dialog--standalone.el-dialog .bom-edit-body--parts-tab {
+  max-height: none;
+}
+</style>
+
+<style>
 .bom-main-detail-dialog.el-dialog .el-dialog__header {
   height: 0;
   min-height: 0;
@@ -4697,11 +4792,115 @@ loadData()
   padding-top: 10px;
 }
 
+/* 成本 BOM 用量 Tab：弹窗正文纵向 flex 铺满，灰框+表体吃满剩余视口（独立全屏窗尤甚） */
+.bom-main-detail-dialog.bom-main-detail-dialog--cost-usage-tab.el-dialog {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 16px);
+}
+.bom-window-standalone-dialog.bom-main-detail-dialog--cost-usage-tab.el-dialog {
+  max-height: none;
+  height: 100vh;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--cost-usage-tab.el-dialog .el-dialog__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.bom-window-standalone-dialog.bom-main-detail-dialog--cost-usage-tab.el-dialog .el-dialog__body {
+  height: 100vh;
+  overflow: hidden;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--cost-usage-tab .bom-detail-tabs {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--cost-usage-tab .bom-detail-tabs > .el-tabs__header {
+  flex-shrink: 0;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--cost-usage-tab .bom-detail-tabs > .el-tabs__content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--cost-usage-tab .bom-detail-tabs > .el-tabs__content > .el-tab-pane {
+  height: 100%;
+  box-sizing: border-box;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--cost-usage-tab #pane-costBomUsage {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--cost-usage-tab .bom-cost-usage-toolbar {
+  flex-shrink: 0;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--cost-usage-tab .bom-cost-usage-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--cost-usage-tab .bom-cost-usage-table-outer--fill {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--cost-usage-tab .bom-cost-usage-table-outer--fill .bom-cost-usage-screen-table {
+  flex: 1;
+  min-height: 0;
+  height: 0;
+  width: 100%;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--cost-usage-tab
+  .bom-cost-usage-table-outer--fill
+  .bom-cost-usage-screen-table
+  .el-table__inner-wrapper {
+  height: 100% !important;
+  display: flex;
+  flex-direction: column;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--cost-usage-tab
+  .bom-cost-usage-table-outer--fill
+  .bom-cost-usage-screen-table
+  .el-table__body-wrapper {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto !important;
+}
+
 /* 成本 BOM 用量表：浏览器打印（与 onPrintBomCostUsage 的 html class 配合） */
 @media print {
-  @page {
-    size: A4 landscape;
-    margin: 6mm;
+  /* 纸张纵向、页码由 onPrintBomCostUsage 注入 #bom-cost-print-page-style */
+  /*
+   * DIY：成本 BOM 用量表「打印」字号与列宽 —— 只改下面变量，保存后 Ctrl+F5，再点「点击此处打印」预览。
+   * 屏上表格列宽不受影响（仍看 el-table 的 min-width/width）。
+   */
+  html.print-bom-cost-usage {
+    --bom-cost-print-font-size: 14px;
+    --bom-cost-print-font-weight: 700;
+    --bom-cost-print-header-font-size: 17px;
+    --bom-cost-print-header-font-weight: 700;
+    --bom-cost-print-cell-padding: 5px 6px;
+    --bom-cost-print-col-code: 21%;
+    --bom-cost-print-col-name: 20%;
+    --bom-cost-print-col-spec: 20%;
+    --bom-cost-print-col-unit: 5%;
+    --bom-cost-print-col-remark: 10%;
+    --bom-cost-print-col-yl: 8%;
+    --bom-cost-print-col-loss: 8%;
+    --bom-cost-print-col-total: 8%;
   }
   html.print-bom-cost-usage,
   html.print-bom-cost-usage body {
@@ -4773,6 +4972,7 @@ loadData()
   }
   html.print-bom-cost-usage .bom-cost-usage-wrap {
     border: none;
+    height: auto !important;
     max-height: none !important;
     overflow: visible !important;
     padding: 0;
@@ -4822,69 +5022,85 @@ loadData()
     color: #000 !important;
     background: #fff !important;
   }
-  html.print-bom-cost-usage .bom-cost-usage-print-document h1 {
-    margin: 0 0 8px;
+  html.print-bom-cost-usage .bom-cost-usage-print-header {
+    margin: 0 0 10px;
     text-align: center;
-    font-size: 18px;
-    line-height: 1.4;
-  }
-  html.print-bom-cost-usage .bom-cost-usage-print-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px 18px;
-    margin-bottom: 8px;
-    font-size: 12px;
+    font-size: var(--bom-cost-print-header-font-size);
+    font-weight: var(--bom-cost-print-header-font-weight);
     line-height: 1.5;
   }
-  html.print-bom-cost-usage .bom-cost-usage-print-document-table {
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table,
+  html.print-bom-cost-usage .bom-cost-usage-print-only-table {
     width: 100%;
     border-collapse: collapse;
     table-layout: fixed;
-    font-size: 11px;
+    font-size: var(--bom-cost-print-font-size);
+    font-weight: var(--bom-cost-print-font-weight);
   }
-  html.print-bom-cost-usage .bom-cost-usage-print-document-table thead {
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table thead,
+  html.print-bom-cost-usage .bom-cost-usage-print-only-table thead {
     display: table-header-group;
-  }
-  html.print-bom-cost-usage .bom-cost-usage-print-document-table tfoot {
-    display: table-footer-group;
   }
   html.print-bom-cost-usage .bom-cost-usage-print-document-table tr {
     break-inside: avoid;
     page-break-inside: avoid;
   }
   html.print-bom-cost-usage .bom-cost-usage-print-document-table th,
-  html.print-bom-cost-usage .bom-cost-usage-print-document-table td {
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table td,
+  html.print-bom-cost-usage .bom-cost-usage-print-only-table th,
+  html.print-bom-cost-usage .bom-cost-usage-print-only-table td {
     border: 1px solid #333;
-    padding: 3px 5px;
+    padding: var(--bom-cost-print-cell-padding);
     vertical-align: top;
     word-break: break-word;
+    font-weight: var(--bom-cost-print-font-weight);
   }
-  html.print-bom-cost-usage .bom-cost-usage-print-document-table th {
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table th,
+  html.print-bom-cost-usage .bom-cost-usage-print-only-table th {
     background: #f0f0f0 !important;
-    font-weight: 600;
+    font-weight: var(--bom-cost-print-font-weight);
   }
   html.print-bom-cost-usage .bom-cost-usage-print-document-table .num,
-  html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(n + 6) {
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(n + 6),
+  html.print-bom-cost-usage .bom-cost-usage-print-only-table .num,
+  html.print-bom-cost-usage .bom-cost-usage-print-only-table th:nth-child(n + 6) {
     text-align: right;
   }
-  html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(1) {
-    width: 22%;
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(1),
+  html.print-bom-cost-usage .bom-cost-usage-print-only-table th:nth-child(1) {
+    width: var(--bom-cost-print-col-code);
   }
   html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(2),
-  html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(3) {
-    width: 13%;
+  html.print-bom-cost-usage .bom-cost-usage-print-only-table th:nth-child(2) {
+    width: var(--bom-cost-print-col-name);
   }
-  html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(4) {
-    width: 6%;
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(3),
+  html.print-bom-cost-usage .bom-cost-usage-print-only-table th:nth-child(3) {
+    width: var(--bom-cost-print-col-spec);
   }
-  html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(5) {
-    width: 12%;
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(4),
+  html.print-bom-cost-usage .bom-cost-usage-print-only-table th:nth-child(4) {
+    width: var(--bom-cost-print-col-unit);
   }
-  html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(n + 6) {
-    width: 9%;
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(5),
+  html.print-bom-cost-usage .bom-cost-usage-print-only-table th:nth-child(5) {
+    width: var(--bom-cost-print-col-remark);
   }
-  html.print-bom-cost-usage .bom-cost-usage-print-document-table tfoot td {
-    font-weight: 600;
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(6),
+  html.print-bom-cost-usage .bom-cost-usage-print-only-table th:nth-child(6) {
+    width: var(--bom-cost-print-col-yl);
+  }
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(7),
+  html.print-bom-cost-usage .bom-cost-usage-print-only-table th:nth-child(7) {
+    width: var(--bom-cost-print-col-loss);
+  }
+  html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(8),
+  html.print-bom-cost-usage .bom-cost-usage-print-only-table th:nth-child(8) {
+    width: var(--bom-cost-print-col-total);
+  }
+  html.print-bom-cost-usage .bom-cost-usage-print-summary-row td {
+    font-weight: var(--bom-cost-print-font-weight);
+    background: #fafafa !important;
   }
 }
 </style>

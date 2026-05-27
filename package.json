@@ -41,6 +41,7 @@
     "e2e:sales-order": "node scripts/e2e-sales-order-list-read.mjs",
     "test:sales-order": "node --test server/salesOrderListQuery.test.mjs server/salesOrderList.integration.test.mjs server/salesOrderApi.integration.test.mjs server/salesOrderSaveLogic.test.mjs server/salesOrderPiBom.test.mjs server/salesOrderSave.integration.test.mjs server/salesOrderLifecycle.test.mjs server/salesOrderLifecycle.integration.test.mjs server/salesOrderSyncBomLogic.test.mjs server/salesOrderSyncBom.integration.test.mjs server/salesOrderCalculateLogic.test.mjs server/salesOrderCalculate.integration.test.mjs server/salesOrderPiBomMaintainLogic.test.mjs server/salesOrderPiBomMaintain.integration.test.mjs src/utils/salesOrderDisplay.test.mjs",
     "test:paper-pattern-erp": "node --test server/paperPatternErpCodeNormalize.test.mjs server/paperPatternCheckMaterial.classify.test.mjs server/paperPatternImportCutRow.test.mjs server/paperPatternCutDisplayFormat.test.mjs server/paperPatternMaterialWastageInput.test.mjs server/paperPatternMaterialWastagePolicy.test.mjs server/paperPatternImportCommitBom000.test.mjs server/paperPatternImportCommitBomParts.test.mjs server/paperPatternImportDeleteBomTree.test.mjs server/paperPatternMaterialGroupMatching.test.mjs",
+    "link:skill:ask-then-execute": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/link-ask-then-execute-skill.ps1",
     "codegraph:install": "codegraph install --target=cursor,codex --location=local --yes",
     "codegraph:init": "codegraph init -i",
     "codegraph:status": "codegraph status"

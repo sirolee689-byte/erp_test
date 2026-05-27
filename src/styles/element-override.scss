@@ -565,8 +565,7 @@ html[data-ui='comfortable'] .erp-ui-density .el-radio-button__inner {
 .search-row,
 .erp-action-row,
 .bom-parts-toolbar,
-.bom-detail-drill-bar,
-.bom-cost-hide-prefix-dialog__actions {
+.bom-detail-drill-bar {
   gap: var(--erp-action-gap) !important;
 }
 
@@ -685,9 +684,6 @@ html[data-ui='comfortable'] .bom-section-title {
 
 html[data-ui='comfortable'] .bom-sub-block-title,
 html[data-ui='comfortable'] .bom-usage-calc-toolbar__hint,
-html[data-ui='comfortable'] .bom-cost-hide-prefix-bar__label,
-html[data-ui='comfortable'] .bom-cost-hide-prefix-bar__summary,
-html[data-ui='comfortable'] .bom-cost-hide-prefix-dialog__tip,
 html[data-ui='comfortable'] .bom-parts-sum-row {
   font-size: var(--erp-text-secondary-size) !important;
   line-height: var(--erp-line-height-body) !important;

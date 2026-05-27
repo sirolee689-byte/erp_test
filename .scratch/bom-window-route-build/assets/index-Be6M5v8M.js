@@ -1,0 +1,1 @@
+import t from"./index-CGnk2OLC.js";import{i as e,o}from"./index-B7lqzZcM.js";import"./MaterialSelector-BmsO6A-F.js";import"./ErpPageDialog-DyDBPe4-.js";import"./exceljs.min-CkvCnQPY.js";const _={__name:"index",setup(r){return(m,i)=>(o(),e(t,{"embedded-title":"BOM资料"}))}};export{_ as default};

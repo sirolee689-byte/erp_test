@@ -66,6 +66,13 @@ const paperPatternImportErpWorkbenchRoute = {
   meta: { title: '智能校验' },
 }
 
+const bomDataWindowRoute = {
+  path: '/inventory/basic/bom-data-window',
+  name: 'inventory-basic-bom-data-window',
+  component: () => import('@/views/inv/bom/index.vue'),
+  meta: { title: 'BOM资料窗口', permissionPath: '/inventory/basic/bom-data' },
+}
+
 const childRoutes = [
   ...walkRoutes(menuStructure),
   paperPatternImportPreviewRoute,
@@ -96,6 +103,7 @@ const router = createRouter({
       component: viewModules['../views/login/index.vue'],
       meta: { title: '登录' },
     },
+    bomDataWindowRoute,
     {
       path: '/',
       component: ErpLayout,
@@ -123,7 +131,8 @@ router.beforeEach((to) => {
 
   // v1.0.7：已登录访问具体页时，用 Sys_Roles.Permissions 与目标 path 比对
   const model = getPermissionModelFromStorage()
-  if (!isRouteAllowed(to.path, model)) {
+  const permissionPath = to.meta?.permissionPath || to.path
+  if (!isRouteAllowed(permissionPath, model)) {
     return { path: '/403', replace: true }
   }
 
