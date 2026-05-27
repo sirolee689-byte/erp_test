@@ -75,6 +75,7 @@ import {
 import { buildBomPartsUsageTreeNodes } from './bomUsageTreeBuild.js'
 import { flattenBomPartsCostUsageFlat } from './bomUsageFlatten.js'
 import { handlePostBomMasterPropagate } from './bomMasterPropagate.js'
+import { markCurrentBomCostStale } from './bomCostImpactScope.js'
 
 dotenv.config()
 
@@ -8437,55 +8438,14 @@ async function runBomUsageCalcForHead(pool, head, hidePrefixes, actor) {
 }
 
 /**
- * 配件明细变化后，成本用量缓存必须失效。
- * 例：PQ 下挂 TAG，TAG 的单位用量或下层明细变化后，PQ 的 bom_cost 也要删掉，
- * 否则 GET /api/bom/tree 会命中旧 bom_cost，页面看起来像“单位用量没参与运算”。
+ * 配件明细保存后，只清当前 BOM 的成本用量缓存。
+ * 已审核 BOM 不允许编辑，所以这里不额外反审，也不递归影响上级 BOM。
  * @param {import('mssql').ConnectionPool | import('mssql').Transaction} executor
  * @param {string} systemcode 本次保存的 BOM systemcode
- * @returns {Promise<{ affected: number, deleted: number }>}
+ * @returns {Promise<{ affected: number, unaudited: number, deleted: number }>}
  */
 async function invalidateBomCostCacheForPartsChange(executor, systemcode) {
-  const sc = String(systemcode ?? '').trim()
-  if (!sc) return { affected: 0, deleted: 0 }
-  const rs = await new sql.Request(executor).input('sc', sql.NVarChar(100), sc).query(`
-    ;WITH affected AS (
-      SELECT
-        LTRIM(RTRIM(CONVERT(nvarchar(100), @sc))) AS systemcode,
-        0 AS depth
-      UNION ALL
-      SELECT
-        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) AS systemcode,
-        a.depth + 1 AS depth
-      FROM ${INV_BOM_PARTS_FROM} AS p
-      INNER JOIN affected AS a
-        ON LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac02, N'')))) = a.systemcode
-      WHERE a.depth < 20
-        AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) <> N''
-    ),
-    affected_unique AS (
-      SELECT DISTINCT systemcode
-      FROM affected
-    ),
-    heads AS (
-      SELECT DISTINCT
-        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS sid,
-        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) AS pq
-      FROM ${INV_BOM_MASTER_FROM} AS b
-      INNER JOIN affected_unique AS a
-        ON LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) = a.systemcode
-      WHERE (ISNULL(b.del, N'') = N'' OR b.del = N'0')
-        AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) <> N''
-        AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) <> N''
-    )
-    DELETE c
-    FROM ${BOM_COST_FROM} AS c
-    INNER JOIN heads AS h
-      ON LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.sid, N'')))) = h.sid
-     AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.pq, N'')))) = h.pq
-    OPTION (MAXRECURSION 20)
-  `)
-  const deleted = (rs.rowsAffected ?? []).reduce((sum, n) => sum + Number(n ?? 0), 0)
-  return { affected: deleted > 0 ? 1 : 0, deleted }
+  return markCurrentBomCostStale(executor, systemcode)
 }
 
 /** 查询行 → 前端 bom_cost DTO */
@@ -9253,10 +9213,15 @@ async function handleInventoryBomPartsPut(req, res) {
 
       await bomPartsAssertSubmittedCodesPersisted(tx, systemcode, submittedPartCodes)
       const cacheInvalidated = await invalidateBomCostCacheForPartsChange(tx, systemcode)
-      if (cacheInvalidated.deleted > 0) {
+      if (cacheInvalidated.deleted > 0 || cacheInvalidated.unaudited > 0) {
         console.log(
-          '[bom-cost-cache-invalidated]',
-          JSON.stringify({ systemcode, deleted: cacheInvalidated.deleted }),
+          '[bom-current-cost-stale]',
+          JSON.stringify({
+            systemcode,
+            affected: cacheInvalidated.affected,
+            unaudited: cacheInvalidated.unaudited,
+            deleted: cacheInvalidated.deleted,
+          }),
         )
       }
 
@@ -9309,6 +9274,8 @@ async function handleInventoryBomPartsPut(req, res) {
           updated,
           inserted,
           bomCostCacheDeleted: cacheInvalidated.deleted,
+          bomImpactAffected: cacheInvalidated.affected,
+          bomUnaudited: cacheInvalidated.unaudited,
           /** @deprecated 兼容旧前端；数值同 deleted */
           softDeleted: deleted,
         },

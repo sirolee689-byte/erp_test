@@ -24,6 +24,7 @@ import {
   resolveCommitColorNos,
   resolveMaterialsForCommitColor,
   validateMaterialCodesByColorForCommit,
+  validateMaterialPrefixConsistency,
 } from './paperPatternMaterialCodesByColor.js'
 import { resolveUploadedPaperPatternFile } from './paperPatternImportPreview.js'
 import {
@@ -519,6 +520,16 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
         code: materialCellCheck.code,
         message: materialCellCheck.message,
         data: materialCellCheck.data,
+      })
+      return
+    }
+    const materialPrefixCheck = validateMaterialPrefixConsistency(materialsIn, colorNos)
+    if (!materialPrefixCheck.ok) {
+      res.status(400).json({
+        success: false,
+        code: materialPrefixCheck.code,
+        message: materialPrefixCheck.message,
+        data: materialPrefixCheck.data,
       })
       return
     }

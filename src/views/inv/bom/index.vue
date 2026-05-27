@@ -906,6 +906,7 @@
       :part-row="layer.partRow"
       :stack-modal="layerIdx === linkedDetailStack.length - 1"
       @view-child="pushLinkedDetailLayer"
+      @saved="onLinkedDetailSaved"
       @closed="removeLinkedDetailLayer(layer.id)"
     />
 
@@ -1597,6 +1598,11 @@ function pushLinkedDetailLayer(partRow) {
 function removeLinkedDetailLayer(id) {
   const idx = linkedDetailStack.value.findIndex((l) => l.id === id)
   if (idx >= 0) linkedDetailStack.value.splice(idx, 1)
+}
+
+async function onLinkedDetailSaved() {
+  resetBomUsageBlockState()
+  await loadData()
 }
 
 /** BOM用量表运算：树形表格数据源（GET /api/bom/tree，嵌套 children） */
@@ -3215,6 +3221,7 @@ async function saveBomParts() {
     partsPendingDeleteIds.value = []
     resetBomUsageBlockState()
     await loadBomParts({ force: true })
+    await loadData()
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '保存失败'))
   } finally {

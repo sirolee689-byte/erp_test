@@ -176,7 +176,7 @@ const props = defineProps({
   stackModal: { type: Boolean, default: true },
 })
 
-const emit = defineEmits(['update:modelValue', 'closed', 'view-child'])
+const emit = defineEmits(['update:modelValue', 'closed', 'view-child', 'saved'])
 
 const { detailTableSize } = useUiDensity()
 
@@ -594,6 +594,8 @@ async function saveParts() {
     }
     ElMessage.success('配件明细已保存')
     partsPendingDeleteIds.value = []
+    if (bomBasic.value) bomBasic.value = { ...bomBasic.value, pass: '0' }
+    emit('saved')
     await loadParts({ force: true })
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '保存失败'))

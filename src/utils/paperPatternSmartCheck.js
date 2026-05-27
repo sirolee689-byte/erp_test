@@ -9,6 +9,25 @@ export const SMART_CHECK_PASS_STORAGE = 'paperPatternSmartCheckPassV1'
 /** 导入页 fileId / 基础资料确认区（离开页面前缓存，配合 parse-tree 恢复） */
 export const IMPORT_PAGE_SESSION_STORAGE = 'paperPatternImportPageSessionV1'
 
+export function excelColumnLettersFromIndex(index) {
+  let n = Math.trunc(Number(index) || 0)
+  if (n < 1) return ''
+  let out = ''
+  while (n > 0) {
+    n -= 1
+    out = String.fromCharCode(65 + (n % 26)) + out
+    n = Math.floor(n / 26)
+  }
+  return out
+}
+
+export function materialErpPrefix(code) {
+  const d = normalizeErpCodeDisplay(code)
+  if (!d) return ''
+  const slash = d.indexOf('/')
+  return (slash >= 0 ? d.slice(0, slash) : d).trim()
+}
+
 /**
  * @param {string[] | undefined} colorNos
  * @param {any[]} materials
@@ -33,11 +52,11 @@ export function resolveSmartCheckColorNos(colorNos, materials) {
  * 智能校验 Material 表：按分组 × 颜色展开为待写入全码行
  * @param {any[]} materials
  * @param {string[] | undefined} colorNos
- * @returns {Array<{ groupNo: string, colorNo: string, materialName: string, materialCode: string }>}
+ * @returns {Array<{ groupNo: string, colorNo: string, colIndex?: number, excelCol: string, materialName: string, materialCode: string }>}
  */
 export function expandMaterialRowsForSmartCheck(materials, colorNos) {
   const colors = resolveSmartCheckColorNos(colorNos, materials)
-  /** @type {Array<{ groupNo: string, colorNo: string, materialName: string, materialCode: string }>} */
+  /** @type {Array<{ groupNo: string, colorNo: string, colIndex?: number, excelCol: string, materialName: string, materialCode: string }>} */
   const rows = []
   for (const m of materials || []) {
     const groupNo = String(m?.groupNo ?? '').trim()
@@ -49,6 +68,8 @@ export function expandMaterialRowsForSmartCheck(materials, colorNos) {
       rows.push({
         groupNo,
         colorNo,
+        colIndex: hit?.colIndex,
+        excelCol: excelColumnLettersFromIndex(hit?.colIndex),
         materialName,
         materialCode: String(hit?.materialCode ?? '').trim(),
       })
@@ -62,6 +83,51 @@ export function expandMaterialRowsForSmartCheck(materials, colorNos) {
  * @param {any[]} materials
  * @param {Array<{ groupNo?: string, colorNo?: string, materialCode?: string }>} checkRows
  */
+/**
+ * @param {Array<{ groupNo?: string, colorNo?: string, colIndex?: number, excelCol?: string, materialName?: string, materialCode?: string }>} rows
+ */
+export function validateMaterialPrefixConsistencyForSmartCheck(rows) {
+  const byGroup = new Map()
+  for (const row of rows || []) {
+    const groupNo = String(row?.groupNo ?? '').trim()
+    if (!groupNo) continue
+    if (!byGroup.has(groupNo)) byGroup.set(groupNo, [])
+    byGroup.get(groupNo).push(row)
+  }
+
+  const mismatches = []
+  for (const groupRows of byGroup.values()) {
+    const entries = groupRows
+      .map((row) => {
+        const materialCode = normalizeErpCodeDisplay(row?.materialCode ?? '')
+        const prefix = materialErpPrefix(materialCode)
+        return {
+          groupNo: String(row?.groupNo ?? '').trim(),
+          colorNo: String(row?.colorNo ?? '').trim(),
+          colIndex: row?.colIndex,
+          excelCol: String(row?.excelCol ?? '') || excelColumnLettersFromIndex(row?.colIndex),
+          materialName: String(row?.materialName ?? '').trim(),
+          materialCode,
+          prefix,
+        }
+      })
+      .filter((x) => x.materialCode && x.prefix)
+    const base = entries[0]
+    if (!base) continue
+    for (const item of entries.slice(1)) {
+      if (item.prefix === base.prefix) continue
+      mismatches.push({
+        ...item,
+        expectedPrefix: base.prefix,
+        expectedColorNo: base.colorNo,
+        expectedColIndex: base.colIndex,
+        expectedExcelCol: base.excelCol,
+      })
+    }
+  }
+  return mismatches
+}
+
 export function mergeMaterialCheckRowsIntoMaterials(materials, checkRows) {
   const mats = Array.isArray(materials) ? materials : []
   const rows = Array.isArray(checkRows) ? checkRows : []

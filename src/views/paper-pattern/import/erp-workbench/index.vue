@@ -26,7 +26,13 @@
       <el-alert v-else-if="topBanner.type === 'block'" type="error" show-icon :closable="false" class="banner">
         <template #title>存在错误 — 尚未通过智能校验</template>
         <div class="banner-lines">
-          <p v-for="(line, idx) in topBanner.lines" :key="idx">{{ line }}</p>
+          <p
+            v-for="(line, idx) in topBanner.lines"
+            :key="idx"
+            :class="{ 'prefix-mismatch-line': line.type === 'prefix-mismatch' }"
+          >
+            {{ line.text }}
+          </p>
         </div>
       </el-alert>
       <el-alert v-else type="info" show-icon :closable="false" class="banner">
@@ -95,6 +101,7 @@ import {
   readWorkbenchPayload,
   resolveSmartCheckColorNos,
   saveWorkbenchPayload,
+  validateMaterialPrefixConsistencyForSmartCheck,
   writeSmartCheckPass,
 } from '@/utils/paperPatternSmartCheck.js'
 
@@ -113,7 +120,7 @@ const checkedOnce = ref(false)
 const colorNosRef = ref([])
 /** @type {import('vue').Ref<any[]>} */
 const sourceMaterials = ref([])
-/** @type {import('vue').Ref<{ groupNo: string, colorNo: string, materialName: string, materialCode: string }[]>} */
+/** @type {import('vue').Ref<{ groupNo: string, colorNo: string, colIndex?: number, excelCol?: string, materialName: string, materialCode: string }[]>} */
 const materialRows = ref([])
 /** @type {import('vue').Ref<{ seqNo: string, colorNo: string, erpCode: string, accessoryName: string, usageQty: string, wastage: string, lineTotal: string, matching: string }[]>} */
 const accessoryRows = ref([])
@@ -143,22 +150,31 @@ function accessoryRowStatus(row) {
   return { text: 'ERP不存在', ok: false, empty: false }
 }
 
-/** @returns {string[]} */
+/** @returns {Array<{ text: string, type?: string }>} */
 function collectValidationIssueLines() {
-  /** @type {string[]} */
+  /** @type {Array<{ text: string, type?: string }>} */
   const lines = []
   const missingCodes = new Set()
+  const prefixMismatchGroups = new Set()
+
+  const prefixMismatches = validateMaterialPrefixConsistencyForSmartCheck(materialRows.value)
+  for (const x of prefixMismatches) {
+    const groupNo = String(x.groupNo ?? '').trim()
+    if (!groupNo || prefixMismatchGroups.has(groupNo)) continue
+    prefixMismatchGroups.add(groupNo)
+    lines.push({ text: `序号${groupNo} 编码存在不统一`, type: 'prefix-mismatch' })
+  }
 
   for (const r of materialRows.value) {
     const st = materialRowStatus(r)
     if (st.ok) continue
     if (st.empty) {
-      lines.push(`分组${r.groupNo}/颜色${r.colorNo}：ERP 为空，无法校验`)
+      lines.push({ text: `分组${r.groupNo}/颜色${r.colorNo}：ERP 为空，无法校验` })
     } else {
       const code = normalizeErpCodeDisplay(r.materialCode)
       if (!missingCodes.has(code)) {
         missingCodes.add(code)
-        lines.push(`编码 ${code} 不存在`)
+        lines.push({ text: `编码 ${code} 不存在` })
       }
     }
   }
@@ -168,12 +184,12 @@ function collectValidationIssueLines() {
     if (st.ok) continue
     if (st.empty) {
       const seq = String(r.seqNo ?? '').trim() || '—'
-      lines.push(`Accessory 序号${seq}/颜色${r.colorNo}：ERP 为空，无法校验`)
+      lines.push({ text: `Accessory 序号${seq}/颜色${r.colorNo}：ERP 为空，无法校验` })
     } else {
       const code = normalizeErpCodeDisplay(r.erpCode)
       if (!missingCodes.has(code)) {
         missingCodes.add(code)
-        lines.push(`编码 ${code} 不存在`)
+        lines.push({ text: `编码 ${code} 不存在` })
       }
     }
   }
@@ -187,7 +203,8 @@ const topBanner = computed(() => {
   }
   const matOk = materialRows.value.every((r) => materialRowStatus(r).ok)
   const accOk = accessoryRows.value.every((r) => accessoryRowStatus(r).ok)
-  if (matOk && accOk) {
+  const prefixOk = validateMaterialPrefixConsistencyForSmartCheck(materialRows.value).length === 0
+  if (matOk && accOk && prefixOk) {
     return { type: 'ok', lines: [] }
   }
   return { type: 'block', lines: collectValidationIssueLines() }
@@ -432,6 +449,10 @@ onUnmounted(() => {
 .banner-lines p {
   margin: 4px 0 0;
   line-height: 1.5;
+}
+.prefix-mismatch-line {
+  color: var(--el-color-success);
+  font-weight: 600;
 }
 .err {
   margin-bottom: 12px;

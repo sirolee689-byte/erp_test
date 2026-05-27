@@ -18,7 +18,8 @@ defineOptions({ name: 'ErpAppMain' })
   padding: 16px;
   min-width: 0;
   /* 主内容区横向由表体/视口底横条处理，避免白卡片与 el-card__body 再出一层横滚 */
-  overflow-x: hidden;
+  overflow-x: clip;
+  overflow-y: visible;
 }
 .erp-content-card {
   background: #fff;
@@ -38,7 +39,7 @@ defineOptions({ name: 'ErpAppMain' })
 .erp-app-main-root .erp-tags-wrap {
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 30;
   margin: -4px 0 12px;
   padding: 8px 0 4px;
   background: #f3f5f7;

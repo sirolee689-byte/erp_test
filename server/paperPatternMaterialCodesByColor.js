@@ -5,6 +5,25 @@ import { normalizeErpCodeDisplay } from './paperPatternErpCodeNormalize.js'
 import { readExcelColNorm } from './paperPatternImportCutRow.js'
 import { excelColumnIndexFromLetters } from './paperPatternImportPreview.js'
 
+export function excelColumnLettersFromIndex(index) {
+  let n = Math.trunc(Number(index) || 0)
+  if (n < 1) return ''
+  let out = ''
+  while (n > 0) {
+    n -= 1
+    out = String.fromCharCode(65 + (n % 26)) + out
+    n = Math.floor(n / 26)
+  }
+  return out
+}
+
+export function materialErpPrefix(code) {
+  const d = normalizeErpCodeDisplay(code)
+  if (!d) return ''
+  const slash = d.indexOf('/')
+  return (slash >= 0 ? d.slice(0, slash) : d).trim()
+}
+
 /**
  * @param {Array<{ colorNo: string, excelCol?: string, colIndex?: number }>} colorSources
  * @returns {Array<{ colorNo: string, colIndex: number }>}
@@ -92,6 +111,74 @@ export function validateMaterialCodesByColorForCommit(materials, colorNos) {
  * @param {Array<Record<string, unknown>>} materials
  * @param {string} colorNo
  */
+/**
+ * @param {Array<{ groupNo?: string, materialName?: string, codesByColor?: Array<{ colorNo: string, colIndex?: number, materialCode?: string }> }>} materials
+ * @param {string[]} colorNos
+ * @returns {{ ok: true } | { ok: false, code: string, message: string, data: { mismatches: Array<object> } }}
+ */
+export function validateMaterialPrefixConsistency(materials, colorNos) {
+  const colors = [...new Set((colorNos || []).map((c) => String(c ?? '').trim()).filter(Boolean))]
+  const mats = Array.isArray(materials) ? materials : []
+  const mismatches = []
+
+  for (const m of mats) {
+    const groupNo = String(m?.groupNo ?? '').trim()
+    if (!groupNo) continue
+    const materialName = String(m?.materialName ?? '').trim()
+    const byColor = Array.isArray(m.codesByColor) ? m.codesByColor : []
+    const sourceColors =
+      colors.length > 0
+        ? colors
+        : byColor.map((x) => String(x?.colorNo ?? '').trim()).filter(Boolean)
+    const entries = []
+
+    for (const colorNo of sourceColors) {
+      const hit = byColor.find((x) => String(x?.colorNo ?? '').trim() === colorNo)
+      const materialCode = normalizeErpCodeDisplay(hit?.materialCode ?? '')
+      const prefix = materialErpPrefix(materialCode)
+      if (!materialCode || !prefix) continue
+      entries.push({
+        groupNo,
+        materialName,
+        colorNo,
+        colIndex: hit?.colIndex,
+        excelCol: excelColumnLettersFromIndex(hit?.colIndex),
+        materialCode,
+        prefix,
+      })
+    }
+
+    const base = entries[0]
+    if (!base) continue
+    for (const item of entries.slice(1)) {
+      if (item.prefix === base.prefix) continue
+      mismatches.push({
+        ...item,
+        expectedPrefix: base.prefix,
+        expectedColorNo: base.colorNo,
+        expectedColIndex: base.colIndex,
+        expectedExcelCol: base.excelCol,
+      })
+    }
+  }
+
+  if (mismatches.length === 0) return { ok: true }
+  const sample = mismatches
+    .slice(0, 5)
+    .map((x) => {
+      const col = x.excelCol ? `${x.excelCol}列` : `颜色${x.colorNo}`
+      return `Material 序号${x.groupNo}${x.materialName ? `（${x.materialName}）` : ''}：${col} ${x.materialCode} 的前缀 ${x.prefix} 与本行基准 ${x.expectedPrefix} 不一致`
+    })
+    .join('；')
+  const more = mismatches.length > 5 ? ` 等共 ${mismatches.length} 处` : ''
+  return {
+    ok: false,
+    code: 'MATERIAL_PREFIX_MISMATCH',
+    message: `${sample}${more}。请检查上传的 Excel 文件是否有误。`,
+    data: { mismatches },
+  }
+}
+
 export function resolveMaterialsForCommitColor(materials, colorNo) {
   const col = String(colorNo ?? '').trim()
   return (Array.isArray(materials) ? materials : []).map((m) => {
