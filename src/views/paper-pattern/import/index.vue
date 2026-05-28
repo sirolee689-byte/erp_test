@@ -180,9 +180,9 @@
                 <div class="form-field">
                   <div class="form-label">配件名称</div>
                   <el-input
-                    :model-value="importTypeFlag1ForBlock(block)"
-                    readonly
-                    class="field-control field-readonly"
+                    v-model="block.bomName"
+                    clearable
+                    class="field-control"
                     placeholder="（请选择顶部导入类型）"
                   />
                 </div>
@@ -190,7 +190,13 @@
               <el-col :xs="24" :sm="12" :md="8" :lg="8">
                 <div class="form-field">
                   <div class="form-label">颜色编码</div>
-                  <el-input v-model="block.colorNo" clearable class="field-control" placeholder="如 G-TEST" />
+                  <el-input
+                    :model-value="block.colorNo"
+                    clearable
+                    class="field-control"
+                    placeholder="如 G-TEST"
+                    @update:model-value="onColorNoUpdate(block, $event)"
+                  />
                 </div>
               </el-col>
             </el-row>
@@ -199,9 +205,9 @@
                 <div class="form-field">
                   <div class="form-label">工厂款号</div>
                   <el-input
-                    :model-value="factoryStyleKcaa03PathForBlock(block)"
-                    readonly
-                    class="field-control field-readonly"
+                    v-model="block.bomFactoryStyleNo"
+                    clearable
+                    class="field-control"
                     placeholder="（请补全厂款号、颜色编码）"
                   />
                 </div>
@@ -384,7 +390,7 @@ const importTypesLoading = ref(false)
 const importTypesError = ref('')
 
 /** 基础资料确认块（每色一块） */
-/** @type {import('vue').Ref<Array<{ importTypeFlag5: string, factoryStyleNo: string, groupLabel: string, customerStyleNo: string, colorNo: string, sampleName: string }>>} */
+/** @type {import('vue').Ref<Array<{ importTypeFlag5: string, factoryStyleNo: string, groupLabel: string, customerStyleNo: string, colorNo: string, sampleName: string, bomName: string, bomFactoryStyleNo: string }>>} */
 const basicFormList = ref([])
 /** 全部颜色共用的导入类型 */
 const sharedImportTypeFlag5 = ref('')
@@ -518,20 +524,78 @@ async function loadImportTypes() {
 }
 
 function createBasicFormBlockFromShared(shared, colorNo) {
-  return {
+  const block = {
     importTypeFlag5: String(shared.importTypeFlag5 ?? '').trim(),
     factoryStyleNo: String(shared.factoryStyleNo ?? '').trim(),
     groupLabel: String(shared.groupLabel ?? '').trim(),
     customerStyleNo: String(shared.customerStyleNo ?? '').trim(),
     colorNo: String(colorNo ?? '').trim(),
     sampleName: String(shared.sampleName ?? '').trim(),
+    bomName: String(shared.bomName ?? '').trim(),
+    bomFactoryStyleNo: String(shared.bomFactoryStyleNo ?? '').trim(),
   }
+  if (!block.bomName) block.bomName = resolveImportTypeFlag1FromFlag5(block.importTypeFlag5)
+  if (!block.bomFactoryStyleNo) block.bomFactoryStyleNo = factoryStyleKcaa03PathForBlock(block)
+  return block
+}
+
+function mainBomNameForBlock(block) {
+  return String(block?.bomName ?? '').trim() || importTypeFlag1ForBlock(block)
+}
+
+function mainBomFactoryStyleNoForBlock(block) {
+  return String(block?.bomFactoryStyleNo ?? '').trim() || factoryStyleKcaa03PathForBlock(block)
+}
+
+function buildMainBomBasicsPayload(list) {
+  return list.map((b) => ({
+    colorNo: String(b?.colorNo ?? '').trim(),
+    bomName: mainBomNameForBlock(b),
+    bomFactoryStyleNo: mainBomFactoryStyleNoForBlock(b),
+  }))
+}
+
+function syncDerivedBomBasicFields(block, prevImportTypeFlag5 = '') {
+  const prevName = resolveImportTypeFlag1FromFlag5(prevImportTypeFlag5)
+  const nextName = resolveImportTypeFlag1FromFlag5(block?.importTypeFlag5 ?? '')
+  if (!String(block?.bomName ?? '').trim() || String(block.bomName ?? '').trim() === prevName) {
+    block.bomName = nextName
+  }
+  if (!String(block?.bomFactoryStyleNo ?? '').trim()) {
+    block.bomFactoryStyleNo = factoryStyleKcaa03PathForBlock(block)
+  }
+}
+
+function onColorNoUpdate(block, value) {
+  const oldFactoryStyle = String(block?.bomFactoryStyleNo ?? '').trim()
+  const oldDefault = factoryStyleKcaa03PathForBlock(block)
+  block.colorNo = String(value ?? '')
+  if (!oldFactoryStyle || oldFactoryStyle === oldDefault) {
+    block.bomFactoryStyleNo = factoryStyleKcaa03PathForBlock(block)
+  }
+}
+
+function restoreBasicFormBlockFromSession(b) {
+  const block = {
+    importTypeFlag5: String(b?.importTypeFlag5 ?? '').trim(),
+    factoryStyleNo: String(b?.factoryStyleNo ?? '').trim(),
+    groupLabel: String(b?.groupLabel ?? '').trim(),
+    customerStyleNo: String(b?.customerStyleNo ?? '').trim(),
+    colorNo: String(b?.colorNo ?? '').trim(),
+    sampleName: String(b?.sampleName ?? '').trim(),
+    bomName: String(b?.bomName ?? '').trim(),
+    bomFactoryStyleNo: String(b?.bomFactoryStyleNo ?? '').trim(),
+  }
+  syncDerivedBomBasicFields(block, '')
+  return block
 }
 
 function syncImportTypeFlag5ToAllBlocks(flag5) {
   const v = String(flag5 ?? '').trim()
   for (const block of basicFormList.value) {
+    const prev = String(block.importTypeFlag5 ?? '').trim()
     block.importTypeFlag5 = v
+    syncDerivedBomBasicFields(block, prev)
   }
 }
 
@@ -988,14 +1052,7 @@ function restoreImportPageSessionOverlay() {
     sharedClearanceOrder.value = true
   }
   if (Array.isArray(sess.basicFormList) && sess.basicFormList.length > 0) {
-    basicFormList.value = sess.basicFormList.map((b) => ({
-      importTypeFlag5: String(b?.importTypeFlag5 ?? '').trim(),
-      factoryStyleNo: String(b?.factoryStyleNo ?? '').trim(),
-      groupLabel: String(b?.groupLabel ?? '').trim(),
-      customerStyleNo: String(b?.customerStyleNo ?? '').trim(),
-      colorNo: String(b?.colorNo ?? '').trim(),
-      sampleName: String(b?.sampleName ?? '').trim(),
-    }))
+    basicFormList.value = sess.basicFormList.map((b) => restoreBasicFormBlockFromSession(b))
   }
   if (sess.cutPreviewColorNo) cutPreviewColorNo.value = sess.cutPreviewColorNo
 }
@@ -1220,6 +1277,7 @@ function buildCommitPayloadBody() {
       factoryStyleNo: '',
       colorNo: '',
       colorNos: [],
+      mainBomBasics: [],
       customerStyleNo: '',
       groupLabel: '',
       cuts: [],
@@ -1236,6 +1294,7 @@ function buildCommitPayloadBody() {
     factoryStyleNo: block.factoryStyleNo,
     colorNo: colorNos[0] ?? '',
     colorNos,
+    mainBomBasics: buildMainBomBasicsPayload(list),
     customerStyleNo: block.customerStyleNo,
     groupLabel: block.groupLabel,
     cuts: parseResult.value?.cuts ?? [],

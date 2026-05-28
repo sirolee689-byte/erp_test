@@ -324,7 +324,7 @@
 
 1. **校验**（见「提交校验」）
 2. **主表**：新增录 **PI 号** + **系统单号**；编辑不改 PI 号/系统单号
-3. **订单明细**：合并同 PI + 同 `kcaa01`；写入 `UB_ERP_Sales_order_list`（明细可整批替换）
+3. **订单明细**：合并同 PI + 同 `kcaa01`；写入 `UB_ERP_Sales_order_list`（按 PI **先删旧行再插新行**，整单重写）
 4. **PI BOM 对齐**（**禁止** 整 PI `DELETE` 再插；**按款**处理）：
    - **删款**：明细中已不存在的 `kcaa01` → **物理删除** `UB_ERP_Bom_Sales` 该行，及该头下 **全部** `UB_ERP_Bom_Sales_list`（例：PI-TEST 原 TEST1+TEST2，删 TEST1 保存后只剩 TEST2 一头，TEST1 的 list 全删）
    - **仍在单上的款**：**不** 用主 BOM 改其子件/用量（无同步、非例外则不动）
@@ -341,16 +341,31 @@
 - **销售日期**：必填。
 - **交货日期**：选填；若填写则 **不得早于销售日期**。
 - **明细**：每行 **货品编码**、**订货数量** 必填；数量须为 **> 0** 的数值。
-- 明细其它展示字段（名称、规格、颜色、单位等）**只读**，保存时从 `bom_000` 主档带出，**不在界面录入**（一期不做行单价/行备注/行交期）。
+- 明细其它展示字段（名称、规格、颜色、单位等）**只读**，保存时从 `bom_000` 主档带出，**不在界面录入**。
 
 ### 销售订单明细行（已定）
 
-| 用户录入 | 说明 |
-|---|---|
-| **货品编码**（`kcaa01`） | 必选；合并键 |
-| **订货数量** | 必填、> 0；合并时 **相加**；**仅** 存订单/供 **物料单展示 × 数量**，**不** 参与运算写入 |
+| 业务含义 | 明细字段（`UB_ERP_Sales_order_list`） | 规则 |
+|---|---|---|
+| 关联 PI 号 | `xsak01` | 关联主表 `xsaj01`（PI 号） |
+| 行序号 | `seq` | 明细行序号 |
+| 货品编码 | `kcaa01` | 必填；合并键（同 PI + 同编码合并） |
+| 订货数量 | `xsak03` | 必填、>0；作为订货数量主字段 |
+| 计划数量 | `plan_quantity` | 与订货数量同步，`plan_quantity = xsak03` |
+| 单价 | `xsak04` | 行单价 |
+| 金额 | `xsak05` | `xsak05 = xsak04 × xsak03` |
+| 明细备注 | `remark` | 可写可存 |
+| 名称/规格/颜色/单位等快照 | `kcaa02`/`kcaa03`/`kcaa11`/`kcaa04` 等 | 保存时从 `bom_000` 抄快照 |
 
-保存后行内展示字段以 **`bom_000` 快照** 为准（与合并时取主档规则一致）。
+- `xsak06`/`xsak07`/`xsak09` 当前未作为销售订单一期业务主字段使用。
+- 保存采用整单重写：按 PI 删除旧明细后写入新明细。
+- 旧系统保存后在 `UB_ERP_Sales_order_list` 实际会落一批兼容字段（用于历史兼容/快照对账），当前已确认字段清单：
+  - `id`、`xsak01`、`seq`、`xsak02`、`xsak03`、`xsak04`、`xsak05`、`in_tax`、`plan_quantity`
+  - `kcac01`、`kcac02`、`kcac03`
+  - `GUID`、`kcaa01`、`kcaa02`、`kcaa03`、`kcaa04`、`kcaa05`、`kcaa06`、`kcaa07`、`kcaa08`、`kcaa09`、`kcaa10`、`kcaa11`、`kcaa12`、`kcaa13`、`kcaa14`、`kcaa15`、`kcaa25`、`kcaa26`、`kcaa27`、`kcaa28`、`kcaa29`、`kcaa30`、`kcaa31`
+  - `type`、`location`、`version`、`remark`
+  - `uid`、`uname`、`utruename`、`del`、`addtime`
+  - `systemcode`、`back`、`is_pur`、`pass`、`ip`、`decimal`、`decimal_view`
 
 ### 同步 BOM 与一键运算（已定）
 
@@ -373,14 +388,58 @@
 - `UB_ERP_Bom_Sales`：**一行 = 一款成品**（`kcaa01`），与订单明细款 **一一对应**（保存对齐）。
 - `UB_ERP_Bom_Sales_list`：该头下 **全部子编码/配件**（`kcac01` 挂父等，同 `Bom_parts`）。
 - **禁止** 整 PI 「先 DELETE 全部再 INSERT」；允许 **按款删除**（明细删款）及 **按款 INSERT**（例外 1/2 从主 BOM 建款）。
+- `UB_ERP_Bom_Sales_list` 生成规则（已确认）：
+  - 以订单明细成品编码（如 `PQ-3119B1/N`）为起点，围绕该款展开 PI 销售 BOM 子件。
+  - 先取该款在 `UB_ERP_Bom_Sales` 的父 GUID（作为首层父键，例如 `PQKCAC01`）。
+  - 递归查询 `Bom_parts`：每次按 `Bom_parts.kcac01 = 当前父键` 取出全部子行。
+  - 将本轮子行写入 `UB_ERP_Bom_Sales_list` 后，再用这些子行对应子件的 GUID 作为下一轮父键继续查。
+  - 直到某一轮查不到子编码（无子行）才停止；最终把整棵子件树全部落入 `UB_ERP_Bom_Sales_list`。
+  - `UB_ERP_Bom_Sales_list.sid` 关联 PI 号（=`UB_ERP_Sales_order.xsaj01`）。
+  - `UB_ERP_Bom_Sales_list.kcac01` 作为父节点关联键（父节点 `systemcode/GUID`）。
+- `UB_ERP_Bom_Sales` 字段口径（已确认）：
+  - `sid` 关联 PI 号（=`UB_ERP_Sales_order.xsaj01`）。
+  - `kcaa01` 为成品货号；一条记录就是该 PI 下一款成品的 BOM 头。
+  - `kcaa02`/`kcaa03`/`kcaa11`/`kcaa04` 等基础信息从 `bom_000` 同步快照。
+  - `kcaa07`/`kcaa08`/`kcaa30` 作为 BOM 头价格/损耗快照保存。
+  - `sign` 为旧系统状态位，默认 1，当前按兼容字段保留。
+  - 审计与状态字段（`uid`/`uname`/`utruename`/`del`/`addtime`/`pass`/`back`/`is_pur`/`ip`）与主表一致，由服务端统一写。
+  - `decimal` 沿旧系统口径保存（兼容）。
+  - 保存策略按“款”增删改，禁止整 PI 重写。
+- 旧系统保存后在 `UB_ERP_Bom_Sales` 实际会落一批兼容字段（用于历史兼容/快照对账），当前已确认字段清单：
+  - `id`、`sid`、`GUID`
+  - `kcaa01`、`kcaa02`、`kcaa03`、`kcaa04`、`kcaa05`、`kcaa06`、`kcaa07`、`kcaa08`、`kcaa09`、`kcaa10`、`kcaa11`、`kcaa12`、`kcaa13`、`kcaa14`、`kcaa15`、`kcaa25`、`kcaa26`、`kcaa27`、`kcaa28`、`kcaa29`、`kcaa30`、`kcaa31`
+  - `type`、`location`、`version`、`remark`、`sign`
+  - `uid`、`uname`、`utruename`、`del`、`addtime`
+  - `systemcode`、`back`、`is_pur`、`pass`、`decimal`
+- 旧系统保存后在 `UB_ERP_Bom_Sales_list` 实际会落一批兼容字段（用于历史兼容/快照对账），当前已确认字段清单：
+  - `id`、`sid`
+  - `kcac01`、`kcac02`、`kcac03`、`kcac04`、`kcac05`、`kcac06`、`kcac07`、`kcac08`
+  - `seq`、`Describe`、`GUID`
+  - `kcaa01`、`kcaa02`、`kcaa02_en`、`kcaa03`、`kcaa04`、`kcaa05`、`kcaa06`、`kcaa07`、`kcaa08`、`kcaa09`、`kcaa10`、`kcaa11`、`kcaa12`、`kcaa13`、`kcaa14`、`kcaa15`、`kcaa25`、`kcaa26`、`kcaa27`、`kcaa28`、`kcaa29`、`kcaa30`、`kcaa31`、`kcaa32`、`kcaa33`、`kcaa34`、`kcaa35`
+  - `type`、`location`、`sale_price`、`cost_price`、`Customer_supply`、`Customer_Name`、`version`、`remark`
+  - `uid`、`uname`、`utruename`、`del`、`addtime`、`edittime`
+  - `systemcode`、`intime`、`upname`、`uptruename`
+  - `back`、`is_pur`、`pass`
+  - `kpname`、`pkcaa01`、`ip`、`syscode`、`decimal`、`decimal_view`、`info`、`seqi`
 
 ### 主表头信息（已定）
 
-- **客户代码**：存销售客户主档 **`System_sales_customer.s_code`**；保存时须在册（`del` 空/`'0'`）且 **已审核**（`pass='1'`），否则保存失败。
-- **客户名称**：保存时从该客户 **`s_name` 抄快照** 写入订单主表；之后改客户档案 **不** 回写历史订单。
-- **币别**：下拉选项 **读 `bom_currency` 全表**（当前 4 行：人民币/美元/欧元/港元）。**币别代码**入库表中用于标识的列（实现时按库结构探测，常见为 `code` / `id` 等，**禁止前端写死 001～004**）；**币别名称**入库 **`cn_name` 保存时快照**。之后改 `bom_currency` **不回写** 历史订单。
+- **字段口径（仅记录当前实际使用）**：
+  | 业务含义 | 主表字段（`UB_ERP_Sales_order`） | 取值规则 |
+  |---|---|---|
+  | PI 号（业务单号） | `xsaj01` | 手填，保存后不可改；全表唯一（含软删） |
+  | 销售日期 | `xsaj02` | 主表日期字段 |
+  | 客户编码 | `xsaj05` | 保存 `System_sales_customer.s_code` |
+  | 客户名称 | `kehu` | 保存 `System_sales_customer.s_name` 快照 |
+  | PO 号 | `xsaj06` | 销售订单 PO 号 |
+  | 币别代码 | `xsaj07` | 保存 `bom_currency.id` |
+  | 币别名称 | `rmb` | 保存 `bom_currency.cn_name` 快照 |
+  | 备注 | `remark` | 头部备注 |
+  | 小数位配置 | `decimal` / `decimal_view` | 默认 6（整单金额/单价显示精度预留） |
+- **客户规则**：选中客户后同时落两份数据：`xsaj05=s_code`、`kehu=s_name`（例：客户 `7001 PQD` → `xsaj05=7001`，`kehu=PQD`）。保存时客户必须在册（`del` 空/`'0'`）且 **已审核**（`pass='1'`），否则保存失败。
+- **币别规则**：下拉读取 `bom_currency`，保存时同时落 `xsaj07=id` 与 `rmb=cn_name` 快照；之后改币别主数据不回写历史订单。
 - 另有：销售日期、交货日期、备注。
-- **小数点位数**：整单 **金额/单价** 显示与舍入精度（与 `bom_000` 小数位配置同类语义）；**一期无行金额，不参与任何计算**；默认 **2**，可编辑并入库，供后续金额功能沿用。
+- **小数点位数**：整单 **金额/单价** 显示与舍入精度（与 `bom_000` 小数位配置同类语义）；**一期无行金额，不参与任何计算**；默认 **6**，可编辑并入库，供后续金额功能沿用。
 
 ### 操作人与审计（已定）
 

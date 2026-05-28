@@ -112,9 +112,15 @@ export function validateMaterialPrefixConsistencyForSmartCheck(rows) {
         }
       })
       .filter((x) => x.materialCode && x.prefix)
-    const base = entries[0]
+    const base =
+      entries.find(
+        (x) =>
+          String(x.excelCol ?? '').trim().toUpperCase() === 'N' ||
+          Number(x.colIndex) === 14,
+      ) || entries[0]
     if (!base) continue
-    for (const item of entries.slice(1)) {
+    for (const item of entries) {
+      if (item === base) continue
       if (item.prefix === base.prefix) continue
       mismatches.push({
         ...item,

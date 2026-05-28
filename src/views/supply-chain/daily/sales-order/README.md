@@ -15,7 +15,7 @@
 
 | 表 | 作用 | 关联键 |
 |---|---|---|
-| `UB_ERP_Sales_order` | 订单主表 | **`xsaj01`** = 用户录入 **PI 号**（全表唯一，含软删） |
+| `UB_ERP_Sales_order` | 订单主表 | **`xsaj01`** = 用户录入 **PI 号**（全表唯一，含软删）；**`xsaj06`** = PO 号 |
 | `UB_ERP_Sales_order_list` | 订货明细 | **`xsak01`** = PI 号；行 **`kcaa01`** + **`plan_quantity`**（订货数量） |
 | `UB_ERP_Bom_Sales` | PI 销售 BOM 头（每款成品一行） | **`sid`** = PI 号；**`kcaa01`** = 成品编码 |
 | `UB_ERP_Bom_Sales_list` | PI BOM 配件行 | **`sid`** = PI 号；结构挂接同 `Bom_parts`（`kcac01` 父件等） |
@@ -32,6 +32,7 @@
 |------|------|-------------|------|
 | GET | `/api/sales-order/currency-options` | view | 币别下拉（读 `bom_currency`） |
 | GET | `/api/sales-order/list` | view | 分页列表（`recycled`、PI/客户/日期筛选） |
+| GET | `/api/sales-order/check-pi?piNo=&excludeId=` | add | PI 号重复校验（新增页失焦校验） |
 | GET | `/api/sales-order/:id` | view | 主表 + 明细 |
 | POST | `/api/sales-order` | add | 新建保存 `{ header, lines[] }` |
 | PUT | `/api/sales-order/:id` | edit | 编辑保存 + **PI BOM 对齐**（已审 400） |
@@ -92,6 +93,24 @@
 | 明细 | 选材、合并同码数量、同步 BOM、跳转 PI BOM |
 | 物料单 | 已运算后可查；备料量展示 |
 | PI BOM | 按款树表编辑用量/损耗/备注 |
+
+## 新增页交互
+
+- 列表【新增销售订单】在当前页面直接打开新增弹窗，不再新开浏览器页（不使用 `target="_blank"`）。
+- 列表按钮文案固定为 **「新增销售订单」**（与页面标题一致）。
+- 新增弹窗初始化时，PI 号默认填 `PI-`，小数位数默认 `6`；编辑已有订单时仍以接口返回值为准。
+- 主表新增 `PO号` 输入框；保存时写入主表字段 `UB_ERP_Sales_order.xsaj06`。
+- PI 号查重时机：**输入框失焦即校验**（`GET /api/sales-order/check-pi`）；点击保存前后端都会再做一次兜底校验，避免并发撞号。
+- 新增弹窗默认客户不写死假选项：打开时调用 `GET /api/supply-chain/customers/list?pass=1&keyword=PQD`，仅当接口返回真实存在的 `s_code=7001` 且 `s_name=PQD` 记录时，才默认选中该客户。
+- 新增保存仍走现有 `POST /api/sales-order`；保存成功后关闭弹窗并刷新当前列表。
+
+## 列表交互
+
+- 顶部只保留一个关键词搜索框，同时匹配 PI 号、系统单号、客户名称；日期范围仍独立筛选。
+- 列表列调整：新增 `PO号` 列，移除 `系统单号` 列（系统单号仍保留在详情接口中）。
+- 默认显示已审核销售订单（`pass=1`）；打开“显示未审核”后只查未审核（`pass=0`）。
+- “回收站”和“显示未审核”互斥；进入回收站后不再传审核状态，只查已逻辑删除数据。
+- 主表操作列固定在第一列，按钮风格与 BOM 资料列表保持一致，便于先处理操作再横向查看业务字段。
 
 ## 测试与验收
 

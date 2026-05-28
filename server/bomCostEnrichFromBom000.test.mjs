@@ -1,8 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  applyBomCostPxForPqRows,
   applyBomCostAuditToRows,
   enrichBomCostInsertRowsFromBom000,
+  isPqBomCostHead,
   BOM_COST_DEFAULT_TYPE,
   BOM_COST_DEFAULT_VERSION,
   bomCostParseDecimal6OrNull,
@@ -100,4 +102,32 @@ test('bomCostParseDecimal6OrNull', () => {
   assert.equal(bomCostParseDecimal6OrNull(''), null)
   assert.equal(bomCostParseDecimal6OrNull('abc'), null)
   assert.equal(bomCostParseDecimal6OrNull(1.23456789), 1.234568)
+})
+
+test('isPqBomCostHead 只识别 PQ- 主 BOM', () => {
+  assert.equal(isPqBomCostHead('PQ-3119B1/N'), true)
+  assert.equal(isPqBomCostHead(' pq-test '), true)
+  assert.equal(isPqBomCostHead('BAG-PQ3119B1/N'), false)
+  assert.equal(isPqBomCostHead('TAG-PQ3119B1/N'), false)
+})
+
+test('applyBomCostPxForPqRows 仅 PQ 主 BOM 按分类写 px', () => {
+  const rows = [
+    { kcaa01: 'LA-1', kcaa05: '02' },
+    { kcaa01: 'MB-1', kcaa05: '03' },
+    { kcaa01: 'NO-CAT', kcaa05: '' },
+  ]
+  const pxMap = new Map([
+    ['02', 10],
+    ['03', 20],
+  ])
+
+  const pqRows = applyBomCostPxForPqRows(rows, 'PQ-3119B1/N', pxMap)
+  assert.equal(pqRows[0].px, 10)
+  assert.equal(pqRows[1].px, 20)
+  assert.equal('px' in pqRows[2], false)
+
+  const bagRows = applyBomCostPxForPqRows(rows, 'BAG-PQ3119B1/N', pxMap)
+  assert.equal(bagRows, rows)
+  assert.equal('px' in bagRows[0], false)
 })

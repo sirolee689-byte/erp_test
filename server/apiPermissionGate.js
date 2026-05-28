@@ -555,6 +555,9 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'GET' && path === '/api/sales-order/list') {
     return { menuPath: 'supply-chain/daily/sales-order', action: 'view' }
   }
+  if (m === 'GET' && path === '/api/sales-order/check-pi') {
+    return { menuPath: 'supply-chain/daily/sales-order', action: 'add' }
+  }
   if (m === 'GET' && /^\/api\/sales-order\/\d+$/.test(path)) {
     return { menuPath: 'supply-chain/daily/sales-order', action: 'view' }
   }

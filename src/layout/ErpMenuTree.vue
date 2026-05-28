@@ -13,7 +13,7 @@
       <el-icon class="menu-icon">
         <component :is="iconFor(node)" />
       </el-icon>
-      {{ node.title }}
+      <span>{{ node.title }}</span>
     </el-menu-item>
   </template>
 </template>

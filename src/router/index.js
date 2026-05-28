@@ -73,6 +73,13 @@ const bomDataWindowRoute = {
   meta: { title: 'BOM资料窗口', permissionPath: '/inventory/basic/bom-data' },
 }
 
+const salesOrderWindowRoute = {
+  path: '/supply-chain/daily/sales-order-window',
+  name: 'supply-chain-daily-sales-order-window',
+  component: () => import('@/views/supply-chain/daily/sales-order/index.vue'),
+  meta: { title: '销售订单窗口', permissionPath: '/supply-chain/daily/sales-order' },
+}
+
 const childRoutes = [
   ...walkRoutes(menuStructure),
   paperPatternImportPreviewRoute,
@@ -104,6 +111,7 @@ const router = createRouter({
       meta: { title: '登录' },
     },
     bomDataWindowRoute,
+    salesOrderWindowRoute,
     {
       path: '/',
       component: ErpLayout,

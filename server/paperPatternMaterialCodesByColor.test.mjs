@@ -84,6 +84,26 @@ describe('validateMaterialPrefixConsistency', () => {
     assert.match(r.message, /请检查上传的 Excel 文件是否有误/)
   })
 
+  test('前缀一致性以 N 列为基准', () => {
+    const materials = [
+      {
+        groupNo: '1',
+        materialName: '主皮',
+        codesByColor: [
+          { colorNo: 'VE12', colIndex: 15, materialCode: 'LA-0369/VE12' },
+          { colorNo: 'G3', colIndex: 14, materialCode: 'LA-0368/G3' },
+          { colorNo: 'BLU2', colIndex: 16, materialCode: 'LA-0368/BLU2' },
+        ],
+      },
+    ]
+    const r = validateMaterialPrefixConsistency(materials, ['VE12', 'G3', 'BLU2'])
+    assert.equal(r.ok, false)
+    assert.equal(r.data.mismatches.length, 1)
+    assert.equal(r.data.mismatches[0].excelCol, 'O')
+    assert.equal(r.data.mismatches[0].expectedExcelCol, 'N')
+    assert.equal(r.data.mismatches[0].expectedPrefix, 'LA-0368')
+  })
+
   test('同一 Material 行分色全码前缀一致时通过', () => {
     const materials = [
       {

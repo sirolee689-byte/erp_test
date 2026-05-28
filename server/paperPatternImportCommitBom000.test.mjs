@@ -4,9 +4,11 @@ import { resolveSysUsersTruenameByUsercode } from './sysUsersDb.js'
 import {
   appendBom000PaperPatternAuditColumns,
   formatPaperPatternCutKcaa03,
+  normalizePaperPatternMainBomBasics,
   normalizeFactoryStyleForBomPathDisplay,
   PAPER_PATTERN_BOM000_PASS_DEFAULT,
   PAPER_PATTERN_BOM000_PASS_MAIN,
+  resolvePaperPatternMainBomBasicForColor,
   resolveCutsResolvedForColor,
 } from './paperPatternImportCommitBom000.js'
 
@@ -52,6 +54,36 @@ test('resolveCutsResolvedForColor 清仓单 CUT 编号带 -OUT', () => {
     { importTypeFlag5: 'BAG', styleNo: 'PQ2803H1', colorNo: 'R-TEST', clearanceOrder: true },
   )
   assert.equal(rows[0].cutCode, 'CUT-BAGPQ2803H1/R-TEST-OUT<1-2>')
+})
+
+test('主 BOM 基础资料覆盖值按颜色生效且不参与编码', () => {
+  const basics = normalizePaperPatternMainBomBasics([
+    {
+      colorNo: 'G-TEST',
+      bomName: '用户改的配件名称',
+      bomFactoryStyleNo: '用户改的工厂款号',
+    },
+    {
+      colorNo: 'VE-TEST',
+      bomName: '',
+      bomFactoryStyleNo: '',
+    },
+  ])
+
+  assert.deepEqual(resolvePaperPatternMainBomBasicForColor(basics, 'G-TEST', {
+    bomName: '袋',
+    bomFactoryStyleNo: 'PQ-3672A1/G-TEST',
+  }), {
+    bomName: '用户改的配件名称',
+    bomFactoryStyleNo: '用户改的工厂款号',
+  })
+  assert.deepEqual(resolvePaperPatternMainBomBasicForColor(basics, 'VE-TEST', {
+    bomName: '袋',
+    bomFactoryStyleNo: 'PQ-3672A1/VE-TEST',
+  }), {
+    bomName: '袋',
+    bomFactoryStyleNo: 'PQ-3672A1/VE-TEST',
+  })
 })
 
 test('resolveSysUsersTruenameByUsercode 无 pool 或空账号返回 null', async () => {

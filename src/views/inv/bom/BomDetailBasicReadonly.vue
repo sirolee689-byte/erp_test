@@ -24,22 +24,22 @@
 
     <div class="bom-section-title">基本资料</div>
     <el-row :gutter="12">
-      <el-col :xs="24" :sm="12">
+      <el-col :xs="24" :sm="8">
         <el-form-item label="编码">
           <el-input :model-value="dVal(basic.kcaa01)" readonly />
         </el-form-item>
       </el-col>
-      <el-col :xs="24" :sm="12">
+      <el-col :xs="24" :sm="16">
         <el-form-item label="名称">
           <el-input :model-value="dVal(basic.kcaa02)" readonly />
         </el-form-item>
       </el-col>
-      <el-col :xs="24" :sm="12">
+      <el-col :xs="24" :sm="8">
         <el-form-item label="开票名称">
           <el-input :model-value="dVal(basic.kpname)" readonly />
         </el-form-item>
       </el-col>
-      <el-col :xs="24" :sm="12">
+      <el-col :xs="24" :sm="16">
         <el-form-item label="英文名称">
           <el-input :model-value="dVal(basic.kcaa02_en)" readonly />
         </el-form-item>

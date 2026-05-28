@@ -29,6 +29,8 @@ export function parseSalesOrderListQuery(query) {
     page,
     pageSize,
     recycled,
+    pass: recycled ? '' : normalizeSalesOrderPass(query?.pass),
+    keyword: String(query?.keyword ?? '').trim(),
     piNo: String(query?.piNo ?? query?.xsaj01 ?? '').trim(),
     systemCode: String(query?.systemCode ?? query?.syscode ?? '').trim(),
     customer: String(query?.customer ?? query?.kehu ?? '').trim(),
@@ -37,12 +39,20 @@ export function parseSalesOrderListQuery(query) {
   }
 }
 
+function normalizeSalesOrderPass(v) {
+  const s = String(v ?? '').trim()
+  if (s === '0' || s === '1') return s
+  return '1'
+}
+
 /**
  * @param {{
  *   recycled: boolean,
  *   piNo?: string,
  *   systemCode?: string,
  *   customer?: string,
+ *   keyword?: string,
+ *   pass?: string,
  *   salesDateFrom?: string,
  *   salesDateTo?: string,
  * }} opts
@@ -54,6 +64,16 @@ export function buildSalesOrderListWhereSql(opts) {
     whereSql += ` AND LTRIM(RTRIM(ISNULL(h.[del], N''))) = N'1' `
   } else {
     whereSql += ` AND (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0') `
+  }
+  if (!recycled && opts?.pass) {
+    whereSql += ` AND LTRIM(RTRIM(ISNULL(h.[pass], N''))) = @pass `
+  }
+  if (opts?.keyword) {
+    whereSql += ` AND (
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj01], N'')))) LIKE @keyword
+      OR LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[syscode], N'')))) LIKE @keyword
+      OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kehu], N'')))) LIKE @keyword
+    ) `
   }
   if (opts?.piNo) {
     whereSql += ` AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj01], N'')))) = @piNo `
@@ -102,6 +122,7 @@ export function buildSalesOrderListPagedSql(opts) {
           SELECT
             h.[id],
             LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj01], N'')))) AS piNo,
+            LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj06], N'')))) AS poNo,
             LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[syscode], N'')))) AS systemCode,
             LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kehu], N'')))) AS customerName,
             LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[rmb], N'')))) AS currencyName,

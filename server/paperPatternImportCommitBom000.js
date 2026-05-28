@@ -148,6 +148,40 @@ export const PAPER_PATTERN_BOM000_PASS_DEFAULT = '1'
 export const PAPER_PATTERN_BOM000_PASS_MAIN = '0'
 
 /**
+ * 主 BOM 基础资料覆盖值：按颜色保存用户在确认区编辑的名称与工厂款号。
+ * 仅影响主 BOM 的 kcaa02 / kcaa09，不参与 kcaa01 编码生成。
+ * @param {unknown} raw
+ * @returns {Map<string, { bomName: string, bomFactoryStyleNo: string }>}
+ */
+export function normalizePaperPatternMainBomBasics(raw) {
+  const map = new Map()
+  if (!Array.isArray(raw)) return map
+  for (const item of raw) {
+    const colorNo = String(item?.colorNo ?? '').trim()
+    if (!colorNo) continue
+    map.set(colorNo, {
+      bomName: String(item?.bomName ?? '').trim(),
+      bomFactoryStyleNo: String(item?.bomFactoryStyleNo ?? '').trim(),
+    })
+  }
+  return map
+}
+
+/**
+ * @param {Map<string, { bomName: string, bomFactoryStyleNo: string }>} basics
+ * @param {string} colorNo
+ * @param {{ bomName: string, bomFactoryStyleNo: string }} fallback
+ */
+export function resolvePaperPatternMainBomBasicForColor(basics, colorNo, fallback) {
+  const hit = basics instanceof Map ? basics.get(String(colorNo ?? '').trim()) : null
+  return {
+    bomName: String(hit?.bomName ?? '').trim() || String(fallback?.bomName ?? '').trim(),
+    bomFactoryStyleNo:
+      String(hit?.bomFactoryStyleNo ?? '').trim() || String(fallback?.bomFactoryStyleNo ?? '').trim(),
+  }
+}
+
+/**
  * Bom_000 审计列：列存在则写入（uid 无有效登录时为 NULL；uname/utruename 允许空串）
  * @param {Set<string>} colset
  * @param {import('mssql').Request} ins
@@ -468,6 +502,7 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
     const customerStyleNo = String(body.customerStyleNo ?? '').trim()
     const groupLabel = String(body.groupLabel ?? '').trim()
     const colorNos = resolveCommitColorNos(body)
+    const mainBomBasicByColor = normalizePaperPatternMainBomBasics(body.mainBomBasics)
     const cutsIn = Array.isArray(body.cuts) ? body.cuts : []
     const accessoriesIn = Array.isArray(body.accessories) ? body.accessories : []
     const materialsIn = Array.isArray(body.materials) ? body.materials : []
@@ -693,7 +728,6 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
         return allocatePaperPatternBomSystemcode(actor.uidInt ?? actor.uname ?? '', systemcodeSeq)
       }
 
-      const kcaa02Main = importTypeFlag1
       let bomPartsInsertedTotal = 0
       let cutCountTotal = 0
 
@@ -701,6 +735,10 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
         const colorNo = colorNos[ci]
         const mainKcaa01 = mainBomCodes[ci]
         const kcaa03PathDisplay = `${stylePathDisplay}/${colorNo}`
+        const mainBasic = resolvePaperPatternMainBomBasicForColor(mainBomBasicByColor, colorNo, {
+          bomName: importTypeFlag1,
+          bomFactoryStyleNo: kcaa03PathDisplay,
+        })
         const cutsResolved = cutsByColor[ci]
         const materialsForColor = resolveMaterialsForCommitColor(materialsIn, colorNo)
 
@@ -709,8 +747,9 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
           '[paper-pattern-import-commit] mainBomInsert',
           JSON.stringify({
             kcaa01: mainKcaa01,
-            kcaa02: kcaa02Main,
+            kcaa02: mainBasic.bomName,
             kcaa03: kcaa03PathDisplay,
+            kcaa09: mainBasic.bomFactoryStyleNo,
             kcaa11: colorNo,
             colorIndex: ci + 1,
             colorTotal: colorNos.length,
@@ -720,14 +759,14 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
         await insertBom000PaperPatternRow(transaction, colset, {
           systemcodeTriple: mainTriple,
           kcaa01: mainKcaa01,
-          kcaa02: kcaa02Main,
+          kcaa02: mainBasic.bomName,
           kcaa03: kcaa03PathDisplay,
           kcaa04: 'PC',
           kcaa05: '02',
           kcaa06: customerStyleNo,
           kcaa07: '0',
           kcaa08: '0',
-          kcaa09: kcaa03PathDisplay,
+          kcaa09: mainBasic.bomFactoryStyleNo,
           kcaa10: groupLabel,
           kcaa11: colorNo,
           kcaa14: 1,

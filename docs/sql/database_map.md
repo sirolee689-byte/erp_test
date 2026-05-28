@@ -27,7 +27,7 @@
 - **Outsourcing_Quotation**：销售/采购/外协管理 — 日常工作 — 外协报价主表（与采购报价同一套主从/审核/回收站接口形态；字段列名 `wxaa*`）
 - **Outsourcing_Quotation_list**：外协报价明细表（与主表 `wxaa01` = 明细 `wxab01` 业务关联；汇总 `wxab04`/`wxab05`）
 - **System_uplod_file**：纸格资料上传记录（旧系统表；管理页只读列表，见 `docs/System_uplod_file.txt`）
-- **UB_ERP_Sales_order**：销售订单主表（PI 号 `xsaj01`、系统单号、客户/币别快照、审核/软删、运算状态）
+- **UB_ERP_Sales_order**：销售订单主表（PI 号 `xsaj01`、PO 号 `xsaj06`、系统单号、客户/币别快照、审核/软删、运算状态）
 - **UB_ERP_Sales_order_list**：销售订单明细（`xsak01` = PI 号；`kcaa01` + 订货数量 `plan_quantity`）
 - **UB_ERP_Bom_Sales**：PI 销售 BOM 头（`sid` = PI 号；每款成品 `kcaa01` 一行）
 - **UB_ERP_Bom_Sales_list**：PI 销售 BOM 配件行（`sid` = PI 号；结构同 `Bom_parts`）
@@ -52,7 +52,7 @@
 
 - **`UB_ERP_Sales_order_list` → `UB_ERP_Sales_order`**
   - 业务关联：**`UB_ERP_Sales_order.xsaj01` = `UB_ERP_Sales_order_list.xsak01`**（PI 号，无库级 FK 时按此约定）
-  - 说明：保存时明细整批替换；合并同 PI + 同 `kcaa01` 的订货数量。
+  - 说明：保存时明细整批替换；合并同 PI + 同 `kcaa01` 的订货数量。主表 `xsaj06` 保存 PO 号（前端“PO号”输入框）。
 
 - **PI 号 `sid` 串联 PI BOM 与物料单（同一 PI 业务键）**
   - **`UB_ERP_Sales_order.xsaj01` = `UB_ERP_Bom_Sales.sid` = `UB_ERP_Bom_Sales_list.sid` = `UB_ERP_Bom_pi_cost.sid` = `UB_ERP_Bom_pi_consumption.sid`**
@@ -562,6 +562,7 @@
   - **审计**：若配件编码在 `bom_000` 存在在册子档，保存成功后额外写日志：`[同步]了BOM配件属性，主BOM：[systemcode]，配件：[kcaa01]，已同步kcaa01-kcaa35共35个字段。`（动作名：`同步BOM配件属性`）
 - **`dbo.[Bom_cost]` / `dbo.[Bom_consumption]`**
   - 来源：`server/index.js`（`GET /api/inv/bom/list` 汇总、`GET /api/inventory/bom/usage-result/:systemcode`、`POST /api/inventory/bom/usage-calc/:systemcode`）
+  - `bom_cost.px`：仅库存 BOM 一键运算且主档 `pq` 以 `PQ-` 开头时写入；来源链路为明细 `kcaa01` → `bom_000.kcaa05` → `Bom_material.code` → `Bom_material.px`。非 `PQ-` 主 BOM 不写该排序值，避免影响纸格导入下级 BOM 的排序。
 - **`dbo.[Bom_code]`**
   - 来源：`server/index.js`（BOM 用量运算规则：`copen=1`、`flag5` 动态匹配）
 - **`dbo.[Bom_colorcode]`**
@@ -574,6 +575,7 @@
 
 - **`dbo.[Bom_material]`**
   - 来源：`server/index.js`（材料分类列表、新增、审核、反审、软删、恢复）
+  - `code` 为材料分类编号；`px` 为分类排序值，供 `PQ-` 主 BOM 成本运算写入 `bom_cost.px`。
 
 - **`dbo.[Bom_Stocks_workshop]`**
   - 来源：`server/index.js`（车间与部门编码列表、新增、审核、反审、软删、恢复）

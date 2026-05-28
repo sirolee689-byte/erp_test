@@ -66,11 +66,14 @@ import { decodePaperPatternUploadFileName } from './paperPatternUploadFileName.j
 import { parsePaperPatternImportTreeFromBuffer } from './paperPatternImportParse.js'
 import { buildBomCostInsertPayloadFromFlatUsage } from './bomUsageYl.js'
 import {
+  applyBomCostPxForPqRows,
   applyBomCostAuditToRows,
   enrichBomCostInsertRowsFromBom000,
+  fetchBomMaterialPxByCategoryCodes,
   fetchBom000ForBomCostEnrich,
   formatBomCostAuditTimestamp,
   insertBomCostBulkEnriched,
+  isPqBomCostHead,
 } from './bomCostEnrichFromBom000.js'
 import { buildBomPartsUsageTreeNodes } from './bomUsageTreeBuild.js'
 import { flattenBomPartsCostUsageFlat } from './bomUsageFlatten.js'
@@ -8370,8 +8373,15 @@ async function runBomUsageCalcForHead(pool, head, hidePrefixes, actor) {
     bomCostInsertPayload.map((r) => r.kcaa01),
   )
   const bomCostRowsEnriched = enrichBomCostInsertRowsFromBom000(bomCostInsertPayload, bom000Map)
+  const bomMaterialPxMap = isPqBomCostHead(pq)
+    ? await fetchBomMaterialPxByCategoryCodes(
+        pool,
+        bomCostRowsEnriched.map((r) => r.kcaa05),
+      )
+    : new Map()
+  const bomCostRowsWithPx = applyBomCostPxForPqRows(bomCostRowsEnriched, pq, bomMaterialPxMap)
   const enrichMs = Date.now() - tEnrich0
-  const bomCostRowsFinal = applyBomCostAuditToRows(bomCostRowsEnriched, {
+  const bomCostRowsFinal = applyBomCostAuditToRows(bomCostRowsWithPx, {
     actor,
     addtime: formatBomCostAuditTimestamp(),
   })
@@ -8413,7 +8423,7 @@ async function runBomUsageCalcForHead(pool, head, hidePrefixes, actor) {
       SELECT id, pq, sid, kcaa01, kcaa02, kcaa03, kcaa04, kcac04, kcac05, kcac06, kcac07, kcac08, [Describe], isok
       FROM ${BOM_COST_FROM}
       WHERE pq = @pq AND sid = @sid
-      ORDER BY id ASC
+      ORDER BY ${buildBomCostReadOrderBy(pq)}
     `)
 
   const bomCost = (selBc.recordset ?? []).map(mapBomCostRecordToDto)
@@ -8466,6 +8476,14 @@ function mapBomCostRecordToDto(r) {
     Describe: r.Describe != null ? String(r.Describe) : '',
     isok: r.isok != null ? Number(r.isok) : 0,
   }
+}
+
+/** PQ 主 BOM 成本用量表按 bom_cost.px 排序；其它主 BOM 保持旧的落库顺序。 */
+function buildBomCostReadOrderBy(pq) {
+  if (isPqBomCostHead(pq)) {
+    return 'CASE WHEN px IS NULL THEN 1 ELSE 0 END ASC, px ASC, id ASC'
+  }
+  return 'id ASC'
 }
 
 /** 查询行 → 前端 Bom_consumption DTO */
@@ -8525,9 +8543,16 @@ app.post('/api/bom/usage-calc', async (req, res) => {
       bomCostInsertPayload.map((r) => r.kcaa01),
     )
     const bomCostRowsEnriched = enrichBomCostInsertRowsFromBom000(bomCostInsertPayload, bom000Map)
+    const bomMaterialPxMap = isPqBomCostHead(pq)
+      ? await fetchBomMaterialPxByCategoryCodes(
+          pool,
+          bomCostRowsEnriched.map((r) => r.kcaa05),
+        )
+      : new Map()
+    const bomCostRowsWithPx = applyBomCostPxForPqRows(bomCostRowsEnriched, pq, bomMaterialPxMap)
     const enrichMs = Date.now() - tEnrich0
     const actor = getActorAuditTripletFromReq(req)
-    const bomCostRowsFinal = applyBomCostAuditToRows(bomCostRowsEnriched, {
+    const bomCostRowsFinal = applyBomCostAuditToRows(bomCostRowsWithPx, {
       actor,
       addtime: formatBomCostAuditTimestamp(),
     })
@@ -8570,7 +8595,7 @@ app.post('/api/bom/usage-calc', async (req, res) => {
         SELECT id, pq, sid, kcaa01, kcaa02, kcaa03, kcaa04, kcac04, kcac05, kcac06, kcac07, kcac08, [Describe], isok
         FROM ${BOM_COST_FROM}
         WHERE pq = @pq AND sid = @sid
-        ORDER BY id ASC
+        ORDER BY ${buildBomCostReadOrderBy(pq)}
       `)
 
     const bomCost = (selBc.recordset ?? []).map(mapBomCostRecordToDto)
@@ -8729,7 +8754,7 @@ app.get('/api/bom/tree', async (req, res) => {
           SELECT id, pq, sid, kcaa01, kcaa02, kcaa03, kcaa04, kcac04, kcac05, kcac06, kcac07, kcac08, [Describe], isok
           FROM ${BOM_COST_FROM}
           WHERE pq = @pq AND sid = @sid
-          ORDER BY id ASC
+          ORDER BY ${buildBomCostReadOrderBy(pq)}
         `)
       const bomCost = (selBc.recordset ?? []).map(mapBomCostRecordToDto)
 

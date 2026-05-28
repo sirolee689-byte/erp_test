@@ -80,6 +80,20 @@
       </el-table-column>
       <el-table-column v-if="multiple" type="selection" width="48" reserve-selection fixed="left" />
       <el-table-column prop="code" label="编码" min-width="120" show-overflow-tooltip />
+      <el-table-column
+        label="输入/修改时间"
+        min-width="158"
+        align="center"
+        header-align="center"
+        class-name="erp-col-datetime"
+      >
+        <template #default="{ row }">
+          <div class="bom-list-datetime">
+            <div>输入：{{ formatListDateTime(row.addtime) }}</div>
+            <div>修改：{{ formatListDateTime(row.edittime) }}</div>
+          </div>
+        </template>
+      </el-table-column>
       <el-table-column prop="name" label="名称" min-width="140" show-overflow-tooltip />
       <el-table-column prop="spec" label="规格" min-width="100" show-overflow-tooltip />
       <el-table-column prop="unit" label="单位" width="80" show-overflow-tooltip />
@@ -151,6 +165,18 @@ const pageSize = ref(10)
 const msTableRef = ref()
 /** 多选当前勾选行（含 reserve-selection 跨页） */
 const selectedRows = ref([])
+
+/** 与 BOM 主列表一致：空为空白，截到分钟 */
+function formatListDateTime(v) {
+  const s = String(v ?? '').trim()
+  if (!s) return ''
+  const t = s.replace('T', ' ').replace('Z', '')
+  if (/^\d{4}-\d{1,2}-\d{1,2}\s+\d{1,2}:\d{1,2}/.test(t)) {
+    const m = t.match(/^(\d{4}-\d{1,2}-\d{1,2})\s+(\d{1,2}:\d{1,2})/)
+    if (m) return `${m[1]} ${m[2]}`
+  }
+  return t.length > 16 ? t.slice(0, 16) : t
+}
 
 function bomField(bom, name) {
   if (!bom || !name) return ''

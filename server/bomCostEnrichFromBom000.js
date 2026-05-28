@@ -10,6 +10,12 @@ const INV_BOM_MASTER_TABLE = (() => {
 })()
 const INV_BOM_MASTER_FROM = `dbo.[${INV_BOM_MASTER_TABLE}]`
 
+const BOM_MATERIAL_TABLE = (() => {
+  const raw = String(process.env.BOM_MATERIAL_TABLE ?? 'Bom_material').trim()
+  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'Bom_material'
+})()
+const BOM_MATERIAL_FROM = `dbo.[${BOM_MATERIAL_TABLE}]`
+
 const BOM_COST_TABLE = (() => {
   const raw = String(process.env.BOM_COST_TABLE ?? 'bom_cost').trim()
   return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'bom_cost'
@@ -55,6 +61,11 @@ function bomCostParseIntOrNull(raw) {
   const n = Number(s)
   if (!Number.isFinite(n)) return null
   return Math.trunc(n)
+}
+
+/** @param {unknown} raw */
+export function isPqBomCostHead(raw) {
+  return String(raw ?? '').trim().toUpperCase().startsWith('PQ-')
 }
 
 /** SQL Server 2008：Bom_000 数值列安全转 float */
@@ -224,6 +235,72 @@ export async function fetchBom000ForBomCostEnrich(poolOrTx, materialCodes) {
 }
 
 /**
+ * @param {import('mssql').ConnectionPool | import('mssql').Transaction} poolOrTx
+ * @param {string[]} categoryCodes bom_000.kcaa05
+ * @returns {Promise<Map<string, number>>} key = trimmed Bom_material.code
+ */
+export async function fetchBomMaterialPxByCategoryCodes(poolOrTx, categoryCodes) {
+  /** @type {Map<string, number>} */
+  const out = new Map()
+  const uniq = [
+    ...new Set(categoryCodes.map((c) => String(c ?? '').trim()).filter(Boolean)),
+  ]
+  if (!uniq.length) return out
+
+  const chunkSize = 80
+  for (let i = 0; i < uniq.length; i += chunkSize) {
+    const chunk = uniq.slice(i, i + chunkSize)
+    const rq = new sql.Request(poolOrTx)
+    const parts = []
+    for (let j = 0; j < chunk.length; j++) {
+      const name = `cat${j}`
+      rq.input(name, sql.NVarChar(200), chunk[j])
+      parts.push(`@${name}`)
+    }
+    const rs = await rq.query(`
+      SELECT
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(m.code, N'')))) AS code,
+        CASE
+          WHEN m.px IS NULL THEN NULL
+          WHEN ISNUMERIC(LTRIM(RTRIM(CONVERT(nvarchar(100), m.px)))) = 1
+            THEN CONVERT(int, LTRIM(RTRIM(CONVERT(nvarchar(100), m.px))))
+          ELSE NULL
+        END AS px
+      FROM ${BOM_MATERIAL_FROM} AS m
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(m.code, N'')))) IN (${parts.join(', ')})
+        AND (ISNULL(m.del, N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), m.del), N''))) = N'0')
+      ORDER BY m.id DESC
+    `)
+    for (const r of rs.recordset || []) {
+      const code = String(r.code ?? '').trim()
+      const px = bomCostParseIntOrNull(r.px)
+      if (!code || px == null || out.has(code)) continue
+      out.set(code, px)
+    }
+  }
+  return out
+}
+
+/**
+ * PQ 主 BOM 运算时，按行物料分类补 bom_cost.px。
+ * @param {Array<Record<string, unknown>>} rows
+ * @param {string} pq
+ * @param {Map<string, number>} materialPxMap key = Bom_material.code
+ */
+export function applyBomCostPxForPqRows(rows, pq, materialPxMap) {
+  if (!Array.isArray(rows) || !rows.length) return []
+  if (!isPqBomCostHead(pq)) return rows
+  return rows.map((row) => {
+    const categoryCode = String(row?.kcaa05 ?? '').trim()
+    if (!categoryCode || !materialPxMap?.has(categoryCode)) return row
+    return {
+      ...row,
+      px: materialPxMap.get(categoryCode),
+    }
+  })
+}
+
+/**
  * @param {Record<string, unknown>|undefined|null} m
  */
 function resolveTypeForBomCost(m) {
@@ -361,6 +438,7 @@ const BOM_COST_INSERT_FIELD_SPECS = [
   { key: 'Customer_Name', sql: 'Customer_Name', kind: 'nv500' },
   { key: 'version', sql: 'version', kind: 'int' },
   { key: 'remark', sql: 'remark', kind: 'nv500' },
+  { key: 'px', sql: 'px', kind: 'int_null' },
 ]
 
 /**
@@ -430,6 +508,7 @@ export async function insertCostBulkEnriched(pool, tx, tableName, pq, sid, rows)
   /** @type {typeof BOM_COST_INSERT_FIELD_SPECS} */
   const activeSpecs = []
   for (const spec of BOM_COST_INSERT_FIELD_SPECS) {
+    if (spec.key === 'px' && (tbl !== BOM_COST_TABLE || !isPqBomCostHead(pqV))) continue
     const colLower =
       spec.key === 'Describe' ? 'describe' : spec.key === 'GUID' ? 'guid' : spec.key.toLowerCase()
     if (colset.has(colLower)) activeSpecs.push(spec)

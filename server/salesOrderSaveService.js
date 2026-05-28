@@ -223,6 +223,7 @@ export async function createSalesOrder(opts) {
   const linesIn = Array.isArray(body?.lines) ? body.lines : []
   const payload = {
     piNo: header.piNo,
+    poNo: header.poNo,
     salesDate: header.salesDate,
     deliveryDate: header.deliveryDate,
     customerCode: header.customerCode,
@@ -265,6 +266,7 @@ export async function createSalesOrder(opts) {
     const now = formatSalesOrderAuditTime()
     const ins = new sql.Request(tx)
     ins.input('xsaj01', sql.NVarChar(200), piNo)
+    ins.input('xsaj06', sql.NVarChar(200), normKcaa01(header.poNo))
     ins.input('syscode', sql.NVarChar(50), systemCode)
     ins.input('xsaj02', sql.DateTime, salesDate)
     ins.input('xsaj08', sql.DateTime, header.deliveryDate ? new Date(String(header.deliveryDate)) : null)
@@ -280,12 +282,12 @@ export async function createSalesOrder(opts) {
     ins.input('ip', sql.NVarChar(100), ip)
     const out = await ins.query(`
       INSERT INTO ${HEADER_FROM} (
-        [xsaj01], [syscode], [xsaj02], [xsaj08], [kehu], [d_code], [rmb], [remark], [decimal_view],
+        [xsaj01], [xsaj06], [syscode], [xsaj02], [xsaj08], [kehu], [d_code], [rmb], [remark], [decimal_view],
         [uname], [utruename], [uid], [addtime], [ip], [pass], [del], [is_pur]
       )
       OUTPUT INSERTED.[id] AS new_id
       VALUES (
-        @xsaj01, @syscode, @xsaj02, @xsaj08, @kehu, @d_code, @rmb, @remark, @decimal_view,
+        @xsaj01, @xsaj06, @syscode, @xsaj02, @xsaj08, @kehu, @d_code, @rmb, @remark, @decimal_view,
         @uname, @utruename, @uid, @addtime, @ip, N'0', N'0', N'0'
       )
     `)
@@ -354,6 +356,7 @@ export async function updateSalesOrder(opts) {
   const linesIn = Array.isArray(body?.lines) ? body.lines : []
   const payload = {
     piNo,
+    poNo: header.poNo,
     salesDate: header.salesDate ?? head.salesDate,
     deliveryDate: header.deliveryDate,
     customerCode: header.customerCode,
@@ -387,6 +390,7 @@ export async function updateSalesOrder(opts) {
     up.input('id', sql.Int, id)
     up.input('xsaj02', sql.DateTime, new Date(String(payload.salesDate)))
     up.input('xsaj08', sql.DateTime, header.deliveryDate ? new Date(String(header.deliveryDate)) : null)
+    up.input('xsaj06', sql.NVarChar(200), normKcaa01(header.poNo))
     up.input('kehu', sql.NVarChar(500), cust.customerName ?? '')
     up.input('d_code', sql.NVarChar(200), normKcaa01(header.customerCode))
     up.input('rmb', sql.NVarChar(100), cur.currencyName ?? '')
@@ -398,7 +402,7 @@ export async function updateSalesOrder(opts) {
     up.input('edittime', sql.NVarChar(50), now)
     up.input('ip', sql.NVarChar(100), ip)
     let setSql = `
-      [xsaj02]=@xsaj02,[xsaj08]=@xsaj08,[kehu]=@kehu,[d_code]=@d_code,[rmb]=@rmb,
+      [xsaj02]=@xsaj02,[xsaj08]=@xsaj08,[xsaj06]=@xsaj06,[kehu]=@kehu,[d_code]=@d_code,[rmb]=@rmb,
       [remark]=@remark,[decimal_view]=@decimal_view,
       [uname]=@uname,[utruename]=@utruename,[uid]=@uid,[edittime]=@edittime,[ip]=@ip
     `

@@ -34,8 +34,22 @@ describe('salesOrderListQuery', () => {
     assert.equal(q.page, 1)
     assert.equal(q.pageSize, 20)
     assert.equal(q.recycled, false)
+    assert.equal(q.pass, '1')
 
     const bin = parseSalesOrderListQuery({ recycled: '1' })
     assert.equal(bin.recycled, true)
+    assert.equal(bin.pass, '')
+  })
+
+  test('buildSalesOrderListWhereSql 支持审核状态与统一关键词', () => {
+    const active = buildSalesOrderListWhereSql({
+      recycled: false,
+      pass: '0',
+      keyword: 'PI-4166',
+    })
+    assert.match(active.whereSql, /h\.\[pass\].*=\s*@pass/i)
+    assert.match(active.whereSql, /h\.\[xsaj01\].*LIKE\s+@keyword/is)
+    assert.match(active.whereSql, /h\.\[syscode\].*LIKE\s+@keyword/is)
+    assert.match(active.whereSql, /h\.\[kehu\].*LIKE\s+@keyword/is)
   })
 })

@@ -12,7 +12,7 @@ import {
   parseSalesOrderListQuery,
   pickSalesOrderCalcStatusColumn,
 } from './salesOrderListQuery.js'
-import { createSalesOrder, getClientIpFromReq, updateSalesOrder } from './salesOrderSaveService.js'
+import { assertPiNoUnique, createSalesOrder, getClientIpFromReq, updateSalesOrder } from './salesOrderSaveService.js'
 import {
   approveSalesOrder,
   hardDeleteSalesOrder,
@@ -116,6 +116,8 @@ export function registerSalesOrderRoutes(app, deps) {
       const calcStatusExpr = buildSalesOrderCalcStatusExpr(calcCol)
       const { whereSql } = buildSalesOrderListWhereSql({
         recycled: q.recycled,
+        pass: q.pass,
+        keyword: q.keyword,
         piNo: q.piNo,
         systemCode: q.systemCode,
         customer: q.customer,
@@ -124,6 +126,10 @@ export function registerSalesOrderRoutes(app, deps) {
       })
 
       const countReq = pool.request()
+      if (q.pass) countReq.input('pass', sql.NVarChar(10), q.pass)
+      if (q.keyword) {
+        countReq.input('keyword', sql.NVarChar(500), `%${escapeSalesOrderSqlLikePattern(q.keyword)}%`)
+      }
       if (q.piNo) countReq.input('piNo', sql.NVarChar(200), q.piNo)
       if (q.systemCode) {
         countReq.input('systemCode', sql.NVarChar(200), `%${escapeSalesOrderSqlLikePattern(q.systemCode)}%`)
@@ -149,6 +155,10 @@ export function registerSalesOrderRoutes(app, deps) {
       const listReq = pool.request()
       listReq.input('startRow', sql.Int, startRow)
       listReq.input('endRow', sql.Int, endRow)
+      if (q.pass) listReq.input('pass', sql.NVarChar(10), q.pass)
+      if (q.keyword) {
+        listReq.input('keyword', sql.NVarChar(500), `%${escapeSalesOrderSqlLikePattern(q.keyword)}%`)
+      }
       if (q.piNo) listReq.input('piNo', sql.NVarChar(200), q.piNo)
       if (q.systemCode) {
         listReq.input('systemCode', sql.NVarChar(200), `%${escapeSalesOrderSqlLikePattern(q.systemCode)}%`)
@@ -168,6 +178,36 @@ export function registerSalesOrderRoutes(app, deps) {
       console.error('GET /api/sales-order/list 失败：', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
       res.status(500).json({ code: 500, msg: `读取销售订单列表失败：${detail}`, data: null })
+    }
+  })
+
+  /**
+   * GET /api/sales-order/check-pi?piNo=&excludeId=
+   */
+  app.get('/api/sales-order/check-pi', async (req, res) => {
+    try {
+      const piNo = String(req.query?.piNo ?? '').trim()
+      if (!piNo) {
+        res.status(400).json({ code: 400, msg: '参数错误：piNo', data: null })
+        return
+      }
+      const excludeRaw = String(req.query?.excludeId ?? '').trim()
+      const excludeId = excludeRaw ? Number(excludeRaw) : null
+      const safeExcludeId = Number.isFinite(excludeId) && Number(excludeId) > 0 ? Number(excludeId) : null
+      const pool = await getPool()
+      const dupMsg = await assertPiNoUnique(pool, piNo, safeExcludeId)
+      res.json({
+        code: 200,
+        msg: 'success',
+        data: {
+          exists: Boolean(dupMsg),
+          duplicateMessage: dupMsg || '',
+        },
+      })
+    } catch (err) {
+      console.error('GET /api/sales-order/check-pi 失败：', err)
+      const detail = String(err?.message ?? err?.originalError?.message ?? '查询失败')
+      res.status(500).json({ code: 500, msg: `PI 号校验失败：${detail}`, data: null })
     }
   })
 
@@ -299,6 +339,7 @@ export function registerSalesOrderRoutes(app, deps) {
         SELECT TOP 1
           h.[id],
           LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj01], N'')))) AS piNo,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj06], N'')))) AS poNo,
           LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[syscode], N'')))) AS systemCode,
           LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kehu], N'')))) AS customerName,
           LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[d_code], N'')))) AS customerCode,
@@ -352,7 +393,7 @@ export function registerSalesOrderRoutes(app, deps) {
 
   /**
    * POST /api/sales-order
-   * body: { header: { piNo, salesDate, deliveryDate?, customerCode, currencyCode, remark?, decimalPlaces? }, lines: [] }
+   * body: { header: { piNo, poNo?, salesDate, deliveryDate?, customerCode, currencyCode, remark?, decimalPlaces? }, lines: [] }
    */
   app.post('/api/sales-order', async (req, res) => {
     try {

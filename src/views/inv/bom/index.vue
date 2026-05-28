@@ -547,16 +547,22 @@
                         <ErpTableActions>
                           <el-button
                             tag="a"
-                            :href="bomStandaloneWindowHref('detail', row?.kcaa01)"
+                            :href="bomStandaloneWindowHref(detailPartChildActionMode, row?.kcaa01)"
                             target="_blank"
                             rel="noopener"
                             type="info"
                             plain
                             class="bom-part-view-action-btn"
+                            :class="{ 'bom-part-edit-child-action-btn': detailPartChildActionMode === 'parts-edit' }"
                             :disabled="!String(row.kcaa01 ?? '').trim()"
-                            @click="guardBomStandaloneLink($event, 'detail', { code: row?.kcaa01 })"
+                            @click="
+                              guardBomStandaloneLink($event, detailPartChildActionMode, {
+                                code: row?.kcaa01,
+                                pass: row?.pass,
+                              })
+                            "
                           >
-                            查看
+                            {{ detailPartChildActionLabel }}
                           </el-button>
                           <el-button
                             type="danger"
@@ -862,6 +868,7 @@
     </ErpPageDialog>
 
     <section class="bom-cost-usage-print-document" aria-hidden="true">
+      <p class="bom-cost-usage-print-time-print">打印时间：{{ bomCostUsagePrintTimestamp }}</p>
       <p class="bom-cost-usage-print-header">{{ bomCostUsageHeaderText }}</p>
       <table v-if="bomCostUsageFlatRows.length" class="bom-cost-usage-print-document-table">
         <thead>
@@ -967,7 +974,7 @@
           </el-row>
           <div class="bom-section-title">基本资料</div>
           <el-row :gutter="12">
-            <el-col :xs="24" :sm="12">
+            <el-col :xs="24" :sm="8">
               <el-form-item label="编码" required>
                 <el-input
                   v-model="editForm.kcaa01"
@@ -980,17 +987,17 @@
                 />
               </el-form-item>
             </el-col>
-            <el-col :xs="24" :sm="12">
+            <el-col :xs="24" :sm="16">
               <el-form-item label="名称" required>
                 <el-input v-model="editForm.kcaa02" maxlength="500" show-word-limit />
               </el-form-item>
             </el-col>
-            <el-col :xs="24" :sm="12">
+            <el-col :xs="24" :sm="8">
               <el-form-item label="开票名称">
                 <el-input v-model="editForm.kpname" maxlength="500" />
               </el-form-item>
             </el-col>
-            <el-col :xs="24" :sm="12">
+            <el-col :xs="24" :sm="16">
               <el-form-item label="英文名称">
                 <el-input v-model="editForm.kcaa02_en" maxlength="500" />
               </el-form-item>
@@ -1328,14 +1335,14 @@
                         </el-button>
                         <el-button
                           tag="a"
-                          :href="bomStandaloneWindowHref('detail', row?.kcaa01)"
+                          :href="bomStandaloneWindowHref('parts-edit', row?.kcaa01)"
                           target="_blank"
                           rel="noopener"
                           type="info"
                           plain
-                          class="bom-part-view-action-btn"
+                          class="bom-part-view-action-btn bom-part-edit-child-action-btn"
                           :disabled="!String(row.kcaa01 ?? '').trim()"
-                          @click="guardBomStandaloneLink($event, 'detail', { code: row?.kcaa01 })"
+                          @click="guardBomStandaloneLink($event, 'parts-edit', { code: row?.kcaa01, pass: row?.pass })"
                         >
                           查看配件
                         </el-button>
@@ -1487,7 +1494,10 @@ const pageTitle = computed(() => {
 const bomWindowMode = computed(() => String(route.query?.mode ?? '').trim().toLowerCase())
 const bomWindowCode = computed(() => String(route.query?.code ?? '').trim())
 const isBomStandaloneWindow = computed(() =>
-  bomWindowMode.value === 'detail' || bomWindowMode.value === 'edit' || bomWindowMode.value === 'cost-print',
+  bomWindowMode.value === 'detail' ||
+  bomWindowMode.value === 'edit' ||
+  bomWindowMode.value === 'parts-edit' ||
+  bomWindowMode.value === 'cost-print',
 )
 const loading = ref(false)
 const errorMessage = ref('')
@@ -1668,7 +1678,7 @@ function formatBomCostUsageHeaderText(basic) {
   const code = dVal(basic?.kcaa01)
   const name = dVal(basic?.kcaa02)
   const styleNo = dVal(basic?.kcaa06)
-  return `《成本BOM用量表》 编码【${code}】 ， 名称【${name}】 ， 客户款号【${styleNo}】`
+  return `《成本BOM用量表》编码【${code}】,名称【${name}】,客户款号【${styleNo}】`
 }
 
 const bomCostUsageHeaderText = computed(() => formatBomCostUsageHeaderText(bomBasic.value))
@@ -1764,6 +1774,23 @@ function bomCostUsageSummaryMethod({ columns, data }) {
 }
 
 const BOM_COST_USAGE_EXPORT_HEADERS = ['编码', '名称', '规格', '单位', '备注', '用量', '损耗', '合计']
+const BOM_COST_USAGE_EXPORT_COL_WIDTHS = [24, 23, 24, 7, 14, 11, 10, 11]
+const BOM_COST_USAGE_EXPORT_THIN_BORDER = {
+  top: { style: 'thin', color: { argb: 'FF333333' } },
+  left: { style: 'thin', color: { argb: 'FF333333' } },
+  bottom: { style: 'thin', color: { argb: 'FF333333' } },
+  right: { style: 'thin', color: { argb: 'FF333333' } },
+}
+const BOM_COST_USAGE_EXPORT_HEADER_FILL = {
+  type: 'pattern',
+  pattern: 'solid',
+  fgColor: { argb: 'FFF0F0F0' },
+}
+const BOM_COST_USAGE_EXPORT_SUMMARY_FILL = {
+  type: 'pattern',
+  pattern: 'solid',
+  fgColor: { argb: 'FFFAFAFA' },
+}
 
 /** 成本 BOM 用量表：用量/合计列汇总（导出、打印与表尾一致） */
 function bomCostUsageSummaryTotals(rows) {
@@ -1813,6 +1840,20 @@ function bomCostUsageRowToExportCells(row) {
   ]
 }
 
+function applyBomCostUsageExportTableStyle(ws, rowNumber, opts = {}) {
+  const row = ws.getRow(rowNumber)
+  row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+    cell.border = BOM_COST_USAGE_EXPORT_THIN_BORDER
+    cell.alignment = {
+      vertical: 'top',
+      horizontal: colNumber >= 6 ? 'right' : 'left',
+      wrapText: true,
+    }
+    if (opts.bold) cell.font = { ...(cell.font || {}), bold: true }
+    if (opts.fill) cell.fill = opts.fill
+  })
+}
+
 async function exportBomCostUsageXls(downloadFileName = bomCostUsageDefaultExportFileName()) {
   const rows = bomCostUsageFlatRows.value
   if (!rows?.length) {
@@ -1822,25 +1863,46 @@ async function exportBomCostUsageXls(downloadFileName = bomCostUsageDefaultExpor
   const { sumYl, sumTotalQty } = bomCostUsageSummaryTotals(rows)
   const wb = new ExcelJS.Workbook()
   const headerText = bomCostUsageHeaderText.value || formatBomCostUsageHeaderText(bomBasic.value)
-  const ws = wb.addWorksheet('成本BOM用量表', { views: [{ state: 'frozen', ySplit: 3 }] })
+  const ws = wb.addWorksheet('成本BOM用量表', {
+    views: [{ state: 'frozen', ySplit: 2 }],
+    pageSetup: {
+      paperSize: 9,
+      orientation: 'portrait',
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 0,
+      horizontalCentered: true,
+      margins: {
+        left: 0.31,
+        right: 0.31,
+        top: 0.31,
+        bottom: 0.63,
+        header: 0.2,
+        footer: 0.2,
+      },
+    },
+  })
   ws.addRow([headerText])
-  ws.getRow(1).font = { bold: true }
   ws.mergeCells(1, 1, 1, BOM_COST_USAGE_EXPORT_HEADERS.length)
-  ws.addRow([])
+  ws.getRow(1).font = { bold: true, size: 14 }
+  ws.getRow(1).height = 24
+  ws.getCell(1, 1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
   ws.addRow([...BOM_COST_USAGE_EXPORT_HEADERS])
-  ws.getRow(3).font = { bold: true }
+  applyBomCostUsageExportTableStyle(ws, 2, {
+    bold: true,
+    fill: BOM_COST_USAGE_EXPORT_HEADER_FILL,
+  })
   for (const row of rows) {
-    ws.addRow(bomCostUsageRowToExportCells(row))
+    const added = ws.addRow(bomCostUsageRowToExportCells(row))
+    applyBomCostUsageExportTableStyle(ws, added.number)
   }
   ws.addRow(['合计', '', '', '', '', formatQty(sumYl), '', formatQty(sumTotalQty)])
-  ws.getRow(ws.rowCount).font = { bold: true }
-  ws.columns.forEach((col) => {
-    let max = 10
-    col.eachCell?.({ includeEmpty: true }, (cell) => {
-      const len = String(cell.value ?? '').length
-      if (len > max) max = len
-    })
-    col.width = Math.min(42, Math.max(10, max + 2))
+  applyBomCostUsageExportTableStyle(ws, ws.rowCount, {
+    bold: true,
+    fill: BOM_COST_USAGE_EXPORT_SUMMARY_FILL,
+  })
+  ws.columns.forEach((col, index) => {
+    col.width = BOM_COST_USAGE_EXPORT_COL_WIDTHS[index] || 10
   })
   const buf = await wb.xlsx.writeBuffer()
   const blob = new Blob([buf], {
@@ -1882,11 +1944,27 @@ function removeBomCostPrintPageStyle() {
   document.getElementById(BOM_COST_PRINT_PAGE_STYLE_ID)?.remove()
 }
 
+const bomCostUsagePrintTimestamp = ref('')
+
+/**
+ * 打印时间：使用本地客户端时间，格式尽量贴近后端示例 `2026-4-23 11:44:51`
+ * 仅用于浏览器打印版面，不影响导出/运算逻辑。
+ */
+function formatBomCostUsagePrintTimestamp(d = new Date()) {
+  const dt = d instanceof Date ? d : new Date(d)
+  if (Number.isNaN(dt.getTime())) return ''
+  const pad2 = (n) => String(n).padStart(2, '0')
+  return `${dt.getFullYear()}-${dt.getMonth() + 1}-${dt.getDate()} ${pad2(dt.getHours())}:${pad2(dt.getMinutes())}:${pad2(
+    dt.getSeconds(),
+  )}`
+}
+
 function onPrintBomCostUsage() {
   if (!bomCostUsageFlatRows.value.length) {
     ElMessage.warning('暂无数据可打印')
     return
   }
+  bomCostUsagePrintTimestamp.value = formatBomCostUsagePrintTimestamp(new Date())
   detailActiveTab.value = 'costBomUsage'
   applyBomCostPrintPageStyle()
   const cleanupPrintClass = () => {
@@ -2135,8 +2213,11 @@ async function onBomUsageTableCalc(opts = {}) {
 
 const detailDialogTitle = computed(() => {
   const c = String(detailTitleCode.value ?? '').trim()
+  if (bomWindowMode.value === 'parts-edit') return c ? `BOM 配件明细编辑 - ${c}` : 'BOM 配件明细编辑'
   return c ? `BOM 详情 - ${c}` : 'BOM 详情'
 })
+const detailPartChildActionMode = computed(() => (bomWindowMode.value === 'parts-edit' ? 'parts-edit' : 'detail'))
+const detailPartChildActionLabel = computed(() => (detailPartChildActionMode.value === 'parts-edit' ? '编辑配件' : '查看'))
 
 /** 主档新增/编辑弹窗 */
 const editVisible = ref(false)
@@ -2809,7 +2890,7 @@ async function submitBomEdit() {
 const bomSystemcode = computed(() => String(bomBasic.value?.systemcode ?? '').trim())
 
 /** 已审核主档：配件只读（与列表「编辑」禁用一致） */
-const partsReadOnly = computed(() => rowIsAudited(detailListRow.value))
+const partsReadOnly = computed(() => bomWindowMode.value !== 'parts-edit' && rowIsAudited(detailListRow.value))
 
 /** 与 server bomPartsDelLooksActive 一致：空 / '0' / 数值 0 视为在册可编辑 */
 function bomPartDelLooksActive(delVal) {
@@ -4323,6 +4404,14 @@ async function openBomStandaloneFromRoute() {
     await loadDetailDialog({ code })
     return
   }
+  if (mode === 'parts-edit') {
+    await loadDetailDialog({ code })
+    if (detailError.value || !bomBasic.value) return
+    detailActiveTab.value = 'parts'
+    await nextTick()
+    await loadBomParts({ force: true })
+    return
+  }
   if (mode === 'cost-print') {
     await loadDetailDialog({ code })
     if (detailError.value || !bomBasic.value) return
@@ -4672,6 +4761,13 @@ if (isBomStandaloneWindow.value) {
 .bom-part-view-action-btn {
   min-width: 72px;
 }
+.bom-part-edit-child-action-btn :deep(span) {
+  font-size: 0;
+}
+.bom-part-edit-child-action-btn :deep(span)::after {
+  content: '编辑配件';
+  font-size: var(--el-font-size-base);
+}
 .bom-parts-sum-row {
   margin-top: 10px;
   color: var(--el-text-color-regular);
@@ -4895,7 +4991,7 @@ if (isBomStandaloneWindow.value) {
    * 屏上表格列宽不受影响（仍看 el-table 的 min-width/width）。
    */
   html.print-bom-cost-usage {
-    --bom-cost-print-font-size: 14px;
+    --bom-cost-print-font-size: 12px;
     --bom-cost-print-font-weight: 700;
     --bom-cost-print-header-font-size: 17px;
     --bom-cost-print-header-font-weight: 700;
@@ -5035,6 +5131,13 @@ if (isBomStandaloneWindow.value) {
     font-size: var(--bom-cost-print-header-font-size);
     font-weight: var(--bom-cost-print-header-font-weight);
     line-height: 1.5;
+  }
+  html.print-bom-cost-usage .bom-cost-usage-print-time-print {
+    margin: 0 0 6px;
+    text-align: left;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.4;
   }
   html.print-bom-cost-usage .bom-cost-usage-print-document-table,
   html.print-bom-cost-usage .bom-cost-usage-print-only-table {

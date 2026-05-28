@@ -36,3 +36,6 @@ e2e-output/
 .cursor/rules/codegraph.mdc
 
 docs/
+
+.scratch/*-build/assets/
+.scratch/**/assets/

@@ -249,7 +249,7 @@ const filteredMenuStructure = computed(() => {
 })
 
 const isCollapsed = ref(false)
-const asideWidth = computed(() => (isCollapsed.value ? '64px' : '260px'))
+const asideWidth = computed(() => (isCollapsed.value ? '64px' : '220px'))
 
 function toggleCollapse() {
   isCollapsed.value = !isCollapsed.value

@@ -12,24 +12,23 @@ export function passIsAudited(row) {
  *   page: number,
  *   pageSize: number,
  *   filters: {
- *     piNo?: string,
- *     systemCode?: string,
- *     customer?: string,
+ *     keyword?: string,
  *     salesDateFrom?: string,
  *     salesDateTo?: string,
  *     showRecycle?: boolean,
+ *     showUnAudited?: boolean,
  *   },
  * }} opts
  */
 export function buildSalesOrderListQueryParams(opts) {
   const f = opts?.filters ?? {}
+  const showRecycle = Boolean(f.showRecycle)
   return {
     page: opts.page,
     pageSize: opts.pageSize,
-    recycled: f.showRecycle ? 1 : 0,
-    piNo: String(f.piNo ?? '').trim() || undefined,
-    systemCode: String(f.systemCode ?? '').trim() || undefined,
-    customer: String(f.customer ?? '').trim() || undefined,
+    recycled: showRecycle ? 1 : 0,
+    pass: showRecycle ? undefined : f.showUnAudited ? '0' : '1',
+    keyword: String(f.keyword ?? '').trim() || undefined,
     salesDateFrom: String(f.salesDateFrom ?? '').trim() || undefined,
     salesDateTo: String(f.salesDateTo ?? '').trim() || undefined,
   }
