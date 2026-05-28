@@ -39,3 +39,4 @@ docs/
 
 .scratch/*-build/assets/
 .scratch/**/assets/
+.scratch/server-restart/
