@@ -1,16 +1,5 @@
 import { sql } from './db.js'
-
-const INV_BOM_MASTER_TABLE = (() => {
-  const raw = String(process.env.INV_BOM_MASTER_TABLE ?? 'bom_000').trim()
-  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'bom_000'
-})()
-const INV_BOM_MASTER_FROM = `dbo.[${INV_BOM_MASTER_TABLE}]`
-
-const BOM_COST_TABLE = (() => {
-  const raw = String(process.env.BOM_COST_TABLE ?? 'bom_cost').trim()
-  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'bom_cost'
-})()
-const BOM_COST_FROM = `dbo.[${BOM_COST_TABLE}]`
+import { BOM_COST_FROM, INV_BOM_MASTER_FROM } from './bomTables.js'
 
 /**
  * Saving BOM parts only makes the current BOM uncomputed.

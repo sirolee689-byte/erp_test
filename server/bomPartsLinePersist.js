@@ -3,18 +3,12 @@
  */
 import sql from 'mssql'
 import { erpCodeLookupKey, normalizeErpCodeDisplay } from './paperPatternErpCodeNormalize.js'
-
-const INV_BOM_MASTER_TABLE = (() => {
-  const raw = String(process.env.INV_BOM_MASTER_TABLE ?? 'bom_000').trim()
-  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'bom_000'
-})()
-const INV_BOM_MASTER_FROM = `dbo.[${INV_BOM_MASTER_TABLE}]`
-
-const INV_BOM_PARTS_TABLE = (() => {
-  const raw = String(process.env.INV_BOM_PARTS_TABLE ?? 'Bom_parts').trim()
-  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'Bom_parts'
-})()
-const INV_BOM_PARTS_FROM = `dbo.[${INV_BOM_PARTS_TABLE}]`
+import {
+  BOM_PARTS_KCAA_SYNC_NAMES,
+  INV_BOM_MASTER_FROM,
+  INV_BOM_PARTS_FROM,
+  INV_BOM_PARTS_TABLE,
+} from './bomTables.js'
 
 /** 纸格正式导入：批量预取 bom_000 时每批 IN 条件数 */
 const PAPER_PATTERN_BOM_PARTS_PREFETCH_BATCH = 80
@@ -384,7 +378,6 @@ async function bomPartsLookupSubBomSystemcode(poolOrTx, partMaterialCode) {
   return map.get(erpCodeLookupKey(code)) ?? ''
 }
 
-const BOM_PARTS_KCAA_SYNC_NAMES = Array.from({ length: 35 }, (_, i) => `kcaa${String(i + 1).padStart(2, '0')}`)
 const BOM_PARTS_KCAA_PAYLOAD_FALLBACK = new Set(['kcaa02', 'kcaa03', 'kcaa04', 'kcaa11'])
 
 /**

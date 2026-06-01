@@ -5,8 +5,7 @@ import crypto from 'node:crypto'
 import path from 'node:path'
 import sql from 'mssql'
 import { getPool } from './db.js'
-import { getActorAuditTripletFromReq } from './businessAuditFields.js'
-import { resolveSysUsersTruenameByUsercode } from './sysUsersDb.js'
+import { resolveActorAuditTripletFromReq } from './businessAuditFields.js'
 import { getRequestIp } from './operationAuditMiddleware.js'
 import {
   buildCutCode,
@@ -33,19 +32,7 @@ import {
   pickPaperPatternArchiveFilename,
   renamePaperPatternUploadToArchive,
 } from './paperPatternSystemUploadFile.js'
-
-const INV_BOM_MASTER_TABLE = (() => {
-  const raw = String(process.env.INV_BOM_MASTER_TABLE ?? 'bom_000').trim()
-  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'bom_000'
-})()
-const INV_BOM_MASTER_FROM = `dbo.[${INV_BOM_MASTER_TABLE}]`
-
-/** 与 index.js 纸格导入一致：Bom_code 表名可由环境变量覆盖 */
-const INV_BOM_CODE_TABLE = (() => {
-  const raw = String(process.env.INV_BOM_CODE_TABLE ?? 'Bom_code').trim()
-  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'Bom_code'
-})()
-const INV_BOM_CODE_FROM = `dbo.[${INV_BOM_CODE_TABLE}]`
+import { INV_BOM_CODE_FROM, INV_BOM_MASTER_FROM, INV_BOM_MASTER_TABLE } from './bomTables.js'
 
 /** 与 index.js 中 formatBomColorcodeTimestamp 一致 */
 function formatBomColorcodeTimestamp(date = new Date()) {
@@ -631,10 +618,7 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
       return
     }
 
-    const actor = getActorAuditTripletFromReq(req)
-    const loginUsercode = String(req.user?.userCode ?? '').trim()
-    const bomUtruename = await resolveSysUsersTruenameByUsercode(pool, loginUsercode)
-    const actorForBom = { ...actor, utruename: bomUtruename }
+    const actorForBom = await resolveActorAuditTripletFromReq(pool, req)
     const commitDate = new Date()
     const clientIp = String(getRequestIp(req) ?? '').trim()
 

@@ -17,17 +17,12 @@ import {
   validatePiBomMaintainLineOnOrder,
   validatePiBomMaintainOrderState,
 } from './salesOrderPiBomMaintainLogic.js'
+import { INV_BOM_MASTER_FROM as BOM_MASTER_FROM, INV_BOM_MASTER_TABLE as BOM_MASTER_TABLE } from './bomTables.js'
 
 const HEADER_FROM = `dbo.[${SALES_ORDER_HEADER_TABLE}]`
 const LINE_FROM = 'dbo.[UB_ERP_Sales_order_list]'
 const PI_BOM_HEAD_FROM = 'dbo.[UB_ERP_Bom_Sales]'
 const PI_BOM_LIST_FROM = 'dbo.[UB_ERP_Bom_Sales_list]'
-
-const BOM_MASTER_TABLE = (() => {
-  const raw = String(process.env.INV_BOM_MASTER_TABLE ?? 'bom_000').trim()
-  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'bom_000'
-})()
-const BOM_MASTER_FROM = `dbo.[${BOM_MASTER_TABLE}]`
 
 /**
  * @param {import('mssql').ConnectionPool} pool

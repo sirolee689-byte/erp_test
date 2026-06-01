@@ -2,12 +2,7 @@
  * BOM 用量表运算：Bom_parts 树构建（批量预取层数据，避免逐父节点 N+1 查询）
  */
 import sql from 'mssql'
-
-const INV_BOM_PARTS_TABLE = (() => {
-  const raw = String(process.env.INV_BOM_PARTS_TABLE ?? 'Bom_parts').trim()
-  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'Bom_parts'
-})()
-const INV_BOM_PARTS_FROM = `dbo.[${INV_BOM_PARTS_TABLE}]`
+import { INV_BOM_PARTS_FROM, INV_BOM_PARTS_TABLE } from './bomTables.js'
 
 /** 与 index.js bomPartsNumericColAsDecimalSql 一致 */
 const BOM_PARTS_KCAC01_EXPR = `LTRIM(RTRIM(ISNULL(CAST(p.kcac01 AS nvarchar(500)), N'')))`
@@ -160,6 +155,8 @@ export function mapBomPartsRowToUsageTreeNode(row, level, children) {
     level,
     systemcode: row.systemcode != null ? String(row.systemcode) : '',
     children,
+    /** 原始 Bom_parts 行（PI BOM 写入 UB_ERP_Bom_Sales_list 时按列快照） */
+    _sourceRow: row,
   }
 }
 

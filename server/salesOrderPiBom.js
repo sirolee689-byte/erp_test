@@ -6,15 +6,14 @@ import { sql } from './db.js'
 import {
   buildBomPartsUsageTreeNodesFromLayerCache,
   normalizeUsageTreeParentKey,
-  prefetchBomPartsLayersForUsageTree,
 } from './bomUsageTreeBuild.js'
+import {
+  getPiBomListCopyColumnMeta,
+  insertPiBomListRowFromBomPartsRow,
+  prefetchBomPartsLayersForPiListCopy,
+} from './salesOrderPiBomListFromParts.js'
 import { normKcaa01 } from './salesOrderSaveLogic.js'
-
-const BOM_MASTER_TABLE = (() => {
-  const raw = String(process.env.INV_BOM_MASTER_TABLE ?? 'bom_000').trim()
-  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'bom_000'
-})()
-const BOM_MASTER_FROM = `dbo.[${BOM_MASTER_TABLE}]`
+import { INV_BOM_MASTER_FROM as BOM_MASTER_FROM, INV_BOM_MASTER_TABLE as BOM_MASTER_TABLE } from './bomTables.js'
 const PI_BOM_HEAD_FROM = 'dbo.[UB_ERP_Bom_Sales]'
 const PI_BOM_LIST_FROM = 'dbo.[UB_ERP_Bom_Sales_list]'
 
@@ -29,6 +28,11 @@ export function formatSalesOrderAuditTime(d = new Date()) {
 
 export function newPiBomSystemcode() {
   return crypto.randomBytes(20).toString('hex').toUpperCase().slice(0, 40)
+}
+
+function toNullableNumber(v) {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
 }
 
 /**
@@ -46,10 +50,12 @@ export function flattenPiBomPartRows(parentSc, nodes, out, level, productKcaa01,
       err.code = 'BOM_DEPTH'
       throw err
     }
-    out.push({ parentSc, node })
+    const sourceRow =
+      node?._sourceRow && typeof node._sourceRow === 'object' ? node._sourceRow : node
+    out.push({ parentSc, node, sourceRow })
     const children = Array.isArray(node?.children) ? node.children : []
     if (children.length) {
-      const childSc = normalizeUsageTreeParentKey(node.systemcode)
+      const childSc = normalizeUsageTreeParentKey(node.kcac02 ?? node.systemcode)
       if (!childSc) continue
       flattenPiBomPartRows(childSc, children, out, level + 1, productKcaa01, maxDepth)
     }
@@ -73,7 +79,25 @@ export async function fetchMasterBomHeadByKcaa01(db, kcaa01) {
       LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.[kcaa03], N'')))) AS kcaa03,
       LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa04], N'')))) AS kcaa04,
       LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa05], N'')))) AS kcaa05,
-      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa06], N'')))) AS kcaa06
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa06], N'')))) AS kcaa06,
+      LTRIM(RTRIM(ISNULL(CAST(b.[GUID] AS nvarchar(500)), N''))) AS bomGuid,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa09], N'')))) AS kcaa09,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa10], N'')))) AS kcaa10,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa11], N'')))) AS kcaa11,
+      b.[kcaa14] AS kcaa14,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa15], N'')))) AS kcaa15,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa25], N'')))) AS kcaa25,
+      b.[kcaa26] AS kcaa26,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa27], N'')))) AS kcaa27,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa28], N'')))) AS kcaa28,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa29], N'')))) AS kcaa29,
+      b.[kcaa30] AS kcaa30,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa31], N'')))) AS kcaa31,
+      b.[type] AS type,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.[location], N'')))) AS location,
+      CONVERT(nvarchar(max), ISNULL(b.[remark], N'')) AS remark,
+      LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(b.[pass], N'')))) AS pass,
+      b.[version] AS version
     FROM ${BOM_MASTER_FROM} AS b
     WHERE LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.[kcaa01], N'')))) = @kcaa01
       AND (ISNULL(b.[del], N'') = N'' OR b.[del] = N'0')
@@ -204,12 +228,20 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
     err.code = 'BOM_NOT_FOUND'
     throw err
   }
-  const rootSc = normalizeUsageTreeParentKey(master.systemcode)
-  const layerCache = await prefetchBomPartsLayersForUsageTree(pool, rootSc)
-  const stack = new Set([rootSc])
+  const bomGuid = normKcaa01(master.bomGuid)
+  if (!bomGuid) {
+    const err = new Error(`货品 ${product} 在 bom_000 中缺少 GUID，无法写入 UB_ERP_Bom_Sales`)
+    err.code = 'BOM_NOT_FOUND'
+    throw err
+  }
+  const copyMeta = await getPiBomListCopyColumnMeta(pool)
+  // PI 头 systemcode/GUID 与 bom_000.GUID 同值，建树父键须与 UB_ERP_Bom_Sales 头一致
+  const headSc = bomGuid
+  const layerCache = await prefetchBomPartsLayersForPiListCopy(pool, headSc, copyMeta)
+  const stack = new Set([headSc])
   let tree
   try {
-    tree = buildBomPartsUsageTreeNodesFromLayerCache(rootSc, 1, stack, layerCache)
+    tree = buildBomPartsUsageTreeNodesFromLayerCache(headSc, 1, stack, layerCache)
   } catch (e) {
     if (e?.code === 'BOM_CYCLE') {
       const err = new Error(`货品 ${product} 的 BOM 存在循环引用`)
@@ -219,28 +251,51 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
     throw e
   }
 
-  const headSc = newPiBomSystemcode()
+  // PI BOM 头：GUID 与 systemcode 两列写入相同值（均取自 bom_000.GUID）
+  const headGuidAndSystemcode = bomGuid
   const now = formatSalesOrderAuditTime()
   const insHead = new sql.Request(tx)
   insHead.input('sid', sql.NVarChar(200), pi)
   insHead.input('kcaa01', sql.NVarChar(300), product)
-  insHead.input('systemcode', sql.NVarChar(500), headSc)
+  insHead.input('headGuidAndSystemcode', sql.NVarChar(500), headGuidAndSystemcode)
   insHead.input('kcaa02', sql.NVarChar(500), String(master.kcaa02 ?? ''))
   insHead.input('kcaa03', sql.NVarChar(500), String(master.kcaa03 ?? ''))
   insHead.input('kcaa04', sql.NVarChar(100), String(master.kcaa04 ?? ''))
   insHead.input('kcaa05', sql.NVarChar(100), String(master.kcaa05 ?? ''))
   insHead.input('kcaa06', sql.NVarChar(100), String(master.kcaa06 ?? ''))
+  insHead.input('kcaa09', sql.NVarChar(100), String(master.kcaa09 ?? ''))
+  insHead.input('kcaa10', sql.NVarChar(100), String(master.kcaa10 ?? ''))
+  insHead.input('kcaa11', sql.NVarChar(100), String(master.kcaa11 ?? ''))
+  insHead.input('kcaa14', sql.Int, toNullableNumber(master.kcaa14))
+  insHead.input('kcaa15', sql.NVarChar(100), String(master.kcaa15 ?? ''))
+  insHead.input('kcaa25', sql.NVarChar(100), String(master.kcaa25 ?? ''))
+  insHead.input('kcaa26', sql.Decimal(18, 6), toNullableNumber(master.kcaa26))
+  insHead.input('kcaa27', sql.NVarChar(100), String(master.kcaa27 ?? ''))
+  insHead.input('kcaa28', sql.NVarChar(100), String(master.kcaa28 ?? ''))
+  insHead.input('kcaa29', sql.NVarChar(100), String(master.kcaa29 ?? ''))
+  insHead.input('kcaa30', sql.Decimal(18, 6), toNullableNumber(master.kcaa30))
+  insHead.input('kcaa31', sql.NVarChar(100), String(master.kcaa31 ?? ''))
+  insHead.input('type', sql.Int, toNullableNumber(master.type))
+  insHead.input('location', sql.NVarChar(200), String(master.location ?? ''))
+  const versionNo = Number(master.version)
+  insHead.input('version', sql.Int, Number.isFinite(versionNo) ? versionNo : null)
+  insHead.input('headRemark', sql.NVarChar(sql.MAX), String(master.remark ?? ''))
+  insHead.input('headPass', sql.NVarChar(20), String(master.pass ?? ''))
   insHead.input('uname', sql.NVarChar(100), String(actor.uname ?? ''))
   insHead.input('utruename', sql.NVarChar(100), String(actor.utruename ?? ''))
   insHead.input('uid', sql.NVarChar(50), String(actor.uid ?? ''))
   insHead.input('addtime', sql.NVarChar(50), now)
   await insHead.query(`
     INSERT INTO ${PI_BOM_HEAD_FROM} (
-      [sid], [kcaa01], [systemcode], [kcaa02], [kcaa03], [kcaa04], [kcaa05], [kcaa06],
+      [sid], [kcaa01], [GUID], [systemcode], [kcaa02], [kcaa03], [kcaa04], [kcaa05], [kcaa06],
+      [kcaa09], [kcaa10], [kcaa11], [kcaa14], [kcaa15], [kcaa25], [kcaa26], [kcaa27], [kcaa28],
+      [kcaa29], [kcaa30], [kcaa31], [type], [location], [version], [remark],
       [uname], [utruename], [uid], [addtime], [del], [pass]
     ) VALUES (
-      @sid, @kcaa01, @systemcode, @kcaa02, @kcaa03, @kcaa04, @kcaa05, @kcaa06,
-      @uname, @utruename, @uid, @addtime, N'0', N'0'
+      @sid, @kcaa01, @headGuidAndSystemcode, @headGuidAndSystemcode, @kcaa02, @kcaa03, @kcaa04, @kcaa05, @kcaa06,
+      @kcaa09, @kcaa10, @kcaa11, @kcaa14, @kcaa15, @kcaa25, @kcaa26, @kcaa27, @kcaa28,
+      @kcaa29, @kcaa30, @kcaa31, @type, @location, @version, @headRemark,
+      @uname, @utruename, @uid, @addtime, N'0', @headPass
     )
   `)
 
@@ -248,32 +303,15 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
   const flat = []
   flattenPiBomPartRows(headSc, tree, flat, 1, product, PI_BOM_MAX_DEPTH)
 
-  let seq = 0
-  for (const { parentSc, node } of flat) {
-    seq += 1
-    const childSc = normalizeUsageTreeParentKey(node.systemcode) || newPiBomSystemcode()
-    const ins = new sql.Request(tx)
-    ins.input('sid', sql.NVarChar(200), pi)
-    ins.input('kcac01', sql.NVarChar(500), parentSc)
-    ins.input('kcaa01', sql.NVarChar(300), String(node.kcaa01 ?? ''))
-    ins.input('systemcode', sql.NVarChar(500), childSc)
-    ins.input('kcac04', sql.Decimal(18, 6), Number(node.kcac04 ?? 0))
-    ins.input('kcac05', sql.Decimal(18, 6), Number(node.kcac05 ?? 0))
-    ins.input('seq', sql.Int, node.Seq != null ? Number(node.Seq) : seq)
-    ins.input('Describe', sql.NVarChar(500), String(node.Describe ?? ''))
-    ins.input('uname', sql.NVarChar(100), String(actor.uname ?? ''))
-    ins.input('utruename', sql.NVarChar(100), String(actor.utruename ?? ''))
-    ins.input('uid', sql.NVarChar(50), String(actor.uid ?? ''))
-    ins.input('addtime', sql.NVarChar(50), now)
-    await ins.query(`
-      INSERT INTO ${PI_BOM_LIST_FROM} (
-        [sid], [kcac01], [kcaa01], [systemcode], [kcac04], [kcac05], [seq], [Describe],
-        [uname], [utruename], [uid], [addtime], [del], [pass]
-      ) VALUES (
-        @sid, @kcac01, @kcaa01, @systemcode, @kcac04, @kcac05, @seq, @Describe,
-        @uname, @utruename, @uid, @addtime, N'0', N'0'
-      )
-    `)
+  for (const { parentSc, sourceRow } of flat) {
+    await insertPiBomListRowFromBomPartsRow(tx, {
+      sid: pi,
+      parentSc,
+      partRow: sourceRow,
+      meta: copyMeta,
+      actor,
+      addtime: now,
+    })
   }
 }
 

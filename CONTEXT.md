@@ -31,15 +31,16 @@
 | 字段 | 说明 | 与 Sys_Users 的对应 |
 |---|---|---|
 | uid | 当前操作人 ID | `UserID` |
-| uname | 当前操作人**登录账号** | 写入值应对 **`usercode`**（勿读 `Sys_Users.uname`） |
-| utruename | 当前操作人**真实姓名** | 写入值应对 **`truename`**（用当前登录 `usercode` 查库，禁止用令牌显示名或 `Sys_Users.name`） |
+| uname | 当前操作人**登录账号列** | `UserName`（物理列常为 `username`；**不是** `usercode`、**不是** `Sys_Users.uname` 创建人列） |
+| utruename | 当前操作人**真实姓名** | `truename`（按当前登录 `usercode` 查库；禁止用工牌显示名 / 令牌 `userName`） |
 | addtime | 录入时间（nvarchar 业务时间串） | — |
 | edittime | 修改时间 | — |
 | deltime | 删除时间 | — |
 
 **修改人（仅部分主档 UPDATE）**：`bom_000.uptruename` = 保存时当前操作人的 **`truename`**（同样按登录 **`usercode`** 查库）。
 
-> 查真实姓名：只用登录 **`usercode`** 精确匹配 `Sys_Users.usercode` → 取 `truename`。与 `Sys_Users.uname`（创建人姓名）无关。
+> 实现：`server/businessAuditFields.js` 的 `getActorAuditTripletFromReq`（令牌）与 `resolveActorAuditTripletFromReq`（按 `usercode` 查库覆盖）。登录令牌另存 `auditUserName` / `auditTruename`，界面显示名仍用 `userName`（可含人事 `StaffDisplayName`）。
+> 经典易错点：勿把 **`usercode`** 写入业务表 `uname`；勿把 **`Sys_Users.uname`**（创建人姓名）当成当前操作人；`utruename` 必须落 **`truename`**。
 
 ### 操作员表 Sys_Users（列名勿与业务表审计列混用）
 
@@ -50,7 +51,7 @@
 | **uname** | **创建本账号的人**的 **`truename`**（创建人真实姓名，不是登录账号） |
 | **utruename** | （若库中存在）与操作员模块审计约定一致；**不等于**业务表里的「操作人真实姓名」列语义，以操作员模块实现为准 |
 
-**登录**：令牌中的 `userCode` 来自 `Sys_Users.usercode`；业务表审计写 `uname` / `utruename` 时应对 `usercode` / `truename`，不得把 `Sys_Users.uname` 当成当前登录账号。
+**登录**：令牌 `userCode` = `usercode`；业务表 `uname` / `utruename` 应对 `UserName` / `truename`（查库键仍为 `usercode`）。
 
 ### 状态位约定
 | 字段 | 值 | 含义 |
@@ -354,9 +355,10 @@
 | 计划数量 | `plan_quantity` | 与订货数量同步，`plan_quantity = xsak03` |
 | 单价 | `xsak04` | 行单价 |
 | 金额 | `xsak05` | `xsak05 = xsak04 × xsak03` |
-| 明细备注 | `remark` | 可写可存 |
+| 明细备注 | `remark` | 从 `bom_000.remark` 抄快照 |
 | 名称/规格/颜色/单位等快照 | `kcaa02`/`kcaa03`/`kcaa11`/`kcaa04` 等 | 保存时从 `bom_000` 抄快照 |
 
+- 兼容键与扩展快照：保存时按明细 `kcaa01` 精确匹配 `bom_000.kcaa01` 的最新在册行；`xsak02` 取 `bom_000.GUID`；`kcac01` 取销售订单主表 `GUID/systemcode`；`kcac02`、`GUID`、`systemcode` 同 `xsak02`；`kcac03` 取 `bom_000.kcaa25`，业务含义为采购单位；`kcaa07/08/11/12/13/14/15/25/26/16/27/28/29/30/31`、`type`、`location`、`pass`、`remark` 均从 `bom_000` 抄快照。若 `bom_000` 或 `UB_ERP_Sales_order_list` 缺少上述字段，保存前直接提示缺哪个字段。
 - `xsak06`/`xsak07`/`xsak09` 当前未作为销售订单一期业务主字段使用。
 - 保存采用整单重写：按 PI 删除旧明细后写入新明细。
 - 旧系统保存后在 `UB_ERP_Sales_order_list` 实际会落一批兼容字段（用于历史兼容/快照对账），当前已确认字段清单：
@@ -447,7 +449,7 @@
 
 | 时机 | 写入（列存在则落库） |
 |---|---|
-| **新增保存** | `uid`（`UserID`）、`uname`（登录 **`usercode`**）、`utruename`（按 `usercode` 查 **`truename`**）、`addtime` |
+| **新增保存** | `uid`（`UserID`）、`uname`（`UserName`）、`utruename`（`truename`，按 `usercode` 查库）、`addtime` |
 | **每次保存（含编辑）** | `edittime`；操作人三列按当前登录态 **覆盖**（与采购报价明细规则一致） |
 | **软删** | `del='1'`、`deltime` |
 | **审核 / 反审** | `pass`；若表有 `passuid`/`passuname`/`passutruename`/`passtime` 等则写入（实现探测） |

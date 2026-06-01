@@ -49,7 +49,7 @@ describe('salesOrderListQuery', () => {
     })
     assert.match(active.whereSql, /h\.\[pass\].*=\s*@pass/i)
     assert.match(active.whereSql, /h\.\[xsaj01\].*LIKE\s+@keyword/is)
-    assert.match(active.whereSql, /h\.\[syscode\].*LIKE\s+@keyword/is)
+    assert.match(active.whereSql, /h\.\[systemcode\].*LIKE\s+@keyword/is)
     assert.match(active.whereSql, /h\.\[kehu\].*LIKE\s+@keyword/is)
   })
 })

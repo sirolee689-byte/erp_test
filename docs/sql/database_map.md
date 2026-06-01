@@ -28,7 +28,7 @@
 - **Outsourcing_Quotation_list**：外协报价明细表（与主表 `wxaa01` = 明细 `wxab01` 业务关联；汇总 `wxab04`/`wxab05`）
 - **System_uplod_file**：纸格资料上传记录（旧系统表；管理页只读列表，见 `docs/System_uplod_file.txt`）
 - **UB_ERP_Sales_order**：销售订单主表（PI 号 `xsaj01`、PO 号 `xsaj06`、系统单号、客户/币别快照、审核/软删、运算状态）
-- **UB_ERP_Sales_order_list**：销售订单明细（`xsak01` = PI 号；`kcaa01` + 订货数量 `plan_quantity`）
+- **UB_ERP_Sales_order_list**：销售订单明细（`xsak01` = PI 号；`kcaa01` + 订货数量 `plan_quantity`；`xsak04` 单价；`xsak05` 金额；保存时 `xsak02` 取 `bom_000.GUID`，`kcac01` 取销售订单主表 `GUID/systemcode`，`kcac02` / `GUID` / `systemcode` 同 `xsak02`，`kcac03` 取 `bom_000.kcaa25` 作为采购单位快照，`pass` / `kcaa26` / `remark` 同样从 `bom_000` 抄快照）
 - **UB_ERP_Bom_Sales**：PI 销售 BOM 头（`sid` = PI 号；每款成品 `kcaa01` 一行）
 - **UB_ERP_Bom_Sales_list**：PI 销售 BOM 配件行（`sid` = PI 号；结构同 `Bom_parts`）
 - **UB_ERP_Bom_pi_cost**：销售订单一键运算 — 物料明细（`sid` = PI 号）
@@ -467,7 +467,8 @@
 - **PI 号关联（核心）**
   - 主表 **`xsaj01`**：用户手填 PI 号，**全表唯一**（含 `del='1'`）；软删后不可复用，**彻底删除** 后可用。
   - 明细 **`xsak01`**、PI BOM / 物料单 **`sid`**：均等于该 PI 号（字符串 trim 后比对）。
-  - 系统单号 **`syscode`**：`PI-YYYYMMDD-XXX`，仅展示/检索，保存后不改 PI 号。
+  - 主表稳定键 **`GUID`** / **`systemcode`**：新增保存时自动生成，两个字段同值；列表统一关键词与详情 `systemCode` 使用 `systemcode`。
+  - **`syscode`**：销售订单新增保存为空值，不再作为系统单号生成来源。
 - **接口（摘要）**
   - `GET /api/sales-order/list`、`GET /api/sales-order/:id`、`GET /api/sales-order/currency-options`
   - `POST` / `PUT /api/sales-order`：事务 — 主表 + 明细替换 + PI BOM 按款对齐（深度 ≤4）
@@ -475,8 +476,10 @@
   - `POST .../sync-bom` — body `{ kcaa01 }`；`POST .../calculate` — 可选 `{ syncedKcaa01[] }`
   - `GET .../material-bill`、`GET|PUT .../pi-bom`
 - **关键字段**
-  - 主表：`pass`（审核）、`del`（软删）、运算列（探测 `isok` 或 `is_pur`）、`kehu`/客户名快照、币别快照、`xsaj02` 销售日期等
-  - 明细：`kcaa01`（货品编码）、`plan_quantity`（订货数量，**不参与** 运算写入）、展示字段来自 `bom_000` 快照
+  - 主表：`pass`（审核）、`del`（软删）、运算列（探测 `isok` 或 `is_pur`）、`kehu`/客户名快照、`xsaj05`（客户代码 = `System_sales_customer.s_code`）、`rmb`/币别名称快照、`xsaj07`（币别 id = `bom_currency.id`）、`xsaj02` 销售日期、`xsaj06` PO 号、`d_code` 保存为空值、`type=1` 等
+  - 明细：`kcaa01`（货品编码）、`xsak03`/`plan_quantity`（订货数量，**不参与** 运算写入）、`xsak04`（单价）、`xsak05`（金额 = 数量 × 单价）；展示快照字段来自 `bom_000`，当前明细显示使用 `kcaa06`（客款号）、`kcaa02`（用料名称中文）、`kcaa10`（组别）、`kcaa09`（工厂款号）、`version`（版本）
+  - 审计：`UB_ERP_Sales_order.utruename`、`UB_ERP_Sales_order_list.utruename`、`UB_ERP_Bom_Sales.utruename`、`UB_ERP_Bom_Sales_list.utruename` 写当前操作人真实姓名，必须按登录 `usercode` 查询 `Sys_Users.truename`；禁止写 `Sys_Users.UserNmae` / `UserName` / 登录态显示名。
+  - 销售订单明细兼容快照：保存时按明细 `kcaa01` 精确匹配 `bom_000.kcaa01` 最新在册行；`xsak02` 取 `bom_000.GUID`；`kcac01` 取销售订单主表 `GUID/systemcode`；`kcac02`、`GUID`、`systemcode` 同 `xsak02`；`kcac03` 取 `bom_000.kcaa25`（采购单位）；`kcaa07/08/11/12/13/14/15/25/26/16/27/28/29/30/31`、`type`、`location`、`pass`、`remark` 从 `bom_000` 抄快照；保存前校验两表必需列，缺列则提示具体字段。
   - PI BOM list：`kcac04` 用量、`kcac05` 损耗、`Describe` 备注（维护 UI 可改）
 - **权限（按钮级）**
   - 菜单 path：`supply-chain/daily/sales-order`：`view`、`add`、`edit`、`audit`、`delete`

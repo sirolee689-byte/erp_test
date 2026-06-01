@@ -316,8 +316,13 @@ async function fetchBomPayload(row, opt = {}) {
       kcaa01: bomField(bom, 'kcaa01') || code,
       kcaa02: bomField(bom, 'kcaa02') || String(row.name ?? '').trim(),
       kcaa03: bomField(bom, 'kcaa03') || String(row.spec ?? '').trim(),
+      kcaa06: bomField(bom, 'kcaa06'),
+      kcaa09: bomField(bom, 'kcaa09'),
+      kcaa10: bomField(bom, 'kcaa10'),
       kcaa11: bomField(bom, 'kcaa11'),
       kcaa05: bomField(bom, 'kcaa05') || String(row.unit ?? '').trim(),
+      version: bomField(bom, 'version'),
+      remark: bomField(bom, 'remark') || String(row.remark ?? '').trim(),
     }
   } catch (e) {
     const status = e?.response?.status
@@ -329,8 +334,13 @@ async function fetchBomPayload(row, opt = {}) {
         kcaa01: code,
         kcaa02: String(row.name ?? '').trim(),
         kcaa03: String(row.spec ?? '').trim(),
+        kcaa06: '',
+        kcaa09: '',
+        kcaa10: '',
         kcaa11: '',
         kcaa05: String(row.unit ?? '').trim(),
+        version: '',
+        remark: String(row.remark ?? '').trim(),
       }
     }
     throw e

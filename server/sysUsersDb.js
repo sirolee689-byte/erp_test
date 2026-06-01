@@ -114,22 +114,58 @@ export function clipNvarcharForColumn(value, maxLen) {
  * @returns {Promise<string | null>}
  */
 export async function resolveSysUsersTruenameByUsercode(pool, usercode) {
+  const triplet = await resolveSysUsersAuditTripletByUsercode(pool, usercode)
+  return triplet?.utruename ?? null
+}
+
+/**
+ * 按登录账号 usercode 查业务表审计三字段（uid / uname / utruename）
+ * @param {import('mssql').ConnectionPool | null | undefined} pool
+ * @param {string | null | undefined} usercode
+ * @returns {Promise<{ uidInt: number | null, uname: string | null, utruename: string | null } | null>}
+ */
+export async function resolveSysUsersAuditTripletByUsercode(pool, usercode) {
   const code = String(usercode ?? '').trim()
   if (!pool || !code) return null
   const meta = await getSysUsersColumnsMeta(pool)
   const qUsercode = meta.qb('usercode')
+  const qPk = getSysUsersEntityPkQb(meta)
+  const qUserName = meta.qb('username')
   const qTruename = meta.qb('truename')
-  if (!qUsercode || !qTruename) return null
+  if (!qUsercode) return null
+
+  const selects = []
+  if (qPk) {
+    selects.push(`CAST(u.${qPk} AS int) AS userId`)
+  }
+  if (qUserName) {
+    selects.push(
+      `LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(u.${qUserName}, N'')))) AS userName`,
+    )
+  }
+  if (qTruename) {
+    selects.push(
+      `LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(u.${qTruename}, N'')))) AS truename`,
+    )
+  }
+  if (!selects.length) return null
+
   const r = await pool
     .request()
     .input('auditUsercode', sql.NVarChar(80), code)
     .query(`
-    SELECT TOP (1) LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(u.${qTruename}, N'')))) AS truename
+    SELECT TOP (1) ${selects.join(',\n      ')}
     FROM Sys_Users AS u
     WHERE LTRIM(RTRIM(CAST(ISNULL(u.${qUsercode}, N'') AS NVARCHAR(100)))) = @auditUsercode
   `)
-  const tn = String(r.recordset?.[0]?.truename ?? '').trim()
-  return tn || null
+  const row = r.recordset?.[0]
+  if (!row) return null
+  const uidRaw = Number(row.userId)
+  const uidInt = Number.isFinite(uidRaw) && uidRaw > 0 ? uidRaw : null
+  const uname = String(row.userName ?? '').trim() || null
+  const utruename = String(row.truename ?? '').trim() || null
+  if (uidInt == null && !uname && !utruename) return null
+  return { uidInt, uname, utruename }
 }
 
 /**

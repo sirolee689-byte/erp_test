@@ -8,20 +8,30 @@ export function normKcaa01(v) {
 }
 
 /**
- * @param {{ kcaa01?: unknown, orderQty?: unknown }[]} lines
- * @returns {{ kcaa01: string, orderQty: number }[]}
+ * @param {{ kcaa01?: unknown, orderQty?: unknown, unitPrice?: unknown, remark?: unknown }[]} lines
+ * @returns {{ kcaa01: string, orderQty: number, unitPrice: number, remark: string }[]}
  */
 export function mergeSalesOrderLinesByKcaa01(lines) {
-  /** @type {Map<string, number>} */
+  /** @type {Map<string, { kcaa01: string, orderQty: number, unitPrice: number, remark: string }>} */
   const map = new Map()
   for (const row of lines ?? []) {
     const code = normKcaa01(row?.kcaa01)
     if (!code) continue
     const qty = Number(row?.orderQty)
     const add = Number.isFinite(qty) && qty > 0 ? qty : 0
-    map.set(code, (map.get(code) ?? 0) + add)
+    const unitPrice = Number(row?.unitPrice)
+    const normalizedUnitPrice = Number.isFinite(unitPrice) ? unitPrice : 0
+    const remark = String(row?.remark ?? '').trim()
+    const current = map.get(code)
+    if (!current) {
+      map.set(code, { kcaa01: code, orderQty: add, unitPrice: normalizedUnitPrice, remark })
+      continue
+    }
+    current.orderQty += add
+    current.unitPrice = normalizedUnitPrice
+    if (remark) current.remark = remark
   }
-  return [...map.entries()].map(([kcaa01, orderQty]) => ({ kcaa01, orderQty }))
+  return [...map.values()]
 }
 
 /**
@@ -124,9 +134,9 @@ export function validateSalesOrderSavePayload(payload) {
   if (!normKcaa01(payload?.customerCode)) return '客户代码不能为空'
   if (!normKcaa01(payload?.currencyCode)) return '币别不能为空'
   const lines = Array.isArray(payload?.lines) ? payload.lines : []
-  if (!lines.length) return '明细至少一行'
   const merged = mergeSalesOrderLinesByKcaa01(lines)
-  if (!merged.length) return '明细货品编码不能为空'
+  // 明细可为空；仅有占位行但无有效货品编码时仍拒绝
+  if (lines.length > 0 && !merged.length) return '明细货品编码不能为空'
   for (const row of merged) {
     if (!row.kcaa01) return '明细货品编码不能为空'
     if (!(Number(row.orderQty) > 0)) return `货品 ${row.kcaa01} 订货数量须大于 0`

@@ -3,29 +3,16 @@
  */
 import sql from 'mssql'
 import { getBomCostColumnSet } from './bomCostEnrichFromBom000.js'
+import {
+  BOM_COST_FROM,
+  BOM_COST_TABLE,
+  BOM_PARTS_KCAA_SYNC_NAMES,
+  INV_BOM_MASTER_FROM,
+  INV_BOM_PARTS_FROM,
+  INV_BOM_PARTS_TABLE,
+} from './bomTables.js'
 
-const INV_BOM_MASTER_TABLE = (() => {
-  const raw = String(process.env.INV_BOM_MASTER_TABLE ?? 'bom_000').trim()
-  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'bom_000'
-})()
-const INV_BOM_MASTER_FROM = `dbo.[${INV_BOM_MASTER_TABLE}]`
-
-const INV_BOM_PARTS_TABLE = (() => {
-  const raw = String(process.env.INV_BOM_PARTS_TABLE ?? 'Bom_parts').trim()
-  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'Bom_parts'
-})()
-const INV_BOM_PARTS_FROM = `dbo.[${INV_BOM_PARTS_TABLE}]`
-
-const BOM_COST_TABLE = (() => {
-  const raw = String(process.env.BOM_COST_TABLE ?? 'bom_cost').trim()
-  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'bom_cost'
-})()
-const BOM_COST_FROM = `dbo.[${BOM_COST_TABLE}]`
-
-/** 与 index.js / bomPartsLinePersist 一致 */
-export const BOM_PARTS_KCAA_SYNC_NAMES = Array.from({ length: 35 }, (_, i) =>
-  `kcaa${String(i + 1).padStart(2, '0')}`,
-)
+export { BOM_PARTS_KCAA_SYNC_NAMES } from './bomTables.js'
 
 /** bom_cost 一键更新可覆盖列（不含用量、树父级、运算键） */
 const BOM_COST_PROPAGATE_SPECS = [

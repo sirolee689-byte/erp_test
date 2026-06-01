@@ -15,10 +15,10 @@
 
 | 表 | 作用 | 关联键 |
 |---|---|---|
-| `UB_ERP_Sales_order` | 订单主表 | **`xsaj01`** = 用户录入 **PI 号**（全表唯一，含软删）；**`xsaj06`** = PO 号 |
-| `UB_ERP_Sales_order_list` | 订货明细 | **`xsak01`** = PI 号；行 **`kcaa01`** + **`plan_quantity`**（订货数量） |
-| `UB_ERP_Bom_Sales` | PI 销售 BOM 头（每款成品一行） | **`sid`** = PI 号；**`kcaa01`** = 成品编码 |
-| `UB_ERP_Bom_Sales_list` | PI BOM 配件行 | **`sid`** = PI 号；结构挂接同 `Bom_parts`（`kcac01` 父件等） |
+| `UB_ERP_Sales_order` | 订单主表 | **`xsaj01`** = 用户录入 **PI 号**（全表唯一，含软删）；**`xsaj05`** = 客户代码；**`xsaj06`** = PO 号；**`xsaj07`** = 币别 id；**`GUID`** 与 **`systemcode`** 同值；**`syscode`** / **`d_code`** 保存为空值；**`type`** 固定 `1` |
+| `UB_ERP_Sales_order_list` | 订货明细 | **`xsak01`** = PI 号；行 **`kcaa01`** + **`plan_quantity`**（订货数量）；`xsak04` 单价、`xsak05` 金额；保存时按 `kcaa01` 精确匹配 `bom_000`，`xsak02` 取 `bom_000.GUID`，`kcac01` 取销售订单主表 `GUID/systemcode`，`kcac02` / `GUID` / `systemcode` 同 `xsak02`，`kcac03` 取 `bom_000.kcaa25`（采购单位），`pass` / `kcaa26` / `remark` 同样从 `bom_000` 抄快照 |
+| `UB_ERP_Bom_Sales` | PI 销售 BOM 头（每款成品一行） | **`sid`** = PI 号；**`kcaa01`** = 成品编码；保存/对齐建款时 **`GUID`** 与 **`systemcode`** **两列同值**（均取自 `bom_000.[GUID]`，不是各抄各的列名）；`kcaa09`～`kcaa11`、`kcaa14`～`kcaa15`、`kcaa25`～`kcaa31`、`type`、`location`、`version`、`remark`、`pass` 从 `bom_000` 抄快照 |
+| `UB_ERP_Bom_Sales_list` | PI BOM 配件行 | **`sid`** = PI 号；从主 BOM 建款时按 `Bom_parts` **同名列快照**写入（`kcac01`～`kcaa35`、`type`、`sale_price`/`cost_price` 等，两表共有列自动对齐）；`kcac01` 为 PI 树父键（首层挂 `UB_ERP_Bom_Sales.systemcode`）；审计列由服务端写 |
 | `UB_ERP_Bom_pi_cost` | 一键运算 — 物料明细 | **`sid`** = PI 号 |
 | `UB_ERP_Bom_pi_consumption` | 一键运算 — 子件汇总（表不存在时查询内存合并） | **`sid`** = PI 号 |
 
@@ -49,10 +49,12 @@
 
 审计中文名见 `server/action_map.js`（与上表路由一一对应）。
 
+> 审计三字段（与 `CONTEXT.md` 第三节一致，服务端 `resolveActorAuditTripletFromReq`）：`uid`=`UserID`，`uname`=`UserName`，`utruename`=`truename`（按登录 `usercode` 查库）。禁止把 `usercode` 写入 `uname`，禁止用工牌显示名写入 `utruename`。
+
 ## 推荐操作顺序（新人调通）
 
 1. **列表** `GET /list` → **详情** `GET /:id`
-2. **新建/保存** `POST` 或 `PUT`：事务内写主表、明细整批替换、**按款** PI BOM 删/建（禁止整 PI 先删后插）
+2. **新建/保存** `POST` 或 `PUT`：事务内写主表、明细整批替换（**明细可为空**，仅主表 PI/客户/币别等）、**按款** PI BOM 删/建（禁止整 PI 先删后插）
 3. **PI BOM 维护** `GET/PUT /:id/pi-bom`：改用量/损耗/备注（不从主 BOM 拉）
 4. **同步 BOM** `POST /:id/sync-bom`：仅当需要以主 BOM 覆盖该款
 5. **一键运算** `POST /:id/calculate` → **物料单** `GET /:id/material-bill`
@@ -90,7 +92,7 @@
 | Tab | 能力 |
 |-----|------|
 | 主表 | PI 号（新建可填）、客户、币别、日期、运算状态 |
-| 明细 | 选材、合并同码数量、同步 BOM、跳转 PI BOM |
+| 明细 | 选材、合并同码数量、编辑数量/单价、自动显示金额、同步 BOM、跳转 PI BOM；选材带入 `kcaa06` 客款号、`remark` 备注、`kcaa10` 组别、`kcaa09` 工厂款号、`version` 版本；数量和单价为纯输入框数字录入；备注为 `bom_000.remark` 快照只读展示，不作为输入框；列顺序固定为：序号、操作、编码、数量、单价、金额、客款号、备注、用料名称(中文)、组别、工厂款号、版本 |
 | 物料单 | 已运算后可查；备料量展示 |
 | PI BOM | 按款树表编辑用量/损耗/备注 |
 
@@ -100,6 +102,9 @@
 - 列表按钮文案固定为 **「新增销售订单」**（与页面标题一致）。
 - 新增弹窗初始化时，PI 号默认填 `PI-`，小数位数默认 `6`；编辑已有订单时仍以接口返回值为准。
 - 主表新增 `PO号` 输入框；保存时写入主表字段 `UB_ERP_Sales_order.xsaj06`。
+- 客户保存时写入 `xsaj05 = System_sales_customer.s_code`；客户名称仍写入 `kehu` 快照。
+- 币别下拉显示为 `001,人民币`、`002,美元` 这类格式；保存时写入 `xsaj07 = bom_currency.id`，币别名称仍写入 `rmb` 快照。
+- 新增保存自动生成 `GUID`，并同步写入 `systemcode`；`syscode` 与 `d_code` 保存为空值，`type` 固定写 `1`。
 - PI 号查重时机：**输入框失焦即校验**（`GET /api/sales-order/check-pi`）；点击保存前后端都会再做一次兜底校验，避免并发撞号。
 - 新增弹窗默认客户不写死假选项：打开时调用 `GET /api/supply-chain/customers/list?pass=1&keyword=PQD`，仅当接口返回真实存在的 `s_code=7001` 且 `s_name=PQD` 记录时，才默认选中该客户。
 - 新增保存仍走现有 `POST /api/sales-order`；保存成功后关闭弹窗并刷新当前列表。

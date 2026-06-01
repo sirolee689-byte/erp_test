@@ -5,18 +5,7 @@
 import sql from 'mssql'
 import { getPool } from './db.js'
 import { normalizeErpCodeDisplay } from './paperPatternErpCodeNormalize.js'
-
-const INV_BOM_MASTER_TABLE = (() => {
-  const raw = String(process.env.INV_BOM_MASTER_TABLE ?? 'bom_000').trim()
-  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'bom_000'
-})()
-const INV_BOM_MASTER_FROM = `dbo.[${INV_BOM_MASTER_TABLE}]`
-
-const INV_BOM_PARTS_TABLE = (() => {
-  const raw = String(process.env.INV_BOM_PARTS_TABLE ?? 'Bom_parts').trim()
-  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'Bom_parts'
-})()
-const INV_BOM_PARTS_FROM = `dbo.[${INV_BOM_PARTS_TABLE}]`
+import { INV_BOM_MASTER_FROM, INV_BOM_PARTS_FROM } from './bomTables.js'
 
 /**
  * SQL LIKE 中字面匹配 % _ [ ]

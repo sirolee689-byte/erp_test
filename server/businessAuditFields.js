@@ -1,7 +1,13 @@
 /**
- * 业务表审计字段：INSERT/UPDATE 时从当前登录态取 UID、uname
+ * 业务表审计字段：INSERT/UPDATE 时从当前登录态取 uid、uname、utruename
  * 依赖：apiPermissionGate 在校验通过后挂载 req.user（与 token 解析结果一致）
+ *
+ * 口径（与 CONTEXT.md 第三节一致）：
+ * - uid → Sys_Users.UserID
+ * - uname → Sys_Users.UserName（登录账号列 username/UserName，非 usercode、非 Sys_Users.uname）
+ * - utruename → Sys_Users.truename
  */
+import { resolveSysUsersAuditTripletByUsercode } from './sysUsersDb.js'
 
 /**
  * @param {import('express').Request} req
@@ -13,15 +19,16 @@ export function getActorAuditFromReq(req) {
     return { UID: null, uname: null }
   }
   const UID = u.userId != null && u.userId !== '' ? String(u.userId) : null
-  const unameRaw = u.userName ?? u.userCode ?? ''
+  const auditUserName = String(u.auditUserName ?? '').trim()
+  const usercode = String(u.userCode ?? '').trim()
+  const unameRaw = auditUserName || usercode || ''
   const uname = String(unameRaw).trim() || null
   return { UID, uname }
 }
 
 /**
- * 规则 13 / 16 三字段：uid（Sys_Users.UserID）、uname（UserCode）、utruename（UserName）
- * 仅从 req.user 取值，禁止信任前端 body 传入。
- * 账号与姓名允许交叉兜底，最后用数值 UserID 转字符串兜底，避免 INSERT 漏写审计列。
+ * 同步三字段（令牌内 auditUserName / auditTruename，登录时写入）。
+ * 有 pool 时请用 resolveActorAuditTripletFromReq 按 usercode 查库覆盖。
  * @param {import('express').Request} req
  * @returns {{ uidInt: number | null, uname: string | null, utruename: string | null }}
  */
@@ -32,10 +39,30 @@ export function getActorAuditTripletFromReq(req) {
   }
   const uidInt = Number(u.userId)
   const uidOk = Number.isFinite(uidInt) && uidInt > 0 ? uidInt : null
-  const code = String(u.userCode ?? '').trim()
-  const name = String(u.userName ?? '').trim()
+  const auditUserName = String(u.auditUserName ?? '').trim()
+  const auditTruename = String(u.auditTruename ?? '').trim()
+  const usercode = String(u.userCode ?? '').trim()
   const uidStr = uidOk != null ? String(uidOk) : ''
-  const uname = code || name || uidStr || null
-  const utruename = name || code || uidStr || null
+  const uname = auditUserName || usercode || uidStr || null
+  const utruename = auditTruename || null
   return { uidInt: uidOk, uname, utruename }
+}
+
+/**
+ * 按当前登录 usercode 查 Sys_Users，返回业务表审计三字段（优先于令牌缓存）。
+ * @param {import('mssql').ConnectionPool | null | undefined} pool
+ * @param {import('express').Request} req
+ * @returns {Promise<{ uidInt: number | null, uname: string | null, utruename: string | null }>}
+ */
+export async function resolveActorAuditTripletFromReq(pool, req) {
+  const base = getActorAuditTripletFromReq(req)
+  const usercode = String(req?.user?.userCode ?? '').trim()
+  if (!pool || !usercode) return base
+  const resolved = await resolveSysUsersAuditTripletByUsercode(pool, usercode)
+  if (!resolved) return base
+  return {
+    uidInt: resolved.uidInt ?? base.uidInt,
+    uname: resolved.uname ?? base.uname,
+    utruename: resolved.utruename ?? base.utruename,
+  }
 }

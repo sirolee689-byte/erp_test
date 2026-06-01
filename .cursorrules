@@ -111,7 +111,7 @@
 - **缺失处理** ：如果映射表里没找到，助手必须先提示“映射缺失”，并给出建议把这一行补到 docs/sql/database_map.md（然后再继续）
 
 ## 16. 全局操作审计规范 (Global Audit Trail)
-    - **审计字段**：所有业务表必须包含 uid, uname, utruename, addtime, edittime, deltime。
+    - **审计字段**：所有业务表必须包含 uid, uname, utruename, addtime, edittime, deltime。写入口径：uid=Sys_Users.UserID，uname=Sys_Users.UserName，utruename=Sys_Users.truename（实现见 server/businessAuditFields.js）。
     - **禁止 JSON 裸投**：审计日志的 `详细内容` 严禁直接存入 JSON 字符串（如截图中所示）。
     - **日志标准模版 (面向用户)**：必须将数据翻译为中文短句。
         - **格式**：`[动作]了[模块名]，编号为：[code]，名称为：[name]。关键改动：[字段中文名]从[原值]变更为[新值]`。

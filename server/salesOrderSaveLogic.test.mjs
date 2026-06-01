@@ -5,18 +5,36 @@ import {
   planPiBomAlign,
   shouldMarkSalesOrderUncalculated,
   buildNextSalesOrderSystemCode,
+  validateSalesOrderSavePayload,
 } from './salesOrderSaveLogic.js'
 
 describe('salesOrderSaveLogic', () => {
+  test('validateSalesOrderSavePayload 允许明细为空', () => {
+    const base = {
+      piNo: 'PI-TEST-EMPTY',
+      salesDate: '2026-06-01',
+      customerCode: 'CNS-0001',
+      currencyCode: '1',
+      lines: [],
+    }
+    assert.equal(validateSalesOrderSavePayload(base), null)
+    assert.equal(
+      validateSalesOrderSavePayload({ ...base, lines: [{ kcaa01: '', orderQty: 1 }] }),
+      '明细货品编码不能为空',
+    )
+  })
+
   test('mergeSalesOrderLinesByKcaa01 同 PI 同编码合并数量', () => {
     const merged = mergeSalesOrderLinesByKcaa01([
       { kcaa01: ' BAG-A ', orderQty: 2 },
-      { kcaa01: 'BAG-A', orderQty: 3 },
+      { kcaa01: 'BAG-A', orderQty: 3, unitPrice: 12.5, remark: '加急' },
       { kcaa01: 'BAG-B', orderQty: 1 },
     ])
     assert.equal(merged.length, 2)
     assert.equal(merged[0].kcaa01, 'BAG-A')
     assert.equal(merged[0].orderQty, 5)
+    assert.equal(merged[0].unitPrice, 12.5)
+    assert.equal(merged[0].remark, '加急')
     assert.equal(merged[1].kcaa01, 'BAG-B')
     assert.equal(merged[1].orderQty, 1)
   })

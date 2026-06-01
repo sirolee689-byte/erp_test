@@ -13,12 +13,7 @@ import {
   fetchPaperPatternMappingFieldToCol,
   PAPER_PATTERN_IMPORT_SYSTEM_FIELDS,
 } from './paperPatternImportMapping.js'
-
-const INV_BOM_MASTER_TABLE = (() => {
-  const raw = String(process.env.INV_BOM_MASTER_TABLE ?? 'bom_000').trim()
-  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'bom_000'
-})()
-const INV_BOM_MASTER_FROM = `dbo.[${INV_BOM_MASTER_TABLE}]`
+import { INV_BOM_MASTER_FROM } from './bomTables.js'
 
 /**
  * @param {import('mssql').ConnectionPool} pool

@@ -3,6 +3,7 @@
  * SQL Server 2008 R2：ROW_NUMBER 分页
  */
 import { sql } from './db.js'
+import { resolveActorAuditTripletFromReq } from './businessAuditFields.js'
 import {
   SALES_ORDER_HEADER_TABLE,
   buildSalesOrderCalcStatusExpr,
@@ -79,6 +80,10 @@ function serializeRow(row) {
  */
 export function registerSalesOrderRoutes(app, deps) {
   const { getPool, getActorAuditTripletFromReq } = deps
+
+  async function getSalesOrderActor(pool, req) {
+    return resolveActorAuditTripletFromReq(pool, req)
+  }
 
   /**
    * GET /api/sales-order/currency-options — 币别下拉（bom_currency 全表在册）
@@ -230,7 +235,7 @@ export function registerSalesOrderRoutes(app, deps) {
         return
       }
       const pool = await getPool()
-      const actor = getActorAuditTripletFromReq(req)
+      const actor = await getSalesOrderActor(pool, req)
       const result = await approveSalesOrder(pool, parsed.id, actor)
       lifecycleJson(res, { ...result, id: parsed.id }, '审核成功')
     } catch (err) {
@@ -250,7 +255,7 @@ export function registerSalesOrderRoutes(app, deps) {
         return
       }
       const pool = await getPool()
-      const actor = getActorAuditTripletFromReq(req)
+      const actor = await getSalesOrderActor(pool, req)
       const result = await unapproveSalesOrder(pool, parsed.id, actor)
       lifecycleJson(res, { ...result, id: parsed.id }, '反审成功')
     } catch (err) {
@@ -270,7 +275,7 @@ export function registerSalesOrderRoutes(app, deps) {
         return
       }
       const pool = await getPool()
-      const actor = getActorAuditTripletFromReq(req)
+      const actor = await getSalesOrderActor(pool, req)
       const result = await softDeleteSalesOrder(pool, parsed.id, actor)
       lifecycleJson(res, { ...result, id: parsed.id }, '已移入回收站')
     } catch (err) {
@@ -290,7 +295,7 @@ export function registerSalesOrderRoutes(app, deps) {
         return
       }
       const pool = await getPool()
-      const actor = getActorAuditTripletFromReq(req)
+      const actor = await getSalesOrderActor(pool, req)
       const result = await restoreSalesOrder(pool, parsed.id, actor)
       lifecycleJson(res, { ...result, id: parsed.id }, '恢复成功')
     } catch (err) {
@@ -340,9 +345,10 @@ export function registerSalesOrderRoutes(app, deps) {
           h.[id],
           LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj01], N'')))) AS piNo,
           LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj06], N'')))) AS poNo,
-          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[syscode], N'')))) AS systemCode,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[systemcode], N'')))) AS systemCode,
           LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kehu], N'')))) AS customerName,
-          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[d_code], N'')))) AS customerCode,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(NULLIF(h.[xsaj05], N''), h.[d_code])))) AS customerCode,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(h.[xsaj07], N'')))) AS currencyCode,
           LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[rmb], N'')))) AS currencyName,
           h.[xsaj02] AS salesDate,
           h.[xsaj08] AS deliveryDate,
@@ -367,10 +373,15 @@ export function registerSalesOrderRoutes(app, deps) {
           l.[seq],
           LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa01], N'')))) AS kcaa01,
           CAST(ISNULL(l.[xsak03], l.[plan_quantity]) AS decimal(18, 4)) AS orderQty,
-          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa03], N'')))) AS productName,
-          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa04], N'')))) AS spec,
-          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa05], N'')))) AS color,
-          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[kcaa06], N'')))) AS unit
+          CAST(ISNULL(l.[xsak04], 0) AS decimal(18, 6)) AS unitPrice,
+          CAST(ISNULL(l.[xsak05], 0) AS decimal(18, 6)) AS amount,
+          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa02], N'')))) AS materialNameCn,
+          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa02], N'')))) AS productName,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa06], N'')))) AS customerStyleNo,
+          LTRIM(RTRIM(CONVERT(nvarchar(max), ISNULL(l.[remark], N'')))) AS remark,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa10], N'')))) AS groupName,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa09], N'')))) AS factoryStyleNo,
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[version], N'')))) AS version
         FROM ${LINE_FROM} AS l
         WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[xsak01], N'')))) = @piNo
         ORDER BY ISNULL(l.[seq], l.[id]) ASC
@@ -398,7 +409,7 @@ export function registerSalesOrderRoutes(app, deps) {
   app.post('/api/sales-order', async (req, res) => {
     try {
       const pool = await getPool()
-      const actor = getActorAuditTripletFromReq(req)
+      const actor = await getSalesOrderActor(pool, req)
       const ip = getClientIpFromReq(req)
       const result = await createSalesOrder({
         pool,
@@ -430,7 +441,7 @@ export function registerSalesOrderRoutes(app, deps) {
         return
       }
       const pool = await getPool()
-      const actor = getActorAuditTripletFromReq(req)
+      const actor = await getSalesOrderActor(pool, req)
       const ip = getClientIpFromReq(req)
       const result = await calculateSalesOrderMaterialBill({
         pool,
@@ -539,7 +550,7 @@ export function registerSalesOrderRoutes(app, deps) {
         return
       }
       const pool = await getPool()
-      const actor = getActorAuditTripletFromReq(req)
+      const actor = await getSalesOrderActor(pool, req)
       const ip = getClientIpFromReq(req)
       const result = await saveSalesOrderPiBom({
         pool,
@@ -583,7 +594,7 @@ export function registerSalesOrderRoutes(app, deps) {
         return
       }
       const pool = await getPool()
-      const actor = getActorAuditTripletFromReq(req)
+      const actor = await getSalesOrderActor(pool, req)
       const ip = getClientIpFromReq(req)
       const result = await syncSalesOrderBomForLine({
         pool,
@@ -620,7 +631,7 @@ export function registerSalesOrderRoutes(app, deps) {
         return
       }
       const pool = await getPool()
-      const actor = getActorAuditTripletFromReq(req)
+      const actor = await getSalesOrderActor(pool, req)
       const ip = getClientIpFromReq(req)
       const result = await updateSalesOrder({
         pool,

@@ -269,19 +269,11 @@
               scrollbar-always-on
             >
               <el-table-column type="index" label="序号" width="58" />
-              <el-table-column label="货品编码" prop="kcaa01" min-width="128" show-overflow-tooltip />
-              <el-table-column label="货品名称" prop="productName" min-width="140" show-overflow-tooltip />
-              <el-table-column label="规格" prop="spec" min-width="100" show-overflow-tooltip />
-              <el-table-column label="颜色" prop="color" width="88" show-overflow-tooltip />
-              <el-table-column label="单位" prop="unit" width="72" show-overflow-tooltip />
-              <el-table-column label="订货数量" width="100" align="right">
-                <template #default="{ row }">{{ formatOrderQty(row.orderQty) }}</template>
-              </el-table-column>
               <el-table-column
                 v-if="viewHeader && !showRecycle"
                 label="操作"
                 width="168"
-                fixed="right"
+                fixed="left"
               >
                 <template #default="{ row }">
                   <el-button type="primary" link size="small" @click="openPiBomTab(row, 'view')">
@@ -300,6 +292,22 @@
                   </el-button>
                 </template>
               </el-table-column>
+              <el-table-column label="编码" prop="kcaa01" min-width="128" show-overflow-tooltip />
+              <el-table-column label="数量" width="100" align="right">
+                <template #default="{ row }">{{ formatOrderQty(row.orderQty) }}</template>
+              </el-table-column>
+              <el-table-column label="单价" width="110" align="right">
+                <template #default="{ row }">{{ formatMoney(row.unitPrice) }}</template>
+              </el-table-column>
+              <el-table-column label="金额" width="118" align="right">
+                <template #default="{ row }">{{ formatMoney(getLineAmount(row)) }}</template>
+              </el-table-column>
+              <el-table-column label="客款号" prop="customerStyleNo" min-width="120" show-overflow-tooltip />
+              <el-table-column label="备注" prop="remark" min-width="140" show-overflow-tooltip />
+              <el-table-column label="用料名称(中文)" prop="materialNameCn" min-width="160" show-overflow-tooltip />
+              <el-table-column label="组别" prop="groupName" min-width="100" show-overflow-tooltip />
+              <el-table-column label="工厂款号" prop="factoryStyleNo" min-width="120" show-overflow-tooltip />
+              <el-table-column label="版本" prop="version" width="88" show-overflow-tooltip />
             </el-table>
             <el-empty v-else description="暂无明细" />
           </el-tab-pane>
@@ -544,7 +552,7 @@
                       <el-option
                         v-for="c in currencyOptions"
                         :key="c.id"
-                        :label="c.cn_name"
+                        :label="formatCurrencyOption(c)"
                         :value="String(c.id)"
                       />
                     </el-select>
@@ -601,24 +609,7 @@
               max-height="calc(80vh - 280px)"
             >
               <el-table-column type="index" label="序号" width="58" />
-              <el-table-column label="货品编码" prop="kcaa01" min-width="128" show-overflow-tooltip />
-              <el-table-column label="货品名称" prop="productName" min-width="140" show-overflow-tooltip />
-              <el-table-column label="规格" prop="spec" min-width="100" show-overflow-tooltip />
-              <el-table-column label="颜色" prop="color" width="88" />
-              <el-table-column label="单位" prop="unit" width="72" />
-              <el-table-column label="订货数量" width="120">
-                <template #default="{ row }">
-                  <el-input-number
-                    v-model="row.orderQty"
-                    :min="0.0001"
-                    :precision="4"
-                    :disabled="editDetailLocked"
-                    controls-position="right"
-                    style="width: 100%"
-                  />
-                </template>
-              </el-table-column>
-              <el-table-column label="操作" width="220" fixed="right">
+              <el-table-column label="操作" width="220" fixed="left">
                 <template #default="{ row, $index }">
                   <el-button
                     v-if="editMode === 'edit' && editId"
@@ -654,6 +645,42 @@
                   </el-button>
                 </template>
               </el-table-column>
+              <el-table-column label="编码" prop="kcaa01" min-width="128" show-overflow-tooltip />
+              <el-table-column label="数量" width="120">
+                <template #default="{ row }">
+                  <el-input-number
+                    v-model="row.orderQty"
+                    :min="0.0001"
+                    :precision="4"
+                    :disabled="editDetailLocked"
+                    :controls="false"
+                    style="width: 100%"
+                  />
+                </template>
+              </el-table-column>
+              <el-table-column label="单价" width="126">
+                <template #default="{ row }">
+                  <el-input-number
+                    v-model="row.unitPrice"
+                    :min="0"
+                    :precision="6"
+                    :disabled="editDetailLocked"
+                    :controls="false"
+                    style="width: 100%"
+                  />
+                </template>
+              </el-table-column>
+              <el-table-column label="金额" width="118" align="right">
+                <template #default="{ row }">{{ formatMoney(getLineAmount(row)) }}</template>
+              </el-table-column>
+              <el-table-column label="客款号" prop="customerStyleNo" min-width="120" show-overflow-tooltip />
+              <el-table-column label="备注" prop="remark" min-width="160" show-overflow-tooltip>
+                <template #default="{ row }">{{ formatCell(row.remark) }}</template>
+              </el-table-column>
+              <el-table-column label="用料名称(中文)" prop="materialNameCn" min-width="160" show-overflow-tooltip />
+              <el-table-column label="组别" prop="groupName" min-width="100" show-overflow-tooltip />
+              <el-table-column label="工厂款号" prop="factoryStyleNo" min-width="120" show-overflow-tooltip />
+              <el-table-column label="版本" prop="version" width="88" show-overflow-tooltip />
             </el-table>
           </el-tab-pane>
           <el-tab-pane label="PI BOM" name="piBom">
@@ -906,7 +933,7 @@ const headerForm = reactive({
   remark: '',
   decimalPlaces: 2,
 })
-/** @type {import('vue').Ref<{ kcaa01: string, orderQty: number, productName?: string, spec?: string, color?: string, unit?: string }[]>} */
+/** @type {import('vue').Ref<{ kcaa01: string, orderQty: number, unitPrice: number, remark?: string, customerStyleNo?: string, materialNameCn?: string, groupName?: string, factoryStyleNo?: string, version?: string }[]>} */
 const lineRows = ref([])
 const currencyOptions = ref([])
 const customerOptions = ref([])
@@ -945,6 +972,19 @@ function captureEditSnapshot() {
 function isEditDirty() {
   if (editMode.value !== 'edit') return false
   return editSaveSnapshot.value !== JSON.stringify(buildSaveBody())
+}
+
+function getLineAmount(row) {
+  const qty = Number(row?.orderQty)
+  const price = Number(row?.unitPrice)
+  if (!Number.isFinite(qty) || !Number.isFinite(price)) return 0
+  return Number((qty * price).toFixed(6))
+}
+
+function formatMoney(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return '0.000000'
+  return n.toFixed(6)
 }
 
 async function loadMaterialBill(orderId, target) {
@@ -1230,6 +1270,13 @@ async function loadCurrencyOptions() {
   }
 }
 
+function formatCurrencyOption(c) {
+  const id = Number(c?.id)
+  const code = Number.isFinite(id) ? String(id).padStart(3, '0') : String(c?.id ?? '').trim()
+  const name = String(c?.cn_name ?? '').trim()
+  return name ? `${code},${name}` : code
+}
+
 async function searchCustomers(keyword) {
   customerLoading.value = true
   try {
@@ -1357,8 +1404,11 @@ function fillHeaderFromDetail(header) {
   headerForm.customerCode = String(header.customerCode ?? '').trim()
   headerForm.remark = String(header.remark ?? '')
   headerForm.decimalPlaces = Number(header.decimalPlaces ?? 2) || 2
+  const code = String(header.currencyCode ?? '').trim()
   const name = String(header.currencyName ?? '').trim()
-  const hit = currencyOptions.value.find((c) => String(c.cn_name ?? '').trim() === name)
+  const hit = code
+    ? currencyOptions.value.find((c) => String(c.id ?? '').trim() === code)
+    : currencyOptions.value.find((c) => String(c.cn_name ?? '').trim() === name)
   headerForm.currencyCode = hit ? String(hit.id) : ''
 }
 
@@ -1389,10 +1439,13 @@ async function openEdit(row) {
     lineRows.value = lines.map((ln) => ({
       kcaa01: String(ln.kcaa01 ?? '').trim(),
       orderQty: Number(ln.orderQty ?? 0) || 1,
-      productName: String(ln.productName ?? ln.kcaa02 ?? ''),
-      spec: String(ln.spec ?? ln.kcaa03 ?? ''),
-      color: String(ln.color ?? ln.kcaa04 ?? ''),
-      unit: String(ln.unit ?? ln.kcaa06 ?? ''),
+      unitPrice: Number(ln.unitPrice ?? 0) || 0,
+      remark: String(ln.remark ?? ''),
+      customerStyleNo: String(ln.customerStyleNo ?? ln.kcaa06 ?? ''),
+      materialNameCn: String(ln.materialNameCn ?? ln.productName ?? ln.kcaa02 ?? ''),
+      groupName: String(ln.groupName ?? ln.kcaa10 ?? ''),
+      factoryStyleNo: String(ln.factoryStyleNo ?? ln.kcaa09 ?? ''),
+      version: String(ln.version ?? ''),
     }))
     if (headerForm.customerCode) {
       customerOptions.value = [
@@ -1435,10 +1488,13 @@ function onMaterialsPicked(payloads) {
     lineRows.value.push({
       kcaa01: code,
       orderQty: 1,
-      productName: String(m.kcaa02 ?? ''),
-      spec: String(m.kcaa03 ?? ''),
-      color: String(m.kcaa05 ?? ''),
-      unit: String(m.kcaa06 ?? ''),
+      unitPrice: 0,
+      remark: String(m.remark ?? ''),
+      customerStyleNo: String(m.kcaa06 ?? ''),
+      materialNameCn: String(m.kcaa02 ?? ''),
+      groupName: String(m.kcaa10 ?? ''),
+      factoryStyleNo: String(m.kcaa09 ?? ''),
+      version: String(m.version ?? ''),
     })
   }
 }
@@ -1516,6 +1572,7 @@ function buildSaveBody() {
     lines: lineRows.value.map((row) => ({
       kcaa01: row.kcaa01,
       orderQty: row.orderQty,
+      unitPrice: row.unitPrice,
     })),
   }
 }

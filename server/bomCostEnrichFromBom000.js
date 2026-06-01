@@ -3,24 +3,12 @@
  */
 import sql from 'mssql'
 import { erpCodeLookupKey, normalizeErpCodeDisplay } from './paperPatternErpCodeNormalize.js'
-
-const INV_BOM_MASTER_TABLE = (() => {
-  const raw = String(process.env.INV_BOM_MASTER_TABLE ?? 'bom_000').trim()
-  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'bom_000'
-})()
-const INV_BOM_MASTER_FROM = `dbo.[${INV_BOM_MASTER_TABLE}]`
-
-const BOM_MATERIAL_TABLE = (() => {
-  const raw = String(process.env.BOM_MATERIAL_TABLE ?? 'Bom_material').trim()
-  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'Bom_material'
-})()
-const BOM_MATERIAL_FROM = `dbo.[${BOM_MATERIAL_TABLE}]`
-
-const BOM_COST_TABLE = (() => {
-  const raw = String(process.env.BOM_COST_TABLE ?? 'bom_cost').trim()
-  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'bom_cost'
-})()
-const BOM_COST_FROM = `dbo.[${BOM_COST_TABLE}]`
+import {
+  BOM_COST_FROM,
+  BOM_COST_TABLE,
+  BOM_MATERIAL_FROM,
+  INV_BOM_MASTER_FROM,
+} from './bomTables.js'
 
 export const BOM_COST_DEFAULT_TYPE = 1
 export const BOM_COST_DEFAULT_VERSION = 100

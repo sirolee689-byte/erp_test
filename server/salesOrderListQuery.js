@@ -71,7 +71,7 @@ export function buildSalesOrderListWhereSql(opts) {
   if (opts?.keyword) {
     whereSql += ` AND (
       LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj01], N'')))) LIKE @keyword
-      OR LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[syscode], N'')))) LIKE @keyword
+      OR LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[systemcode], N'')))) LIKE @keyword
       OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kehu], N'')))) LIKE @keyword
     ) `
   }
@@ -79,7 +79,7 @@ export function buildSalesOrderListWhereSql(opts) {
     whereSql += ` AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj01], N'')))) = @piNo `
   }
   if (opts?.systemCode) {
-    whereSql += ` AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[syscode], N'')))) LIKE @systemCode `
+    whereSql += ` AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[systemcode], N'')))) LIKE @systemCode `
   }
   if (opts?.customer) {
     whereSql += ` AND LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kehu], N'')))) LIKE @customer `
@@ -123,7 +123,7 @@ export function buildSalesOrderListPagedSql(opts) {
             h.[id],
             LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj01], N'')))) AS piNo,
             LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj06], N'')))) AS poNo,
-            LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[syscode], N'')))) AS systemCode,
+            LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[systemcode], N'')))) AS systemCode,
             LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kehu], N'')))) AS customerName,
             LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[rmb], N'')))) AS currencyName,
             h.[xsaj02] AS salesDate,
