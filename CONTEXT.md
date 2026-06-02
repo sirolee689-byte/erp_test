@@ -398,6 +398,8 @@
   - 直到某一轮查不到子编码（无子行）才停止；最终把整棵子件树全部落入 `UB_ERP_Bom_Sales_list`。
   - `UB_ERP_Bom_Sales_list.sid` 关联 PI 号（=`UB_ERP_Sales_order.xsaj01`）。
   - `UB_ERP_Bom_Sales_list.kcac01` 作为父节点关联键（父节点 `systemcode/GUID`）。
+  - `UB_ERP_Bom_Sales_list.pkcaa01`：该 PI BOM 子树所属的 **订单明细顶级成品** `kcaa01`（一单多款则各款子树各自填对应成品码；子件各层行同值）。
+  - 子件行 `GUID`/`version`/`kcac03`：按子件 `kcaa01` 查 `bom_000` 覆盖（`kcac03`=`bom_000.kcaa25`；无主档保留 `Bom_parts`）；与 `kcaa02_en` 等字段同一套「先 parts 后 000」规则。
 - `UB_ERP_Bom_Sales` 字段口径（已确认）：
   - `sid` 关联 PI 号（=`UB_ERP_Sales_order.xsaj01`）。
   - `kcaa01` 为成品货号；一条记录就是该 PI 下一款成品的 BOM 头。

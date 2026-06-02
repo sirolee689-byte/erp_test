@@ -10,6 +10,8 @@ import {
 import {
   getPiBomListCopyColumnMeta,
   insertPiBomListRowFromBomPartsRow,
+  mergePiListPartRowWithBom000Override,
+  prefetchBom000OverrideSnapshotsByKcaa01,
   prefetchBomPartsLayersForPiListCopy,
 } from './salesOrderPiBomListFromParts.js'
 import { normKcaa01 } from './salesOrderSaveLogic.js'
@@ -303,11 +305,20 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
   const flat = []
   flattenPiBomPartRows(headSc, tree, flat, 1, product, PI_BOM_MAX_DEPTH)
 
+  const kcaa01ForOverride = flat
+    .map(({ sourceRow }) => normKcaa01(sourceRow?.kcaa01))
+    .filter(Boolean)
+  const bom000OverrideByKcaa01 = await prefetchBom000OverrideSnapshotsByKcaa01(pool, kcaa01ForOverride)
+
   for (const { parentSc, sourceRow } of flat) {
+    const childCode = normKcaa01(sourceRow?.kcaa01)
+    const bom000Snap = childCode ? bom000OverrideByKcaa01.get(childCode) : undefined
+    const partRow = mergePiListPartRowWithBom000Override(sourceRow, bom000Snap)
     await insertPiBomListRowFromBomPartsRow(tx, {
       sid: pi,
       parentSc,
-      partRow: sourceRow,
+      topProductKcaa01: product,
+      partRow,
       meta: copyMeta,
       actor,
       addtime: now,

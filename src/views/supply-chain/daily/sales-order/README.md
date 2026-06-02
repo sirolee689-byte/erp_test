@@ -18,7 +18,7 @@
 | `UB_ERP_Sales_order` | 订单主表 | **`xsaj01`** = 用户录入 **PI 号**（全表唯一，含软删）；**`xsaj05`** = 客户代码；**`xsaj06`** = PO 号；**`xsaj07`** = 币别 id；**`GUID`** 与 **`systemcode`** 同值；**`syscode`** / **`d_code`** 保存为空值；**`type`** 固定 `1` |
 | `UB_ERP_Sales_order_list` | 订货明细 | **`xsak01`** = PI 号；行 **`kcaa01`** + **`plan_quantity`**（订货数量）；`xsak04` 单价、`xsak05` 金额；保存时按 `kcaa01` 精确匹配 `bom_000`，`xsak02` 取 `bom_000.GUID`，`kcac01` 取销售订单主表 `GUID/systemcode`，`kcac02` / `GUID` / `systemcode` 同 `xsak02`，`kcac03` 取 `bom_000.kcaa25`（采购单位），`pass` / `kcaa26` / `remark` 同样从 `bom_000` 抄快照 |
 | `UB_ERP_Bom_Sales` | PI 销售 BOM 头（每款成品一行） | **`sid`** = PI 号；**`kcaa01`** = 成品编码；保存/对齐建款时 **`GUID`** 与 **`systemcode`** **两列同值**（均取自 `bom_000.[GUID]`，不是各抄各的列名）；`kcaa09`～`kcaa11`、`kcaa14`～`kcaa15`、`kcaa25`～`kcaa31`、`type`、`location`、`version`、`remark`、`pass` 从 `bom_000` 抄快照 |
-| `UB_ERP_Bom_Sales_list` | PI BOM 配件行 | **`sid`** = PI 号；从主 BOM 建款时按 `Bom_parts` **同名列快照**写入（`kcac01`～`kcaa35`、`type`、`sale_price`/`cost_price` 等，两表共有列自动对齐）；`kcac01` 为 PI 树父键（首层挂 `UB_ERP_Bom_Sales.systemcode`）；审计列由服务端写 |
+| `UB_ERP_Bom_Sales_list` | PI BOM 配件行 | **`sid`** = PI 号；从主 BOM 建款时先按 `Bom_parts` **同名列快照**写入；再按行 **`kcaa01`（子件编码）** 查 `bom_000`，覆盖 `kcaa02_en`、`location`、`sale_price`、`cost_price`、`Customer_supply`、`Customer_Name`、`remark`、`GUID`、`version`、`kcac03`（`kcac03` 取 `bom_000.kcaa25` 采购单位；无主档则保留 `Bom_parts`）；**`pkcaa01`** = 本棵树对应的订单明细顶级成品（例：明细 `PQ-3119B1/N` 下全部子件行均为 `PQ-3119B1/N`）；`kcac01` 为 PI 树父键；`uid`/`uname`/`utruename`/`addtime` 由服务端按当前操作人写入 |
 | `UB_ERP_Bom_pi_cost` | 一键运算 — 物料明细 | **`sid`** = PI 号 |
 | `UB_ERP_Bom_pi_consumption` | 一键运算 — 子件汇总（表不存在时查询内存合并） | **`sid`** = PI 号 |
 

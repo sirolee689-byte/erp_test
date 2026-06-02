@@ -6,7 +6,12 @@ import {
   BOM_USAGE_TREE_LAYER_BATCH_SIZE,
   normalizeUsageTreeParentKey,
 } from './bomUsageTreeBuild.js'
-import { INV_BOM_PARTS_FROM, INV_BOM_PARTS_TABLE } from './bomTables.js'
+import {
+  INV_BOM_MASTER_FROM,
+  INV_BOM_PARTS_FROM,
+  INV_BOM_PARTS_TABLE,
+} from './bomTables.js'
+import { normKcaa01 } from './salesOrderSaveLogic.js'
 
 const PI_BOM_LIST_TABLE = 'UB_ERP_Bom_Sales_list'
 const PI_BOM_LIST_FROM = 'dbo.[UB_ERP_Bom_Sales_list]'
@@ -17,6 +22,7 @@ const BOM_PARTS_KCAC01_EXPR = `LTRIM(RTRIM(ISNULL(CAST(p.kcac01 AS nvarchar(500)
 const PI_LIST_INSERT_OVERRIDE = new Set([
   'sid',
   'kcac01',
+  'pkcaa01',
   'uid',
   'uname',
   'utruename',
@@ -29,6 +35,27 @@ const PI_LIST_INSERT_SKIP = new Set(['id'])
 
 /** 源表列名 → 目标表列名（仅当目标无同名源列时） */
 const PARTS_TO_LIST_COLUMN_ALIAS = new Map([['seq', 'Seq']])
+
+/**
+ * PI BOM 配件行：先抄 Bom_parts，再按子件 kcaa01 用 bom_000 覆盖（无主档则保留 parts）
+ * @type {readonly string[]}
+ */
+export const PI_BOM_LIST_BOM000_OVERRIDE_COLS = [
+  'kcaa02_en',
+  'location',
+  'sale_price',
+  'cost_price',
+  'Customer_supply',
+  'Customer_Name',
+  'remark',
+  'GUID',
+  'version',
+  'kcac03',
+]
+
+const BOM000_OVERRIDE_BATCH_SIZE = 40
+
+const BOM000_KCAA01_EXPR = `LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.[kcaa01], N''))))`
 
 const NUMERIC_SQL_TYPES = new Set([
   'bit',
@@ -227,6 +254,74 @@ export async function prefetchBomPartsLayersForPiListCopy(pool, rootSystemcode, 
  * @param {unknown} raw
  * @param {string} dataType
  */
+/**
+ * @param {Record<string, unknown>} partRow
+ * @param {Record<string, unknown> | undefined} bom000Snap
+ */
+export function mergePiListPartRowWithBom000Override(partRow, bom000Snap) {
+  if (!bom000Snap || typeof bom000Snap !== 'object') return partRow
+  const out = { ...partRow }
+  for (const col of PI_BOM_LIST_BOM000_OVERRIDE_COLS) {
+    if (Object.prototype.hasOwnProperty.call(bom000Snap, col)) {
+      out[col] = bom000Snap[col]
+    }
+  }
+  return out
+}
+
+/**
+ * 按子件编码批量读取 bom_000 覆盖字段（每码取 id 最大且未删的一条）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {string[]} kcaa01Codes
+ * @returns {Promise<Map<string, Record<string, unknown>>>}
+ */
+export async function prefetchBom000OverrideSnapshotsByKcaa01(pool, kcaa01Codes) {
+  /** @type {Map<string, Record<string, unknown>>} */
+  const out = new Map()
+  const uniq = [...new Set((kcaa01Codes ?? []).map((c) => normKcaa01(c)).filter(Boolean))]
+  if (!uniq.length) return out
+
+  for (let i = 0; i < uniq.length; i += BOM000_OVERRIDE_BATCH_SIZE) {
+    const chunk = uniq.slice(i, i + BOM000_OVERRIDE_BATCH_SIZE)
+    const rq = pool.request()
+    const orParts = []
+    for (let j = 0; j < chunk.length; j++) {
+      const pname = `bk${i}_${j}`
+      rq.input(pname, sql.NVarChar(300), chunk[j])
+      orParts.push(`${BOM000_KCAA01_EXPR} = @${pname}`)
+    }
+    const r = await rq.query(`
+      WITH ranked AS (
+        SELECT
+          ${BOM000_KCAA01_EXPR} AS kcaa01,
+          LTRIM(RTRIM(ISNULL(CAST(b.[GUID] AS nvarchar(500)), N''))) AS [GUID],
+          b.[version] AS version,
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa25], N'')))) AS kcac03,
+          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.[kcaa02_en], N'')))) AS kcaa02_en,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.[location], N'')))) AS location,
+          CAST(ISNULL(b.[sale_price], 0) AS decimal(18, 6)) AS sale_price,
+          CAST(ISNULL(b.[cost_price], 0) AS decimal(18, 6)) AS cost_price,
+          CONVERT(int, ISNULL(b.[Customer_supply], 0)) AS Customer_supply,
+          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.[Customer_Name], N'')))) AS Customer_Name,
+          CONVERT(nvarchar(max), ISNULL(b.[remark], N'')) AS remark,
+          ROW_NUMBER() OVER (PARTITION BY ${BOM000_KCAA01_EXPR} ORDER BY b.[id] DESC) AS rn
+        FROM ${INV_BOM_MASTER_FROM} AS b
+        WHERE (${orParts.join(' OR ')})
+          AND (ISNULL(b.[del], N'') = N'' OR b.[del] = N'0')
+      )
+      SELECT kcaa01, [GUID], version, kcac03, kcaa02_en, location, sale_price, cost_price, Customer_supply, Customer_Name, remark
+      FROM ranked
+      WHERE rn = 1
+    `)
+    for (const row of r.recordset ?? []) {
+      const code = normKcaa01(row.kcaa01)
+      if (!code) continue
+      out.set(code, row)
+    }
+  }
+  return out
+}
+
 function bindPiListCopyValue(raw, dataType) {
   const dt = String(dataType ?? '').toLowerCase()
   if (NUMERIC_SQL_TYPES.has(dt)) {
@@ -247,22 +342,42 @@ function bindPiListCopyValue(raw, dataType) {
  *   parentSc: string,
  *   partRow: Record<string, unknown>,
  *   meta: { copyCols: { targetCol: string, sourceCol: string, dataType: string }[] },
+ *   topProductKcaa01: string,
  *   actor: { uid?: string | null, uname?: string | null, utruename?: string | null },
  *   addtime: string,
  * }} opts
  */
 export async function insertPiBomListRowFromBomPartsRow(tx, opts) {
-  const { sid, parentSc, partRow, meta, actor, addtime } = opts
+  const { sid, parentSc, topProductKcaa01, partRow, meta, actor, addtime } = opts
   const ins = new sql.Request(tx)
   ins.input('sid', sql.NVarChar(200), sid)
   ins.input('kcac01', sql.NVarChar(500), parentSc)
+  ins.input('pkcaa01', sql.NVarChar(300), normKcaa01(topProductKcaa01))
   ins.input('uname', sql.NVarChar(100), String(actor.uname ?? ''))
   ins.input('utruename', sql.NVarChar(100), String(actor.utruename ?? ''))
   ins.input('uid', sql.NVarChar(50), String(actor.uid ?? ''))
   ins.input('addtime', sql.NVarChar(50), addtime)
 
-  const cols = ['[sid]', '[kcac01]', '[uname]', '[utruename]', '[uid]', '[addtime]', '[del]']
-  const vals = ['@sid', '@kcac01', '@uname', '@utruename', '@uid', '@addtime', `N'0'`]
+  const cols = [
+    '[sid]',
+    '[kcac01]',
+    '[pkcaa01]',
+    '[uname]',
+    '[utruename]',
+    '[uid]',
+    '[addtime]',
+    '[del]',
+  ]
+  const vals = [
+    '@sid',
+    '@kcac01',
+    '@pkcaa01',
+    '@uname',
+    '@utruename',
+    '@uid',
+    '@addtime',
+    `N'0'`,
+  ]
 
   for (let i = 0; i < meta.copyCols.length; i++) {
     const { targetCol, dataType } = meta.copyCols[i]
