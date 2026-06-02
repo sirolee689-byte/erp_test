@@ -7,20 +7,11 @@ import {
   resolveBomCostTopFields,
 } from './bomUsageYl.js'
 
-/**
- * 成本 BOM 用量平铺：深度优先与树构建顺序一致
- * @param {any[]} treeNodes
- * @param {number|null|undefined} parentYl
- * @param {any[]} [acc]
- * @param {boolean} [parentIsCut]
- * @param {string} [parentTopKcaa01]
- * @param {string} [parentTopKcaa02]
- */
-export function flattenBomPartsCostUsageFlat(
+function flattenBomPartsCostUsageFlatCore(
   treeNodes,
   parentYl,
   acc,
-  parentIsCut = false,
+  cutSelfMultipliesChildren,
   parentTopKcaa01 = '',
   parentTopKcaa02 = '',
 ) {
@@ -69,12 +60,71 @@ export function flattenBomPartsCostUsageFlat(
     })
     const ch = node?.children
     const thisIsCut = bomCostMaterialStartsWithCutPrefix(node?.kcaa01)
-    const nextParentFactor = thisIsCut ? safeParentFactor : yl
+    const nextParentFactor = thisIsCut && !cutSelfMultipliesChildren ? safeParentFactor : yl
     if (Array.isArray(ch) && ch.length) {
-      flattenBomPartsCostUsageFlat(ch, nextParentFactor, out, thisIsCut, selfCode, selfName)
+      flattenBomPartsCostUsageFlatCore(
+        ch,
+        nextParentFactor,
+        out,
+        cutSelfMultipliesChildren,
+        selfCode,
+        selfName,
+      )
     }
   }
   return out
+}
+
+/**
+ * 成本 BOM 用量平铺：深度优先与树构建顺序一致
+ * 保留原有展示规则：CUT 自身用量不继续放大下层。
+ * @param {any[]} treeNodes
+ * @param {number|null|undefined} parentYl
+ * @param {any[]} [acc]
+ * @param {boolean} [parentIsCut]
+ * @param {string} [parentTopKcaa01]
+ * @param {string} [parentTopKcaa02]
+ */
+export function flattenBomPartsCostUsageFlat(
+  treeNodes,
+  parentYl,
+  acc,
+  parentIsCut = false,
+  parentTopKcaa01 = '',
+  parentTopKcaa02 = '',
+) {
+  void parentIsCut
+  return flattenBomPartsCostUsageFlatCore(
+    treeNodes,
+    parentYl,
+    acc,
+    false,
+    parentTopKcaa01,
+    parentTopKcaa02,
+  )
+}
+
+/**
+ * bom_cost 写库专用平铺：CUT 自身用量要继续放大下层材料。
+ * @param {any[]} treeNodes
+ * @param {number|null|undefined} parentYl
+ * @param {any[]} [acc]
+ */
+export function flattenBomPartsCostUsageFlatForBomCost(
+  treeNodes,
+  parentYl,
+  acc,
+  parentTopKcaa01 = '',
+  parentTopKcaa02 = '',
+) {
+  return flattenBomPartsCostUsageFlatCore(
+    treeNodes,
+    parentYl,
+    acc,
+    true,
+    parentTopKcaa01,
+    parentTopKcaa02,
+  )
 }
 
 /**

@@ -2,15 +2,14 @@
  * 销售订单 PI BOM 用量树（只读 UB_ERP_Bom_Sales_list，禁止拉主 BOM）
  */
 import sql from 'mssql'
-import { normalizeUsageTreeParentKey } from './bomUsageTreeBuild.js'
-import { PI_BOM_MAX_DEPTH } from './salesOrderPiBom.js'
+import { BOM_USAGE_TREE_LAYER_BATCH_SIZE, normalizeUsageTreeParentKey } from './bomUsageTreeBuild.js'
 import { normKcaa01 } from './salesOrderSaveLogic.js'
 
 const PI_BOM_LIST_FROM = 'dbo.[UB_ERP_Bom_Sales_list]'
 const PI_BOM_HEAD_FROM = 'dbo.[UB_ERP_Bom_Sales]'
 const PI_LIST_KCAC01_EXPR = `LTRIM(RTRIM(ISNULL(CAST(l.[kcac01] AS nvarchar(500)), N'')))`
 
-const LAYER_BATCH = 80
+const LAYER_BATCH = BOM_USAGE_TREE_LAYER_BATCH_SIZE
 
 /**
  * @param {import('mssql').ConnectionPool | import('mssql').Transaction} db
@@ -40,8 +39,12 @@ export async function prefetchPiBomListLayers(db, piNo, parentCodes) {
         l.[id],
         LTRIM(RTRIM(ISNULL(CAST(l.[systemcode] AS nvarchar(500)), N''))) AS systemcode,
         LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N'')))) AS kcaa01,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa02], N'')))) AS kcaa02,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa03], N'')))) AS kcaa03,
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[kcaa04], N'')))) AS kcaa04,
         CAST(ISNULL(l.[kcac04], 0) AS decimal(18, 6)) AS kcac04,
         CAST(ISNULL(l.[kcac05], 0) AS decimal(18, 6)) AS kcac05,
+        CAST(ISNULL(l.[kcaa33], 0) AS decimal(18, 6)) AS kcaa33,
         CONVERT(int, ISNULL(l.[seq], 0)) AS seq,
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[Describe], N'')))) AS Describe
       FROM ${PI_BOM_LIST_FROM} AS l
@@ -70,12 +73,12 @@ function mapPiBomRowToUsageTreeNode(row, level, children) {
   return {
     id: row.id != null ? Number(row.id) : null,
     kcaa01: row.kcaa01 != null ? String(row.kcaa01) : '',
-    kcaa02: '',
-    kcaa03: '',
-    kcaa04: '',
+    kcaa02: row.kcaa02 != null ? String(row.kcaa02) : '',
+    kcaa03: row.kcaa03 != null ? String(row.kcaa03) : '',
+    kcaa04: row.kcaa04 != null ? String(row.kcaa04) : '',
     kcac04: Number(row.kcac04 ?? 0),
     kcac05: Number(row.kcac05 ?? 0),
-    kcaa33: 0,
+    kcaa33: Number(row.kcaa33 ?? 0),
     Describe: row.Describe != null ? String(row.Describe) : '',
     Seq: seqNum,
     level,
@@ -98,11 +101,6 @@ export function buildPiBomUsageTreeNodesFromLayerCache(
   layerCache,
   productKcaa01,
 ) {
-  if (level > PI_BOM_MAX_DEPTH) {
-    const err = new Error(`货品 ${productKcaa01} 的 PI BOM 超过 ${PI_BOM_MAX_DEPTH} 层，无法运算`)
-    err.code = 'BOM_DEPTH'
-    throw err
-  }
   const parent = normalizeUsageTreeParentKey(parentSc)
   const rows = layerCache.get(parent) ?? []
   const out = []
@@ -154,6 +152,38 @@ export async function fetchPiBomHeadSystemcode(pool, piNo, productKcaa01) {
 }
 
 /**
+ * BFS 预取 PI BOM 子树全部层（子节点键为 systemcode）
+ * @param {import('mssql').ConnectionPool | import('mssql').Transaction} db
+ * @param {string} piNo
+ * @param {string} rootSystemcode
+ */
+export async function prefetchPiBomListLayersForUsageTree(db, piNo, rootSystemcode) {
+  const root = normalizeUsageTreeParentKey(rootSystemcode)
+  /** @type {Map<string, Record<string, unknown>[]>} */
+  const cache = new Map()
+  if (!root) return cache
+
+  /** @type {Set<string>} */
+  const pending = new Set([root])
+
+  while (pending.size > 0) {
+    const batch = [...pending].slice(0, LAYER_BATCH)
+    for (const p of batch) pending.delete(p)
+
+    const fetched = await prefetchPiBomListLayers(db, piNo, batch)
+    for (const [parent, rows] of fetched) {
+      cache.set(parent, rows)
+      for (const row of rows) {
+        const child = normalizeUsageTreeParentKey(row.systemcode)
+        if (child && !cache.has(child)) pending.add(child)
+      }
+    }
+  }
+
+  return cache
+}
+
+/**
  * @param {import('mssql').ConnectionPool} pool
  * @param {string} piNo
  * @param {string} productKcaa01
@@ -165,7 +195,7 @@ export async function buildPiBomUsageTreeForProduct(pool, piNo, productKcaa01) {
     err.code = 'PI_BOM_MISSING'
     throw err
   }
-  const layerCache = await prefetchPiBomListLayers(pool, piNo, [headSc])
+  const layerCache = await prefetchPiBomListLayersForUsageTree(pool, piNo, headSc)
   const stack = new Set([headSc])
   return buildPiBomUsageTreeNodesFromLayerCache(headSc, 1, stack, layerCache, productKcaa01)
 }

@@ -33,7 +33,10 @@ import {
   isPqBomCostHead,
 } from '../bomCostEnrichFromBom000.js'
 import { buildBomPartsUsageTreeNodes } from '../bomUsageTreeBuild.js'
-import { flattenBomPartsCostUsageFlat } from '../bomUsageFlatten.js'
+import {
+  flattenBomPartsCostUsageFlat,
+  flattenBomPartsCostUsageFlatForBomCost,
+} from '../bomUsageFlatten.js'
 import { handlePostBomMasterPropagate } from '../bomMasterPropagate.js'
 import { markCurrentBomCostStale } from '../bomCostImpactScope.js'
 
@@ -1498,8 +1501,13 @@ async function runBomUsageCalcForHead(pool, head, hidePrefixes, actor) {
   const treeMs = Date.now() - tTree0
   const tFlat0 = Date.now()
   const flatCostUsageRaw = flattenBomPartsCostUsageFlat(data, null, [])
+  const flatCostUsageForBomCost = flattenBomPartsCostUsageFlatForBomCost(data, null, [])
   const flatMs = Date.now() - tFlat0
-  const bomCostInsertPayload = buildBomCostInsertPayloadFromFlatUsage(flatCostUsageRaw, hidePrefixes, pq)
+  const bomCostInsertPayload = buildBomCostInsertPayloadFromFlatUsage(
+    flatCostUsageForBomCost,
+    hidePrefixes,
+    pq,
+  )
   const tEnrich0 = Date.now()
   const bom000Map = await fetchBom000ForBomCostEnrich(
     pool,
@@ -1570,6 +1578,7 @@ async function runBomUsageCalcForHead(pool, head, hidePrefixes, actor) {
     metrics: {
       systemcode,
       flatRows: flatCostUsageRaw.length,
+      bomCostFlatRows: flatCostUsageForBomCost.length,
       bomCostRows: bomCost.length,
       treeMs,
       flatMs,
@@ -1667,9 +1676,14 @@ app.post('/api/bom/usage-calc', async (req, res) => {
     const treeMs = Date.now() - tTree0
     const tFlat0 = Date.now()
     const flatCostUsageRaw = flattenBomPartsCostUsageFlat(data, null, [])
+    const flatCostUsageForBomCost = flattenBomPartsCostUsageFlatForBomCost(data, null, [])
     const flatMs = Date.now() - tFlat0
     /** bom_cost：剔除隐藏前缀 + 跳过主档 pq 根行，平铺不合并（Bom_consumption 已停用，历史数据不维护） */
-    const bomCostInsertPayload = buildBomCostInsertPayloadFromFlatUsage(flatCostUsageRaw, hidePrefixes, pq)
+    const bomCostInsertPayload = buildBomCostInsertPayloadFromFlatUsage(
+      flatCostUsageForBomCost,
+      hidePrefixes,
+      pq,
+    )
     const tEnrich0 = Date.now()
     const bom000Map = await fetchBom000ForBomCostEnrich(
       pool,
@@ -1740,6 +1754,7 @@ app.post('/api/bom/usage-calc', async (req, res) => {
       JSON.stringify({
         systemcode,
         flatRows: flatCostUsageRaw.length,
+        bomCostFlatRows: flatCostUsageForBomCost.length,
         bomCostRows: bomCost.length,
         treeMs,
         flatMs,

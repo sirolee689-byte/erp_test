@@ -55,24 +55,15 @@ export function resolveMaterialBillCalculateScope(opts) {
     return { ok: true, mode: 'partial', products: synced }
   }
 
-  const calculated = isSalesOrderCalculated(opts.calcFlag)
-  if (calculated && !synced.length) {
-    return {
-      ok: false,
-      msg: '订单已运算：请先在明细行同步 BOM 后再运算，或改明细/订货数量保存后整单重算',
-    }
-  }
-
   return { ok: true, mode: 'full', products: lines }
 }
 
 /**
- * 订单是否允许运算（未审、在册）
+ * 订单是否允许运算（在册；已审未审均可运算）
  * @param {{ pass?: string, del?: string }} header
  */
 export function validateCalculateOrderState(header) {
   if (!header) return '记录不存在'
   if (String(header.del ?? '').trim() === '1') return '回收站中的订单不可运算'
-  if (String(header.pass ?? '').trim() === '1') return '已审核订单不可运算'
   return null
 }

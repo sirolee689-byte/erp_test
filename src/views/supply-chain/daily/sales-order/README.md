@@ -18,8 +18,8 @@
 | `UB_ERP_Sales_order` | 订单主表 | **`xsaj01`** = 用户录入 **PI 号**（全表唯一，含软删）；**`xsaj05`** = 客户代码；**`xsaj06`** = PO 号；**`xsaj07`** = 币别 id；**`GUID`** 与 **`systemcode`** 同值；**`syscode`** / **`d_code`** 保存为空值；**`type`** 固定 `1` |
 | `UB_ERP_Sales_order_list` | 订货明细 | **`xsak01`** = PI 号；行 **`kcaa01`** + **`plan_quantity`**（订货数量）；`xsak04` 单价、`xsak05` 金额；保存时按 `kcaa01` 精确匹配 `bom_000`，`xsak02` 取 `bom_000.GUID`，`kcac01` 取销售订单主表 `GUID/systemcode`，`kcac02` / `GUID` / `systemcode` 同 `xsak02`，`kcac03` 取 `bom_000.kcaa25`（采购单位），`pass` / `kcaa26` / `remark` 同样从 `bom_000` 抄快照 |
 | `UB_ERP_Bom_Sales` | PI 销售 BOM 头（每款成品一行） | **`sid`** = PI 号；**`kcaa01`** = 成品编码；保存/对齐建款时 **`GUID`** 与 **`systemcode`** **两列同值**（均取自 `bom_000.[GUID]`，不是各抄各的列名）；`kcaa09`～`kcaa11`、`kcaa14`～`kcaa15`、`kcaa25`～`kcaa31`、`type`、`location`、`version`、`remark`、`pass` 从 `bom_000` 抄快照 |
-| `UB_ERP_Bom_Sales_list` | PI BOM 配件行 | **`sid`** = PI 号；从主 BOM 建款时先按 `Bom_parts` **同名列快照**写入；再按行 **`kcaa01`（子件编码）** 查 `bom_000`，覆盖 `kcaa02_en`、`location`、`sale_price`、`cost_price`、`Customer_supply`、`Customer_Name`、`remark`、`GUID`、`version`、`kcac03`（`kcac03` 取 `bom_000.kcaa25` 采购单位；无主档则保留 `Bom_parts`）；**`pkcaa01`** = 本棵树对应的订单明细顶级成品（例：明细 `PQ-3119B1/N` 下全部子件行均为 `PQ-3119B1/N`）；`kcac01` 为 PI 树父键；`uid`/`uname`/`utruename`/`addtime` 由服务端按当前操作人写入 |
-| `UB_ERP_Bom_pi_cost` | 一键运算 — 物料明细 | **`sid`** = PI 号 |
+| `UB_ERP_Bom_Sales_list` | PI BOM 配件行 | **`sid`** = PI 号；从主 BOM 建款时先按 `Bom_parts` **同名列快照**写入（**全树展开，无层数上限**；循环引用失败）；再按行 **`kcaa01`（子件编码）** 查 `bom_000`，覆盖 `kcaa02_en`、`location`、`sale_price`、`cost_price`、`Customer_supply`、`Customer_Name`、`remark`、`GUID`、`version`、`kcac03`（`kcac03` 取 `bom_000.kcaa25` 采购单位；无主档则保留 `Bom_parts`）；**`pkcaa01`** = 本棵树对应的订单明细顶级成品（例：明细 `PQ-3119B1/N` 下全部子件行均为 `PQ-3119B1/N`）；`kcac01` 为 PI 树父键；`uid`/`uname`/`utruename`/`addtime` 由服务端按当前操作人写入 |
+| `UB_ERP_Bom_pi_cost` | 一键运算 — 物料明细 | **`sid`** = PI 号；读 **PI BOM**（`UB_ERP_Bom_Sales_list`）运算，规则同 BOM **成本用量表**（含隐藏前缀 `CUT-/BAG-/TAG-…` 不落库）；搭配字段为 **`Describe`** |
 | `UB_ERP_Bom_pi_consumption` | 一键运算 — 子件汇总（表不存在时查询内存合并） | **`sid`** = PI 号 |
 
 主数据：`bom_000` / `Bom_parts`（主 BOM）；`bom_currency`（币别）；客户 `System_sales_customer`（`s_code` / `s_name` 快照）。
@@ -32,6 +32,7 @@
 |------|------|-------------|------|
 | GET | `/api/sales-order/currency-options` | view | 币别下拉（读 `bom_currency`） |
 | GET | `/api/sales-order/list` | view | 分页列表（`recycled`、PI/客户/日期筛选） |
+| GET | `/api/sales-order/pi-suggest?keyword=` | view | 生产管理物料单页 PI 候选；只按 PI 号相近匹配已审核在册订单 |
 | GET | `/api/sales-order/check-pi?piNo=&excludeId=` | add | PI 号重复校验（新增页失焦校验） |
 | GET | `/api/sales-order/:id` | view | 主表 + 明细 |
 | POST | `/api/sales-order` | add | 新建保存 `{ header, lines[] }` |
@@ -42,8 +43,8 @@
 | POST | `/api/sales-order/:id/restore` | edit | 回收站恢复 |
 | POST | `/api/sales-order/:id/hard-delete` | delete | 彻底删除（回收站且未审） |
 | POST | `/api/sales-order/:id/sync-bom` | edit | body `{ kcaa01 }`；主 BOM → 该款 PI BOM |
-| POST | `/api/sales-order/:id/calculate` | edit | 一键运算；可选 `{ syncedKcaa01: string[] }` 部分重算 |
-| GET | `/api/sales-order/:id/material-bill` | view | 物料单（未运算 409） |
+| POST | `/api/sales-order/:id/calculate` | edit | 一键运算；已审核/未审核在册订单均可执行；可选 `{ syncedKcaa01: string[] }` 部分重算 |
+| GET | `/api/sales-order/:id/material-bill` | view | 物料单（未运算 409）；前端主入口在生产管理 → 统计分析 → 物料单 |
 | GET | `/api/sales-order/:id/pi-bom?kcaa01=` | view | 无 `kcaa01`：款列表；有：树 + flat |
 | PUT | `/api/sales-order/:id/pi-bom` | edit | body `{ kcaa01, lines: [{ id, kcac04, kcac05?, Describe? }] }` |
 
@@ -57,7 +58,7 @@
 2. **新建/保存** `POST` 或 `PUT`：事务内写主表、明细整批替换（**明细可为空**，仅主表 PI/客户/币别等）、**按款** PI BOM 删/建（禁止整 PI 先删后插）
 3. **PI BOM 维护** `GET/PUT /:id/pi-bom`：改用量/损耗/备注（不从主 BOM 拉）
 4. **同步 BOM** `POST /:id/sync-bom`：仅当需要以主 BOM 覆盖该款
-5. **一键运算** `POST /:id/calculate` → **物料单** `GET /:id/material-bill`
+5. **一键运算** `POST /:id/calculate` → **物料单** `GET /:id/material-bill`；查看入口在生产管理 → 统计分析 → 物料单
 6. 需要时：**审核** / **软删** / **恢复** / **彻底删除**
 
 ```text
@@ -78,8 +79,10 @@
   - 保存时变更明细 **货品编码集合** 或 **订货数量**
   - **同步 BOM**（按行）
   - **保存 PI BOM**（PUT pi-bom）
-- **一键运算** 只读 **PI BOM**，写入 `UB_ERP_Bom_pi_*`，**不乘订货数量**；展示备料量 = 用量 × 订货数量
-- **已审**（`pass='1'`）：禁止保存订单、PI BOM PUT、同步 BOM、软删、彻底删
+- **一键运算** 只读 **PI BOM**（`UB_ERP_Bom_Sales_list`），写入 `UB_ERP_Bom_pi_*`，**不乘订货数量**；**无 BOM 层数上限**（与主 BOM 用量树一致；循环引用仍失败）；隐藏前缀与 BOM 资料内置列表一致（`server/bomCostHidePrefixes.js`）；下游订料时 **用量 × 订货数量**
+- **一键运算入口** 只放在列表第一列「操作」；查看/编辑弹窗不放入口。已审核、未审核在册订单都可以点；回收站订单不可运算。
+- **一键运算 PX**：`UB_ERP_Bom_pi_cost.px` 照 BOM 资料规则补入，子件 `kcaa01` → `bom_000.kcaa05` → `Bom_material.code` → `Bom_material.px`；无匹配则留空。
+- **已审**（`pass='1'`）：禁止保存订单、PI BOM PUT、同步 BOM、软删、彻底删；但允许在列表执行一键运算
 
 ## 主 BOM 门禁（保存 vs 同步）
 
@@ -93,8 +96,9 @@
 |-----|------|
 | 主表 | PI 号（新建可填）、客户、币别、日期、运算状态 |
 | 明细 | 选材、合并同码数量、编辑数量/单价、自动显示金额、同步 BOM、跳转 PI BOM；选材带入 `kcaa06` 客款号、`remark` 备注、`kcaa10` 组别、`kcaa09` 工厂款号、`version` 版本；数量和单价为纯输入框数字录入；备注为 `bom_000.remark` 快照只读展示，不作为输入框；列顺序固定为：序号、操作、编码、数量、单价、金额、客款号、备注、用料名称(中文)、组别、工厂款号、版本 |
-| 物料单 | 已运算后可查；备料量展示 |
 | PI BOM | 按款树表编辑用量/损耗/备注 |
+
+> 物料单不再放在销售订单详情/编辑 Tab 内展示。销售订单仍负责「一键运算」，但入口只在销售订单列表操作列；运算后的明细/汇总统一到生产管理 → 统计分析 → 物料单查看。
 
 ## 新增页交互
 

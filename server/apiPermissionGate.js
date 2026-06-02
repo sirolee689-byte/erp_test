@@ -553,7 +553,20 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'supply-chain/daily/sales-order', action: 'view' }
   }
   if (m === 'GET' && path === '/api/sales-order/list') {
-    return { menuPath: 'supply-chain/daily/sales-order', action: 'view' }
+    return {
+      anyOf: [
+        { menuPath: 'supply-chain/daily/sales-order', action: 'view' },
+        { menuPath: 'production/analysis/material-sheet', action: 'view' },
+      ],
+    }
+  }
+  if (m === 'GET' && path === '/api/sales-order/pi-suggest') {
+    return {
+      anyOf: [
+        { menuPath: 'supply-chain/daily/sales-order', action: 'view' },
+        { menuPath: 'production/analysis/material-sheet', action: 'view' },
+      ],
+    }
   }
   if (m === 'GET' && path === '/api/sales-order/check-pi') {
     return { menuPath: 'supply-chain/daily/sales-order', action: 'add' }
@@ -589,7 +602,12 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'supply-chain/daily/sales-order', action: 'edit' }
   }
   if (m === 'GET' && /^\/api\/sales-order\/\d+\/material-bill$/.test(path)) {
-    return { menuPath: 'supply-chain/daily/sales-order', action: 'view' }
+    return {
+      anyOf: [
+        { menuPath: 'supply-chain/daily/sales-order', action: 'view' },
+        { menuPath: 'production/analysis/material-sheet', action: 'view' },
+      ],
+    }
   }
   if (m === 'GET' && /^\/api\/sales-order\/\d+\/pi-bom$/.test(path)) {
     return { menuPath: 'supply-chain/daily/sales-order', action: 'view' }

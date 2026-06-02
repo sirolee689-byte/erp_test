@@ -116,11 +116,30 @@
     "name": "production",
     "title": "生产管理",
     "children": [
-      { "name": "reserve-order", "title": "预留单" },
-      { "name": "process-code", "title": "工序编码" },
-      { "name": "plan", "title": "生产计划" },
-      { "name": "dispatch", "title": "派工单" },
-      { "name": "report-stats", "title": "生产领用统计表" }
+      {
+        "name": "daily",
+        "title": "日常工作",
+        "children": [
+          { "name": "reserve-order", "title": "预留单" },
+          { "name": "process-code", "title": "工序编码" },
+          { "name": "plan", "title": "生产计划" },
+          { "name": "dispatch", "title": "派工单" },
+          { "name": "work-hour-report", "title": "工时汇报" }
+        ]
+      },
+      {
+        "name": "analysis",
+        "title": "统计分析",
+        "children": [
+          { "name": "report-stats", "title": "生产领用统计表" },
+          { "name": "pi-shortage-analysis", "title": "PI欠料分析" },
+          { "name": "material-requirement-stats", "title": "物料需求统计" },
+          { "name": "labor-cost-analysis", "title": "工时工费分析" },
+          { "name": "material-sheet", "title": "物料单" },
+          { "name": "production-status-report", "title": "生产情况表" },
+          { "name": "work-hour-status-report", "title": "工时情况表" }
+        ]
+      }
     ]
   },
   {

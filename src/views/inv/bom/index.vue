@@ -773,6 +773,7 @@
                     class="bom-cost-usage-table-outer bom-cost-usage-print-area bom-cost-usage-table-outer--fill"
                   >
                     <el-table
+                      ref="bomCostUsageTableRef"
                       :data="bomCostUsageFlatRows"
                       border
                       stripe
@@ -781,6 +782,7 @@
                       row-key="__bomCostRowKey"
                       show-summary
                       :summary-method="bomCostUsageSummaryMethod"
+                      :max-height="bomCostUsageTableMaxHeight"
                     >
                       <el-table-column label="编码" min-width="200" fixed="left" class-name="bom-cost-usage-wrap-cell">
                         <template #default="{ row }">
@@ -1620,6 +1622,7 @@ const bomUsageTreeLoading = ref(false)
 const bomUsageTreeError = ref('')
 const bomUsageTreeData = ref([])
 const bomUsageTableRef = ref(null)
+const bomCostUsageTableRef = ref(null)
 /** 成本 BOM 用量表展示行（本地：前缀筛选 + 按编码+备注合并） */
 const bomCostUsageFlatRows = ref([])
 /** 成本平铺源行：DFS 的 flatCostUsageRaw，或命中缓存时由 bom_cost 映射成的等价平铺（供合并用） */
@@ -1721,6 +1724,7 @@ function recomputeBomCostUsageDisplay() {
   const raw = bomCostUsageRawRows.value
   if (!Array.isArray(raw) || !raw.length) {
     bomCostUsageFlatRows.value = []
+    scheduleBomCostUsageTableLayout()
     return
   }
   const prefixes = normalizeBomCostHidePrefixes(BOM_COST_BUILTIN_HIDE_PREFIXES)
@@ -1729,6 +1733,21 @@ function recomputeBomCostUsageDisplay() {
     ...r,
     __bomCostRowKey: `bom-cost-flat-${i}`,
   }))
+  scheduleBomCostUsageTableLayout()
+}
+
+function scheduleBomCostUsageTableLayout() {
+  nextTick(() => {
+    const layout = () => {
+      if (!detailVisible.value || detailActiveTab.value !== 'costBomUsage') return
+      bomCostUsageTableRef.value?.doLayout?.()
+    }
+    layout()
+    if (typeof window !== 'undefined') {
+      window.requestAnimationFrame?.(layout)
+      window.setTimeout(layout, 80)
+    }
+  })
 }
 
 watch(
@@ -1737,6 +1756,14 @@ watch(
     recomputeBomCostUsageDisplay()
   },
   { deep: true },
+)
+
+watch(
+  () => [detailVisible.value, detailActiveTab.value, bomCostUsageFlatRows.value.length, bomUsageTreeLoading.value],
+  ([vis, tab]) => {
+    if (!vis || tab !== 'costBomUsage') return
+    scheduleBomCostUsageTableLayout()
+  },
 )
 
 /** 编码列按 level 预留缩进（与旧 ERP 展开表层次一致） */
@@ -2227,6 +2254,7 @@ const editSaving = ref(false)
 
 /** 查看详情 / 联动查看：配件明细表纵向可视高度（表内滚动） */
 const bomPartsTableMaxHeight = 'calc(100vh - 320px)'
+const bomCostUsageTableMaxHeight = 'calc(100vh - 260px)'
 /** 编辑弹窗配件明细：与查看一致，另扣底栏按钮区约 60px */
 const bomEditPartsTableMaxHeight = 'calc(100vh - 380px)'
 
@@ -4961,16 +4989,13 @@ if (isBomStandaloneWindow.value) {
   overflow-y: hidden;
 }
 .bom-main-detail-dialog.bom-main-detail-dialog--cost-usage-tab .bom-cost-usage-table-outer--fill .bom-cost-usage-screen-table {
-  flex: 1;
   min-height: 0;
-  height: 0;
   width: 100%;
 }
 .bom-main-detail-dialog.bom-main-detail-dialog--cost-usage-tab
   .bom-cost-usage-table-outer--fill
   .bom-cost-usage-screen-table
   .el-table__inner-wrapper {
-  height: 100% !important;
   display: flex;
   flex-direction: column;
 }

@@ -1,5 +1,5 @@
 /**
- * 销售订单 PI BOM：从主 BOM 建款、按款物理删除、深度≤4
+ * 销售订单 PI BOM：从主 BOM 建款、按款物理删除（全树展开，无层数上限；循环引用仍失败）
  */
 import crypto from 'node:crypto'
 import { sql } from './db.js'
@@ -18,8 +18,6 @@ import { normKcaa01 } from './salesOrderSaveLogic.js'
 import { INV_BOM_MASTER_FROM as BOM_MASTER_FROM, INV_BOM_MASTER_TABLE as BOM_MASTER_TABLE } from './bomTables.js'
 const PI_BOM_HEAD_FROM = 'dbo.[UB_ERP_Bom_Sales]'
 const PI_BOM_LIST_FROM = 'dbo.[UB_ERP_Bom_Sales_list]'
-
-export const PI_BOM_MAX_DEPTH = 4
 
 /** @param {Date} [d] */
 export function formatSalesOrderAuditTime(d = new Date()) {
@@ -43,15 +41,9 @@ function toNullableNumber(v) {
  * @param {any[]} out
  * @param {number} level
  * @param {string} productKcaa01
- * @param {number} maxDepth
  */
-export function flattenPiBomPartRows(parentSc, nodes, out, level, productKcaa01, maxDepth = PI_BOM_MAX_DEPTH) {
+export function flattenPiBomPartRows(parentSc, nodes, out, level, productKcaa01) {
   for (const node of nodes ?? []) {
-    if (level > maxDepth) {
-      const err = new Error(`货品 ${productKcaa01} 的 BOM 超过 ${maxDepth} 层，无法展开`)
-      err.code = 'BOM_DEPTH'
-      throw err
-    }
     const sourceRow =
       node?._sourceRow && typeof node._sourceRow === 'object' ? node._sourceRow : node
     out.push({ parentSc, node, sourceRow })
@@ -59,7 +51,7 @@ export function flattenPiBomPartRows(parentSc, nodes, out, level, productKcaa01,
     if (children.length) {
       const childSc = normalizeUsageTreeParentKey(node.kcac02 ?? node.systemcode)
       if (!childSc) continue
-      flattenPiBomPartRows(childSc, children, out, level + 1, productKcaa01, maxDepth)
+      flattenPiBomPartRows(childSc, children, out, level + 1, productKcaa01)
     }
   }
 }
@@ -303,7 +295,7 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
 
   /** @type {{ parentSc: string, node: any }[]} */
   const flat = []
-  flattenPiBomPartRows(headSc, tree, flat, 1, product, PI_BOM_MAX_DEPTH)
+  flattenPiBomPartRows(headSc, tree, flat, 1, product)
 
   const kcaa01ForOverride = flat
     .map(({ sourceRow }) => normKcaa01(sourceRow?.kcaa01))

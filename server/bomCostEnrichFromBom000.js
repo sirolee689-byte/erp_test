@@ -495,8 +495,9 @@ export async function insertCostBulkEnriched(pool, tx, tableName, pq, sid, rows)
 
   /** @type {typeof BOM_COST_INSERT_FIELD_SPECS} */
   const activeSpecs = []
+  const allowPx = (tbl === BOM_COST_TABLE || tbl === 'UB_ERP_Bom_pi_cost') && isPqBomCostHead(pqV)
   for (const spec of BOM_COST_INSERT_FIELD_SPECS) {
-    if (spec.key === 'px' && (tbl !== BOM_COST_TABLE || !isPqBomCostHead(pqV))) continue
+    if (spec.key === 'px' && !allowPx) continue
     const colLower =
       spec.key === 'Describe' ? 'describe' : spec.key === 'GUID' ? 'guid' : spec.key.toLowerCase()
     if (colset.has(colLower)) activeSpecs.push(spec)

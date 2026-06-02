@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   aggregateBomConsumptionFromFlat,
   flattenBomPartsCostUsageFlat,
+  flattenBomPartsCostUsageFlatForBomCost,
 } from './bomUsageFlatten.js'
 
 function round4(n) {
@@ -114,4 +115,34 @@ test('成本用量表：CUT 不吃自身数量，但必须保留 TAG/BAG 的上�
   assert.equal(round4(hit.sumay), 2.2536)
   assert.equal(round4(hit.kcac05), 0.22)
   assert.equal(round4(hit.sumby), 2.7494)
+})
+
+test('bom_cost 写库：CUT 自身数量要放大下层子编码用量', () => {
+  const tree = [
+    {
+      kcaa01: 'CUT-BAGPQ3633A1/BLU4<6-1>',
+      kcaa02: '裁片',
+      kcac04: 2,
+      kcac05: 0,
+      children: [
+        {
+          kcaa01: 'BM-0032/395',
+          kcaa02: '涤纶布',
+          kcac04: 0.0612,
+          kcac05: 0,
+          children: [],
+        },
+      ],
+    },
+  ]
+
+  const displayFlat = flattenBomPartsCostUsageFlat(tree, null, [])
+  const bomCostFlat = flattenBomPartsCostUsageFlatForBomCost(tree, null, [])
+  const displayMaterial = displayFlat.find((r) => r.kcaa01 === 'BM-0032/395')
+  const bomCostMaterial = bomCostFlat.find((r) => r.kcaa01 === 'BM-0032/395')
+
+  assert.ok(displayMaterial)
+  assert.ok(bomCostMaterial)
+  assert.equal(round4(displayMaterial.yl), 0.0612)
+  assert.equal(round4(bomCostMaterial.yl), 0.1224)
 })

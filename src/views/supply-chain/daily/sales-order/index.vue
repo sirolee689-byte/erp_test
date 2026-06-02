@@ -112,6 +112,15 @@
                   <el-button type="info" plain @click.stop="openView(row)">查看</el-button>
                   <template v-if="!showRecycle">
                     <el-button
+                      v-permission="'edit'"
+                      type="warning"
+                      plain
+                      :loading="calculateLoading"
+                      @click.stop="calculateOrder(row, false)"
+                    >
+                      一键运算
+                    </el-button>
+                    <el-button
                       v-if="!passIsAudited(row)"
                       v-permission="'edit'"
                       type="primary"
@@ -366,64 +375,12 @@
               </div>
             </template>
           </el-tab-pane>
-          <el-tab-pane label="物料单" name="material">
-            <p class="so-lines-hint">
-              结构用量为运算结果（不乘订货数量）；备料用量 = 结构用量 × 该款订货数量，仅供订料参考。
-            </p>
-            <div v-loading="materialBillLoading">
-              <template v-if="viewHeader?.calcStatus === '已运算'">
-                <h4 class="so-mat-section-title">明细（pi_cost）</h4>
-                <el-table
-                  :data="viewCostLines"
-                  border
-                  size="small"
-                  class="so-lines-table"
-                  max-height="240"
-                  empty-text="无明细"
-                >
-                  <el-table-column label="成品款" prop="pq" width="128" show-overflow-tooltip />
-                  <el-table-column label="子件编码" prop="kcaa01" min-width="120" show-overflow-tooltip />
-                  <el-table-column label="子件名称" prop="kcaa02" min-width="120" show-overflow-tooltip />
-                  <el-table-column label="结构用量" prop="kcac04" width="96" align="right" />
-                  <el-table-column label="订货数量" prop="orderQty" width="96" align="right" />
-                  <el-table-column label="备料用量" prop="prepQty" width="96" align="right" />
-                  <el-table-column label="备注" prop="remark" min-width="100" show-overflow-tooltip />
-                </el-table>
-                <h4 class="so-mat-section-title">汇总（按子件+备注合并）</h4>
-                <el-table
-                  :data="viewConsumptionLines"
-                  border
-                  size="small"
-                  class="so-lines-table"
-                  max-height="200"
-                  empty-text="无汇总"
-                >
-                  <el-table-column label="子件编码" prop="kcaa01" min-width="120" show-overflow-tooltip />
-                  <el-table-column label="子件名称" prop="kcaa02" min-width="120" show-overflow-tooltip />
-                  <el-table-column label="用量合计" prop="sumay" width="100" align="right" />
-                  <el-table-column label="含损耗合计" prop="sumby" width="108" align="right" />
-                  <el-table-column label="备注" prop="remark" min-width="100" show-overflow-tooltip />
-                </el-table>
-              </template>
-              <el-empty v-else description="订单未运算，暂无物料单" />
-            </div>
-          </el-tab-pane>
         </el-tabs>
       </div>
       <template #footer>
         <el-button @click="viewVisible = false">关闭</el-button>
         <template v-if="viewHeader">
           <template v-if="!showRecycle">
-            <el-button
-              v-if="!passIsAudited(viewHeader)"
-              v-permission="'edit'"
-              type="warning"
-              plain
-              :loading="calculateLoading"
-              @click="calculateOrder(viewHeader, false)"
-            >
-              一键运算
-            </el-button>
             <el-button
               v-if="!passIsAudited(viewHeader)"
               v-permission="'edit'"
@@ -786,62 +743,10 @@
               </div>
             </template>
           </el-tab-pane>
-          <el-tab-pane label="物料单" name="material">
-            <p class="so-lines-hint">
-              须先保存订单再运算；同步 BOM 后再次运算仅重算已同步款（未保存的编辑请先保存）。
-            </p>
-            <div v-loading="materialBillLoading">
-              <template v-if="editHeaderCalcStatus === '已运算'">
-                <h4 class="so-mat-section-title">明细（pi_cost）</h4>
-                <el-table
-                  :data="editCostLines"
-                  border
-                  size="small"
-                  class="so-lines-table"
-                  max-height="240"
-                  empty-text="无明细"
-                >
-                  <el-table-column label="成品款" prop="pq" width="128" show-overflow-tooltip />
-                  <el-table-column label="子件编码" prop="kcaa01" min-width="120" show-overflow-tooltip />
-                  <el-table-column label="子件名称" prop="kcaa02" min-width="120" show-overflow-tooltip />
-                  <el-table-column label="结构用量" prop="kcac04" width="96" align="right" />
-                  <el-table-column label="订货数量" prop="orderQty" width="96" align="right" />
-                  <el-table-column label="备料用量" prop="prepQty" width="96" align="right" />
-                  <el-table-column label="备注" prop="remark" min-width="100" show-overflow-tooltip />
-                </el-table>
-                <h4 class="so-mat-section-title">汇总（按子件+备注合并）</h4>
-                <el-table
-                  :data="editConsumptionLines"
-                  border
-                  size="small"
-                  class="so-lines-table"
-                  max-height="200"
-                  empty-text="无汇总"
-                >
-                  <el-table-column label="子件编码" prop="kcaa01" min-width="120" show-overflow-tooltip />
-                  <el-table-column label="子件名称" prop="kcaa02" min-width="120" show-overflow-tooltip />
-                  <el-table-column label="用量合计" prop="sumay" width="100" align="right" />
-                  <el-table-column label="含损耗合计" prop="sumby" width="108" align="right" />
-                  <el-table-column label="备注" prop="remark" min-width="100" show-overflow-tooltip />
-                </el-table>
-              </template>
-              <el-empty v-else description="订单未运算，保存后可执行一键运算" />
-            </div>
-          </el-tab-pane>
         </el-tabs>
       </div>
       <template #footer>
         <el-button @click="closeEditWindowOrDialog">取消</el-button>
-        <el-button
-          v-if="editMode === 'edit' && editId && !editDetailLocked"
-          v-permission="'edit'"
-          type="warning"
-          plain
-          :loading="calculateLoading"
-          @click="calculateOrder({ id: editId, calcStatus: editHeaderCalcStatus }, true)"
-        >
-          一键运算
-        </el-button>
         <el-button
           v-if="editMode === 'create'"
           v-permission="'add'"
@@ -907,7 +812,7 @@ const page = ref(1)
 const pageSize = ref(20)
 
 const mainTableRef = ref(null)
-const salesOrderActionsColWidth = computed(() => getErpTableActionsColMinWidth(4))
+const salesOrderActionsColWidth = computed(() => getErpTableActionsColMinWidth(5))
 
 const viewVisible = ref(false)
 const viewLoading = ref(false)
@@ -946,11 +851,6 @@ const editHeaderPass = ref('0')
 /** 编辑弹窗运算状态（与列表 calcStatus 一致） */
 const editHeaderCalcStatus = ref('未运算')
 const calculateLoading = ref(false)
-const materialBillLoading = ref(false)
-const viewCostLines = ref([])
-const viewConsumptionLines = ref([])
-const editCostLines = ref([])
-const editConsumptionLines = ref([])
 /** 本次会话内已同步 BOM、待部分重算的款号 */
 const syncedSinceCalc = ref([])
 /** 打开编辑时保存快照，用于运算前未保存拦截 */
@@ -987,37 +887,6 @@ function formatMoney(value) {
   return n.toFixed(6)
 }
 
-async function loadMaterialBill(orderId, target) {
-  if (!orderId) return
-  materialBillLoading.value = true
-  try {
-    const res = await axios.get(`/api/sales-order/${orderId}/material-bill`)
-    const data = res?.data?.data ?? {}
-    const cost = Array.isArray(data.costLines) ? data.costLines : []
-    const cons = Array.isArray(data.consumptionLines) ? data.consumptionLines : []
-    if (target === 'view') {
-      viewCostLines.value = cost
-      viewConsumptionLines.value = cons
-    } else {
-      editCostLines.value = cost
-      editConsumptionLines.value = cons
-    }
-  } catch (e) {
-    if (target === 'view') {
-      viewCostLines.value = []
-      viewConsumptionLines.value = []
-    } else {
-      editCostLines.value = []
-      editConsumptionLines.value = []
-    }
-    if (e?.response?.status !== 409) {
-      ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '加载物料单失败'))
-    }
-  } finally {
-    materialBillLoading.value = false
-  }
-}
-
 /**
  * @param {{ id: number, calcStatus?: string }} row
  * @param {boolean} fromEdit
@@ -1025,17 +894,13 @@ async function loadMaterialBill(orderId, target) {
 async function calculateOrder(row, fromEdit) {
   const orderId = Number(row?.id)
   if (!orderId) return
-  if (passIsAudited(row) || (fromEdit && editDetailLocked.value)) {
-    ElMessage.warning('已审核订单不可运算。')
-    return
-  }
   if (fromEdit && isEditDirty()) {
     await ElMessageBox.alert('检测到未保存的主表或明细变更，请先保存后再运算。', '请先保存', {
       type: 'warning',
     })
     return
   }
-  const partial = syncedSinceCalc.value.length > 0
+  const partial = fromEdit && syncedSinceCalc.value.length > 0
   const tip = partial
     ? `将仅重算已同步 BOM 的 ${syncedSinceCalc.value.length} 款，其它款物料单不变。确认运算？`
     : '将按当前 PI BOM 重写物料单（不乘订货数量）。确认一键运算？'
@@ -1062,13 +927,11 @@ async function calculateOrder(row, fromEdit) {
     if (viewVisible.value && viewHeader.value?.id === orderId) {
       viewHeader.value = hdr
       viewLines.value = Array.isArray(detail?.data?.data?.lines) ? detail.data.data.lines : viewLines.value
-      await loadMaterialBill(orderId, 'view')
     }
     if (editVisible.value && editId.value === orderId) {
       editHeaderPass.value = String(hdr.pass ?? '0')
       editHeaderCalcStatus.value = String(hdr.calcStatus ?? '已运算')
       captureEditSnapshot()
-      await loadMaterialBill(orderId, 'edit')
     }
     await loadData()
   } catch (e) {
@@ -1216,12 +1079,8 @@ async function savePiBom(mode) {
     ElMessage.success(res?.data?.msg ?? '保存 PI BOM 成功')
     if (mode === 'edit') {
       editHeaderCalcStatus.value = '未运算'
-      editCostLines.value = []
-      editConsumptionLines.value = []
     } else if (viewHeader.value) {
       viewHeader.value = { ...viewHeader.value, calcStatus: '未运算' }
-      viewCostLines.value = []
-      viewConsumptionLines.value = []
     }
     await loadPiBomTree(orderId, code)
     await loadData()
@@ -1233,9 +1092,6 @@ async function savePiBom(mode) {
 }
 
 function onViewTabChange(name) {
-  if (name === 'material' && viewHeader.value?.id && viewHeader.value?.calcStatus === '已运算') {
-    loadMaterialBill(Number(viewHeader.value.id), 'view')
-  }
   if (name === 'piBom' && viewHeader.value?.id) {
     loadPiBomProductList(Number(viewHeader.value.id)).then(() => {
       if (piBomProduct.value) loadPiBomTree(Number(viewHeader.value.id), piBomProduct.value)
@@ -1244,9 +1100,6 @@ function onViewTabChange(name) {
 }
 
 function onEditTabChange(name) {
-  if (name === 'material' && editId.value && editHeaderCalcStatus.value === '已运算') {
-    loadMaterialBill(Number(editId.value), 'edit')
-  }
   if (name === 'piBom' && editId.value) {
     loadPiBomProductList(Number(editId.value)).then(() => {
       if (piBomProduct.value) loadPiBomTree(Number(editId.value), piBomProduct.value)
@@ -1383,8 +1236,6 @@ async function openCreate() {
   editHeaderPass.value = '0'
   editHeaderCalcStatus.value = '未运算'
   syncedSinceCalc.value = []
-  editCostLines.value = []
-  editConsumptionLines.value = []
   resetPiBomState()
   editActiveTab.value = 'header'
   resetHeaderForm()
@@ -1825,8 +1676,6 @@ async function openView(row) {
   viewActiveTab.value = 'header'
   viewHeader.value = null
   viewLines.value = []
-  viewCostLines.value = []
-  viewConsumptionLines.value = []
   resetPiBomState()
   try {
     const res = await axios.get(`/api/sales-order/${row.id}`)
@@ -1941,12 +1790,6 @@ onUnmounted(() => {
   margin: 0 0 8px;
   font-size: var(--so-lines-hint-size, 13px);
   color: var(--el-text-color-secondary);
-}
-/* DIY：物料单分区标题 — index.vue .so-mat-section-title */
-.so-mat-section-title {
-  margin: 12px 0 8px;
-  font-size: 14px;
-  font-weight: 600;
 }
 .lines-toolbar {
   margin-bottom: 8px;

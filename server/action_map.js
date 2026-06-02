@@ -173,6 +173,7 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
     targetTable: 'bom_currency',
   },
   { method: 'GET', path: '/api/sales-order/list', action: '查询销售订单列表', targetTable: 'UB_ERP_Sales_order' },
+  { method: 'GET', path: '/api/sales-order/pi-suggest', action: '查询销售订单 PI 候选', targetTable: 'UB_ERP_Sales_order' },
   { method: 'GET', path: /^\/api\/sales-order\/\d+$/, action: '查看销售订单', targetTable: 'UB_ERP_Sales_order' },
   {
     method: 'POST',

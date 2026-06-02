@@ -2,15 +2,21 @@
  * 销售订单一键运算物料单（issue 05）
  */
 import sql from 'mssql'
+import { getDefaultBomCostHidePrefixes } from './bomCostHidePrefixes.js'
 import { buildBomCostInsertPayloadFromFlatUsage } from './bomUsageYl.js'
 import {
+  applyBomCostPxForPqRows,
   applyBomCostAuditToRows,
   enrichBomCostInsertRowsFromBom000,
+  fetchBomMaterialPxByCategoryCodes,
   fetchBom000ForBomCostEnrich,
   formatBomCostAuditTimestamp,
   insertCostBulkEnriched,
 } from './bomCostEnrichFromBom000.js'
-import { aggregateBomConsumptionFromFlat, flattenBomPartsCostUsageFlat } from './bomUsageFlatten.js'
+import {
+  aggregateBomConsumptionFromFlat,
+  flattenBomPartsCostUsageFlatForBomCost,
+} from './bomUsageFlatten.js'
 import { normKcaa01 } from './salesOrderSaveLogic.js'
 import { formatSalesOrderAuditTime } from './salesOrderPiBom.js'
 import { buildPiBomUsageTreeForProduct } from './salesOrderPiBomUsageTree.js'
@@ -226,14 +232,23 @@ async function rebuildPiConsumptionFromAllCost(pool, tx, piNo) {
  * @param {{ uidInt: number | null, uname: string | null, utruename: string | null }} actor
  */
 async function buildPiCostRowsFromTree(pool, tree, productKcaa01, actor) {
-  const flat = flattenBomPartsCostUsageFlat(tree, null, [])
-  const payload = buildBomCostInsertPayloadFromFlatUsage(flat, [], productKcaa01)
+  const hidePrefixes = getDefaultBomCostHidePrefixes()
+  const flatForPiCost = flattenBomPartsCostUsageFlatForBomCost(tree, null, [])
+  const payload = buildBomCostInsertPayloadFromFlatUsage(flatForPiCost, hidePrefixes, productKcaa01)
   const bom000Map = await fetchBom000ForBomCostEnrich(
     pool,
     payload.map((r) => r.kcaa01),
   )
   const enriched = enrichBomCostInsertRowsFromBom000(payload, bom000Map)
-  return { rows: applyBomCostAuditToRows(enriched, { actor, addtime: formatBomCostAuditTimestamp() }), flat }
+  const bomMaterialPxMap = await fetchBomMaterialPxByCategoryCodes(
+    pool,
+    enriched.map((r) => r.kcaa05),
+  )
+  const rowsWithPx = applyBomCostPxForPqRows(enriched, productKcaa01, bomMaterialPxMap)
+  return {
+    rows: applyBomCostAuditToRows(rowsWithPx, { actor, addtime: formatBomCostAuditTimestamp() }),
+    flat: flatForPiCost,
+  }
 }
 
 /**
@@ -284,6 +299,7 @@ export async function calculateSalesOrderMaterialBill(opts) {
 
     /** @type {Record<string, unknown>[]} */
     const allFlatForConsumption = []
+    const hidePrefixes = getDefaultBomCostHidePrefixes()
 
     for (const product of scope.products) {
       const tree = await buildPiBomUsageTreeForProduct(pool, piNo, product)
@@ -299,7 +315,7 @@ export async function calculateSalesOrderMaterialBill(opts) {
       if (scope.mode === 'partial') {
         await rebuildPiConsumptionFromAllCost(pool, tx, piNo)
       } else {
-        const merged = aggregateBomConsumptionFromFlat(allFlatForConsumption, [])
+        const merged = aggregateBomConsumptionFromFlat(allFlatForConsumption, hidePrefixes)
         await insertPiConsumptionBulk(tx, piNo, merged)
       }
     }

@@ -67,19 +67,44 @@ export async function fetchSalesOrderMaterialBill(pool, id) {
   }
 
   const piNo = normKcaa01(header.piNo)
-  const lr = await pool.request().input('pi', sql.NVarChar(200), piNo).query(`
+  const lr = await pool.request().input('id', sql.Int, id).input('pi', sql.NVarChar(200), piNo).query(`
     SELECT
-      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL([kcaa01], N'')))) AS kcaa01,
-      CAST(ISNULL([xsak03], [plan_quantity]) AS decimal(18, 4)) AS orderQty
-    FROM ${LINE_FROM}
-    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([xsak01], N'')))) = @pi
-    ORDER BY ISNULL([seq], [id]) ASC
+      l.[id],
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[xsak01], N'')))) AS linePiNo,
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N'')))) AS kcaa01,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj06], N'')))) AS poNo,
+      h.[xsaj02] AS salesDate,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa09], N'')))) AS factoryStyleNo,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa02], N'')))) AS productName,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa06], N'')))) AS customerStyleNo,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa10], N'')))) AS groupName,
+      CAST(ISNULL(l.[xsak03], l.[plan_quantity]) AS decimal(18, 4)) AS orderQty
+    FROM ${LINE_FROM} AS l
+    INNER JOIN ${HEADER_FROM} AS h
+      ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj01], N'')))) =
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[xsak01], N''))))
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[xsak01], N'')))) = @pi
+      AND h.[id] = @id
+    ORDER BY ISNULL(l.[seq], l.[id]) ASC
   `)
   const lines = (lr.recordset ?? []).map((row) => ({
     kcaa01: normKcaa01(row.kcaa01),
     orderQty: Number(row.orderQty ?? 0),
   }))
   const qtyByProduct = new Map(lines.map((l) => [l.kcaa01, l.orderQty]))
+  const materialHeaders = (lr.recordset ?? []).map((row) => ({
+    key: normKcaa01(row.kcaa01),
+    productCode: normKcaa01(row.kcaa01),
+    piNo: String(row.linePiNo ?? '').trim(),
+    poNo: String(row.poNo ?? '').trim(),
+    salesDate: row.salesDate ?? null,
+    factoryStyleNo: String(row.factoryStyleNo ?? '').trim(),
+    productName: String(row.productName ?? '').trim(),
+    singleUsage: '',
+    customerStyleNo: String(row.customerStyleNo ?? '').trim(),
+    groupName: String(row.groupName ?? '').trim(),
+    orderQty: Number(row.orderQty ?? 0),
+  }))
 
   const costR = await pool.request().input('pi', sql.NVarChar(200), piNo).query(`
     SELECT
@@ -92,7 +117,7 @@ export async function fetchSalesOrderMaterialBill(pool, id) {
       CAST(ISNULL([kcac04], 0) AS decimal(18, 6)) AS kcac04,
       CAST(ISNULL([kcac05], 0) AS decimal(18, 6)) AS kcac05,
       CAST(ISNULL([kcac06], 0) AS decimal(18, 6)) AS kcac06,
-      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([Describe], N'')))) AS remark,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([Describe], N'')))) AS Describe,
       LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL([top_kcaa01], N'')))) AS topKcaa01,
       LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([top_kcaa02], N'')))) AS topKcaa02
     FROM ${PI_COST_FROM}
@@ -114,7 +139,7 @@ export async function fetchSalesOrderMaterialBill(pool, id) {
       kcac04: usage,
       kcac05: Number(row.kcac05 ?? 0),
       kcac06: Number(row.kcac06 ?? 0),
-      remark: String(row.remark ?? ''),
+      Describe: String(row.Describe ?? ''),
       topKcaa01: String(row.topKcaa01 ?? ''),
       topKcaa02: String(row.topKcaa02 ?? ''),
       orderQty,
@@ -129,7 +154,7 @@ export async function fetchSalesOrderMaterialBill(pool, id) {
     .query(`SELECT 1 AS ok FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = @t`)
   const hasConsumptionTable = (consTableR.recordset?.length ?? 0) > 0
 
-  /** @type {{ id?: number, kcaa01: string, kcaa02: string, kcaa03: string, kcaa04: string, sumay: number, sumby: number, kcac05: number, remark: string }[]} */
+  /** @type {{ id?: number, kcaa01: string, kcaa02: string, kcaa03: string, kcaa04: string, sumay: number, sumby: number, kcac05: number, Describe: string }[]} */
   let consumptionLines = []
   if (hasConsumptionTable) {
     const consR = await pool.request().input('pi', sql.NVarChar(200), piNo).query(`
@@ -142,7 +167,7 @@ export async function fetchSalesOrderMaterialBill(pool, id) {
         CAST(ISNULL([sumay], 0) AS decimal(18, 6)) AS sumay,
         CAST(ISNULL([sumby], 0) AS decimal(18, 6)) AS sumby,
         CAST(ISNULL([kcac05], 0) AS decimal(18, 6)) AS kcac05,
-        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([Describe], N'')))) AS remark
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([Describe], N'')))) AS Describe
       FROM ${PI_CONSUMPTION_FROM}
       WHERE LTRIM(RTRIM(ISNULL([sid], N''))) = @pi
       ORDER BY [id]
@@ -156,7 +181,7 @@ export async function fetchSalesOrderMaterialBill(pool, id) {
       sumay: Number(row.sumay ?? 0),
       sumby: Number(row.sumby ?? 0),
       kcac05: Number(row.kcac05 ?? 0),
-      remark: String(row.remark ?? ''),
+      Describe: String(row.Describe ?? ''),
     }))
   } else {
     const merged = aggregateBomConsumptionFromFlat(
@@ -165,7 +190,7 @@ export async function fetchSalesOrderMaterialBill(pool, id) {
         kcaa02: row.kcaa02,
         kcaa03: row.kcaa03,
         kcaa04: row.kcaa04,
-        Describe: row.remark,
+        Describe: row.Describe,
         yl: row.kcac04,
         loss_rate: row.kcac05,
         total_qty: row.kcac06,
@@ -181,7 +206,7 @@ export async function fetchSalesOrderMaterialBill(pool, id) {
       sumay: row.sumay,
       sumby: row.sumby,
       kcac05: row.kcac05,
-      remark: row.Describe,
+      Describe: row.Describe,
     }))
   }
 
@@ -190,6 +215,7 @@ export async function fetchSalesOrderMaterialBill(pool, id) {
     piNo,
     calcStatus,
     lines,
+    materialHeaders,
     costLines,
     consumptionLines,
   }

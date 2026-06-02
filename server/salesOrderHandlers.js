@@ -187,6 +187,42 @@ export function registerSalesOrderRoutes(app, deps) {
   })
 
   /**
+   * GET /api/sales-order/pi-suggest?keyword=
+   * 物料单报表页：仅按 PI 号相近匹配已审核在册订单。
+   */
+  app.get('/api/sales-order/pi-suggest', async (req, res) => {
+    try {
+      const keyword = String(req.query?.keyword ?? '').trim()
+      if (!keyword) {
+        res.json({ code: 200, msg: 'success', data: { list: [] } })
+        return
+      }
+      const pool = await getPool()
+      const r = await pool
+        .request()
+        .input('keyword', sql.NVarChar(300), `%${escapeSalesOrderSqlLikePattern(keyword)}%`)
+        .query(`
+          SELECT TOP 20
+            h.[id],
+            LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj01], N'')))) AS piNo
+          FROM ${HEADER_FROM} AS h
+          WHERE (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
+            AND LTRIM(RTRIM(ISNULL(h.[pass], N''))) = N'1'
+            AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj01], N'')))) LIKE @keyword
+          ORDER BY h.[id] DESC
+        `)
+      const list = (r.recordset ?? [])
+        .map((row) => ({ id: Number(row.id), piNo: String(row.piNo ?? '').trim() }))
+        .filter((row) => row.id && row.piNo)
+      res.json({ code: 200, msg: 'success', data: { list } })
+    } catch (err) {
+      console.error('GET /api/sales-order/pi-suggest 失败：', err)
+      const detail = String(err?.message ?? err?.originalError?.message ?? '查询失败')
+      res.status(500).json({ code: 500, msg: `读取 PI 候选失败：${detail}`, data: null })
+    }
+  })
+
+  /**
    * GET /api/sales-order/check-pi?piNo=&excludeId=
    */
   app.get('/api/sales-order/check-pi', async (req, res) => {
@@ -499,6 +535,7 @@ export function registerSalesOrderRoutes(app, deps) {
           piNo: result.piNo,
           calcStatus: result.calcStatus,
           lines: result.lines,
+          materialHeaders: result.materialHeaders,
           costLines: result.costLines,
           consumptionLines: result.consumptionLines,
         },
