@@ -482,10 +482,10 @@
 - **关键字段**
   - 主表：`pass`（审核）、`del`（软删）、运算列（探测 `isok` 或 `is_pur`）、`kehu`/客户名快照、`xsaj05`（客户代码 = `System_sales_customer.s_code`）、`rmb`/币别名称快照、`xsaj07`（币别 id = `bom_currency.id`）、`xsaj02` 销售日期、`xsaj06` PO 号、`d_code` 保存为空值、`type=1` 等
   - 明细：`kcaa01`（货品编码）、`xsak03`/`plan_quantity`（订货数量，**不参与** 运算写入）、`xsak04`（单价）、`xsak05`（金额 = 数量 × 单价）；展示快照字段来自 `bom_000`，当前明细显示使用 `kcaa06`（客款号）、`kcaa02`（用料名称中文）、`kcaa10`（组别）、`kcaa09`（工厂款号）、`version`（版本）
-  - 一键运算物料明细：`UB_ERP_Bom_pi_cost` 读取 `UB_ERP_Bom_Sales_list`，运算口径照 BOM 资料一键运算；`px` 按子件 `kcaa01` → `bom_000.kcaa05` → `Bom_material.code` → `Bom_material.px` 补入，找不到则留空。
+  - 一键运算物料明细：`UB_ERP_Bom_pi_cost` 读取 `UB_ERP_Bom_Sales_list`，运算口径照 BOM 资料一键运算；写入前按来源 `UB_ERP_Bom_Sales_list.id` 去重，同一来源明细只允许落库一次；若同一来源行在树形展开中重复命中，保留路径层级更完整的记录，`kcac04` 写父级用量一路连乘后的结果；`px` 按子件 `kcaa01` → `bom_000.kcaa05` → `Bom_material.code` → `Bom_material.px` 补入，找不到则留空。
   - 审计：`UB_ERP_Sales_order.utruename`、`UB_ERP_Sales_order_list.utruename`、`UB_ERP_Bom_Sales.utruename`、`UB_ERP_Bom_Sales_list.utruename` 写当前操作人真实姓名，必须按登录 `usercode` 查询 `Sys_Users.truename`；禁止写 `Sys_Users.UserNmae` / `UserName` / 登录态显示名。
   - 销售订单明细兼容快照：保存时按明细 `kcaa01` 精确匹配 `bom_000.kcaa01` 最新在册行；`xsak02` 取 `bom_000.GUID`；`kcac01` 取销售订单主表 `GUID/systemcode`；`kcac02`、`GUID`、`systemcode` 同 `xsak02`；`kcac03` 取 `bom_000.kcaa25`（采购单位）；`kcaa07/08/11/12/13/14/15/25/26/16/27/28/29/30/31`、`type`、`location`、`pass`、`remark` 从 `bom_000` 抄快照；保存前校验两表必需列，缺列则提示具体字段。
-  - PI BOM list：`kcac04` 用量、`kcac05` 损耗、`Describe` 备注（维护 UI 可改）
+  - PI BOM list：`kcac04` 用量、`kcac05` 损耗、`Describe` 备注（维护 UI 可改）；PI BOM 标签页树形展示按 `UB_ERP_Bom_Sales_list.kcac01 -> UB_ERP_Bom_Sales_list.kcac02` 展开，`kcac02` 是下一层子 BOM 头键；前端树行唯一键用物理行 `id`，不使用可能重复的 `systemcode`。
 - **权限（按钮级）**
   - 菜单 path：`supply-chain/daily/sales-order`：`view`、`add`、`edit`、`audit`、`delete`
 

@@ -80,6 +80,7 @@
   - **同步 BOM**（按行）
   - **保存 PI BOM**（PUT pi-bom）
 - **一键运算** 只读 **PI BOM**（`UB_ERP_Bom_Sales_list`），写入 `UB_ERP_Bom_pi_*`，**不乘订货数量**；**无 BOM 层数上限**（与主 BOM 用量树一致；循环引用仍失败）；隐藏前缀与 BOM 资料内置列表一致（`server/bomCostHidePrefixes.js`）；下游订料时 **用量 × 订货数量**
+- **一键运算写 `UB_ERP_Bom_pi_cost`**：同一条 `UB_ERP_Bom_Sales_list.id` 来源明细只允许落库一次；树形展开过程中重复碰到同一来源行时，保留路径层级更完整的那条记录，避免 PI BOM 4 行被写成 10 行，同时保证 `kcac04` 是父级用量一路连乘后的结果。
 - **一键运算入口** 只放在列表第一列「操作」；查看/编辑弹窗不放入口。已审核、未审核在册订单都可以点；回收站订单不可运算。
 - **一键运算 PX**：`UB_ERP_Bom_pi_cost.px` 照 BOM 资料规则补入，子件 `kcaa01` → `bom_000.kcaa05` → `Bom_material.code` → `Bom_material.px`；无匹配则留空。
 - **已审**（`pass='1'`）：禁止保存订单、PI BOM PUT、同步 BOM、软删、彻底删；但允许在列表执行一键运算
@@ -141,3 +142,13 @@ npm run e2e:sales-order     # Playwright：列表 → 查看弹窗（需 Vite + 
 | 05 | 一键运算与物料单 |
 | 06 | PI BOM 维护 UI |
 | 07 | 本文档 + database_map + 验收清单 |
+
+## PI BOM 树形展示规则
+
+- PI BOM 标签页的树形展示必须对标 BOM 资料的“BOM用量表运算”树形展示。
+- 子行 `kcac01` = 父行 **实例键**（保存/同步 BOM 写入时：`systemcode` 优先，否则 `kcac02`）。
+- 展示向下展开同样用 **实例键**（`usageTreeChildParentKey`），不能只用共用 ERP 编码 `kcac02`，否则会出现「每个 BN-0005 下挂 3 行 BN-0008」。
+- 前端树表行唯一键使用物理行 `id`，不要使用 `systemcode`。
+- **不做**整棵树 `list.id` 去重（会把子件挂到先遍历到的裁片下）。
+- 历史 PI 数据挂错时，对该款点 **同步 BOM** 后刷新 PI BOM 标签页。
+- 一键运算写 `pi_cost` 另有 `sourceRowId` 去重，与 PI BOM 展示树无关。

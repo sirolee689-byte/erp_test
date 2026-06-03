@@ -378,6 +378,7 @@
 | **一键运算** | 用户执行 | **PI BOM**（禁止偷拉主 BOM） | 写 `UB_ERP_Bom_pi_cost`、`UB_ERP_Bom_pi_consumption`；订单 → **已运算** |
 
 **物料单**：`pi_cost` 同 BOM **成本运算用量表**（数据源为 **PI BOM list**，隐藏前缀与 BOM 资料一致）；`pi_consumption` = **`pi_cost` 按子件编码 + `Describe`（搭配）** 合并。**运算不写订货数量**；展示/订料时 **× 该款订货数量**。
+**pi_cost 去重与用量**：销售订单一键运算写 `UB_ERP_Bom_pi_cost` 时，同一条 `UB_ERP_Bom_Sales_list.id` 来源明细只允许落库一次；树形展开过程中重复碰到同一来源行时，保留路径层级更完整的那条记录，避免 PI BOM 明细 4 行被重复写成 10 行，同时保证 `kcac04` 是父级用量一路连乘后的结果。
 **入口与审核**：销售订单一键运算只放在销售订单列表第一列「操作」中；查看/编辑弹窗不再放一键运算入口。已审核与未审核订单都可以执行一键运算，回收站订单不可运算。
 **PX 规则**：销售订单一键运算写 `UB_ERP_Bom_pi_cost.px`，规则照 BOM 资料：子件 `kcaa01` 精确匹配 `bom_000.kcaa01` 取 `kcaa05`，再匹配 `Bom_material.code` 取 `px`；找不到则 `px` 留空。
 
@@ -508,6 +509,15 @@
 
 - 层号从 **成品（明细 `kcaa01`）** 为第 **1** 层；**建款/同步** 时沿 **主 BOM** 展开写入 PI BOM；**一键运算** 时沿 **PI 销售 BOM** 读；第 **5** 层及以下超限。
 - **循环引用**：与库存 BOM 运算一致，**同步 BOM** / **一键运算** 失败并提示 **货品编码**。
+
+### PI BOM 树形展示（已定）
+
+- 销售订单 PI BOM 标签页的树形展示必须对标 BOM 资料“BOM用量表运算”的树形展示。
+- 子行 `kcac01` = 父行实例键（写入/同步时父键为 **`systemcode` 优先，否则 `kcac02`**，与 `bomUsageTreeBuild.usageTreeChildParentKey` 一致）；`kcac02` 仍保留 ERP 子件编码（可多条路径相同）。
+- 展示/预取向下展开时 **禁止** 仅用共用 `kcac02` 当父键（否则多条裁片会共用一个子件池）；须用 **`systemcode` 优先** 的实例键（`server/salesOrderPiBomUsageTree.js`）。
+- 前端树行唯一键使用 `UB_ERP_Bom_Sales_list.id`，不要使用 `systemcode`。
+- **禁止**整棵树按 `list.id` 去重（会把子件挤到先遍历到的裁片下）。
+- 若展示仍重复或挂错，对该款执行「同步 BOM」重建 `kcac01` 挂接；不在展示层用 id 硬压。
 
 ### 系统单号流水（已定）
 

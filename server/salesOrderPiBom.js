@@ -6,6 +6,7 @@ import { sql } from './db.js'
 import {
   buildBomPartsUsageTreeNodesFromLayerCache,
   normalizeUsageTreeParentKey,
+  usageTreeChildParentKey,
 } from './bomUsageTreeBuild.js'
 import {
   getPiBomListCopyColumnMeta,
@@ -49,7 +50,7 @@ export function flattenPiBomPartRows(parentSc, nodes, out, level, productKcaa01)
     out.push({ parentSc, node, sourceRow })
     const children = Array.isArray(node?.children) ? node.children : []
     if (children.length) {
-      const childSc = normalizeUsageTreeParentKey(node.kcac02 ?? node.systemcode)
+      const childSc = usageTreeChildParentKey(node)
       if (!childSc) continue
       flattenPiBomPartRows(childSc, children, out, level + 1, productKcaa01)
     }

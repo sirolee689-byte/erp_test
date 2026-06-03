@@ -45,6 +45,7 @@ function flattenBomPartsCostUsageFlatCore(
     const seqNum =
       seqRaw != null && seqRaw !== '' && Number.isFinite(Number(seqRaw)) ? Number(seqRaw) : null
     out.push({
+      sourceRowId: node?.sourceRowId ?? node?.bomSourceId ?? node?.id ?? null,
       kcaa01: selfCode,
       kcaa02: selfName,
       top_kcaa01: topFields.top_kcaa01,

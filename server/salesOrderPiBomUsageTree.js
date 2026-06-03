@@ -2,12 +2,17 @@
  * 销售订单 PI BOM 用量树（只读 UB_ERP_Bom_Sales_list，禁止拉主 BOM）
  */
 import sql from 'mssql'
-import { BOM_USAGE_TREE_LAYER_BATCH_SIZE, normalizeUsageTreeParentKey } from './bomUsageTreeBuild.js'
+import {
+  BOM_USAGE_TREE_LAYER_BATCH_SIZE,
+  normalizeUsageTreeParentKey,
+  usageTreeChildParentKey,
+} from './bomUsageTreeBuild.js'
 import { normKcaa01 } from './salesOrderSaveLogic.js'
 
 const PI_BOM_LIST_FROM = 'dbo.[UB_ERP_Bom_Sales_list]'
 const PI_BOM_HEAD_FROM = 'dbo.[UB_ERP_Bom_Sales]'
 const PI_LIST_KCAC01_EXPR = `LTRIM(RTRIM(ISNULL(CAST(l.[kcac01] AS nvarchar(500)), N'')))`
+const PI_LIST_KCAC02_EXPR = `LTRIM(RTRIM(ISNULL(CAST(l.[kcac02] AS nvarchar(500)), N'')))`
 
 const LAYER_BATCH = BOM_USAGE_TREE_LAYER_BATCH_SIZE
 
@@ -37,6 +42,8 @@ export async function prefetchPiBomListLayers(db, piNo, parentCodes) {
       SELECT
         ${PI_LIST_KCAC01_EXPR} AS kcac01_parent,
         l.[id],
+        ${PI_LIST_KCAC01_EXPR} AS kcac01,
+        ${PI_LIST_KCAC02_EXPR} AS kcac02,
         LTRIM(RTRIM(ISNULL(CAST(l.[systemcode] AS nvarchar(500)), N''))) AS systemcode,
         LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N'')))) AS kcaa01,
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa02], N'')))) AS kcaa02,
@@ -82,12 +89,15 @@ function mapPiBomRowToUsageTreeNode(row, level, children) {
     Describe: row.Describe != null ? String(row.Describe) : '',
     Seq: seqNum,
     level,
+    kcac01: row.kcac01 != null ? String(row.kcac01) : '',
+    kcac02: row.kcac02 != null ? String(row.kcac02) : '',
     systemcode: row.systemcode != null ? String(row.systemcode) : '',
     children,
   }
 }
 
 /**
+ * 由已预取的层数据递归建 PI BOM 展示树（DFS 与 BOM 用量表运算 buildBomPartsUsageTreeNodesFromLayerCache 一致）
  * @param {string} parentSc
  * @param {number} level
  * @param {Set<string>} stack
@@ -106,7 +116,7 @@ export function buildPiBomUsageTreeNodesFromLayerCache(
   const out = []
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]
-    const childSc = normalizeUsageTreeParentKey(row.systemcode)
+    const childSc = usageTreeChildParentKey(row)
     /** @type {any[]} */
     let children = []
     if (childSc) {
@@ -152,7 +162,7 @@ export async function fetchPiBomHeadSystemcode(pool, piNo, productKcaa01) {
 }
 
 /**
- * BFS 预取 PI BOM 子树全部层（子节点键为 systemcode）
+ * BFS 预取 PI BOM 子树全部层（下一层父键为子行 systemcode 优先，否则 kcac02）
  * @param {import('mssql').ConnectionPool | import('mssql').Transaction} db
  * @param {string} piNo
  * @param {string} rootSystemcode
@@ -174,7 +184,7 @@ export async function prefetchPiBomListLayersForUsageTree(db, piNo, rootSystemco
     for (const [parent, rows] of fetched) {
       cache.set(parent, rows)
       for (const row of rows) {
-        const child = normalizeUsageTreeParentKey(row.systemcode)
+        const child = usageTreeChildParentKey(row)
         if (child && !cache.has(child)) pending.add(child)
       }
     }
@@ -197,5 +207,11 @@ export async function buildPiBomUsageTreeForProduct(pool, piNo, productKcaa01) {
   }
   const layerCache = await prefetchPiBomListLayersForUsageTree(pool, piNo, headSc)
   const stack = new Set([headSc])
-  return buildPiBomUsageTreeNodesFromLayerCache(headSc, 1, stack, layerCache, productKcaa01)
+  return buildPiBomUsageTreeNodesFromLayerCache(
+    headSc,
+    1,
+    stack,
+    layerCache,
+    productKcaa01,
+  )
 }

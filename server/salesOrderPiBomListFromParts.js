@@ -5,6 +5,7 @@ import sql from 'mssql'
 import {
   BOM_USAGE_TREE_LAYER_BATCH_SIZE,
   normalizeUsageTreeParentKey,
+  usageTreeChildParentKey,
 } from './bomUsageTreeBuild.js'
 import {
   INV_BOM_MASTER_FROM,
@@ -241,7 +242,7 @@ export async function prefetchBomPartsLayersForPiListCopy(pool, rootSystemcode, 
     for (const [parent, rows] of fetched) {
       cache.set(parent, rows)
       for (const row of rows) {
-        const child = normalizeUsageTreeParentKey(row.kcac02)
+        const child = usageTreeChildParentKey(row)
         if (child && !cache.has(child)) pending.add(child)
       }
     }

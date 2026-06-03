@@ -26,6 +26,16 @@ export function normalizeUsageTreeParentKey(raw) {
 }
 
 /**
+ * 用量树向下展开父键：本行 systemcode 优先，否则 kcac02（PI BOM 与主 BOM 实例键一致）
+ * @param {{ systemcode?: unknown, kcac02?: unknown } | null | undefined} row
+ */
+export function usageTreeChildParentKey(row) {
+  const sc = normalizeUsageTreeParentKey(row?.systemcode)
+  if (sc) return sc
+  return normalizeUsageTreeParentKey(row?.kcac02)
+}
+
+/**
  * @param {import('mssql').ConnectionPool} pool
  * @param {string} kcac01Parent
  */

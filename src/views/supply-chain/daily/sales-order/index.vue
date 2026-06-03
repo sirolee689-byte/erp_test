@@ -350,7 +350,7 @@
                 <el-table
                   v-if="piBomTree.length"
                   :data="piBomTree"
-                  row-key="systemcode"
+                  row-key="id"
                   border
                   size="small"
                   class="so-lines-table so-pi-bom-tree-table"
@@ -689,7 +689,7 @@
                 <el-table
                   v-if="piBomTree.length"
                   :data="piBomTree"
-                  row-key="systemcode"
+                  row-key="id"
                   border
                   size="small"
                   class="so-lines-table so-pi-bom-tree-table"

@@ -225,6 +225,36 @@ async function rebuildPiConsumptionFromAllCost(pool, tx, piNo) {
 }
 
 /**
+ * 销售订单 PI BOM 已经是按单展开后的明细，写 pi_cost 时同一来源明细行只允许落一次。
+ * 若同一来源行在树形展开中被重复命中，保留层级更深的记录，避免保留未带完整父级乘算的浅层行。
+ * @param {Array<Record<string, unknown>>} rows
+ */
+function dedupePiCostRowsBySourceRowId(rows) {
+  if (!Array.isArray(rows) || !rows.length) return []
+  /** @type {Map<string, number>} */
+  const indexBySourceId = new Map()
+  const out = []
+  for (const row of rows) {
+    const sourceId = row?.sourceRowId != null ? String(row.sourceRowId).trim() : ''
+    if (sourceId) {
+      const existingIndex = indexBySourceId.get(sourceId)
+      if (existingIndex != null) {
+        const existing = out[existingIndex]
+        const rowLevel = Number(row?.level ?? 0)
+        const existingLevel = Number(existing?.level ?? 0)
+        if (Number.isFinite(rowLevel) && rowLevel > (Number.isFinite(existingLevel) ? existingLevel : 0)) {
+          out[existingIndex] = row
+        }
+        continue
+      }
+      indexBySourceId.set(sourceId, out.length)
+    }
+    out.push(row)
+  }
+  return out
+}
+
+/**
  * 单款 PI BOM 树 → pi_cost 行
  * @param {import('mssql').ConnectionPool} pool
  * @param {any[]} tree
@@ -234,7 +264,9 @@ async function rebuildPiConsumptionFromAllCost(pool, tx, piNo) {
 async function buildPiCostRowsFromTree(pool, tree, productKcaa01, actor) {
   const hidePrefixes = getDefaultBomCostHidePrefixes()
   const flatForPiCost = flattenBomPartsCostUsageFlatForBomCost(tree, null, [])
-  const payload = buildBomCostInsertPayloadFromFlatUsage(flatForPiCost, hidePrefixes, productKcaa01)
+  const payload = dedupePiCostRowsBySourceRowId(
+    buildBomCostInsertPayloadFromFlatUsage(flatForPiCost, hidePrefixes, productKcaa01),
+  )
   const bom000Map = await fetchBom000ForBomCostEnrich(
     pool,
     payload.map((r) => r.kcaa01),

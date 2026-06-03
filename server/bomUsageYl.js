@@ -82,6 +82,8 @@ export function buildBomCostInsertPayloadFromFlatUsage(
     const loss = Number(r?.loss_rate ?? 0)
     const total = Number.isFinite(Number(r?.total_qty)) ? Number(r.total_qty) : yl * (1 + loss)
     out.push({
+      sourceRowId: r?.sourceRowId ?? null,
+      level: r?.level ?? null,
       kcaa01: code,
       kcaa02: r?.kcaa02 != null ? String(r.kcaa02) : '',
       top_kcaa01: r?.top_kcaa01 != null ? String(r.top_kcaa01) : '',
