@@ -187,3 +187,42 @@ test('预取与逐层填充同一 cache 时树结构一致', () => {
   const treeLazy = buildLazy('R', 1, new Set(['R']))
   assert.deepEqual(treeSnapshot(treeBatch), treeSnapshot(treeLazy))
 })
+
+test('buildBomPartsUsageTreeNodesFromLayerCache usageTree 子层按 systemcode 展开', () => {
+  const cache = layerCacheFromFlat([
+    {
+      kcac01_parent: 'ROOT',
+      id: 1,
+      kcaa01: 'CUT-A',
+      systemcode: 'SC-CUT-A',
+      kcac02: 'WRONG-KEY',
+      kcac04: 1,
+      kcac05: 0,
+      kcaa33: 0,
+      kcaa13: 0,
+      Describe: '',
+      Seq: 1,
+    },
+    {
+      kcac01_parent: 'SC-CUT-A',
+      id: 2,
+      kcaa01: 'LA-1',
+      systemcode: '',
+      kcac02: '',
+      kcac04: 0.5,
+      kcac05: 0,
+      kcaa33: 0,
+      kcaa13: 0,
+      Describe: '',
+      Seq: 1,
+    },
+  ])
+  const legacy = buildBomPartsUsageTreeNodesFromLayerCache('ROOT', 1, new Set(['ROOT']), cache, false)
+  assert.deepEqual(treeSnapshot(legacy), [
+    { kcaa01: 'CUT-A', kcac02: 'WRONG-KEY', level: 1, childCodes: [] },
+  ])
+  const piWrite = buildBomPartsUsageTreeNodesFromLayerCache('ROOT', 1, new Set(['ROOT']), cache, true)
+  assert.deepEqual(treeSnapshot(piWrite), [
+    { kcaa01: 'CUT-A', kcac02: 'WRONG-KEY', level: 1, childCodes: ['LA-1'] },
+  ])
+})

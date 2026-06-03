@@ -176,19 +176,23 @@ export function mapBomPartsRowToUsageTreeNode(row, level, children) {
  * @param {number} level
  * @param {Set<string>} bomHeadStack
  * @param {Map<string, Record<string, unknown>[]>} layerCache
+ * @param {boolean} [useUsageTreeChildKey=false] PI BOM 写入为 true：子层键与 `usageTreeChildParentKey` 一致（systemcode 优先）；主 BOM 用量表运算保持 false（kcac02）
  */
 export function buildBomPartsUsageTreeNodesFromLayerCache(
   kcac01Parent,
   level,
   bomHeadStack,
   layerCache,
+  useUsageTreeChildKey = false,
 ) {
   const parent = normalizeUsageTreeParentKey(kcac01Parent)
   const rows = layerCache.get(parent) ?? []
   const out = []
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]
-    const childSc = normalizeUsageTreeParentKey(row.kcac02)
+    const childSc = useUsageTreeChildKey
+      ? usageTreeChildParentKey(row)
+      : normalizeUsageTreeParentKey(row.kcac02)
     /** @type {any[]} */
     let children = []
     if (childSc) {
@@ -199,7 +203,13 @@ export function buildBomPartsUsageTreeNodesFromLayerCache(
       }
       const nextStack = new Set(bomHeadStack)
       nextStack.add(childSc)
-      children = buildBomPartsUsageTreeNodesFromLayerCache(childSc, level + 1, nextStack, layerCache)
+      children = buildBomPartsUsageTreeNodesFromLayerCache(
+        childSc,
+        level + 1,
+        nextStack,
+        layerCache,
+        useUsageTreeChildKey,
+      )
     }
     out.push(mapBomPartsRowToUsageTreeNode(row, level, children))
   }

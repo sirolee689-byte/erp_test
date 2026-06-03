@@ -19,6 +19,13 @@ import {
 } from './bomUsageFlatten.js'
 import { normKcaa01 } from './salesOrderSaveLogic.js'
 import { formatSalesOrderAuditTime } from './salesOrderPiBom.js'
+import {
+  fetchTopLevelFinishedBomCodeFlag5Prefixes,
+} from './salesOrderPiBom.js'
+import {
+  applyPiCostExtendedFieldsToRows,
+  collectPiCostHierarchyMetaFromTree,
+} from './salesOrderPiCostFields.js'
 import { buildPiBomUsageTreeForProduct } from './salesOrderPiBomUsageTree.js'
 import {
   parseSyncedKcaa01List,
@@ -96,14 +103,21 @@ async function fetchOrderHeaderForCalculate(pool, id) {
  * @param {import('mssql').ConnectionPool} pool
  * @param {string} piNo
  */
-async function fetchOrderLineCodes(pool, piNo) {
+async function fetchOrderLinesForCalculate(pool, piNo) {
   const pi = normKcaa01(piNo)
   const r = await pool.request().input('pi', sql.NVarChar(200), pi).query(`
-    SELECT LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL([kcaa01], N'')))) AS kcaa01
+    SELECT
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL([kcaa01], N'')))) AS kcaa01,
+      CAST(ISNULL([xsak03], [plan_quantity]) AS decimal(18, 4)) AS orderQty
     FROM ${LINE_FROM}
     WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([xsak01], N'')))) = @pi
   `)
-  return (r.recordset ?? []).map((row) => normKcaa01(row.kcaa01)).filter(Boolean)
+  return (r.recordset ?? [])
+    .map((row) => ({
+      kcaa01: normKcaa01(row.kcaa01),
+      orderQty: Number(row.orderQty ?? 0),
+    }))
+    .filter((row) => row.kcaa01)
 }
 
 /**
@@ -225,33 +239,26 @@ async function rebuildPiConsumptionFromAllCost(pool, tx, piNo) {
 }
 
 /**
- * 销售订单 PI BOM 已经是按单展开后的明细，写 pi_cost 时同一来源明细行只允许落一次。
- * 若同一来源行在树形展开中被重复命中，保留层级更深的记录，避免保留未带完整父级乘算的浅层行。
- * @param {Array<Record<string, unknown>>} rows
+ * 平铺用量 → bom_cost / pi_cost 落库 payload（与 POST /api/bom/usage-calc 一致，平铺不合并）
+ * @param {any[]} flatForCost flattenBomPartsCostUsageFlatForBomCost 结果
+ * @param {string} productKcaa01 成品 pq，用于跳过树根行
  */
-function dedupePiCostRowsBySourceRowId(rows) {
-  if (!Array.isArray(rows) || !rows.length) return []
-  /** @type {Map<string, number>} */
-  const indexBySourceId = new Map()
-  const out = []
-  for (const row of rows) {
-    const sourceId = row?.sourceRowId != null ? String(row.sourceRowId).trim() : ''
-    if (sourceId) {
-      const existingIndex = indexBySourceId.get(sourceId)
-      if (existingIndex != null) {
-        const existing = out[existingIndex]
-        const rowLevel = Number(row?.level ?? 0)
-        const existingLevel = Number(existing?.level ?? 0)
-        if (Number.isFinite(rowLevel) && rowLevel > (Number.isFinite(existingLevel) ? existingLevel : 0)) {
-          out[existingIndex] = row
-        }
-        continue
-      }
-      indexBySourceId.set(sourceId, out.length)
-    }
-    out.push(row)
-  }
-  return out
+export function buildPiCostInsertPayloadFromFlatUsage(flatForCost, productKcaa01) {
+  return buildBomCostInsertPayloadFromFlatUsage(
+    flatForCost,
+    getDefaultBomCostHidePrefixes(),
+    productKcaa01,
+  )
+}
+
+/**
+ * 单款用量树 → bom_cost / pi_cost 落库 payload
+ * @param {any[]} tree
+ * @param {string} productKcaa01
+ */
+export function buildPiCostInsertPayloadFromUsageTree(tree, productKcaa01) {
+  const flat = flattenBomPartsCostUsageFlatForBomCost(tree, null, [])
+  return buildPiCostInsertPayloadFromFlatUsage(flat, productKcaa01)
 }
 
 /**
@@ -261,12 +268,11 @@ function dedupePiCostRowsBySourceRowId(rows) {
  * @param {string} productKcaa01
  * @param {{ uidInt: number | null, uname: string | null, utruename: string | null }} actor
  */
-async function buildPiCostRowsFromTree(pool, tree, productKcaa01, actor) {
-  const hidePrefixes = getDefaultBomCostHidePrefixes()
+async function buildPiCostRowsFromTree(pool, tree, productKcaa01, actor, orderQty) {
   const flatForPiCost = flattenBomPartsCostUsageFlatForBomCost(tree, null, [])
-  const payload = dedupePiCostRowsBySourceRowId(
-    buildBomCostInsertPayloadFromFlatUsage(flatForPiCost, hidePrefixes, productKcaa01),
-  )
+  const topLevelPrefixes = await fetchTopLevelFinishedBomCodeFlag5Prefixes(pool)
+  const hierarchyMeta = collectPiCostHierarchyMetaFromTree(tree, topLevelPrefixes)
+  const payload = buildPiCostInsertPayloadFromFlatUsage(flatForPiCost, productKcaa01)
   const bom000Map = await fetchBom000ForBomCostEnrich(
     pool,
     payload.map((r) => r.kcaa01),
@@ -277,8 +283,12 @@ async function buildPiCostRowsFromTree(pool, tree, productKcaa01, actor) {
     enriched.map((r) => r.kcaa05),
   )
   const rowsWithPx = applyBomCostPxForPqRows(enriched, productKcaa01, bomMaterialPxMap)
+  const rowsWithAudit = applyBomCostAuditToRows(rowsWithPx, {
+    actor,
+    addtime: formatBomCostAuditTimestamp(),
+  })
   return {
-    rows: applyBomCostAuditToRows(rowsWithPx, { actor, addtime: formatBomCostAuditTimestamp() }),
+    rows: applyPiCostExtendedFieldsToRows(rowsWithAudit, hierarchyMeta, orderQty),
     flat: flatForPiCost,
   }
 }
@@ -302,7 +312,9 @@ export async function calculateSalesOrderMaterialBill(opts) {
   if (stateErr) return { ok: false, status: stateErr === '记录不存在' ? 404 : 400, msg: stateErr }
 
   const piNo = normKcaa01(header.piNo)
-  const lineCodes = await fetchOrderLineCodes(pool, piNo)
+  const orderLines = await fetchOrderLinesForCalculate(pool, piNo)
+  const lineCodes = orderLines.map((row) => row.kcaa01)
+  const qtyByProduct = new Map(orderLines.map((row) => [row.kcaa01, row.orderQty]))
   const existR = await pool.request().input('pi', sql.NVarChar(200), piNo).query(`
     SELECT TOP 1 1 AS ok FROM ${PI_COST_FROM}
     WHERE LTRIM(RTRIM(ISNULL([sid], N''))) = @pi
@@ -335,7 +347,8 @@ export async function calculateSalesOrderMaterialBill(opts) {
 
     for (const product of scope.products) {
       const tree = await buildPiBomUsageTreeForProduct(pool, piNo, product)
-      const { rows, flat } = await buildPiCostRowsFromTree(pool, tree, product, actor)
+      const orderQty = qtyByProduct.get(product) ?? null
+      const { rows, flat } = await buildPiCostRowsFromTree(pool, tree, product, actor, orderQty)
       if (rows.length) {
         await insertCostBulkEnriched(pool, tx, PI_COST_TABLE, product, piNo, rows)
       }

@@ -16,9 +16,85 @@ import {
   prefetchBomPartsLayersForPiListCopy,
 } from './salesOrderPiBomListFromParts.js'
 import { normKcaa01 } from './salesOrderSaveLogic.js'
-import { INV_BOM_MASTER_FROM as BOM_MASTER_FROM, INV_BOM_MASTER_TABLE as BOM_MASTER_TABLE } from './bomTables.js'
+import {
+  INV_BOM_CODE_FROM,
+  INV_BOM_MASTER_FROM as BOM_MASTER_FROM,
+  INV_BOM_MASTER_TABLE as BOM_MASTER_TABLE,
+} from './bomTables.js'
 const PI_BOM_HEAD_FROM = 'dbo.[UB_ERP_Bom_Sales]'
 const PI_BOM_LIST_FROM = 'dbo.[UB_ERP_Bom_Sales_list]'
+
+/** Bom_code.id：不参与 PI「顶级成品」父层（OUT 产品线 / 裁片子档分类） */
+export const PI_BOM_TOP_LEVEL_EXCLUDED_BOM_CODE_IDS = [3, 12]
+
+/**
+ * @typedef {{ parentSc?: string, topLevelParentKeys?: Set<string> }} PiBomListDedupeOpts
+ */
+
+/**
+ * 读取 Bom_code 顶级成品前缀（copen=1、flag5 非空；排除 CUT/OUT）
+ * @param {import('mssql').ConnectionPool | import('mssql').Transaction} db
+ */
+export async function fetchTopLevelFinishedBomCodeFlag5Prefixes(db) {
+  const r = await new sql.Request(db).query(`
+    SELECT
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc.flag5, N'')))) AS flag5
+    FROM ${INV_BOM_CODE_FROM} AS bc
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(bc.copen, N'')))) = N'1'
+      AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc.flag5, N'')))) <> N''
+      AND bc.id NOT IN (${PI_BOM_TOP_LEVEL_EXCLUDED_BOM_CODE_IDS.join(', ')})
+    ORDER BY LEN(LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc.flag5, N''))))) DESC
+  `)
+  /** @type {string[]} */
+  const out = []
+  const seen = new Set()
+  for (const row of r.recordset ?? []) {
+    const f5 = String(row.flag5 ?? '').trim().toUpperCase()
+    if (!f5 || seen.has(f5)) continue
+    seen.add(f5)
+    out.push(f5)
+  }
+  return out
+}
+
+/**
+ * kcaa01 是否命中 Bom_code 顶级成品前缀（与列表 is_need_calc 一致：flag5 + '%'）
+ * @param {unknown} kcaa01
+ * @param {string[]} flag5Prefixes 建议已按长度降序
+ */
+export function kcaa01MatchesTopLevelFinishedBomCodePrefix(kcaa01, flag5Prefixes) {
+  const code = String(kcaa01 ?? '').trim().toUpperCase()
+  if (!code || !flag5Prefixes?.length) return false
+  for (let i = 0; i < flag5Prefixes.length; i++) {
+    const f = String(flag5Prefixes[i] ?? '').trim().toUpperCase()
+    if (f && code.startsWith(f)) return true
+  }
+  return false
+}
+
+/**
+ * 子树中 kcaa01 命中 Bom_code 顶级成品的节点 → 其展开父键（写入 list 时子行 parentSc）
+ * @param {any[]} tree
+ * @param {string[]} flag5Prefixes
+ */
+export function collectTopLevelParentKeysFromPiBomTree(tree, flag5Prefixes) {
+  /** @type {Set<string>} */
+  const keys = new Set()
+  /** @param {any[]} nodes */
+  function walk(nodes) {
+    for (const node of nodes ?? []) {
+      const code = node?.kcaa01 != null ? String(node.kcaa01) : ''
+      if (kcaa01MatchesTopLevelFinishedBomCodePrefix(code, flag5Prefixes)) {
+        const childKey = usageTreeChildParentKey(node)
+        if (childKey) keys.add(childKey)
+      }
+      const children = Array.isArray(node?.children) ? node.children : []
+      if (children.length) walk(children)
+    }
+  }
+  walk(tree)
+  return keys
+}
 
 /** @param {Date} [d] */
 export function formatSalesOrderAuditTime(d = new Date()) {
@@ -29,6 +105,28 @@ export function formatSalesOrderAuditTime(d = new Date()) {
 
 export function newPiBomSystemcode() {
   return crypto.randomBytes(20).toString('hex').toUpperCase().slice(0, 40)
+}
+
+/**
+ * PI list 行展开键：优先 Bom_parts systemcode/kcac02；若已被其它物理行占用则生成新键（多路径共用 systemcode 时各写一行）。
+ * @param {Record<string, unknown> | null | undefined} sourceRow
+ * @param {Map<number, string>} expandKeyByPartsId
+ * @param {Set<string>} usedExpandKeys
+ */
+export function resolvePiListExpandKeyFromBomPartsRow(sourceRow, expandKeyByPartsId, usedExpandKeys) {
+  const partsId = Number(sourceRow?.id)
+  if (Number.isFinite(partsId) && partsId > 0 && expandKeyByPartsId.has(partsId)) {
+    return expandKeyByPartsId.get(partsId)
+  }
+  let key = usageTreeChildParentKey(sourceRow)
+  if (!key || usedExpandKeys.has(key)) {
+    key = newPiBomSystemcode()
+  }
+  usedExpandKeys.add(key)
+  if (Number.isFinite(partsId) && partsId > 0) {
+    expandKeyByPartsId.set(partsId, key)
+  }
+  return key
 }
 
 function toNullableNumber(v) {
@@ -42,19 +140,65 @@ function toNullableNumber(v) {
  * @param {any[]} out
  * @param {number} level
  * @param {string} productKcaa01
+ * @param {any} [parentNode]
  */
-export function flattenPiBomPartRows(parentSc, nodes, out, level, productKcaa01) {
+export function flattenPiBomPartRows(parentSc, nodes, out, level, productKcaa01, parentNode = null) {
   for (const node of nodes ?? []) {
     const sourceRow =
       node?._sourceRow && typeof node._sourceRow === 'object' ? node._sourceRow : node
-    out.push({ parentSc, node, sourceRow })
+    out.push({ parentSc, parentNode, node, sourceRow })
     const children = Array.isArray(node?.children) ? node.children : []
     if (children.length) {
       const childSc = usageTreeChildParentKey(node)
       if (!childSc) continue
-      flattenPiBomPartRows(childSc, children, out, level + 1, productKcaa01)
+      flattenPiBomPartRows(childSc, children, out, level + 1, productKcaa01, node)
     }
   }
+}
+
+/**
+ * Bom_parts 物理行实例键（写入去重）。
+ * - 父层为 Bom_code 顶级成品展开键（方案 A）：仅 `Bom_parts.id`
+ * - 其余父层（方案 B）：`systemcode` → 行 `id` → `kcac02` → `kcaa01`
+ * @param {Record<string, unknown> | null | undefined} sourceRow
+ * @param {PiBomListDedupeOpts} [opts]
+ */
+export function piBomListPhysicalRowKey(sourceRow, opts) {
+  const parentSc = normalizeUsageTreeParentKey(opts?.parentSc)
+  const topLevel = opts?.topLevelParentKeys
+  if (parentSc && topLevel?.has(parentSc)) {
+    const rawId = sourceRow?.id
+    const idNum = Number(rawId)
+    if (rawId != null && rawId !== '' && Number.isFinite(idNum)) {
+      return `id:${Math.trunc(idNum)}`
+    }
+    const kcac02 = normalizeUsageTreeParentKey(sourceRow?.kcac02)
+    if (kcac02) return kcac02
+    return normKcaa01(sourceRow?.kcaa01 != null ? String(sourceRow.kcaa01) : '')
+  }
+  const sc = normalizeUsageTreeParentKey(sourceRow?.systemcode)
+  if (sc) return sc
+  const rawId = sourceRow?.id
+  const idNum = Number(rawId)
+  if (rawId != null && rawId !== '' && Number.isFinite(idNum)) {
+    return `id:${Math.trunc(idNum)}`
+  }
+  const kcac02 = normalizeUsageTreeParentKey(sourceRow?.kcac02)
+  if (kcac02) return kcac02
+  return normKcaa01(sourceRow?.kcaa01 != null ? String(sourceRow.kcaa01) : '')
+}
+
+/**
+ * 建款/同步写入去重键：同一 PI、同一父 `kcac01`、同一物理行只插一行。
+ * @param {string} parentSc 写入 UB_ERP_Bom_Sales_list.kcac01
+ * @param {Record<string, unknown> | null | undefined} sourceRow Bom_parts 快照行
+ * @param {PiBomListDedupeOpts} [opts]
+ */
+export function piBomListInsertDedupeKey(parentSc, sourceRow, opts) {
+  const parent = normalizeUsageTreeParentKey(parentSc)
+  const childInst = piBomListPhysicalRowKey(sourceRow, { ...opts, parentSc })
+  if (!parent || !childInst) return ''
+  return `${parent}\u001e${childInst}`
 }
 
 /**
@@ -236,7 +380,8 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
   const stack = new Set([headSc])
   let tree
   try {
-    tree = buildBomPartsUsageTreeNodesFromLayerCache(headSc, 1, stack, layerCache)
+    // 建树与 BOM 资料用量表/bom_cost 一致（kcac02 展开）；写入 parentSc 用 resolvePiListExpandKeyFromBomPartsRow
+    tree = buildBomPartsUsageTreeNodesFromLayerCache(headSc, 1, stack, layerCache, false)
   } catch (e) {
     if (e?.code === 'BOM_CYCLE') {
       const err = new Error(`货品 ${product} 的 BOM 存在循环引用`)
@@ -294,6 +439,9 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
     )
   `)
 
+  const topLevelFlag5Prefixes = await fetchTopLevelFinishedBomCodeFlag5Prefixes(pool)
+  const topLevelParentKeys = collectTopLevelParentKeysFromPiBomTree(tree, topLevelFlag5Prefixes)
+
   /** @type {{ parentSc: string, node: any }[]} */
   const flat = []
   flattenPiBomPartRows(headSc, tree, flat, 1, product)
@@ -303,13 +451,42 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
     .filter(Boolean)
   const bom000OverrideByKcaa01 = await prefetchBom000OverrideSnapshotsByKcaa01(pool, kcaa01ForOverride)
 
-  for (const { parentSc, sourceRow } of flat) {
+  /** @type {Set<string>} */
+  const insertedDedupeKeys = new Set()
+  /** @type {Map<number, string>} */
+  const expandKeyByPartsId = new Map()
+  /** @type {Set<string>} */
+  const usedExpandKeys = new Set([headSc])
+
+  for (const { parentSc, parentNode, sourceRow } of flat) {
+    const parentSourceRow =
+      parentNode?._sourceRow && typeof parentNode._sourceRow === 'object'
+        ? parentNode._sourceRow
+        : parentNode
+    const listParentSc = parentSourceRow
+      ? resolvePiListExpandKeyFromBomPartsRow(parentSourceRow, expandKeyByPartsId, usedExpandKeys)
+      : normalizeUsageTreeParentKey(parentSc)
+
+    const dedupeKey = piBomListInsertDedupeKey(listParentSc, sourceRow, { topLevelParentKeys })
+    if (dedupeKey) {
+      if (insertedDedupeKeys.has(dedupeKey)) continue
+      insertedDedupeKeys.add(dedupeKey)
+    }
+
+    const rowExpandKey = resolvePiListExpandKeyFromBomPartsRow(
+      sourceRow,
+      expandKeyByPartsId,
+      usedExpandKeys,
+    )
     const childCode = normKcaa01(sourceRow?.kcaa01)
     const bom000Snap = childCode ? bom000OverrideByKcaa01.get(childCode) : undefined
-    const partRow = mergePiListPartRowWithBom000Override(sourceRow, bom000Snap)
+    const partRow = mergePiListPartRowWithBom000Override(
+      { ...sourceRow, systemcode: rowExpandKey },
+      bom000Snap,
+    )
     await insertPiBomListRowFromBomPartsRow(tx, {
       sid: pi,
-      parentSc,
+      parentSc: listParentSc,
       topProductKcaa01: product,
       partRow,
       meta: copyMeta,

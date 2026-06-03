@@ -429,6 +429,30 @@ const BOM_COST_INSERT_FIELD_SPECS = [
   { key: 'px', sql: 'px', kind: 'int_null' },
 ]
 
+/** pi_cost 专用落库列（bom_cost 不含） */
+const PI_COST_INSERT_EXTRA_FIELD_SPECS = [
+  { key: 't_kcaa01', sql: 't_kcaa01', kind: 'nv500' },
+  { key: 't_kcaa02', sql: 't_kcaa02', kind: 'nv500' },
+  { key: 't_kcaa03', sql: 't_kcaa03', kind: 'nv500' },
+  { key: 't_kcaa04', sql: 't_kcaa04', kind: 'nv80' },
+  { key: 't_kcaa05', sql: 't_kcaa05', kind: 'nv300' },
+  { key: 't_kcaa06', sql: 't_kcaa06', kind: 'nv300' },
+  { key: 't_kcaa07', sql: 't_kcaa07', kind: 'dec_null' },
+  { key: 't_kcaa08', sql: 't_kcaa08', kind: 'dec_null' },
+  { key: 't_kcaa09', sql: 't_kcaa09', kind: 'nv300' },
+  { key: 't_kcaa10', sql: 't_kcaa10', kind: 'nv300' },
+  { key: 't_kcaa11', sql: 't_kcaa11', kind: 'nv300' },
+  { key: 't_kcaa14', sql: 't_kcaa14', kind: 'int_null' },
+  { key: 't_kcaa15', sql: 't_kcaa15', kind: 'nv300' },
+  { key: 't_kcaa25', sql: 't_kcaa25', kind: 'nv300' },
+  { key: 't_kcaa26', sql: 't_kcaa26', kind: 'dec_null' },
+  { key: 't_kcaa27', sql: 't_kcaa27', kind: 'nv300' },
+  { key: 'kcaa07', sql: 'kcaa07', kind: 'dec' },
+  { key: 'kcaa08', sql: 'kcaa08', kind: 'dec' },
+  { key: 'pass', sql: 'pass', kind: 'nv50_null' },
+  { key: 'temp', sql: 'temp', kind: 'nv50_null' },
+]
+
 /**
  * @param {import('mssql').Request} req
  * @param {string} param
@@ -492,19 +516,27 @@ export async function insertCostBulkEnriched(pool, tx, tableName, pq, sid, rows)
   const colset = await getCostTableColumnSet(pool, tbl)
   const pqV = String(pq ?? '').trim()
   const sidV = String(sid ?? '').trim()
+  const isPiCost = tbl === 'UB_ERP_Bom_pi_cost'
 
   /** @type {typeof BOM_COST_INSERT_FIELD_SPECS} */
   const activeSpecs = []
-  const allowPx = (tbl === BOM_COST_TABLE || tbl === 'UB_ERP_Bom_pi_cost') && isPqBomCostHead(pqV)
+  const allowPx = (tbl === BOM_COST_TABLE || isPiCost) && isPqBomCostHead(pqV)
   for (const spec of BOM_COST_INSERT_FIELD_SPECS) {
     if (spec.key === 'px' && !allowPx) continue
     const colLower =
       spec.key === 'Describe' ? 'describe' : spec.key === 'GUID' ? 'guid' : spec.key.toLowerCase()
     if (colset.has(colLower)) activeSpecs.push(spec)
   }
+  if (isPiCost) {
+    for (const spec of PI_COST_INSERT_EXTRA_FIELD_SPECS) {
+      const colLower = spec.key.toLowerCase()
+      if (colset.has(colLower)) activeSpecs.push(spec)
+    }
+  }
 
   const insCols = ['pq', 'sid', ...activeSpecs.map((s) => s.sql), ...(colset.has('isok') ? ['isok'] : [])]
-  const paramsPerRow = activeSpecs.length + (colset.has('isok') ? 1 : 0)
+  const paramsPerRow =
+    activeSpecs.length + (colset.has('isok') ? 1 : 0)
   const maxRowsPerChunk = Math.min(50, Math.floor((2000 - 2) / Math.max(paramsPerRow, 1)))
 
   for (let off = 0; off < rows.length; off += maxRowsPerChunk) {
@@ -523,7 +555,16 @@ export async function insertCostBulkEnriched(pool, tx, tableName, pq, sid, rows)
         bindBomCostInsertValue(req, p, spec, row[spec.key])
         placeholders.push(`@${p}`)
       }
-      if (colset.has('isok')) placeholders.push('0')
+      if (colset.has('isok')) {
+        if (isPiCost) {
+          const isokVal =
+            row.isok != null && Number.isFinite(Number(row.isok)) ? Math.trunc(Number(row.isok)) : 1
+          req.input(`${pre}isok`, sql.Int, isokVal)
+          placeholders.push(`@${pre}isok`)
+        } else {
+          placeholders.push('0')
+        }
+      }
       valueTuples.push(`(${placeholders.join(', ')})`)
     }
     await req.query(`

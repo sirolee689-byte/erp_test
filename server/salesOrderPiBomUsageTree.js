@@ -49,6 +49,18 @@ export async function prefetchPiBomListLayers(db, piNo, parentCodes) {
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa02], N'')))) AS kcaa02,
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa03], N'')))) AS kcaa03,
         LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[kcaa04], N'')))) AS kcaa04,
+        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa05], N'')))) AS kcaa05,
+        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa06], N'')))) AS kcaa06,
+        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa09], N'')))) AS kcaa09,
+        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa10], N'')))) AS kcaa10,
+        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa11], N'')))) AS kcaa11,
+        l.[kcaa07] AS kcaa07,
+        l.[kcaa08] AS kcaa08,
+        l.[kcaa14] AS kcaa14,
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[kcaa15], N'')))) AS kcaa15,
+        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa25], N'')))) AS kcaa25,
+        l.[kcaa26] AS kcaa26,
+        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa27], N'')))) AS kcaa27,
         CAST(ISNULL(l.[kcac04], 0) AS decimal(18, 6)) AS kcac04,
         CAST(ISNULL(l.[kcac05], 0) AS decimal(18, 6)) AS kcac05,
         CAST(ISNULL(l.[kcaa33], 0) AS decimal(18, 6)) AS kcaa33,
@@ -77,12 +89,42 @@ export async function prefetchPiBomListLayers(db, piNo, parentCodes) {
 function mapPiBomRowToUsageTreeNode(row, level, children) {
   const seqRaw = row.seq
   const seqNum = seqRaw != null && Number.isFinite(Number(seqRaw)) ? Number(seqRaw) : null
+  const kcaa07 =
+    row.kcaa07 != null && row.kcaa07 !== '' && Number.isFinite(Number(row.kcaa07))
+      ? Number(row.kcaa07)
+      : null
+  const kcaa08 =
+    row.kcaa08 != null && row.kcaa08 !== '' && Number.isFinite(Number(row.kcaa08))
+      ? Number(row.kcaa08)
+      : null
+  const kcaa14 =
+    row.kcaa14 != null && row.kcaa14 !== '' && Number.isFinite(Number(row.kcaa14))
+      ? Math.trunc(Number(row.kcaa14))
+      : null
+  const kcaa26 =
+    row.kcaa26 != null && row.kcaa26 !== '' && Number.isFinite(Number(row.kcaa26))
+      ? Number(row.kcaa26)
+      : null
   return {
     id: row.id != null ? Number(row.id) : null,
     kcaa01: row.kcaa01 != null ? String(row.kcaa01) : '',
     kcaa02: row.kcaa02 != null ? String(row.kcaa02) : '',
     kcaa03: row.kcaa03 != null ? String(row.kcaa03) : '',
     kcaa04: row.kcaa04 != null ? String(row.kcaa04) : '',
+    kcaa05: row.kcaa05 != null ? String(row.kcaa05) : '',
+    kcaa06: row.kcaa06 != null ? String(row.kcaa06) : '',
+    kcaa07: row.kcaa07 != null ? String(row.kcaa07) : '',
+    kcaa08: row.kcaa08 != null ? String(row.kcaa08) : '',
+    kcaa09: row.kcaa09 != null ? String(row.kcaa09) : '',
+    kcaa10: row.kcaa10 != null ? String(row.kcaa10) : '',
+    kcaa11: row.kcaa11 != null ? String(row.kcaa11) : '',
+    kcaa07,
+    kcaa08,
+    kcaa14,
+    kcaa15: row.kcaa15 != null ? String(row.kcaa15) : '',
+    kcaa25: row.kcaa25 != null ? String(row.kcaa25) : '',
+    kcaa26,
+    kcaa27: row.kcaa27 != null ? String(row.kcaa27) : '',
     kcac04: Number(row.kcac04 ?? 0),
     kcac05: Number(row.kcac05 ?? 0),
     kcaa33: Number(row.kcaa33 ?? 0),

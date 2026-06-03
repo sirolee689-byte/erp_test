@@ -97,6 +97,7 @@
             stripe
             style="width: 100%"
             :empty-text="loading ? '加载中…' : '暂无数据'"
+            @expand-change="onExpandChange"
             @row-click="onMainRowClick"
           >
             <el-table-column
@@ -180,6 +181,50 @@
                     </el-button>
                   </template>
                 </ErpTableActions>
+              </template>
+            </el-table-column>
+            <el-table-column type="expand" width="48">
+              <template #default="{ row }">
+                <div v-loading="row.__linesLoading" class="expand-inner">
+                  <el-table
+                    v-if="(row.__lines || []).length"
+                    :data="row.__lines"
+                    border
+                    size="small"
+                    class="so-lines-table so-expanded-lines-table"
+                    style="width: 100%"
+                    scrollbar-always-on
+                  >
+                    <el-table-column type="index" label="序号" width="58" />
+                    <el-table-column label="操作" width="72" fixed="left">
+                      <template #default>
+                        <el-button type="primary" link size="small" @click.stop="onExpandedLineViewPlaceholder">
+                          查看
+                        </el-button>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="客款号" prop="customerStyleNo" min-width="120" show-overflow-tooltip />
+                    <el-table-column label="厂款号" prop="factoryStyleNo" min-width="120" show-overflow-tooltip />
+                    <el-table-column label="名称" prop="materialNameCn" min-width="160" show-overflow-tooltip />
+                    <el-table-column label="规格" prop="spec" min-width="120" show-overflow-tooltip />
+                    <el-table-column label="组别" prop="groupName" min-width="100" show-overflow-tooltip />
+                    <el-table-column label="单位" prop="unit" width="82" show-overflow-tooltip />
+                    <el-table-column label="数量" width="100" align="right">
+                      <template #default="{ row: line }">{{ formatOrderQty(line.orderQty) }}</template>
+                    </el-table-column>
+                    <el-table-column label="用量" width="90" align="right">
+                      <template #default> </template>
+                    </el-table-column>
+                    <el-table-column label="单价" width="110" align="right">
+                      <template #default="{ row: line }">{{ formatMoney(line.unitPrice) }}</template>
+                    </el-table-column>
+                    <el-table-column label="金额" width="118" align="right">
+                      <template #default="{ row: line }">{{ formatMoney(getDisplayLineAmount(line)) }}</template>
+                    </el-table-column>
+                    <el-table-column label="备注" prop="remark" min-width="160" show-overflow-tooltip />
+                  </el-table>
+                  <el-empty v-else-if="!row.__linesLoading" description="暂无明细" />
+                </div>
               </template>
             </el-table-column>
             <el-table-column label="PI 号" prop="piNo" min-width="132" show-overflow-tooltip>
@@ -879,6 +924,12 @@ function getLineAmount(row) {
   const price = Number(row?.unitPrice)
   if (!Number.isFinite(qty) || !Number.isFinite(price)) return 0
   return Number((qty * price).toFixed(6))
+}
+
+function getDisplayLineAmount(row) {
+  const amount = Number(row?.amount)
+  if (Number.isFinite(amount)) return amount
+  return getLineAmount(row)
 }
 
 function formatMoney(value) {
@@ -1659,14 +1710,37 @@ function onPageSizeChange(ps) {
   loadData()
 }
 
+async function onExpandChange(row, expandedRows) {
+  const open = expandedRows.some((r) => r.id === row.id)
+  if (!open) return
+  if (row.__linesLoaded) return
+  row.__linesLoading = true
+  try {
+    const res = await axios.get(`/api/sales-order/${row.id}`)
+    row.__lines = Array.isArray(res?.data?.data?.lines) ? res.data.data.lines : []
+    row.__linesLoaded = true
+  } catch (e) {
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '加载明细失败'))
+    row.__lines = []
+  } finally {
+    row.__linesLoading = false
+  }
+}
+
+function onExpandedLineViewPlaceholder() {
+  ElMessage.info('明细查看功能后续开发')
+}
+
 /** @param {Record<string, unknown>} row */
 function onMainRowClick(row, column, event) {
-  if (!row?.id) return
+  if (!row?.id || !mainTableRef.value) return
   const target = event?.target
   if (target && typeof target.closest === 'function') {
-    if (target.closest('.el-button') || target.closest('.el-table__expand-icon')) return
+    if (target.closest('.el-button, button, a, input, textarea, select')) return
+    if (target.closest('.el-table__expand-icon')) return
   }
-  openView(row)
+  if (column?.type === 'expand') return
+  mainTableRef.value.toggleRowExpansion(row)
 }
 
 /** @param {Record<string, unknown>} row */

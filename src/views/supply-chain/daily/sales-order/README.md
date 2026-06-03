@@ -18,7 +18,7 @@
 | `UB_ERP_Sales_order` | 订单主表 | **`xsaj01`** = 用户录入 **PI 号**（全表唯一，含软删）；**`xsaj05`** = 客户代码；**`xsaj06`** = PO 号；**`xsaj07`** = 币别 id；**`GUID`** 与 **`systemcode`** 同值；**`syscode`** / **`d_code`** 保存为空值；**`type`** 固定 `1` |
 | `UB_ERP_Sales_order_list` | 订货明细 | **`xsak01`** = PI 号；行 **`kcaa01`** + **`plan_quantity`**（订货数量）；`xsak04` 单价、`xsak05` 金额；保存时按 `kcaa01` 精确匹配 `bom_000`，`xsak02` 取 `bom_000.GUID`，`kcac01` 取销售订单主表 `GUID/systemcode`，`kcac02` / `GUID` / `systemcode` 同 `xsak02`，`kcac03` 取 `bom_000.kcaa25`（采购单位），`pass` / `kcaa26` / `remark` 同样从 `bom_000` 抄快照 |
 | `UB_ERP_Bom_Sales` | PI 销售 BOM 头（每款成品一行） | **`sid`** = PI 号；**`kcaa01`** = 成品编码；保存/对齐建款时 **`GUID`** 与 **`systemcode`** **两列同值**（均取自 `bom_000.[GUID]`，不是各抄各的列名）；`kcaa09`～`kcaa11`、`kcaa14`～`kcaa15`、`kcaa25`～`kcaa31`、`type`、`location`、`version`、`remark`、`pass` 从 `bom_000` 抄快照 |
-| `UB_ERP_Bom_Sales_list` | PI BOM 配件行 | **`sid`** = PI 号；从主 BOM 建款时先按 `Bom_parts` **同名列快照**写入（**全树展开，无层数上限**；循环引用失败）；再按行 **`kcaa01`（子件编码）** 查 `bom_000`，覆盖 `kcaa02_en`、`location`、`sale_price`、`cost_price`、`Customer_supply`、`Customer_Name`、`remark`、`GUID`、`version`、`kcac03`（`kcac03` 取 `bom_000.kcaa25` 采购单位；无主档则保留 `Bom_parts`）；**`pkcaa01`** = 本棵树对应的订单明细顶级成品（例：明细 `PQ-3119B1/N` 下全部子件行均为 `PQ-3119B1/N`）；`kcac01` 为 PI 树父键；`uid`/`uname`/`utruename`/`addtime` 由服务端按当前操作人写入 |
+| `UB_ERP_Bom_Sales_list` | PI BOM 配件行 | **`sid`** = PI 号；从主 BOM 建款时先按 `Bom_parts` **同名列快照**写入（建树与 BOM 用量表一致：`kcac02` 展开；**路径展开键** `resolvePiListExpandKeyFromBomPartsRow` 避免多路径共用 `systemcode` 被合并）；**方案 A**：父 `kcac01` 为 **Bom_code 顶级成品**展开键（`copen=1` 的 `flag5` 前缀，**排除 CUT/OUT**）时子行按 **`Bom_parts.id`** 去重；**方案 B**：其余父层按 **`systemcode` → `id` → `kcac02` → `kcaa01`** 去重；**保存**仅对明细**新款**建 PI BOM，已有款不自动重写（少行请 **同步 BOM**）；再按行 **`kcaa01`** 查 `bom_000` 覆盖若干字段；**`pkcaa01`** = 订单明细顶级成品；审计字段由服务端写入 |
 | `UB_ERP_Bom_pi_cost` | 一键运算 — 物料明细 | **`sid`** = PI 号；读 **PI BOM**（`UB_ERP_Bom_Sales_list`）运算，规则同 BOM **成本用量表**（含隐藏前缀 `CUT-/BAG-/TAG-…` 不落库）；搭配字段为 **`Describe`** |
 | `UB_ERP_Bom_pi_consumption` | 一键运算 — 子件汇总（表不存在时查询内存合并） | **`sid`** = PI 号 |
 
@@ -80,7 +80,8 @@
   - **同步 BOM**（按行）
   - **保存 PI BOM**（PUT pi-bom）
 - **一键运算** 只读 **PI BOM**（`UB_ERP_Bom_Sales_list`），写入 `UB_ERP_Bom_pi_*`，**不乘订货数量**；**无 BOM 层数上限**（与主 BOM 用量树一致；循环引用仍失败）；隐藏前缀与 BOM 资料内置列表一致（`server/bomCostHidePrefixes.js`）；下游订料时 **用量 × 订货数量**
-- **一键运算写 `UB_ERP_Bom_pi_cost`**：同一条 `UB_ERP_Bom_Sales_list.id` 来源明细只允许落库一次；树形展开过程中重复碰到同一来源行时，保留路径层级更完整的那条记录，避免 PI BOM 4 行被写成 10 行，同时保证 `kcac04` 是父级用量一路连乘后的结果。
+- **一键运算写 `UB_ERP_Bom_pi_cost`**：与 BOM 资料 **用量运算 → bom_cost** 同规则（平铺不合并、隐藏前缀一致、跳过成品根行）；**不**再按 `UB_ERP_Bom_Sales_list.id` 去重。验收：同款同步 BOM 后，`pi_cost` 行数与用量应对齐该款 `bom_cost`（仅 `sid` 为 PI 号）。历史脏 PI list 须先 **同步 BOM**。
+- **`pi_cost` 专用字段**（用量 `kcac04/05/06` 不变）：`top_kcaa01/02` = PI BOM **第一层**命中 `Bom_code flag5`（排除 OUT/CUT）的锚点，子树继承（裁片下 `RP-*` 等材料不新建锚点）；**散件单**第一层即散件时 `top` 可为自身；`t_kcaa01/02` = 直接父（父即锚点时 **留空**）；`t_kcaa03~11/14/15/25~27` = 直接父行在 `UB_ERP_Bom_Sales_list` 的同名 `kcaa*`（树遍历复制，等价 `sid`+`t_kcaa01` 查父行；父留空时 t 扩展字段亦空）；`temp` = 该款销售明细 `xsak03`（同 `pq` 下各行相同）；`isok=1`、`pass='1'`、`kcac07=0`、`kcac08=kcac06+kcac07`、`kcaa07/08=0`。实现：`server/salesOrderPiCostFields.js`。
 - **一键运算入口** 只放在列表第一列「操作」；查看/编辑弹窗不放入口。已审核、未审核在册订单都可以点；回收站订单不可运算。
 - **一键运算 PX**：`UB_ERP_Bom_pi_cost.px` 照 BOM 资料规则补入，子件 `kcaa01` → `bom_000.kcaa05` → `Bom_material.code` → `Bom_material.px`；无匹配则留空。
 - **已审**（`pass='1'`）：禁止保存订单、PI BOM PUT、同步 BOM、软删、彻底删；但允许在列表执行一键运算
@@ -121,6 +122,8 @@
 - 默认显示已审核销售订单（`pass=1`）；打开“显示未审核”后只查未审核（`pass=0`）。
 - “回收站”和“显示未审核”互斥；进入回收站后不再传审核状态，只查已逻辑删除数据。
 - 主表操作列固定在第一列，按钮风格与 BOM 资料列表保持一致，便于先处理操作再横向查看业务字段。
+- 主表参考外协报价支持点击行展开明细；点击操作列按钮不触发展开，操作列里的“查看”仍打开原查看弹窗。
+- 展开明细只读展示，列顺序固定为：序号、操作、客款号、厂款号、名称、规格、组别、单位、数量、用量、单价、金额、备注；操作列仅放“查看”占位按钮，后续再接真实功能；“用量”本期按定稿先留空。
 
 ## 测试与验收
 
@@ -150,5 +153,5 @@ npm run e2e:sales-order     # Playwright：列表 → 查看弹窗（需 Vite + 
 - 展示向下展开同样用 **实例键**（`usageTreeChildParentKey`），不能只用共用 ERP 编码 `kcac02`，否则会出现「每个 BN-0005 下挂 3 行 BN-0008」。
 - 前端树表行唯一键使用物理行 `id`，不要使用 `systemcode`。
 - **不做**整棵树 `list.id` 去重（会把子件挂到先遍历到的裁片下）。
-- 历史 PI 数据挂错时，对该款点 **同步 BOM** 后刷新 PI BOM 标签页。
-- 一键运算写 `pi_cost` 另有 `sourceRowId` 去重，与 PI BOM 展示树无关。
+- 建款/同步写入：建树与 BOM 用量表一致（`kcac02`）；多路径共用 `systemcode` 时分配独立 PI 展开键；**方案 A/B** 去重见 `CONTEXT.md` §PI BOM。历史 PI 若少行，对该款点 **同步 BOM** 后刷新（仅保存不会重建已有款）。
+- 一键运算写 `pi_cost` 与 BOM 资料 `usage-calc` 同落库链路（`buildPiCostInsertPayloadFromUsageTree`），不做 `list.id` 二次去重。
