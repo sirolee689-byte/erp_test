@@ -56,3 +56,11 @@ PaperPattern-Import-Preview-Read 2026-06-02T09:36:27.304Z GET /api/paper-pattern
 PaperPattern-Import-Mapping-DB 2026-06-02T09:36:27.304Z GET/POST /api/paper-pattern/import/mapping|save-mapping
 PaperPattern-Import-Validate 2026-06-02T09:36:27.304Z GET /api/paper-pattern/import/validate
 PaperPattern-ErpCheck-Material 2026-06-02T09:36:27.304Z POST /api/paper-pattern/check-material；GET /api/paper-pattern/import/parse-tree；POST /api/paper-pattern/material-bom-fields；POST /api/paper-pattern/import/commit-bom000；POST /api/paper-pattern/import/delete-bom-tree
+[bom-usage-tree] {"root":"20241116D1E04686DCD3141D13416CBB8940E716107","layerParents":237,"ms":7900}
+[bom-usage-calc] {"systemcode":"20241116D1E04686DCD3141D13416CBB8940E716107","flatRows":343,"bomCostFlatRows":343,"bomCostRows":199,"treeMs":7904,"flatMs":1,"enrichMs":649,"txMs":1820,"totalMs":10375}
+[bom-usage-tree] {"root":"20241116D1E04686DCD3141D13416CBB8940E716107","layerParents":237,"ms":8041}
+[bom-usage-calc] {"systemcode":"20241116D1E04686DCD3141D13416CBB8940E716107","flatRows":343,"bomCostFlatRows":343,"bomCostRows":199,"treeMs":8043,"flatMs":0,"enrichMs":644,"txMs":1820,"totalMs":10507}
+[bom-usage-tree] {"root":"20241116D1E04686DCD3141D13416CBB8940E716107","layerParents":237,"ms":8184}
+[bom-usage-calc] {"systemcode":"20241116D1E04686DCD3141D13416CBB8940E716107","flatRows":343,"bomCostFlatRows":343,"bomCostRows":199,"treeMs":8188,"flatMs":1,"enrichMs":648,"txMs":1900,"totalMs":10737}
+[bom-usage-tree] {"root":"20241116D1E04686DCD3141D13416CBB8940E716107","layerParents":237,"ms":8790}
+[bom-usage-calc] {"systemcode":"20241116D1E04686DCD3141D13416CBB8940E716107","flatRows":343,"bomCostFlatRows":343,"bomCostRows":199,"treeMs":8795,"flatMs":0,"enrichMs":666,"txMs":1961,"totalMs":11422}
