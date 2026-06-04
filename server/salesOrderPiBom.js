@@ -17,12 +17,20 @@ import {
 } from './salesOrderPiBomListFromParts.js'
 import { normKcaa01 } from './salesOrderSaveLogic.js'
 import {
+  BOM000_EXTENDED_SNAPSHOT_COLUMNS,
+  mapBom000ExtendedSnapshotRow,
+  PI_BOM_HEAD_BOM000_SNAPSHOT_COLUMNS,
+} from './salesOrderLineBom000Snapshot.js'
+import {
   INV_BOM_CODE_FROM,
   INV_BOM_MASTER_FROM as BOM_MASTER_FROM,
   INV_BOM_MASTER_TABLE as BOM_MASTER_TABLE,
 } from './bomTables.js'
-const PI_BOM_HEAD_FROM = 'dbo.[UB_ERP_Bom_Sales]'
+const PI_BOM_HEAD_TABLE = 'UB_ERP_Bom_Sales'
+const PI_BOM_HEAD_FROM = `dbo.[${PI_BOM_HEAD_TABLE}]`
 const PI_BOM_LIST_FROM = 'dbo.[UB_ERP_Bom_Sales_list]'
+/** PI list 所属明细款（与写入 topProductKcaa01 / pkcaa01 一致） */
+export const PI_LIST_PKCAA01_EXPR = `LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[pkcaa01], N''))))`
 
 /** Bom_code.id：不参与 PI「顶级成品」父层（OUT 产品线 / 裁片子档分类） */
 export const PI_BOM_TOP_LEVEL_EXCLUDED_BOM_CODE_IDS = [3, 12]
@@ -135,6 +143,29 @@ function toNullableNumber(v) {
 }
 
 /**
+ * @param {import('mssql').ConnectionPool | import('mssql').Transaction} db
+ * @param {string} tableName
+ * @param {string[]} required
+ */
+async function assertTableColumns(db, tableName, required) {
+  const req = new sql.Request(db)
+  req.input('tableName', sql.NVarChar(128), tableName)
+  const r = await req.query(`
+    SELECT [COLUMN_NAME] AS name
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE [TABLE_SCHEMA] = N'dbo'
+      AND [TABLE_NAME] = @tableName
+  `)
+  const existing = new Set((r.recordset ?? []).map((row) => String(row.name ?? '').toLowerCase()))
+  const missing = required.filter((name) => !existing.has(String(name).toLowerCase()))
+  if (missing.length) {
+    const err = new Error(`${tableName} 缺少字段：${missing.join('、')}`)
+    err.code = 'SCHEMA_MISSING'
+    throw err
+  }
+}
+
+/**
  * @param {string} parentSc
  * @param {any[]} nodes
  * @param {any[]} out
@@ -223,6 +254,7 @@ export async function fetchMasterBomHeadByKcaa01(db, kcaa01) {
       LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa09], N'')))) AS kcaa09,
       LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa10], N'')))) AS kcaa10,
       LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa11], N'')))) AS kcaa11,
+      b.[kcaa12] AS kcaa12,
       b.[kcaa14] AS kcaa14,
       LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa15], N'')))) AS kcaa15,
       LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa25], N'')))) AS kcaa25,
@@ -236,13 +268,22 @@ export async function fetchMasterBomHeadByKcaa01(db, kcaa01) {
       LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.[location], N'')))) AS location,
       CONVERT(nvarchar(max), ISNULL(b.[remark], N'')) AS remark,
       LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(b.[pass], N'')))) AS pass,
-      b.[version] AS version
+      b.[version] AS version,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.[kcaa02_en], N'')))) AS kcaa02_en,
+      b.[kcaa32] AS kcaa32,
+      b.[kcaa33] AS kcaa33,
+      LTRIM(RTRIM(CONVERT(nvarchar(80), ISNULL(b.[kcaa34], N'')))) AS kcaa34,
+      LTRIM(RTRIM(CONVERT(nvarchar(80), ISNULL(b.[kcaa35], N'')))) AS kcaa35,
+      b.[sale_price] AS sale_price,
+      b.[cost_price] AS cost_price
     FROM ${BOM_MASTER_FROM} AS b
     WHERE LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.[kcaa01], N'')))) = @kcaa01
       AND (ISNULL(b.[del], N'') = N'' OR b.[del] = N'0')
     ORDER BY b.[id] DESC
   `)
-  return r.recordset?.[0] ?? null
+  const row = r.recordset?.[0]
+  if (!row) return null
+  return { ...row, ...mapBom000ExtendedSnapshotRow(row) }
 }
 
 /**
@@ -262,13 +303,15 @@ export async function fetchPiBomHeadKcaa01Set(db, piNo) {
 }
 
 /**
- * 收集该款 PI BOM 子树下所有 parent systemcode（含头）
- * @param {import('mssql').Transaction} tx
+ * 收集该款 PI BOM 子树下所有 parent systemcode（含头；仅本款 pkcaa01）
+ * @param {import('mssql').ConnectionPool | import('mssql').Transaction} tx
  * @param {string} piNo
  * @param {string} headSystemcode
+ * @param {string} productKcaa01
  */
-export async function collectPiBomSubtreeParentCodes(tx, piNo, headSystemcode) {
+export async function collectPiBomSubtreeParentCodes(tx, piNo, headSystemcode, productKcaa01) {
   const pi = normKcaa01(piNo)
+  const product = normKcaa01(productKcaa01)
   const head = normalizeUsageTreeParentKey(headSystemcode)
   /** @type {Set<string>} */
   const codes = new Set([head])
@@ -278,6 +321,7 @@ export async function collectPiBomSubtreeParentCodes(tx, piNo, headSystemcode) {
     const batch = frontier.splice(0, 40)
     const req = new sql.Request(tx)
     req.input('pi', sql.NVarChar(200), pi)
+    req.input('product', sql.NVarChar(300), product)
     const or = []
     for (let i = 0; i < batch.length; i++) {
       const p = `sc${i}`
@@ -288,6 +332,7 @@ export async function collectPiBomSubtreeParentCodes(tx, piNo, headSystemcode) {
       SELECT DISTINCT LTRIM(RTRIM(ISNULL(CAST(l.[systemcode] AS nvarchar(500)), N''))) AS systemcode
       FROM ${PI_BOM_LIST_FROM} AS l
       WHERE LTRIM(RTRIM(ISNULL(l.[sid], N''))) = @pi
+        AND ${PI_LIST_PKCAA01_EXPR} = @product
         AND (${or.join(' OR ')})
     `)
     for (const row of r.recordset ?? []) {
@@ -321,12 +366,13 @@ export async function deletePiBomProduct(tx, piNo, productKcaa01) {
   const headSc = normalizeUsageTreeParentKey(headR.recordset?.[0]?.systemcode)
   if (!headSc) return
 
-  const subtree = await collectPiBomSubtreeParentCodes(tx, pi, headSc)
+  const subtree = await collectPiBomSubtreeParentCodes(tx, pi, headSc, product)
   const codes = [...subtree]
   for (let i = 0; i < codes.length; i += 40) {
     const batch = codes.slice(i, i + 40)
     const delReq = new sql.Request(tx)
     delReq.input('pi', sql.NVarChar(200), pi)
+    delReq.input('product', sql.NVarChar(300), product)
     const or = []
     for (let j = 0; j < batch.length; j++) {
       const p = `c${i}_${j}`
@@ -337,6 +383,7 @@ export async function deletePiBomProduct(tx, piNo, productKcaa01) {
       DELETE l
       FROM ${PI_BOM_LIST_FROM} AS l
       WHERE LTRIM(RTRIM(ISNULL(l.[sid], N''))) = @pi
+        AND ${PI_LIST_PKCAA01_EXPR} = @product
         AND (${or.join(' OR ')})
     `)
   }
@@ -373,6 +420,8 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
     err.code = 'BOM_NOT_FOUND'
     throw err
   }
+  await assertTableColumns(tx, PI_BOM_HEAD_TABLE, PI_BOM_HEAD_BOM000_SNAPSHOT_COLUMNS)
+  await assertTableColumns(tx, BOM_MASTER_TABLE, ['kcaa12', ...BOM000_EXTENDED_SNAPSHOT_COLUMNS])
   const copyMeta = await getPiBomListCopyColumnMeta(pool)
   // PI 头 systemcode/GUID 与 bom_000.GUID 同值，建树父键须与 UB_ERP_Bom_Sales 头一致
   const headSc = bomGuid
@@ -415,7 +464,15 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
   insHead.input('kcaa29', sql.NVarChar(100), String(master.kcaa29 ?? ''))
   insHead.input('kcaa30', sql.Decimal(18, 6), toNullableNumber(master.kcaa30))
   insHead.input('kcaa31', sql.NVarChar(100), String(master.kcaa31 ?? ''))
-  insHead.input('type', sql.Int, toNullableNumber(master.type))
+  insHead.input('kcaa12', sql.Int, master.kcaa12)
+  insHead.input('kcaa02_en', sql.NVarChar(500), String(master.kcaa02_en ?? ''))
+  insHead.input('kcaa32', sql.Decimal(18, 6), master.kcaa32)
+  insHead.input('kcaa33', sql.Decimal(18, 6), master.kcaa33)
+  insHead.input('kcaa34', sql.NVarChar(80), String(master.kcaa34 ?? ''))
+  insHead.input('kcaa35', sql.NVarChar(80), String(master.kcaa35 ?? ''))
+  insHead.input('sale_price', sql.Decimal(18, 6), master.sale_price)
+  insHead.input('cost_price', sql.Decimal(18, 6), master.cost_price)
+  insHead.input('type', sql.Int, master.type ?? 1)
   insHead.input('location', sql.NVarChar(200), String(master.location ?? ''))
   const versionNo = Number(master.version)
   insHead.input('version', sql.Int, Number.isFinite(versionNo) ? versionNo : null)
@@ -428,13 +485,15 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
   await insHead.query(`
     INSERT INTO ${PI_BOM_HEAD_FROM} (
       [sid], [kcaa01], [GUID], [systemcode], [kcaa02], [kcaa03], [kcaa04], [kcaa05], [kcaa06],
-      [kcaa09], [kcaa10], [kcaa11], [kcaa14], [kcaa15], [kcaa25], [kcaa26], [kcaa27], [kcaa28],
-      [kcaa29], [kcaa30], [kcaa31], [type], [location], [version], [remark],
+      [kcaa09], [kcaa10], [kcaa11], [kcaa12], [kcaa14], [kcaa15], [kcaa25], [kcaa26], [kcaa27], [kcaa28],
+      [kcaa29], [kcaa30], [kcaa31], [kcaa02_en], [kcaa32], [kcaa33], [kcaa34], [kcaa35],
+      [sale_price], [cost_price], [type], [location], [version], [remark],
       [uname], [utruename], [uid], [addtime], [del], [pass]
     ) VALUES (
       @sid, @kcaa01, @headGuidAndSystemcode, @headGuidAndSystemcode, @kcaa02, @kcaa03, @kcaa04, @kcaa05, @kcaa06,
-      @kcaa09, @kcaa10, @kcaa11, @kcaa14, @kcaa15, @kcaa25, @kcaa26, @kcaa27, @kcaa28,
-      @kcaa29, @kcaa30, @kcaa31, @type, @location, @version, @headRemark,
+      @kcaa09, @kcaa10, @kcaa11, @kcaa12, @kcaa14, @kcaa15, @kcaa25, @kcaa26, @kcaa27, @kcaa28,
+      @kcaa29, @kcaa30, @kcaa31, @kcaa02_en, @kcaa32, @kcaa33, @kcaa34, @kcaa35,
+      @sale_price, @cost_price, @type, @location, @version, @headRemark,
       @uname, @utruename, @uid, @addtime, N'0', @headPass
     )
   `)

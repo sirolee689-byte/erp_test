@@ -709,7 +709,7 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
       let systemcodeSeq = 0
       const nextSystemcode = () => {
         systemcodeSeq += 1
-        return allocatePaperPatternBomSystemcode(actor.uidInt ?? actor.uname ?? '', systemcodeSeq)
+        return allocatePaperPatternBomSystemcode(actorForBom.uidInt ?? actorForBom.uname ?? '', systemcodeSeq)
       }
 
       let bomPartsInsertedTotal = 0
@@ -820,7 +820,7 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
       }
 
       await insertPaperPatternSystemUploadFileInTx(transaction, {
-        actor,
+        actor: actorForBom,
         addtime: archiveAddtime,
         ip: clientIp,
         filename: archiveMeta.filename,

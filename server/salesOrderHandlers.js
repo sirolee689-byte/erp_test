@@ -13,6 +13,11 @@ import {
   parseSalesOrderListQuery,
   pickSalesOrderCalcStatusColumn,
 } from './salesOrderListQuery.js'
+import {
+  buildSalesOrderCanAddSpareUsageSqlExpr,
+  buildSalesOrderHasSparePartsSqlExpr,
+  buildSalesOrderIsPureSpareOrderSqlExpr,
+} from './salesOrderSpareParts.js'
 import { assertPiNoUnique, createSalesOrder, getClientIpFromReq, updateSalesOrder } from './salesOrderSaveService.js'
 import {
   approveSalesOrder,
@@ -24,6 +29,7 @@ import {
 } from './salesOrderLifecycle.js'
 import { syncSalesOrderBomForLine } from './salesOrderSyncBomService.js'
 import { calculateSalesOrderMaterialBill } from './salesOrderCalculateService.js'
+import { addSalesOrderSpareUsage } from './salesOrderSpareUsageService.js'
 import { fetchSalesOrderMaterialBill } from './salesOrderMaterialBillService.js'
 import {
   fetchSalesOrderPiBom,
@@ -32,6 +38,7 @@ import {
 
 const HEADER_FROM = `dbo.[${SALES_ORDER_HEADER_TABLE}]`
 const LINE_FROM = 'dbo.[UB_ERP_Sales_order_list]'
+const PI_COST_FROM = 'dbo.[UB_ERP_Bom_pi_cost]'
 
 /** @type {Promise<string> | null} */
 let CALC_STATUS_COL_PROMISE = null
@@ -64,7 +71,26 @@ function serializeRow(row) {
     else o[k] = v
   }
   if (o.id != null) o.id = Number(o.id)
+  if (Object.prototype.hasOwnProperty.call(o, 'hasSpareParts')) {
+    o.hasSpareParts = Number(o.hasSpareParts ?? 0) === 1
+  }
+  if (Object.prototype.hasOwnProperty.call(o, 'isPureSpareOrder')) {
+    o.isPureSpareOrder = Number(o.isPureSpareOrder ?? 0) === 1
+  }
+  if (Object.prototype.hasOwnProperty.call(o, 'canAddSpareUsage')) {
+    o.canAddSpareUsage = Number(o.canAddSpareUsage ?? 0) === 1
+  }
   return o
+}
+
+function formatSalesOrderLineUsageCostText(row) {
+  const count = Number(row?.piCostRowCount ?? 0)
+  if (!Number.isFinite(count) || count <= 0) return '-'
+  const sum4 = Number(row?.piCostKcac04Total ?? 0)
+  const sum6 = Number(row?.piCostKcac06Total ?? 0)
+  const s4 = Number.isFinite(sum4) ? sum4.toFixed(4) : '0.0000'
+  const s6 = Number.isFinite(sum6) ? sum6.toFixed(4) : '0.0000'
+  return `成本：${s4},${s6}`
 }
 
 /**
@@ -392,7 +418,10 @@ export function registerSalesOrderRoutes(app, deps) {
           LTRIM(RTRIM(ISNULL(h.[del], N''))) AS del,
           LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(h.[decimal_view], N'')))) AS decimalPlaces,
           LTRIM(RTRIM(CONVERT(nvarchar(max), ISNULL(h.[remark], N'')))) AS remark,
-          ${calcStatusExpr} AS calcStatus
+          ${calcStatusExpr} AS calcStatus,
+          ${buildSalesOrderHasSparePartsSqlExpr('h')} AS hasSpareParts,
+          ${buildSalesOrderIsPureSpareOrderSqlExpr('h')} AS isPureSpareOrder,
+          ${buildSalesOrderCanAddSpareUsageSqlExpr('h')} AS canAddSpareUsage
         FROM ${HEADER_FROM} AS h
         WHERE h.[id] = @id
       `)
@@ -419,8 +448,22 @@ export function registerSalesOrderRoutes(app, deps) {
           LTRIM(RTRIM(CONVERT(nvarchar(max), ISNULL(l.[remark], N'')))) AS remark,
           LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa10], N'')))) AS groupName,
           LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa09], N'')))) AS factoryStyleNo,
-          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[version], N'')))) AS version
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[version], N'')))) AS version,
+          ISNULL(pc.[rowCount], 0) AS piCostRowCount,
+          CAST(ISNULL(pc.[totalKcac04], 0) AS decimal(18, 6)) AS piCostKcac04Total,
+          CAST(ISNULL(pc.[totalKcac06], 0) AS decimal(18, 6)) AS piCostKcac06Total
         FROM ${LINE_FROM} AS l
+        LEFT JOIN (
+          SELECT
+            LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[pq], N'')))) AS pq,
+            COUNT_BIG(1) AS [rowCount],
+            ISNULL(SUM(ISNULL(CONVERT(decimal(18, 6), c.[kcac04]), 0)), 0) AS totalKcac04,
+            ISNULL(SUM(ISNULL(CONVERT(decimal(18, 6), c.[kcac06]), 0)), 0) AS totalKcac06
+          FROM ${PI_COST_FROM} AS c
+          WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.[sid], N'')))) = @piNo
+          GROUP BY LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[pq], N''))))
+        ) AS pc
+          ON pc.[pq] = LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N''))))
         WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[xsak01], N'')))) = @piNo
         ORDER BY ISNULL(l.[seq], l.[id]) ASC
       `)
@@ -430,7 +473,11 @@ export function registerSalesOrderRoutes(app, deps) {
         msg: 'success',
         data: {
           header: serializeRow(header),
-          lines: (lr.recordset ?? []).map((row) => serializeRow(row)),
+          lines: (lr.recordset ?? []).map((row) => {
+            const line = serializeRow(row)
+            line.usageCostText = formatSalesOrderLineUsageCostText(row)
+            return line
+          }),
         },
       })
     } catch (err) {
@@ -507,6 +554,48 @@ export function registerSalesOrderRoutes(app, deps) {
       console.error('POST /api/sales-order/:id/calculate 失败：', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? '运算失败')
       res.status(500).json({ code: 500, msg: `一键运算失败：${detail}`, data: null })
+    }
+  })
+
+  /**
+   * POST /api/sales-order/:id/add-spare-usage
+   * 增加散件单用量：仅写 UB_ERP_Bom_pi_cost（不写 pi_consumption）
+   */
+  app.post('/api/sales-order/:id/add-spare-usage', async (req, res) => {
+    try {
+      const parsed = parseSalesOrderId(req.params.id)
+      if (!parsed.ok) {
+        res.status(400).json({ code: 400, msg: parsed.msg, data: null })
+        return
+      }
+      const pool = await getPool()
+      const actor = await getSalesOrderActor(pool, req)
+      const ip = getClientIpFromReq(req)
+      const result = await addSalesOrderSpareUsage({
+        pool,
+        id: parsed.id,
+        actor,
+        ip,
+      })
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({
+        code: 200,
+        msg: '散件单用量已增加',
+        data: {
+          id: parsed.id,
+          piNo: result.piNo,
+          spareCount: result.spareCount,
+          rowCount: result.rowCount,
+          calcStatus: result.calcStatus,
+        },
+      })
+    } catch (err) {
+      console.error('POST /api/sales-order/:id/add-spare-usage 失败：', err)
+      const detail = String(err?.message ?? err?.originalError?.message ?? '增加散件单用量失败')
+      res.status(500).json({ code: 500, msg: `增加散件单用量失败：${detail}`, data: null })
     }
   })
 

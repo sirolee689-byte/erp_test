@@ -247,6 +247,12 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
     },
   },
   {
+    method: 'POST',
+    path: /^\/api\/sales-order\/\d+\/add-spare-usage$/,
+    action: '增加散件单用量',
+    targetTable: 'UB_ERP_Bom_pi_cost',
+  },
+  {
     method: 'GET',
     path: /^\/api\/sales-order\/\d+\/material-bill$/,
     action: '查看销售订单物料单',

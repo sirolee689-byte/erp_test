@@ -113,6 +113,7 @@
                   <el-button type="info" plain @click.stop="openView(row)">查看</el-button>
                   <template v-if="!showRecycle">
                     <el-button
+                      v-if="!row.isPureSpareOrder"
                       v-permission="'edit'"
                       type="warning"
                       plain
@@ -121,6 +122,25 @@
                     >
                       一键运算
                     </el-button>
+                    <el-tooltip
+                      v-if="row.hasSpareParts"
+                      :disabled="row.canAddSpareUsage"
+                      content="混单须先一键运算整款，再增加散件单用量"
+                      placement="top"
+                    >
+                      <span class="erp-action-tooltip-wrap">
+                        <el-button
+                          v-permission="'edit'"
+                          type="success"
+                          plain
+                          :disabled="!row.canAddSpareUsage"
+                          :loading="spareUsageLoading"
+                          @click.stop="addSpareUsage(row)"
+                        >
+                          增加散件单用量
+                        </el-button>
+                      </span>
+                    </el-tooltip>
                     <el-button
                       v-if="!passIsAudited(row)"
                       v-permission="'edit'"
@@ -203,17 +223,17 @@
                         </el-button>
                       </template>
                     </el-table-column>
-                    <el-table-column label="客款号" prop="customerStyleNo" min-width="120" show-overflow-tooltip />
-                    <el-table-column label="厂款号" prop="factoryStyleNo" min-width="120" show-overflow-tooltip />
-                    <el-table-column label="名称" prop="materialNameCn" min-width="160" show-overflow-tooltip />
-                    <el-table-column label="规格" prop="spec" min-width="120" show-overflow-tooltip />
-                    <el-table-column label="组别" prop="groupName" min-width="100" show-overflow-tooltip />
-                    <el-table-column label="单位" prop="unit" width="82" show-overflow-tooltip />
-                    <el-table-column label="数量" width="100" align="right">
+                    <el-table-column label="客款号" prop="customerStyleNo" min-width="150" show-overflow-tooltip />
+                    <el-table-column label="厂款号" prop="factoryStyleNo" min-width="150" show-overflow-tooltip />
+                    <el-table-column label="名称" prop="materialNameCn" min-width="220" show-overflow-tooltip />
+                    <el-table-column label="规格" prop="spec" min-width="220" show-overflow-tooltip />
+                    <el-table-column label="组别" prop="groupName" min-width="120" show-overflow-tooltip />
+                    <el-table-column label="单位" prop="unit" width="90" show-overflow-tooltip />
+                    <el-table-column label="数量" width="130" align="right">
                       <template #default="{ row: line }">{{ formatOrderQty(line.orderQty) }}</template>
                     </el-table-column>
-                    <el-table-column label="用量" width="90" align="right">
-                      <template #default> </template>
+                    <el-table-column label="用量" width="220" align="right">
+                      <template #default="{ row: line }">{{ formatUsageCostText(line.usageCostText) }}</template>
                     </el-table-column>
                     <el-table-column label="单价" width="110" align="right">
                       <template #default="{ row: line }">{{ formatMoney(line.unitPrice) }}</template>
@@ -221,7 +241,7 @@
                     <el-table-column label="金额" width="118" align="right">
                       <template #default="{ row: line }">{{ formatMoney(getDisplayLineAmount(line)) }}</template>
                     </el-table-column>
-                    <el-table-column label="备注" prop="remark" min-width="160" show-overflow-tooltip />
+                    <el-table-column label="备注" prop="remark" min-width="220" show-overflow-tooltip />
                   </el-table>
                   <el-empty v-else-if="!row.__linesLoading" description="暂无明细" />
                 </div>
@@ -857,7 +877,7 @@ const page = ref(1)
 const pageSize = ref(20)
 
 const mainTableRef = ref(null)
-const salesOrderActionsColWidth = computed(() => getErpTableActionsColMinWidth(5))
+const salesOrderActionsColWidth = computed(() => getErpTableActionsColMinWidth(6))
 
 const viewVisible = ref(false)
 const viewLoading = ref(false)
@@ -896,6 +916,7 @@ const editHeaderPass = ref('0')
 /** 编辑弹窗运算状态（与列表 calcStatus 一致） */
 const editHeaderCalcStatus = ref('未运算')
 const calculateLoading = ref(false)
+const spareUsageLoading = ref(false)
 /** 本次会话内已同步 BOM、待部分重算的款号 */
 const syncedSinceCalc = ref([])
 /** 打开编辑时保存快照，用于运算前未保存拦截 */
@@ -930,6 +951,11 @@ function getDisplayLineAmount(row) {
   const amount = Number(row?.amount)
   if (Number.isFinite(amount)) return amount
   return getLineAmount(row)
+}
+
+function formatUsageCostText(value) {
+  const text = String(value ?? '').trim()
+  return text || '-'
 }
 
 function formatMoney(value) {
@@ -989,6 +1015,42 @@ async function calculateOrder(row, fromEdit) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '运算失败'))
   } finally {
     calculateLoading.value = false
+  }
+}
+
+/**
+ * @param {{ id: number, hasSpareParts?: boolean }} row
+ */
+async function addSpareUsage(row) {
+  const orderId = Number(row?.id)
+  if (!orderId || !row?.hasSpareParts || !row?.canAddSpareUsage) return
+  try {
+    await ElMessageBox.confirm(
+      '将为散件明细写入自用量（kcac04=1，不乘订货数量），仅更新 UB_ERP_Bom_pi_cost。确认继续？',
+      '增加散件单用量',
+      {
+        type: 'warning',
+        confirmButtonText: '确认',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch {
+    return
+  }
+  spareUsageLoading.value = true
+  try {
+    const res = await axios.post(`/api/sales-order/${orderId}/add-spare-usage`)
+    ElMessage.success(res?.data?.msg ?? '散件单用量已增加')
+    if (viewVisible.value && viewHeader.value?.id === orderId) {
+      const detail = await axios.get(`/api/sales-order/${orderId}`)
+      viewHeader.value = detail?.data?.data?.header ?? viewHeader.value
+      viewLines.value = Array.isArray(detail?.data?.data?.lines) ? detail.data.data.lines : viewLines.value
+    }
+    await loadData()
+  } catch (e) {
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '增加散件单用量失败'))
+  } finally {
+    spareUsageLoading.value = false
   }
 }
 
@@ -1888,6 +1950,9 @@ onUnmounted(() => {
 }
 .so-pi-bom-num :deep(.el-input__inner) {
   text-align: right;
+}
+.erp-action-tooltip-wrap {
+  display: inline-block;
 }
 </style>
 

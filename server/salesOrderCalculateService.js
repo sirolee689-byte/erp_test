@@ -32,6 +32,12 @@ import {
   resolveMaterialBillCalculateScope,
   validateCalculateOrderState,
 } from './salesOrderCalculateLogic.js'
+import { allOrderLinesHavePiCost } from './salesOrderPiCostCoverage.js'
+import {
+  fetchBomCodeExcludePrefixes,
+  filterWholeProductOrderLines,
+  orderLinesIsPureSpare,
+} from './salesOrderSpareParts.js'
 import {
   buildSalesOrderCalcStatusExpr,
   pickSalesOrderCalcStatusColumn,
@@ -329,6 +335,19 @@ export async function calculateSalesOrderMaterialBill(opts) {
   })
   if (!scope.ok) return { ok: false, status: 400, msg: scope.msg }
 
+  const excludePrefixes = await fetchBomCodeExcludePrefixes(pool)
+  if (orderLinesIsPureSpare(orderLines, excludePrefixes)) {
+    return { ok: false, status: 400, msg: '纯散件单请使用「增加散件单用量」，无需一键运算' }
+  }
+
+  const wholeCodeSet = new Set(
+    filterWholeProductOrderLines(orderLines, excludePrefixes).map((line) => line.kcaa01),
+  )
+  scope.products = scope.products.filter((code) => wholeCodeSet.has(normKcaa01(code)))
+  if (!scope.products.length) {
+    return { ok: false, status: 400, msg: '当前订单无整款明细，无法一键运算' }
+  }
+
   const hasConsumption = await piConsumptionTableExists(pool)
   const calcCol = await ensureCalcStatusColumn(pool)
   const tx = new sql.Transaction(pool)
@@ -375,8 +394,7 @@ export async function calculateSalesOrderMaterialBill(opts) {
     up.input('ip', sql.NVarChar(100), ip)
     await up.query(`
       UPDATE ${HEADER_FROM}
-      SET [${calcCol}] = N'1',
-          [uname] = @uname,
+      SET [uname] = @uname,
           [utruename] = @utruename,
           [uid] = @uid,
           [edittime] = @edittime,
@@ -385,12 +403,24 @@ export async function calculateSalesOrderMaterialBill(opts) {
     `)
 
     await tx.commit()
+
+    const allCovered = await allOrderLinesHavePiCost(pool, piNo, lineCodes)
+    const calcVal = allCovered ? '1' : '0'
+    const mark = pool.request()
+    mark.input('id', sql.Int, id)
+    mark.input('calcVal', sql.NVarChar(10), calcVal)
+    await mark.query(`
+      UPDATE ${HEADER_FROM}
+      SET [${calcCol}] = @calcVal
+      WHERE [id] = @id
+    `)
+
     return {
       ok: true,
       piNo,
       mode: scope.mode,
       productCount: scope.products.length,
-      calcStatus: '已运算',
+      calcStatus: allCovered ? '已运算' : '未运算',
     }
   } catch (err) {
     try {

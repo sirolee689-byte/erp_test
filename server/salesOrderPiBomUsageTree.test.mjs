@@ -269,4 +269,99 @@ describe('salesOrderPiBomUsageTree', () => {
     const bn5 = cut10?.children?.find((c) => c.kcaa01 === 'BN-0005/-')
     assert.equal(bn5?.children?.filter((c) => c.kcaa01 === 'BN-0008/-').length ?? 0, 1)
   })
+
+  test('多明细款共用 kcac01 父键时 pkcaa01 预过滤后各款树互不影响', () => {
+    const sharedBn5 = '637E4014-AAC0-492D-87EF-30F1930A89E2'
+    const scCut101 = 'SC-CUT-10-1'
+    const productA = 'PQ-3633A1/BLU4'
+    const productB = 'PQ-3119B2/GRN'
+
+    /** 模拟 prefetchPiBomListLayers 已按 pkcaa01 过滤后的 BLU4 层缓存 */
+    /** @type {Map<string, Record<string, unknown>[]>} */
+    const blu4Cache = new Map([
+      [
+        'HEAD-A',
+        [
+          {
+            id: 2,
+            kcaa01: 'CUT-BAG<10-1>',
+            kcac01: 'HEAD-A',
+            kcac02: scCut101,
+            systemcode: scCut101,
+            kcac04: 1,
+            kcac05: 0,
+          },
+        ],
+      ],
+      [
+        scCut101,
+        [
+          {
+            id: 10,
+            kcaa01: 'BN-0005/-',
+            kcac01: scCut101,
+            kcac02: sharedBn5,
+            systemcode: sharedBn5,
+            kcac04: 1,
+            kcac05: 0,
+          },
+        ],
+      ],
+      [
+        sharedBn5,
+        [
+          {
+            id: 100,
+            kcaa01: 'BN-0008/-',
+            kcac01: sharedBn5,
+            kcac02: '',
+            systemcode: 'SC-8-BLU4',
+            kcac04: 1,
+            kcac05: 0,
+          },
+        ],
+      ],
+    ])
+
+    /** 若未过滤，sharedBn5 下还会有 GRN 的 BN-0008 */
+    /** @type {Map<string, Record<string, unknown>[]>} */
+    const mixedCache = new Map(blu4Cache)
+    mixedCache.set(sharedBn5, [
+      ...(blu4Cache.get(sharedBn5) ?? []),
+      {
+        id: 200,
+        kcaa01: 'BN-0008/-',
+        kcac01: sharedBn5,
+        kcac02: '',
+        systemcode: 'SC-8-GRN',
+        kcac04: 1,
+        kcac05: 0,
+      },
+    ])
+
+    const treeFiltered = buildPiBomUsageTreeNodesFromLayerCache(
+      'HEAD-A',
+      1,
+      new Set(['HEAD-A']),
+      blu4Cache,
+      productA,
+    )
+    const treeMixed = buildPiBomUsageTreeNodesFromLayerCache(
+      'HEAD-A',
+      1,
+      new Set(['HEAD-A']),
+      mixedCache,
+      productA,
+    )
+
+    function bn08Under101(tree) {
+      const cut = tree.find((n) => n.kcaa01 === 'CUT-BAG<10-1>')
+      const bn5 = cut?.children?.find((c) => c.kcaa01 === 'BN-0005/-')
+      return bn5?.children?.filter((c) => c.kcaa01 === 'BN-0008/-').length ?? 0
+    }
+
+    assert.equal(bn08Under101(treeFiltered), 1, `${productA} 过滤后 10-1 下应 1 行 BN-0008`)
+    assert.equal(bn08Under101(treeMixed), 2, '未按 pkcaa01 过滤时会误读另一明细款')
+    assert.notEqual(productA, productB)
+  })
 })

@@ -3,7 +3,7 @@
  */
 import { sql } from './db.js'
 import { normKcaa01 } from './salesOrderSaveLogic.js'
-import { formatSalesOrderAuditTime, collectPiBomSubtreeParentCodes } from './salesOrderPiBom.js'
+import { formatSalesOrderAuditTime, collectPiBomSubtreeParentCodes, PI_LIST_PKCAA01_EXPR } from './salesOrderPiBom.js'
 import {
   buildPiBomUsageTreeForProduct,
   fetchPiBomHeadSystemcode,
@@ -151,7 +151,8 @@ function applyDisplayToPiBomTree(nodes, displayMap) {
 async function fetchPiBomListRowIdsForProduct(tx, piNo, productKcaa01) {
   const headSc = await fetchPiBomHeadSystemcode(tx, piNo, productKcaa01)
   if (!headSc) return []
-  const subtree = await collectPiBomSubtreeParentCodes(tx, piNo, headSc)
+  const product = normKcaa01(productKcaa01)
+  const subtree = await collectPiBomSubtreeParentCodes(tx, piNo, headSc, product)
   const parents = [...subtree]
   if (!parents.length) return []
 
@@ -161,6 +162,7 @@ async function fetchPiBomListRowIdsForProduct(tx, piNo, productKcaa01) {
     const batch = parents.slice(i, i + 40)
     const req = new sql.Request(tx)
     req.input('pi', sql.NVarChar(200), normKcaa01(piNo))
+    req.input('product', sql.NVarChar(300), product)
     const or = []
     for (let j = 0; j < batch.length; j++) {
       const p = `pp${i}_${j}`
@@ -171,6 +173,7 @@ async function fetchPiBomListRowIdsForProduct(tx, piNo, productKcaa01) {
       SELECT l.[id]
       FROM ${PI_BOM_LIST_FROM} AS l
       WHERE LTRIM(RTRIM(ISNULL(l.[sid], N''))) = @pi
+        AND ${PI_LIST_PKCAA01_EXPR} = @product
         AND (${or.join(' OR ')})
     `)
     for (const row of r.recordset ?? []) {

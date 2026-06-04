@@ -20,6 +20,11 @@ import {
   INV_BOM_MASTER_FROM as BOM_MASTER_FROM,
   INV_BOM_MASTER_TABLE as BOM_MASTER_TABLE,
 } from './bomTables.js'
+import {
+  BOM000_EXTENDED_SNAPSHOT_COLUMNS,
+  mapBom000ExtendedSnapshotRow,
+  SALES_ORDER_LINE_BOM000_EXTENDED_COLUMNS,
+} from './salesOrderLineBom000Snapshot.js'
 
 const HEADER_FROM = `dbo.[${SALES_ORDER_HEADER_TABLE}]`
 const LINE_TABLE = 'UB_ERP_Sales_order_list'
@@ -53,6 +58,7 @@ const SALES_ORDER_LINE_REQUIRED_COLUMNS = [
   'location',
   'remark',
   'pass',
+  ...SALES_ORDER_LINE_BOM000_EXTENDED_COLUMNS,
 ]
 const BOM_SNAPSHOT_REQUIRED_COLUMNS = [
   'GUID',
@@ -75,6 +81,7 @@ const BOM_SNAPSHOT_REQUIRED_COLUMNS = [
   'location',
   'remark',
   'pass',
+  ...BOM000_EXTENDED_SNAPSHOT_COLUMNS,
 ]
 
 export function buildSalesOrderGuid() {
@@ -216,13 +223,22 @@ export async function fetchBom000SnapshotForLine(db, kcaa01) {
       LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(b.[pass], N'')))) AS pass,
       LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa09], N'')))) AS kcaa09,
       LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa10], N'')))) AS kcaa10,
-      b.[version] AS version
+      b.[version] AS version,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.[kcaa02_en], N'')))) AS kcaa02_en,
+      b.[kcaa32] AS kcaa32,
+      b.[kcaa33] AS kcaa33,
+      LTRIM(RTRIM(CONVERT(nvarchar(80), ISNULL(b.[kcaa34], N'')))) AS kcaa34,
+      LTRIM(RTRIM(CONVERT(nvarchar(80), ISNULL(b.[kcaa35], N'')))) AS kcaa35,
+      b.[sale_price] AS sale_price,
+      b.[cost_price] AS cost_price
     FROM ${BOM_MASTER_FROM} AS b
     WHERE LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.[kcaa01], N'')))) = @kcaa01
       AND (ISNULL(b.[del], N'') = N'' OR b.[del] = N'0')
     ORDER BY b.[id] DESC
   `)
-  return r.recordset?.[0] ?? null
+  const row = r.recordset?.[0]
+  if (!row) return null
+  return { ...row, ...mapBom000ExtendedSnapshotRow(row) }
 }
 
 /**
@@ -318,7 +334,14 @@ async function replaceOrderLines(tx, piNo, mergedLines, actor) {
     ins.input('kcaa31', sql.NVarChar(100), String(snap.kcaa31 ?? ''))
     ins.input('kcaa09', sql.NVarChar(100), String(snap.kcaa09 ?? ''))
     ins.input('kcaa10', sql.NVarChar(100), String(snap.kcaa10 ?? ''))
-    ins.input('type', sql.Int, toNullableNumber(snap.type))
+    ins.input('type', sql.Int, snap.type ?? 1)
+    ins.input('kcaa02_en', sql.NVarChar(500), String(snap.kcaa02_en ?? ''))
+    ins.input('kcaa32', sql.Decimal(18, 6), snap.kcaa32)
+    ins.input('kcaa33', sql.Decimal(18, 6), snap.kcaa33)
+    ins.input('kcaa34', sql.NVarChar(80), String(snap.kcaa34 ?? ''))
+    ins.input('kcaa35', sql.NVarChar(80), String(snap.kcaa35 ?? ''))
+    ins.input('sale_price', sql.Decimal(18, 6), snap.sale_price)
+    ins.input('cost_price', sql.Decimal(18, 6), snap.cost_price)
     ins.input('location', sql.NVarChar(200), String(snap.location ?? ''))
     const versionNo = Number(snap.version)
     ins.input('version', sql.Int, Number.isFinite(versionNo) ? versionNo : null)
@@ -334,14 +357,16 @@ async function replaceOrderLines(tx, piNo, mergedLines, actor) {
         [kcaa01], [xsak03], [plan_quantity], [xsak04], [xsak05],
         [kcaa02], [kcaa03], [kcaa04], [kcaa05], [kcaa06], [kcaa07], [kcaa08], [kcaa09], [kcaa10],
         [kcaa11], [kcaa12], [kcaa13], [kcaa14], [kcaa15], [kcaa25], [kcaa26], [kcaa16], [kcaa27], [kcaa28],
-        [kcaa29], [kcaa30], [kcaa31], [type], [location], [version], [remark],
+        [kcaa29], [kcaa30], [kcaa31], [kcaa02_en], [kcaa32], [kcaa33], [kcaa34], [kcaa35],
+        [sale_price], [cost_price], [type], [location], [version], [remark],
         [uname], [utruename], [uid], [addtime], [del], [pass]
       ) VALUES (
         @xsak01, @seq, @xsak02, @kcac01, @kcac02, @kcac03, @guid, @systemcode,
         @kcaa01, @xsak03, @plan_quantity, @xsak04, @xsak05,
         @kcaa02, @kcaa03, @kcaa04, @kcaa05, @kcaa06, @kcaa07, @kcaa08, @kcaa09, @kcaa10,
         @kcaa11, @kcaa12, @kcaa13, @kcaa14, @kcaa15, @kcaa25, @kcaa26, @kcaa16, @kcaa27, @kcaa28,
-        @kcaa29, @kcaa30, @kcaa31, @type, @location, @version, @lineRemark,
+        @kcaa29, @kcaa30, @kcaa31, @kcaa02_en, @kcaa32, @kcaa33, @kcaa34, @kcaa35,
+        @sale_price, @cost_price, @type, @location, @version, @lineRemark,
         @uname, @utruename, @uid, @addtime, N'0', @linePass
       )
     `)

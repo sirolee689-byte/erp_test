@@ -7,6 +7,7 @@ import {
   normalizeUsageTreeParentKey,
   usageTreeChildParentKey,
 } from './bomUsageTreeBuild.js'
+import { PI_LIST_PKCAA01_EXPR } from './salesOrderPiBom.js'
 import { normKcaa01 } from './salesOrderSaveLogic.js'
 
 const PI_BOM_LIST_FROM = 'dbo.[UB_ERP_Bom_Sales_list]'
@@ -20,18 +21,21 @@ const LAYER_BATCH = BOM_USAGE_TREE_LAYER_BATCH_SIZE
  * @param {import('mssql').ConnectionPool | import('mssql').Transaction} db
  * @param {string} piNo
  * @param {string[]} parentCodes
+ * @param {string} productKcaa01 订单明细款号（pkcaa01 过滤，多明细 PI 隔离）
  */
-export async function prefetchPiBomListLayers(db, piNo, parentCodes) {
+export async function prefetchPiBomListLayers(db, piNo, parentCodes, productKcaa01) {
   /** @type {Map<string, Record<string, unknown>[]>} */
   const out = new Map()
   const pi = normKcaa01(piNo)
+  const product = normKcaa01(productKcaa01)
   const uniq = [...new Set(parentCodes.map((p) => normalizeUsageTreeParentKey(p)).filter(Boolean))]
-  if (!uniq.length) return out
+  if (!uniq.length || !product) return out
 
   for (let i = 0; i < uniq.length; i += LAYER_BATCH) {
     const chunk = uniq.slice(i, i + LAYER_BATCH)
     const req = new sql.Request(db)
     req.input('pi', sql.NVarChar(200), pi)
+    req.input('product', sql.NVarChar(300), product)
     const orParts = []
     for (let j = 0; j < chunk.length; j++) {
       const pname = `pp${i}_${j}`
@@ -68,6 +72,7 @@ export async function prefetchPiBomListLayers(db, piNo, parentCodes) {
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[Describe], N'')))) AS Describe
       FROM ${PI_BOM_LIST_FROM} AS l
       WHERE LTRIM(RTRIM(ISNULL(l.[sid], N''))) = @pi
+        AND ${PI_LIST_PKCAA01_EXPR} = @product
         AND (${orParts.join(' OR ')})
       ORDER BY ${PI_LIST_KCAC01_EXPR}, ISNULL(l.[seq], l.[id]) ASC
     `)
@@ -208,8 +213,9 @@ export async function fetchPiBomHeadSystemcode(pool, piNo, productKcaa01) {
  * @param {import('mssql').ConnectionPool | import('mssql').Transaction} db
  * @param {string} piNo
  * @param {string} rootSystemcode
+ * @param {string} productKcaa01
  */
-export async function prefetchPiBomListLayersForUsageTree(db, piNo, rootSystemcode) {
+export async function prefetchPiBomListLayersForUsageTree(db, piNo, rootSystemcode, productKcaa01) {
   const root = normalizeUsageTreeParentKey(rootSystemcode)
   /** @type {Map<string, Record<string, unknown>[]>} */
   const cache = new Map()
@@ -222,7 +228,7 @@ export async function prefetchPiBomListLayersForUsageTree(db, piNo, rootSystemco
     const batch = [...pending].slice(0, LAYER_BATCH)
     for (const p of batch) pending.delete(p)
 
-    const fetched = await prefetchPiBomListLayers(db, piNo, batch)
+    const fetched = await prefetchPiBomListLayers(db, piNo, batch, productKcaa01)
     for (const [parent, rows] of fetched) {
       cache.set(parent, rows)
       for (const row of rows) {
@@ -247,7 +253,7 @@ export async function buildPiBomUsageTreeForProduct(pool, piNo, productKcaa01) {
     err.code = 'PI_BOM_MISSING'
     throw err
   }
-  const layerCache = await prefetchPiBomListLayersForUsageTree(pool, piNo, headSc)
+  const layerCache = await prefetchPiBomListLayersForUsageTree(pool, piNo, headSc, productKcaa01)
   const stack = new Set([headSc])
   return buildPiBomUsageTreeNodesFromLayerCache(
     headSc,

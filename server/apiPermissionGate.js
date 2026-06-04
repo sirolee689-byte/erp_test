@@ -601,6 +601,9 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'POST' && /^\/api\/sales-order\/\d+\/calculate$/.test(path)) {
     return { menuPath: 'supply-chain/daily/sales-order', action: 'edit' }
   }
+  if (m === 'POST' && /^\/api\/sales-order\/\d+\/add-spare-usage$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/sales-order', action: 'edit' }
+  }
   if (m === 'GET' && /^\/api\/sales-order\/\d+\/material-bill$/.test(path)) {
     return {
       anyOf: [
