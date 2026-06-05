@@ -1,6 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildMaterialBillCostLines } from './salesOrderMaterialBillService.js'
+import {
+  buildMaterialBillConsumptionLinesFromCost,
+  buildMaterialBillCostLines,
+} from './salesOrderMaterialBillService.js'
 
 test('buildMaterialBillCostLines returns px and sorts by pq then px then id', () => {
   const rows = [
@@ -21,4 +24,23 @@ test('buildMaterialBillCostLines returns px and sorts by pq then px then id', ()
   )
   assert.equal(out[0].orderQty, 5)
   assert.equal(out[0].prepQty, 5)
+})
+
+test('buildMaterialBillConsumptionLinesFromCost scales usage by orderQty before merge', () => {
+  const costLines = buildMaterialBillCostLines(
+    [
+      { id: 1, pq: 'PQ-A', kcaa01: 'MAT-1', kcac04: 0.5, kcac05: 0, kcac06: 0.5, Describe: '' },
+      { id: 2, pq: 'PQ-B', kcaa01: 'MAT-1', kcac04: 0.2, kcac05: 0, kcac06: 0.2, Describe: '' },
+    ],
+    new Map([
+      ['PQ-A', 100],
+      ['PQ-B', 200],
+    ]),
+  )
+  const out = buildMaterialBillConsumptionLinesFromCost(costLines)
+
+  assert.equal(out.length, 1)
+  assert.equal(out[0].kcaa01, 'MAT-1')
+  assert.equal(out[0].sumay, 90)
+  assert.equal(out[0].sumby, 90)
 })

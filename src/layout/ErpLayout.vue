@@ -92,9 +92,12 @@
             </el-tabs>
           </div>
         </template>
-        <router-view v-slot="{ Component }">
-          <keep-alive :include="cachedAliveNames">
-            <component :is="Component" :key="routeComponentKey" />
+        <router-view v-slot="{ Component, route: viewRoute }">
+          <keep-alive :include="cachedAliveNames" :max="40">
+            <component
+              :is="resolveRouteAliveComponent(Component, viewRoute.name)"
+              :key="routeComponentKey"
+            />
           </keep-alive>
         </router-view>
       </ErpAppMain>
@@ -138,6 +141,7 @@ import { useTagsViewStore } from '@/store/modules/tagsView'
 import { useUiDensity } from '@/composables/useUiDensity'
 import ErpAppMain from './ErpAppMain.vue'
 import ErpSidebar from './ErpSidebar.vue'
+import { resolveRouteAliveComponent } from './resolveRouteAliveComponent.js'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, Edit, Expand, Fold, SwitchButton, UserFilled } from '@element-plus/icons-vue'

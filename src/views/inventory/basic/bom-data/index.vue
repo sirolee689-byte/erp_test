@@ -4,5 +4,8 @@
 </template>
 
 <script setup>
+// 与 router 生成的 route.name 一致，供布局 keep-alive 按组件名缓存
+defineOptions({ name: 'inventory-basic-bom-data' })
+
 import InvBomList from '@/views/inv/bom/index.vue'
 </script>

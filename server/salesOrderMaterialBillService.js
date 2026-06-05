@@ -45,6 +45,45 @@ function materialBillPxSortValue(row) {
   return Number.isFinite(n) ? n : null
 }
 
+/**
+ * 物料单汇总展示：各款单品用量 × 该款订单量后，再按子件编码 + 搭配合并
+ * @param {{ kcac04: number, kcac05: number, kcac06: number, orderQty: number, kcaa01: string, kcaa02: string, kcaa03: string, kcaa04: string, Describe: string }[]} costLines
+ */
+export function buildMaterialBillConsumptionLinesFromCost(costLines) {
+  const list = Array.isArray(costLines) ? costLines : []
+  const merged = aggregateBomConsumptionFromFlat(
+    list.map((row) => {
+      const orderQty = Number(row.orderQty ?? 0)
+      const usage = Number(row.kcac04 ?? 0)
+      const totalQty = Number(row.kcac06 ?? 0)
+      const scaledUsage = Number.isFinite(orderQty) ? usage * orderQty : 0
+      const scaledTotal = Number.isFinite(orderQty) ? totalQty * orderQty : 0
+      return {
+        kcaa01: row.kcaa01,
+        kcaa02: row.kcaa02,
+        kcaa03: row.kcaa03,
+        kcaa04: row.kcaa04,
+        Describe: row.Describe,
+        yl: scaledUsage,
+        loss_rate: Number(row.kcac05 ?? 0),
+        total_qty: scaledTotal,
+      }
+    }),
+    [],
+  )
+  return merged.map((row, idx) => ({
+    id: idx + 1,
+    kcaa01: row.kcaa01,
+    kcaa02: row.kcaa02,
+    kcaa03: row.kcaa03,
+    kcaa04: row.kcaa04,
+    sumay: row.sumay,
+    sumby: row.sumby,
+    kcac05: row.kcac05,
+    Describe: row.Describe,
+  }))
+}
+
 export function buildMaterialBillCostLines(recordset, qtyByProduct = new Map()) {
   const rows = Array.isArray(recordset) ? [...recordset] : []
   rows.sort((a, b) => {
@@ -184,67 +223,8 @@ export async function fetchSalesOrderMaterialBill(pool, id) {
 
   const costLines = buildMaterialBillCostLines(costR.recordset ?? [], qtyByProduct)
 
-  const consTableR = await pool
-    .request()
-    .input('t', sql.NVarChar(200), 'UB_ERP_Bom_pi_consumption')
-    .query(`SELECT 1 AS ok FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = @t`)
-  const hasConsumptionTable = (consTableR.recordset?.length ?? 0) > 0
-
-  /** @type {{ id?: number, kcaa01: string, kcaa02: string, kcaa03: string, kcaa04: string, sumay: number, sumby: number, kcac05: number, Describe: string }[]} */
-  let consumptionLines = []
-  if (hasConsumptionTable) {
-    const consR = await pool.request().input('pi', sql.NVarChar(200), piNo).query(`
-      SELECT
-        [id],
-        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL([kcaa01], N'')))) AS kcaa01,
-        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([kcaa02], N'')))) AS kcaa02,
-        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([kcaa03], N'')))) AS kcaa03,
-        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL([kcaa04], N'')))) AS kcaa04,
-        CAST(ISNULL([sumay], 0) AS decimal(18, 6)) AS sumay,
-        CAST(ISNULL([sumby], 0) AS decimal(18, 6)) AS sumby,
-        CAST(ISNULL([kcac05], 0) AS decimal(18, 6)) AS kcac05,
-        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([Describe], N'')))) AS Describe
-      FROM ${PI_CONSUMPTION_FROM}
-      WHERE LTRIM(RTRIM(ISNULL([sid], N''))) = @pi
-      ORDER BY [id]
-    `)
-    consumptionLines = (consR.recordset ?? []).map((row) => ({
-      id: row.id,
-      kcaa01: String(row.kcaa01 ?? ''),
-      kcaa02: String(row.kcaa02 ?? ''),
-      kcaa03: String(row.kcaa03 ?? ''),
-      kcaa04: String(row.kcaa04 ?? ''),
-      sumay: Number(row.sumay ?? 0),
-      sumby: Number(row.sumby ?? 0),
-      kcac05: Number(row.kcac05 ?? 0),
-      Describe: String(row.Describe ?? ''),
-    }))
-  } else {
-    const merged = aggregateBomConsumptionFromFlat(
-      costLines.map((row) => ({
-        kcaa01: row.kcaa01,
-        kcaa02: row.kcaa02,
-        kcaa03: row.kcaa03,
-        kcaa04: row.kcaa04,
-        Describe: row.Describe,
-        yl: row.kcac04,
-        loss_rate: row.kcac05,
-        total_qty: row.kcac06,
-      })),
-      [],
-    )
-    consumptionLines = merged.map((row, idx) => ({
-      id: idx + 1,
-      kcaa01: row.kcaa01,
-      kcaa02: row.kcaa02,
-      kcaa03: row.kcaa03,
-      kcaa04: row.kcaa04,
-      sumay: row.sumay,
-      sumby: row.sumby,
-      kcac05: row.kcac05,
-      Describe: row.Describe,
-    }))
-  }
+  // 汇总展示：库内 pi_consumption 为单品合并口径；接口按各款订单量缩放后重聚合
+  const consumptionLines = buildMaterialBillConsumptionLinesFromCost(costLines)
 
   return {
     ok: true,

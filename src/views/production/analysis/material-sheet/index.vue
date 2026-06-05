@@ -1,6 +1,6 @@
 <template>
   <div class="erp-module-page material-sheet-page">
-    <div class="top-search-row">
+    <div class="top-search-row no-print">
       <el-autocomplete
         v-model="piKeyword"
         :fetch-suggestions="fetchPiSuggestions"
@@ -16,7 +16,7 @@
     </div>
 
     <div class="report-shell">
-      <div class="report-action-strip">
+      <div class="report-action-strip no-print">
         <el-button
           :type="activeTab === 'detail' ? 'warning' : 'primary'"
           size="small"
@@ -36,31 +36,19 @@
         <el-button type="primary" size="small">生产清单</el-button>
         <el-button type="primary" size="small">生产标签</el-button>
         <el-button type="primary" size="small">导出为PDF信息</el-button>
-        <el-button type="primary" size="small">导出为xls信息</el-button>
+        <el-button type="primary" size="small" @click="exportMaterialSheetXls">导出为xls信息</el-button>
       </div>
 
-      <div class="report-tool-row">
-        <el-button size="small" type="primary">打印统计报表</el-button>
+      <div class="report-tool-row no-print">
+        <el-button size="small" type="primary" @click="onPrintMaterialSheet">打印统计报表</el-button>
         <el-button size="small" type="primary">打印预览</el-button>
         <el-button size="small" type="primary">保存报表数据</el-button>
         <el-button size="small" type="primary">查询内容</el-button>
       </div>
 
-      <div class="report-meta-row">
+      <div class="report-meta-row no-print">
         <span>报表生成时间：</span><span class="underline">{{ generatedAt }}</span>
         <span>报表代码：</span><span class="underline">{{ reportCode }}</span>
-      </div>
-      <div class="report-meta-row">
-        <span>查询起止时间：</span><span class="underline"></span>
-      </div>
-
-      <div class="report-page-row">
-        <span>第1页/共1页</span>
-        <el-button size="small" type="primary">首页</el-button>
-        <el-button size="small" disabled>上一页</el-button>
-        <el-button size="small" disabled>下一页</el-button>
-        <el-button size="small" type="primary">尾页</el-button>
-        <span>查第1页 每页20条记录 总共 {{ activeRowCount }} 条记录</span>
       </div>
 
       <div v-loading="loading" class="report-body">
@@ -96,9 +84,9 @@
                       <td>{{ row.kcaa03 }}</td>
                       <td>{{ row.kcaa04 }}</td>
                       <td>{{ row.Describe }}</td>
-                      <td>{{ formatQty(row.yl) }}</td>
+                      <td>{{ formatQty(scaleByOrderQty(row.yl, group)) }}</td>
                       <td>{{ formatLoss(row.loss_rate) }}</td>
-                      <td>{{ formatQty(row.total_qty) }}</td>
+                      <td>{{ formatQty(lineTotalQty(row, group)) }}</td>
                       <td>{{ formatQty(singleMaterialTotal(row, group)) }}</td>
                     </tr>
                   </tbody>
@@ -110,7 +98,7 @@
         </template>
 
         <template v-else>
-          <ReportHeader />
+          <ReportHeader :header="summaryHeader" compact />
           <div v-if="consumptionLines.length" class="report-table-wrap">
             <table class="report-table">
               <thead>
@@ -138,7 +126,7 @@
                   <td>{{ formatQty(row.sumay) }}</td>
                   <td>{{ formatLoss(row.kcac05) }}</td>
                   <td>{{ formatQty(row.sumby) }}</td>
-                  <td>{{ formatQty(row.sumby) }}</td>
+                  <td>{{ formatQty(summarySingleMaterialTotal(row)) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -147,14 +135,156 @@
         </template>
       </div>
     </div>
+
+    <section class="material-sheet-print-document" aria-hidden="true">
+      <p class="material-sheet-print-time">打印时间：{{ printTimestamp }}</p>
+      <template v-if="activeTab === 'detail'">
+        <div
+          v-for="group in detailGroups"
+          :key="`print-detail-${group.key}`"
+          class="material-sheet-print-section"
+        >
+          <p class="material-sheet-print-brand">{{ REPORT_BRAND }}</p>
+          <p class="material-sheet-print-title">{{ REPORT_TITLE }}</p>
+          <div
+            v-for="(fieldRow, rowIdx) in DETAIL_HEADER_FIELD_ROWS"
+            :key="`print-head-${group.key}-${rowIdx}`"
+            class="material-sheet-print-head-row"
+          >
+            <span
+              v-for="([label, key]) in fieldRow"
+              :key="`${group.key}-${key}`"
+              class="material-sheet-print-head-item"
+            >{{ label }}：{{ formatHeaderValue(group.header?.[key], key) }}</span>
+          </div>
+          <table class="material-sheet-print-table">
+            <thead>
+              <tr>
+                <th>序号</th>
+                <th>编码</th>
+                <th>名称</th>
+                <th>规格</th>
+                <th>单位</th>
+                <th>备注</th>
+                <th>用量</th>
+                <th>损耗</th>
+                <th>合计</th>
+                <th>单物料合计</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(row, idx) in group.rows" :key="`print-row-${row.__materialCostRowKey ?? idx}`">
+                <td>{{ idx + 1 }}</td>
+                <td>{{ row.kcaa01 }}</td>
+                <td>{{ row.kcaa02 }}</td>
+                <td>{{ row.kcaa03 }}</td>
+                <td>{{ row.kcaa04 }}</td>
+                <td>{{ row.Describe }}</td>
+                <td class="num">{{ formatQty(scaleByOrderQty(row.yl, group)) }}</td>
+                <td class="num">{{ formatLoss(row.loss_rate) }}</td>
+                <td class="num">{{ formatQty(lineTotalQty(row, group)) }}</td>
+                <td class="num">{{ formatQty(singleMaterialTotal(row, group)) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
+      <template v-else>
+        <div v-if="consumptionLines.length" class="material-sheet-print-section">
+          <p class="material-sheet-print-brand">{{ REPORT_BRAND }}</p>
+          <p class="material-sheet-print-title">{{ REPORT_TITLE }}</p>
+          <div class="material-sheet-print-head-row">
+            <span class="material-sheet-print-head-item">PI号：{{ formatHeaderValue(summaryHeader.piNo, 'piNo') }}</span>
+            <span class="material-sheet-print-head-item">PO号：{{ formatHeaderValue(summaryHeader.poNo, 'poNo') }}</span>
+            <span class="material-sheet-print-head-item">日期：{{ formatHeaderValue(summaryHeader.salesDate, 'salesDate') }}</span>
+          </div>
+          <table class="material-sheet-print-table">
+            <thead>
+              <tr>
+                <th>序号</th>
+                <th>ERP编码</th>
+                <th>名称</th>
+                <th>规格</th>
+                <th>搭配</th>
+                <th>单位</th>
+                <th>用量</th>
+                <th>损耗</th>
+                <th>合计</th>
+                <th>单物料合计</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(row, idx) in consumptionLines" :key="`print-sum-${row.id ?? idx}`">
+                <td>{{ idx + 1 }}</td>
+                <td>{{ row.kcaa01 }}</td>
+                <td>{{ row.kcaa02 }}</td>
+                <td>{{ row.kcaa03 }}</td>
+                <td>{{ row.Describe }}</td>
+                <td>{{ row.kcaa04 }}</td>
+                <td class="num">{{ formatQty(row.sumay) }}</td>
+                <td class="num">{{ formatLoss(row.kcac05) }}</td>
+                <td class="num">{{ formatQty(row.sumby) }}</td>
+                <td class="num">{{ formatQty(summarySingleMaterialTotal(row)) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
+    </section>
   </div>
 </template>
 
 <script setup>
-import { computed, defineComponent, h, ref } from 'vue'
+// 与 router 生成的 route.name 一致，供布局 keep-alive 按组件名缓存
+defineOptions({ name: 'production-analysis-material-sheet' })
+
+import { computed, defineComponent, h, nextTick, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
+import ExcelJS from 'exceljs'
 import { aggregateBomCostUsageFlatForDisplay } from '@/utils/bomCostUsageAggregate.js'
+
+const REPORT_BRAND = '中山市卓越皮具有限公司'
+const REPORT_TITLE = '成本物料单统计报表（成本价物料明细）'
+const MATERIAL_SHEET_COL_COUNT = 10
+
+const SUMMARY_HEADER_FIELD_ROWS = [
+  [
+    ['PI号', 'piNo'],
+    ['PO号', 'poNo'],
+    ['日期', 'salesDate'],
+  ],
+]
+
+const DETAIL_HEADER_FIELD_ROWS = [
+  ...SUMMARY_HEADER_FIELD_ROWS,
+  [
+    ['厂款号', 'factoryStyleNo'],
+    ['名称', 'productName'],
+    ['单品用量', 'singleUsage'],
+  ],
+  [
+    ['客款号', 'customerStyleNo'],
+    ['组别', 'groupName'],
+    ['订单量', 'orderQty'],
+  ],
+]
+
+const DETAIL_EXPORT_HEADERS = ['序号', '编码', '名称', '规格', '单位', '备注', '用量', '损耗', '合计', '单物料合计']
+const SUMMARY_EXPORT_HEADERS = ['序号', 'ERP编码', '名称', '规格', '搭配', '单位', '用量', '损耗', '合计', '单物料合计']
+const MATERIAL_SHEET_EXPORT_COL_WIDTHS = [8, 18, 18, 18, 8, 14, 12, 10, 12, 14]
+const MATERIAL_SHEET_EXPORT_THIN_BORDER = {
+  top: { style: 'thin', color: { argb: 'FF333333' } },
+  left: { style: 'thin', color: { argb: 'FF333333' } },
+  bottom: { style: 'thin', color: { argb: 'FF333333' } },
+  right: { style: 'thin', color: { argb: 'FF333333' } },
+}
+const MATERIAL_SHEET_EXPORT_HEADER_FILL = {
+  type: 'pattern',
+  pattern: 'solid',
+  fgColor: { argb: 'FFF0F0F0' },
+}
+const MATERIAL_SHEET_PRINT_PAGE_STYLE_ID = 'material-sheet-print-page-style'
 
 const BOM_COST_BUILTIN_HIDE_PREFIXES = [
   'CUT-',
@@ -198,6 +328,11 @@ const ReportHeader = defineComponent({
       type: Object,
       default: () => ({}),
     },
+    /** 汇总表：仅展示 PI号 / PO号 / 日期 */
+    compact: {
+      type: Boolean,
+      default: false,
+    },
   },
   setup(props) {
     const fields = [
@@ -217,6 +352,7 @@ const ReportHeader = defineComponent({
         ['订单量', 'orderQty'],
       ],
     ]
+    const visibleFields = computed(() => (props.compact ? fields.slice(0, 1) : fields))
     return () =>
       h('div', { class: 'blank-report-head' }, [
         h('div', { class: 'brand-line' }, '中山市卓越皮具有限公司'),
@@ -224,7 +360,7 @@ const ReportHeader = defineComponent({
         h(
           'div',
           { class: 'head-grid' },
-          fields.map((row) =>
+          visibleFields.value.map((row) =>
             h(
               'div',
               { class: 'head-row' },
@@ -304,6 +440,15 @@ const detailRowCount = computed(() => detailGroups.value.reduce((sum, group) => 
 
 const activeRowCount = computed(() => (activeTab.value === 'detail' ? detailRowCount.value : consumptionLines.value.length))
 
+const totalPiOrderQty = computed(() =>
+  materialHeaders.value.reduce((sum, row) => {
+    const n = Number(row?.orderQty)
+    return sum + (Number.isFinite(n) ? n : 0)
+  }, 0),
+)
+
+const summaryHeader = computed(() => materialHeaders.value[0] ?? {})
+
 function makeReportCode() {
   const raw = `${Date.now()}${Math.random().toString(16).slice(2)}`
   return raw.toUpperCase().replace(/[^0-9A-F]/g, '').padEnd(32, '0').slice(0, 32)
@@ -327,11 +472,33 @@ function formatLoss(value) {
   return n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')
 }
 
+function orderQtyFromGroup(group) {
+  const n = Number(group?.header?.orderQty)
+  return Number.isFinite(n) ? n : 0
+}
+
+function scaleByOrderQty(value, group) {
+  const base = Number(value)
+  const orderQty = orderQtyFromGroup(group)
+  if (!Number.isFinite(base) || orderQty === 0) return 0
+  return base * orderQty
+}
+
+function lineTotalQty(row, group) {
+  return scaleByOrderQty(row?.total_qty, group)
+}
+
 function singleMaterialTotal(row, group) {
-  const totalQty = Number(row?.total_qty)
-  const orderQty = Number(group?.header?.orderQty)
-  if (!Number.isFinite(totalQty) || !Number.isFinite(orderQty) || orderQty === 0) return 0
-  return totalQty / orderQty
+  const orderQty = orderQtyFromGroup(group)
+  if (orderQty === 0) return 0
+  return lineTotalQty(row, group) / orderQty
+}
+
+function summarySingleMaterialTotal(row) {
+  const total = Number(row?.sumby)
+  const orderQty = totalPiOrderQty.value
+  if (!Number.isFinite(total) || orderQty === 0) return 0
+  return total / orderQty
 }
 
 function formatHeaderDate(value) {
@@ -420,6 +587,273 @@ async function loadReport() {
   } finally {
     loading.value = false
   }
+}
+
+const printTimestamp = ref('')
+
+function materialSheetDefaultExportFileName() {
+  const pi = String(piKeyword.value ?? '').trim()
+  return pi ? `物料单-${pi}` : '下载.xls'
+}
+
+function materialSheetNormalizeExportFileName(s) {
+  const raw = String(s ?? '').trim()
+  if (!raw) return ''
+  const safe = raw.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/[. ]+$/g, '').trim()
+  if (!safe) return ''
+  const withExt = /\.(xls|xlsx)$/i.test(safe) ? safe : `${safe}.xls`
+  if (withExt.length <= 170) return withExt
+  const extMatch = withExt.match(/\.(xls|xlsx)$/i)
+  const ext = extMatch?.[0] || '.xls'
+  const base = withExt.replace(/\.(xls|xlsx)$/i, '').slice(0, 170 - ext.length).replace(/[. ]+$/g, '')
+  return `${base || '下载'}${ext}`
+}
+
+function formatHeaderRowText(header, fieldRow) {
+  return fieldRow
+    .map(([label, key]) => `${label}：${formatHeaderValue(header?.[key], key)}`)
+    .join('    ')
+}
+
+function applyMaterialSheetExportTableStyle(ws, rowNumber, opts = {}) {
+  const row = ws.getRow(rowNumber)
+  row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+    cell.border = MATERIAL_SHEET_EXPORT_THIN_BORDER
+    cell.alignment = {
+      vertical: 'top',
+      horizontal: colNumber >= 7 ? 'right' : 'left',
+      wrapText: true,
+    }
+    if (opts.bold) cell.font = { ...(cell.font || {}), bold: true }
+    if (opts.fill) cell.fill = opts.fill
+  })
+}
+
+function materialSheetExportPageSetup() {
+  return {
+    paperSize: 9,
+    orientation: 'portrait',
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+    horizontalCentered: true,
+    margins: {
+      left: 0.31,
+      right: 0.31,
+      top: 0.31,
+      bottom: 0.63,
+      header: 0.2,
+      footer: 0.2,
+    },
+  }
+}
+
+function detailRowToExportCells(row, group, idx) {
+  return [
+    idx + 1,
+    row.kcaa01,
+    row.kcaa02,
+    row.kcaa03,
+    row.kcaa04,
+    row.Describe,
+    formatQty(scaleByOrderQty(row.yl, group)),
+    formatLoss(row.loss_rate),
+    formatQty(lineTotalQty(row, group)),
+    formatQty(singleMaterialTotal(row, group)),
+  ]
+}
+
+function summaryRowToExportCells(row, idx) {
+  return [
+    idx + 1,
+    row.kcaa01,
+    row.kcaa02,
+    row.kcaa03,
+    row.Describe,
+    row.kcaa04,
+    formatQty(row.sumay),
+    formatLoss(row.kcac05),
+    formatQty(row.sumby),
+    formatQty(summarySingleMaterialTotal(row)),
+  ]
+}
+
+async function downloadMaterialSheetWorkbook(wb, downloadFileName) {
+  const buf = await wb.xlsx.writeBuffer()
+  const blob = new Blob([buf], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = materialSheetNormalizeExportFileName(downloadFileName) || materialSheetDefaultExportFileName()
+  a.click()
+  URL.revokeObjectURL(url)
+  ElMessage.success('已导出')
+}
+
+async function exportDetailMaterialSheetXls(downloadFileName = materialSheetDefaultExportFileName()) {
+  const groups = detailGroups.value
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet('物料单明细', {
+    views: [{ state: 'frozen', ySplit: 2 }],
+    pageSetup: materialSheetExportPageSetup(),
+  })
+  let rowNum = 0
+  for (let gi = 0; gi < groups.length; gi++) {
+    const group = groups[gi]
+    if (gi > 0) {
+      ws.addRow([])
+      rowNum += 1
+    }
+    const brandRow = ws.addRow([REPORT_BRAND])
+    rowNum = brandRow.number
+    ws.mergeCells(rowNum, 1, rowNum, MATERIAL_SHEET_COL_COUNT)
+    ws.getRow(rowNum).font = { bold: true, size: 14 }
+    ws.getCell(rowNum, 1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+
+    const titleRow = ws.addRow([REPORT_TITLE])
+    rowNum = titleRow.number
+    ws.mergeCells(rowNum, 1, rowNum, MATERIAL_SHEET_COL_COUNT)
+    ws.getRow(rowNum).font = { bold: true, size: 12 }
+    ws.getCell(rowNum, 1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+
+    for (const fieldRow of DETAIL_HEADER_FIELD_ROWS) {
+      const added = ws.addRow([formatHeaderRowText(group.header, fieldRow)])
+      rowNum = added.number
+      ws.mergeCells(rowNum, 1, rowNum, MATERIAL_SHEET_COL_COUNT)
+      ws.getCell(rowNum, 1).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }
+    }
+
+    const headerAdded = ws.addRow([...DETAIL_EXPORT_HEADERS])
+    rowNum = headerAdded.number
+    applyMaterialSheetExportTableStyle(ws, rowNum, {
+      bold: true,
+      fill: MATERIAL_SHEET_EXPORT_HEADER_FILL,
+    })
+
+    for (let i = 0; i < group.rows.length; i++) {
+      const added = ws.addRow(detailRowToExportCells(group.rows[i], group, i))
+      applyMaterialSheetExportTableStyle(ws, added.number)
+    }
+  }
+  ws.columns.forEach((col, index) => {
+    col.width = MATERIAL_SHEET_EXPORT_COL_WIDTHS[index] || 10
+  })
+  await downloadMaterialSheetWorkbook(wb, downloadFileName)
+}
+
+async function exportSummaryMaterialSheetXls(downloadFileName = materialSheetDefaultExportFileName()) {
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet('物料单汇总', {
+    views: [{ state: 'frozen', ySplit: 2 }],
+    pageSetup: materialSheetExportPageSetup(),
+  })
+  const brandRow = ws.addRow([REPORT_BRAND])
+  ws.mergeCells(1, 1, 1, MATERIAL_SHEET_COL_COUNT)
+  ws.getRow(1).font = { bold: true, size: 14 }
+  ws.getCell(1, 1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+
+  const titleRow = ws.addRow([REPORT_TITLE])
+  ws.mergeCells(2, 1, 2, MATERIAL_SHEET_COL_COUNT)
+  ws.getRow(2).font = { bold: true, size: 12 }
+  ws.getCell(2, 1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+
+  const headRow = ws.addRow([
+    formatHeaderRowText(summaryHeader.value, SUMMARY_HEADER_FIELD_ROWS[0]),
+  ])
+  ws.mergeCells(headRow.number, 1, headRow.number, MATERIAL_SHEET_COL_COUNT)
+  ws.getCell(headRow.number, 1).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }
+
+  const headerAdded = ws.addRow([...SUMMARY_EXPORT_HEADERS])
+  applyMaterialSheetExportTableStyle(ws, headerAdded.number, {
+    bold: true,
+    fill: MATERIAL_SHEET_EXPORT_HEADER_FILL,
+  })
+
+  for (let i = 0; i < consumptionLines.value.length; i++) {
+    const added = ws.addRow(summaryRowToExportCells(consumptionLines.value[i], i))
+    applyMaterialSheetExportTableStyle(ws, added.number)
+  }
+
+  ws.columns.forEach((col, index) => {
+    col.width = MATERIAL_SHEET_EXPORT_COL_WIDTHS[index] || 10
+  })
+  await downloadMaterialSheetWorkbook(wb, downloadFileName)
+}
+
+async function exportMaterialSheetXls() {
+  if (activeTab.value === 'detail') {
+    if (!detailGroups.value.length) {
+      ElMessage.warning('暂无数据可导出')
+      return
+    }
+    await exportDetailMaterialSheetXls()
+    return
+  }
+  if (!consumptionLines.value.length) {
+    ElMessage.warning('暂无数据可导出')
+    return
+  }
+  await exportSummaryMaterialSheetXls()
+}
+
+function applyMaterialSheetPrintPageStyle() {
+  let el = document.getElementById(MATERIAL_SHEET_PRINT_PAGE_STYLE_ID)
+  if (!el) {
+    el = document.createElement('style')
+    el.id = MATERIAL_SHEET_PRINT_PAGE_STYLE_ID
+    document.head.appendChild(el)
+  }
+  el.textContent = `@media print {
+    @page {
+      size: A4 portrait;
+      margin: 8mm 8mm 16mm;
+      @bottom-center {
+        content: counter(page) " / " counter(pages);
+        font-size: 12px;
+        font-weight: 600;
+        color: #333;
+      }
+    }
+  }`
+}
+
+function removeMaterialSheetPrintPageStyle() {
+  document.getElementById(MATERIAL_SHEET_PRINT_PAGE_STYLE_ID)?.remove()
+}
+
+function formatMaterialSheetPrintTimestamp(d = new Date()) {
+  const dt = d instanceof Date ? d : new Date(d)
+  if (Number.isNaN(dt.getTime())) return ''
+  const pad2 = (n) => String(n).padStart(2, '0')
+  return `${dt.getFullYear()}-${dt.getMonth() + 1}-${dt.getDate()} ${pad2(dt.getHours())}:${pad2(dt.getMinutes())}:${pad2(
+    dt.getSeconds(),
+  )}`
+}
+
+function onPrintMaterialSheet() {
+  const hasData =
+    activeTab.value === 'detail' ? detailGroups.value.length > 0 : consumptionLines.value.length > 0
+  if (!hasData) {
+    ElMessage.warning('暂无数据可打印')
+    return
+  }
+  printTimestamp.value = formatMaterialSheetPrintTimestamp(new Date())
+  applyMaterialSheetPrintPageStyle()
+  const cleanupPrintClass = () => {
+    document.documentElement.classList.remove('print-material-sheet')
+    removeMaterialSheetPrintPageStyle()
+    window.removeEventListener('afterprint', cleanupPrintClass)
+  }
+  document.documentElement.classList.add('print-material-sheet')
+  window.addEventListener('afterprint', cleanupPrintClass)
+  nextTick(() => {
+    setTimeout(() => {
+      window.print()
+      setTimeout(cleanupPrintClass, 3000)
+    }, 120)
+  })
 }
 </script>
 
@@ -636,6 +1070,103 @@ async function loadReport() {
   .report-page-row {
     overflow-x: auto;
     flex-wrap: nowrap;
+  }
+}
+.material-sheet-print-document {
+  display: none;
+}
+</style>
+
+<style>
+/* 物料单：浏览器打印（与 onPrintMaterialSheet 的 html class 配合） */
+@media print {
+  html.print-material-sheet,
+  html.print-material-sheet body {
+    width: 100% !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+  html.print-material-sheet body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  html.print-material-sheet body * {
+    visibility: hidden !important;
+  }
+  html.print-material-sheet .erp-layout > .el-aside,
+  html.print-material-sheet .erp-header,
+  html.print-material-sheet .erp-tags-wrap {
+    display: none !important;
+  }
+  html.print-material-sheet .erp-module-page > :not(.material-sheet-print-document) {
+    display: none !important;
+  }
+  html.print-material-sheet .material-sheet-print-document,
+  html.print-material-sheet .material-sheet-print-document * {
+    visibility: visible !important;
+  }
+  html.print-material-sheet .material-sheet-print-document {
+    display: block !important;
+    position: static !important;
+    box-sizing: border-box !important;
+    width: 98% !important;
+    max-width: 275mm !important;
+    margin: 0 auto !important;
+    color: #000 !important;
+    background: #fff !important;
+  }
+  html.print-material-sheet .material-sheet-print-time {
+    margin: 0 0 8px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  html.print-material-sheet .material-sheet-print-section + .material-sheet-print-section {
+    margin-top: 16px;
+    page-break-before: auto;
+  }
+  html.print-material-sheet .material-sheet-print-brand {
+    margin: 0 0 4px;
+    text-align: center;
+    font-size: 16px;
+    font-weight: 700;
+  }
+  html.print-material-sheet .material-sheet-print-title {
+    margin: 0 0 10px;
+    text-align: center;
+    font-size: 15px;
+    font-weight: 700;
+  }
+  html.print-material-sheet .material-sheet-print-head-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+    margin-bottom: 6px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  html.print-material-sheet .material-sheet-print-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  html.print-material-sheet .material-sheet-print-table th,
+  html.print-material-sheet .material-sheet-print-table td {
+    border: 1px solid #333;
+    padding: 4px 5px;
+    text-align: center;
+    word-break: break-all;
+  }
+  html.print-material-sheet .material-sheet-print-table th {
+    background: #eef4fb;
+  }
+  html.print-material-sheet .material-sheet-print-table td.num,
+  html.print-material-sheet .material-sheet-print-table th:nth-child(n + 7) {
+    text-align: right;
   }
 }
 </style>
