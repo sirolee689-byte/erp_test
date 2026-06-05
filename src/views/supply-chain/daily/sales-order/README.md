@@ -166,3 +166,4 @@ npm run e2e:sales-order     # Playwright：列表 → 查看弹窗（需 Vite + 
 - **不做**整棵树 `list.id` 去重（会把子件挂到先遍历到的裁片下）。
 - 建款/同步写入：按 `Bom_parts.kcac01 -> kcac02/systemcode` 递归；过滤 `Bom_code.flag5 + '-'` 结构行但保留 `CUT-` 和 `RP-`，其中 `RP-PQ` 仍过滤；不按编码或 systemcode 合并。历史 PI 若少行，对该款点 **同步 BOM** 后刷新（仅保存不会重建已有款）。
 - 一键运算写 `pi_cost` 与 BOM 资料 `usage-calc` 同落库链路（`buildPiCostInsertPayloadFromUsageTree`），不做 `list.id` 二次去重。
+- **虚拟根展开**：`UB_ERP_Bom_Sales_list` 跳过 BAG/TAG/RMP 等隐藏父行后，订单头 `systemcode` 下往往无直接子行；读树/一键运算须从 list 反推「虚拟根父键」（有子行、无对应父行实例键），再按 BAG/TAG/RMP 三棵子树展开（与主 BOM 用量树顶级成品层一致）。实现：`server/salesOrderPiBomUsageTree.js` `resolvePiBomUsageTreeRootKeys`。

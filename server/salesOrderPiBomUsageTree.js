@@ -7,7 +7,12 @@ import {
   normalizeUsageTreeParentKey,
   usageTreeChildParentKey,
 } from './bomUsageTreeBuild.js'
-import { PI_LIST_PKCAA01_EXPR } from './salesOrderPiBom.js'
+import {
+  fetchMasterBomVirtualRootQtyUnderHead,
+  fetchPiBomListSkipBomCodePrefixes,
+  parsePiBomVirtualRootQtyInfo,
+  PI_LIST_PKCAA01_EXPR,
+} from './salesOrderPiBom.js'
 import { normKcaa01 } from './salesOrderSaveLogic.js'
 
 const PI_BOM_LIST_FROM = 'dbo.[UB_ERP_Bom_Sales_list]'
@@ -188,10 +193,198 @@ export function buildPiBomUsageTreeNodesFromLayerCache(
 }
 
 /**
+ * 从 Sales_list 行推导用量树根父键：头下无子行时用虚拟根（BAG/TAG/RMP expand key）
+ * @param {string} headSc UB_ERP_Bom_Sales.systemcode
+ * @param {Array<{ kcac01?: unknown, kcac02?: unknown, systemcode?: unknown, seq?: unknown, id?: unknown }>} listRows
+ * @returns {string[]}
+ */
+export function resolvePiBomUsageTreeRootKeys(headSc, listRows) {
+  const head = normalizeUsageTreeParentKey(headSc)
+  if (!head) return []
+
+  const rows = Array.isArray(listRows) ? listRows : []
+  const hasHeadChildren = rows.some(
+    (row) => normalizeUsageTreeParentKey(row?.kcac01) === head,
+  )
+  if (hasHeadChildren) return [head]
+
+  /** @type {Set<string>} */
+  const expandKeys = new Set()
+  for (let i = 0; i < rows.length; i++) {
+    const ek = usageTreeChildParentKey(rows[i])
+    if (ek) expandKeys.add(ek)
+  }
+
+  /** @type {Map<string, number>} */
+  const orderHint = new Map()
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]
+    const parentKey = normalizeUsageTreeParentKey(row?.kcac01)
+    if (!parentKey || parentKey === head || expandKeys.has(parentKey)) continue
+    const seqRaw = row?.seq
+    const hint =
+      seqRaw != null && Number.isFinite(Number(seqRaw))
+        ? Number(seqRaw)
+        : row?.id != null && Number.isFinite(Number(row.id))
+          ? Number(row.id)
+          : 0
+    const prev = orderHint.get(parentKey)
+    if (prev == null || hint < prev) orderHint.set(parentKey, hint)
+  }
+
+  return [...orderHint.entries()]
+    .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
+    .map(([key]) => key)
+}
+
+/**
+ * 虚拟根下无 BAG/TAG/RMP 父行时，按首层 CUT 子件推断顶级成品编码（仅树包装，不写库）
+ * @param {any[]} children
+ * @param {string} productKcaa01
+ */
+/**
+ * @param {string} kcaa01 推断的 BAG/TAG/RMP 编码
+ * @param {Map<string, { kcac04: number, kcac05: number }> | null | undefined} qtyByKcaa01
+ */
+export function resolveSyntheticTopLevelUsage(kcaa01, qtyByKcaa01) {
+  const code = normKcaa01(kcaa01)
+  let hit = code && qtyByKcaa01 ? qtyByKcaa01.get(code) : undefined
+  if (!hit && code && qtyByKcaa01) {
+    const dash = code.indexOf('-')
+    if (dash > 0) hit = qtyByKcaa01.get(code.slice(0, dash + 1))
+  }
+  if (hit) {
+    return {
+      kcac04: Number.isFinite(hit.kcac04) ? hit.kcac04 : 1,
+      kcac05: Number.isFinite(hit.kcac05) ? hit.kcac05 : 0,
+    }
+  }
+  return { kcac04: 1, kcac05: 0 }
+}
+
+/**
+ * @param {any[]} children
+ * @param {string} productKcaa01
+ * @param {Map<string, { kcac04: number, kcac05: number }> | null | undefined} [qtyByKcaa01]
+ */
+export function inferVirtualRootTopLevelMeta(children, productKcaa01, qtyByKcaa01) {
+  const product = String(productKcaa01 ?? '').trim().toUpperCase()
+  const suffix = product.startsWith('PQ-') ? `PQ${product.slice(3)}` : product
+  const first = String(children[0]?.kcaa01 ?? '').trim().toUpperCase()
+  let inferredKcaa01 = ''
+  if (first.includes('CUT-BAG') || first.startsWith('BAG-')) {
+    inferredKcaa01 = `BAG-${suffix}`
+  } else if (first.includes('CUT-TAG') || first.startsWith('TAG-')) {
+    inferredKcaa01 = `TAG-${suffix}`
+  } else if (first.includes('CUT-RMP') || first.startsWith('RMP-')) {
+    inferredKcaa01 = `RMP-${suffix}`
+  }
+  const usage = resolveSyntheticTopLevelUsage(inferredKcaa01, qtyByKcaa01)
+  return { kcaa01: inferredKcaa01, kcac04: usage.kcac04, kcac05: usage.kcac05 }
+}
+
+/**
+ * 将虚拟根下子树包成与主 BOM 用量树一致的顶级成品层（BAG/TAG/RMP，level=1）
+ * @param {string} rootKey
+ * @param {any[]} children
+ * @param {string} productKcaa01
+ */
+function buildPiBomSyntheticTopLevelNode(rootKey, children, productKcaa01, qtyByKcaa01) {
+  const meta = inferVirtualRootTopLevelMeta(children, productKcaa01, qtyByKcaa01)
+  return mapPiBomRowToUsageTreeNode(
+    {
+      id: null,
+      kcaa01: meta.kcaa01,
+      kcaa02: '',
+      kcac01: '',
+      kcac02: rootKey,
+      systemcode: rootKey,
+      kcac04: meta.kcac04,
+      kcac05: meta.kcac05,
+      kcaa33: 0,
+      seq: null,
+      Describe: '',
+    },
+    1,
+    children,
+  )
+}
+
+/**
+ * @param {import('mssql').ConnectionPool | import('mssql').Transaction} db
+ * @param {string} piNo
+ * @param {string} productKcaa01
+ */
+export async function fetchPiBomListRowsForUsageTreeRoots(db, piNo, productKcaa01) {
+  const pi = normKcaa01(piNo)
+  const product = normKcaa01(productKcaa01)
+  const r = await new sql.Request(db)
+    .input('pi', sql.NVarChar(200), pi)
+    .input('product', sql.NVarChar(300), product)
+    .query(`
+      SELECT
+        ${PI_LIST_KCAC01_EXPR} AS kcac01,
+        ${PI_LIST_KCAC02_EXPR} AS kcac02,
+        LTRIM(RTRIM(ISNULL(CAST(l.[systemcode] AS nvarchar(500)), N''))) AS systemcode,
+        CONVERT(int, ISNULL(l.[seq], 0)) AS seq,
+        l.[id]
+      FROM ${PI_BOM_LIST_FROM} AS l
+      WHERE LTRIM(RTRIM(ISNULL(l.[sid], N''))) = @pi
+        AND ${PI_LIST_PKCAA01_EXPR} = @product
+    `)
+  return r.recordset ?? []
+}
+
+/**
+ * @param {import('mssql').ConnectionPool | import('mssql').Transaction} db
+ * @param {string} piNo
+ * @param {string} productKcaa01
+ * @param {string} headSc
+ */
+export async function resolvePiBomUsageTreeRootKeysForProduct(db, piNo, productKcaa01, headSc) {
+  const listRows = await fetchPiBomListRowsForUsageTreeRoots(db, piNo, productKcaa01)
+  return resolvePiBomUsageTreeRootKeys(headSc, listRows)
+}
+
+/**
  * @param {import('mssql').ConnectionPool} pool
  * @param {string} piNo
  * @param {string} productKcaa01
  */
+/**
+ * 读取 PI 头 info 中虚拟根用量快照；无快照时返回空 Map（由调用方回退主 BOM）
+ * @param {import('mssql').ConnectionPool | import('mssql').Transaction} db
+ * @param {string} piNo
+ * @param {string} productKcaa01
+ */
+export async function fetchPiBomVirtualRootQtyFromHead(db, piNo, productKcaa01) {
+  const pi = normKcaa01(piNo)
+  const product = normKcaa01(productKcaa01)
+  const r = await new sql.Request(db)
+    .input('pi', sql.NVarChar(200), pi)
+    .input('product', sql.NVarChar(300), product)
+    .query(`
+      SELECT TOP 1 LTRIM(RTRIM(CONVERT(nvarchar(2000), ISNULL(h.[info], N'')))) AS info
+      FROM ${PI_BOM_HEAD_FROM} AS h
+      WHERE LTRIM(RTRIM(ISNULL(h.[sid], N''))) = @pi
+        AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(h.[kcaa01], N'')))) = @product
+    `)
+  return parsePiBomVirtualRootQtyInfo(r.recordset?.[0]?.info)
+}
+
+/**
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {string} piNo
+ * @param {string} productKcaa01
+ * @param {string} headSc
+ */
+export async function resolvePiBomVirtualRootQtyByKcaa01(pool, piNo, productKcaa01, headSc) {
+  const fromHead = await fetchPiBomVirtualRootQtyFromHead(pool, piNo, productKcaa01)
+  if (fromHead.size) return fromHead
+  const skipPrefixes = await fetchPiBomListSkipBomCodePrefixes(pool)
+  return fetchMasterBomVirtualRootQtyUnderHead(pool, headSc, skipPrefixes)
+}
+
 export async function fetchPiBomHeadSystemcode(pool, piNo, productKcaa01) {
   const pi = normKcaa01(piNo)
   const product = normKcaa01(productKcaa01)
@@ -212,17 +405,19 @@ export async function fetchPiBomHeadSystemcode(pool, piNo, productKcaa01) {
  * BFS 预取 PI BOM 子树全部层（下一层父键为子行 systemcode 优先，否则 kcac02）
  * @param {import('mssql').ConnectionPool | import('mssql').Transaction} db
  * @param {string} piNo
- * @param {string} rootSystemcode
+ * @param {string | string[]} rootSystemcode 单根或多虚拟根
  * @param {string} productKcaa01
  */
 export async function prefetchPiBomListLayersForUsageTree(db, piNo, rootSystemcode, productKcaa01) {
-  const root = normalizeUsageTreeParentKey(rootSystemcode)
+  const roots = (Array.isArray(rootSystemcode) ? rootSystemcode : [rootSystemcode])
+    .map((r) => normalizeUsageTreeParentKey(r))
+    .filter(Boolean)
   /** @type {Map<string, Record<string, unknown>[]>} */
   const cache = new Map()
-  if (!root) return cache
+  if (!roots.length) return cache
 
   /** @type {Set<string>} */
-  const pending = new Set([root])
+  const pending = new Set(roots)
 
   while (pending.size > 0) {
     const batch = [...pending].slice(0, LAYER_BATCH)
@@ -253,13 +448,51 @@ export async function buildPiBomUsageTreeForProduct(pool, piNo, productKcaa01) {
     err.code = 'PI_BOM_MISSING'
     throw err
   }
-  const layerCache = await prefetchPiBomListLayersForUsageTree(pool, piNo, headSc, productKcaa01)
-  const stack = new Set([headSc])
-  return buildPiBomUsageTreeNodesFromLayerCache(
-    headSc,
-    1,
-    stack,
-    layerCache,
+  const rootKeys = await resolvePiBomUsageTreeRootKeysForProduct(pool, piNo, productKcaa01, headSc)
+  if (!rootKeys.length) {
+    const err = new Error(`货品 ${productKcaa01} 的 PI BOM 无法解析展开根，请先同步 BOM`)
+    err.code = 'PI_BOM_TREE_EMPTY'
+    throw err
+  }
+  const layerCache = await prefetchPiBomListLayersForUsageTree(
+    pool,
+    piNo,
+    rootKeys,
     productKcaa01,
   )
+  const virtualRootQtyByKcaa01 = await resolvePiBomVirtualRootQtyByKcaa01(
+    pool,
+    piNo,
+    productKcaa01,
+    headSc,
+  )
+  const useVirtualRootWrappers = rootKeys.length > 1 || rootKeys[0] !== headSc
+  /** @type {any[]} */
+  const tree = []
+  for (let i = 0; i < rootKeys.length; i++) {
+    const rootKey = rootKeys[i]
+    const stack = new Set([rootKey])
+    const childLevel = useVirtualRootWrappers ? 2 : 1
+    const nodes = buildPiBomUsageTreeNodesFromLayerCache(
+      rootKey,
+      childLevel,
+      stack,
+      layerCache,
+      productKcaa01,
+    )
+    if (!nodes.length) continue
+    if (useVirtualRootWrappers) {
+      tree.push(
+        buildPiBomSyntheticTopLevelNode(rootKey, nodes, productKcaa01, virtualRootQtyByKcaa01),
+      )
+    } else {
+      tree.push(...nodes)
+    }
+  }
+  if (!tree.length) {
+    const err = new Error(`货品 ${productKcaa01} 的 PI BOM 展开为空，无法运算`)
+    err.code = 'PI_BOM_TREE_EMPTY'
+    throw err
+  }
+  return tree
 }

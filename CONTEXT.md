@@ -284,7 +284,7 @@
 | **主 BOM** | `bom_000` + `Bom_parts`；库存标准 BOM 资料 | PI 销售 BOM |
 | **销售 BOM（PI BOM）** | `UB_ERP_Bom_Sales`（**一行成品 BOM 头**）+ `UB_ERP_Bom_Sales_list`（**该头下全部子编码/配件**，关联方式同 `Bom_parts`）；**本 PI 可改**，与主 BOM 独立 | 主 BOM、物料单结果表 |
 | **同步 BOM** | 销售明细 Tab「操作」**手动**触发：将**指定明细行**对应成品从 **主 BOM** 拉到本 PI 的 `UB_ERP_Bom_Sales*`；**不点则维持 PI 内原样** | 保存、一键运算 |
-| **一键运算** | 在 **PI 销售 BOM**（`UB_ERP_Bom_Sales_list`）上做与 BOM 资料 **成本运算用量表** 同类运算（同隐藏前缀、同平铺乘算规则）；结果写入 `UB_ERP_Bom_pi_cost` / `UB_ERP_Bom_pi_consumption`；**不乘订货数量** | 保存、同步 BOM |
+| **一键运算** | 在 **PI 销售 BOM**（`UB_ERP_Bom_Sales_list`）上做与 BOM 资料 **成本运算用量表** 同类运算（同隐藏前缀、同平铺乘算规则）；结果写入 `UB_ERP_Bom_pi_cost` / `UB_ERP_Bom_pi_consumption`；**不乘订货数量**；list 无 BAG/TAG/RMP 父行时从 **虚拟根父键** 展开三棵子树 | 保存、同步 BOM |
 | **物料单（运算结果）** | 仅 **一键运算之后** 写入 `UB_ERP_Bom_pi_cost` / `UB_ERP_Bom_pi_consumption`；**仓库、采购、出入库等全系统订料口径** | 销售 BOM 配件表 |
 | **订货数量** | 仅存订单明细；**不参与** 运算写入；备料展示 **用量 × 订货数量**（按款） | 结构用量 |
 | **运算状态** | 主表概念：**已运算** / **未运算**（列名实现探测，如 `isok`）；**未运算** 时物料单无效，**禁止** 下游引用 | 审核 pass |

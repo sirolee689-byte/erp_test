@@ -36,6 +36,12 @@ export const PI_LIST_PKCAA01_EXPR = `LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l
 export const PI_BOM_TOP_LEVEL_EXCLUDED_BOM_CODE_IDS = [3, 12]
 export const PI_BOM_LIST_WRITE_THROUGH_PREFIXES = ['CUT-', 'RP-']
 export const PI_BOM_LIST_FORCE_SKIP_PREFIXES = ['RP-PQ']
+/** UB_ERP_Bom_Sales.info 列宽（旧表 nvarchar(50)） */
+export const PI_BOM_VIRTUAL_ROOT_QTY_INFO_MAX_LEN = 50
+/** 紧凑快照前缀：v1:BAG/1,TAG/7（按 flag5 前缀，非完整 kcaa01） */
+export const PI_BOM_VIRTUAL_ROOT_QTY_INFO_COMPACT_MARKER = 'v1:'
+/** 历史 JSON 快照前缀（仅解析兼容，不再写入） */
+export const PI_BOM_VIRTUAL_ROOT_QTY_INFO_MARKER = 'pi_vroot_qty_v1'
 
 /**
  * @typedef {{ parentSc?: string, topLevelParentKeys?: Set<string> }} PiBomListDedupeOpts
@@ -101,6 +107,195 @@ export async function fetchPiBomListSkipBomCodePrefixes(db) {
     if (seen.has(prefix)) continue
     seen.add(prefix)
     out.push(prefix)
+  }
+  return out
+}
+
+/**
+ * 同步时从主 BOM 第一层收集不写 list 的虚拟根用量（BAG/TAG/RMP 等）
+ * @param {any[]} tree buildBomPartsUsageTreeNodesFromLayerCache 根层子节点
+ * @param {string[]} skipPrefixes fetchPiBomListSkipBomCodePrefixes
+ * @returns {Map<string, { kcac04: number, kcac05: number }>}
+ */
+export function collectPiBomVirtualRootQtyFromMasterTree(tree, skipPrefixes) {
+  /** @type {Map<string, { kcac04: number, kcac05: number }>} */
+  const out = new Map()
+  if (!Array.isArray(tree)) return out
+  for (let i = 0; i < tree.length; i++) {
+    const node = tree[i]
+    const sourceRow =
+      node?._sourceRow && typeof node._sourceRow === 'object' ? node._sourceRow : node
+    const code = normKcaa01(sourceRow?.kcaa01 ?? node?.kcaa01)
+    if (!code || !shouldSkipPiBomListWriteByBomCodePrefix(code, skipPrefixes)) continue
+    const kcac04Raw = Number(sourceRow?.kcac04 ?? node?.kcac04 ?? 1)
+    const kcac05Raw = Number(sourceRow?.kcac05 ?? node?.kcac05 ?? 0)
+    out.set(code, {
+      kcac04: Number.isFinite(kcac04Raw) ? kcac04Raw : 1,
+      kcac05: Number.isFinite(kcac05Raw) ? kcac05Raw : 0,
+    })
+  }
+  return out
+}
+
+/**
+ * @param {string} kcaa01
+ * @returns {string} 如 BAG-
+ */
+function virtualRootQtyPrefixFromKcaa01(kcaa01) {
+  const code = normKcaa01(kcaa01)
+  const dash = code.indexOf('-')
+  if (dash <= 0) return ''
+  return code.slice(0, dash + 1)
+}
+
+/**
+ * @param {string} prefixKey BAG-
+ * @param {number} kcac04
+ * @param {number} kcac05
+ */
+function formatCompactVirtualRootQtyPart(prefixKey, kcac04, kcac05) {
+  const flag = String(prefixKey ?? '').replace(/-$/, '').trim().toUpperCase()
+  if (!flag) return ''
+  const k04 = Number.isFinite(kcac04) ? kcac04 : 1
+  const k05 = Number.isFinite(kcac05) ? kcac05 : 0
+  if (k05 === 0) return `${flag}/${k04}`
+  return `${flag}/${k04}/${k05}`
+}
+
+/**
+ * @param {{ prefix: string, part: string, isDefault: boolean }[]} entries
+ */
+function buildCompactVirtualRootQtyInfo(entries) {
+  if (!entries.length) return null
+  return `${PI_BOM_VIRTUAL_ROOT_QTY_INFO_COMPACT_MARKER}${entries.map((e) => e.part).join(',')}`
+}
+
+/**
+ * @param {Map<string, { kcac04: number, kcac05: number }>} qtyByKcaa01
+ * @returns {string | null}
+ */
+export function serializePiBomVirtualRootQtyInfo(qtyByKcaa01) {
+  if (!qtyByKcaa01?.size) return null
+  /** @type {{ prefix: string, part: string, isDefault: boolean }[]} */
+  const entries = []
+  for (const [k, v] of qtyByKcaa01) {
+    const prefix = virtualRootQtyPrefixFromKcaa01(k)
+    if (!prefix) continue
+    const kcac04 = Number(v?.kcac04 ?? 1)
+    const kcac05 = Number(v?.kcac05 ?? 0)
+    const part = formatCompactVirtualRootQtyPart(
+      prefix,
+      Number.isFinite(kcac04) ? kcac04 : 1,
+      Number.isFinite(kcac05) ? kcac05 : 0,
+    )
+    if (!part) continue
+    entries.push({
+      prefix,
+      part,
+      isDefault: kcac04 === 1 && kcac05 === 0,
+    })
+  }
+  if (!entries.length) return null
+
+  let compact = buildCompactVirtualRootQtyInfo(entries)
+  if (compact && compact.length <= PI_BOM_VIRTUAL_ROOT_QTY_INFO_MAX_LEN) return compact
+
+  const nonDefault = entries.filter((e) => !e.isDefault)
+  compact = buildCompactVirtualRootQtyInfo(nonDefault)
+  if (compact && compact.length <= PI_BOM_VIRTUAL_ROOT_QTY_INFO_MAX_LEN) return compact
+
+  return null
+}
+
+/**
+ * @param {string} code
+ * @param {number} kcac04
+ * @param {number} kcac05
+ * @param {Map<string, { kcac04: number, kcac05: number }>} out
+ */
+function putVirtualRootQtyEntry(code, kcac04, kcac05, out) {
+  const normCode = normKcaa01(code)
+  if (!normCode) return
+  const entry = {
+    kcac04: Number.isFinite(kcac04) ? kcac04 : 1,
+    kcac05: Number.isFinite(kcac05) ? kcac05 : 0,
+  }
+  out.set(normCode, entry)
+  const prefix = virtualRootQtyPrefixFromKcaa01(normCode)
+  if (prefix) out.set(prefix, entry)
+}
+
+/**
+ * @param {unknown} info UB_ERP_Bom_Sales.info
+ * @returns {Map<string, { kcac04: number, kcac05: number }>}
+ */
+export function parsePiBomVirtualRootQtyInfo(info) {
+  const s = String(info ?? '').trim()
+  if (!s) return new Map()
+  /** @type {Map<string, { kcac04: number, kcac05: number }>} */
+  const out = new Map()
+
+  if (s.startsWith(PI_BOM_VIRTUAL_ROOT_QTY_INFO_COMPACT_MARKER)) {
+    const body = s.slice(PI_BOM_VIRTUAL_ROOT_QTY_INFO_COMPACT_MARKER.length)
+    for (const piece of body.split(',')) {
+      const seg = String(piece ?? '').trim()
+      if (!seg) continue
+      const parts = seg.split('/')
+      const flag = String(parts[0] ?? '').trim().toUpperCase()
+      if (!flag) continue
+      const kcac04 = Number(parts[1] ?? 1)
+      const kcac05 = parts.length > 2 ? Number(parts[2] ?? 0) : 0
+      putVirtualRootQtyEntry(
+        `${flag}-`,
+        kcac04,
+        kcac05,
+        out,
+      )
+    }
+    return out
+  }
+
+  const legacyPrefix = `${PI_BOM_VIRTUAL_ROOT_QTY_INFO_MARKER}:`
+  if (!s.startsWith(legacyPrefix)) return new Map()
+  try {
+    const obj = JSON.parse(s.slice(legacyPrefix.length))
+    for (const [k, v] of Object.entries(obj ?? {})) {
+      putVirtualRootQtyEntry(k, Number(v?.kcac04 ?? 1), Number(v?.kcac05 ?? 0), out)
+    }
+    return out
+  } catch {
+    return new Map()
+  }
+}
+
+/**
+ * 无 info 快照时，从主 BOM 头下直接子件读取虚拟根用量（仅 BAG/TAG/RMP 等 skip 前缀）
+ * @param {import('mssql').ConnectionPool | import('mssql').Transaction} db
+ * @param {string} headSc bom_000.GUID / Bom_parts 父 systemcode
+ * @param {string[]} skipPrefixes
+ */
+export async function fetchMasterBomVirtualRootQtyUnderHead(db, headSc, skipPrefixes) {
+  const parent = normalizeUsageTreeParentKey(headSc)
+  /** @type {Map<string, { kcac04: number, kcac05: number }>} */
+  const out = new Map()
+  if (!parent) return out
+  const r = await new sql.Request(db).input('p', sql.NVarChar(500), parent).query(`
+    SELECT
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p.kcaa01, N'')))) AS kcaa01,
+      CAST(ISNULL(p.kcac04, 0) AS decimal(18, 6)) AS kcac04,
+      CAST(ISNULL(p.kcac05, 0) AS decimal(18, 6)) AS kcac05
+    FROM dbo.Bom_parts AS p
+    WHERE LTRIM(RTRIM(ISNULL(CAST(p.kcac01 AS nvarchar(500)), N''))) = @p
+  `)
+  for (const row of r.recordset ?? []) {
+    const code = normKcaa01(row.kcaa01)
+    if (!code || !shouldSkipPiBomListWriteByBomCodePrefix(code, skipPrefixes)) continue
+    const kcac04 = Number(row.kcac04 ?? 1)
+    const kcac05 = Number(row.kcac05 ?? 0)
+    out.set(code, {
+      kcac04: Number.isFinite(kcac04) ? kcac04 : 1,
+      kcac05: Number.isFinite(kcac05) ? kcac05 : 0,
+    })
   }
   return out
 }
@@ -453,6 +648,10 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
     throw e
   }
 
+  const skipWritePrefixes = await fetchPiBomListSkipBomCodePrefixes(pool)
+  const virtualRootQtyByKcaa01 = collectPiBomVirtualRootQtyFromMasterTree(tree, skipWritePrefixes)
+  const virtualRootQtyInfo = serializePiBomVirtualRootQtyInfo(virtualRootQtyByKcaa01)
+
   // PI BOM 头：GUID 与 systemcode 两列写入相同值（均取自 bom_000.GUID）
   const headGuidAndSystemcode = bomGuid
   const now = formatSalesOrderAuditTime()
@@ -495,18 +694,19 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
   insHead.input('utruename', sql.NVarChar(100), String(actor.utruename ?? ''))
   insHead.input('uid', sql.NVarChar(50), String(actor.uid ?? ''))
   insHead.input('addtime', sql.NVarChar(50), now)
+  insHead.input('virtualRootQtyInfo', sql.NVarChar(PI_BOM_VIRTUAL_ROOT_QTY_INFO_MAX_LEN), virtualRootQtyInfo)
   await insHead.query(`
     INSERT INTO ${PI_BOM_HEAD_FROM} (
       [sid], [kcaa01], [GUID], [systemcode], [kcaa02], [kcaa03], [kcaa04], [kcaa05], [kcaa06],
       [kcaa09], [kcaa10], [kcaa11], [kcaa12], [kcaa14], [kcaa15], [kcaa25], [kcaa26], [kcaa27], [kcaa28],
       [kcaa29], [kcaa30], [kcaa31], [kcaa02_en], [kcaa32], [kcaa33], [kcaa34], [kcaa35],
-      [sale_price], [cost_price], [type], [location], [version], [remark],
+      [sale_price], [cost_price], [type], [location], [version], [remark], [info],
       [uname], [utruename], [uid], [addtime], [del], [pass]
     ) VALUES (
       @sid, @kcaa01, @headGuidAndSystemcode, @headGuidAndSystemcode, @kcaa02, @kcaa03, @kcaa04, @kcaa05, @kcaa06,
       @kcaa09, @kcaa10, @kcaa11, @kcaa12, @kcaa14, @kcaa15, @kcaa25, @kcaa26, @kcaa27, @kcaa28,
       @kcaa29, @kcaa30, @kcaa31, @kcaa02_en, @kcaa32, @kcaa33, @kcaa34, @kcaa35,
-      @sale_price, @cost_price, @type, @location, @version, @headRemark,
+      @sale_price, @cost_price, @type, @location, @version, @headRemark, @virtualRootQtyInfo,
       @uname, @utruename, @uid, @addtime, N'0', @headPass
     )
   `)
@@ -519,7 +719,15 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
     .map(({ sourceRow }) => normKcaa01(sourceRow?.kcaa01))
     .filter(Boolean)
   const bom000OverrideByKcaa01 = await prefetchBom000OverrideSnapshotsByKcaa01(pool, kcaa01ForOverride)
-  const skipWritePrefixes = await fetchPiBomListSkipBomCodePrefixes(pool)
+  const flag5Prefixes = await fetchTopLevelFinishedBomCodeFlag5Prefixes(pool)
+  const topLevelParentKeys = collectTopLevelParentKeysFromPiBomTree(tree, flag5Prefixes)
+
+  /** @type {Map<number, string>} */
+  const expandKeyByPartsId = new Map()
+  /** @type {Set<string>} */
+  const usedExpandKeys = new Set([headSc])
+  /** @type {Set<string>} */
+  const insertDedupeKeys = new Set()
 
   for (const { parentSc, parentNode, sourceRow } of flat) {
     const parentSourceRow =
@@ -527,14 +735,19 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
         ? parentNode._sourceRow
         : parentNode
     const listParentSc = parentSourceRow
-      ? resolvePiBomListRawParentKeyFromBomPartsRow(parentSourceRow)
+      ? resolvePiListExpandKeyFromBomPartsRow(parentSourceRow, expandKeyByPartsId, usedExpandKeys)
       : normalizeUsageTreeParentKey(parentSc)
 
     if (shouldSkipPiBomListWriteByBomCodePrefix(sourceRow?.kcaa01, skipWritePrefixes)) {
       continue
     }
 
-    const rowExpandKey = resolvePiBomListRawParentKeyFromBomPartsRow(sourceRow)
+    const rowExpandKey = resolvePiListExpandKeyFromBomPartsRow(sourceRow, expandKeyByPartsId, usedExpandKeys)
+    const dedupeKey = piBomListInsertDedupeKey(listParentSc, sourceRow, { topLevelParentKeys })
+    if (dedupeKey && insertDedupeKeys.has(dedupeKey)) {
+      continue
+    }
+    if (dedupeKey) insertDedupeKeys.add(dedupeKey)
     const childCode = normKcaa01(sourceRow?.kcaa01)
     const bom000Snap = childCode ? bom000OverrideByKcaa01.get(childCode) : undefined
     const partRow = mergePiListPartRowWithBom000Override(

@@ -2,13 +2,16 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import { buildBomPartsUsageTreeNodesFromLayerCache } from './bomUsageTreeBuild.js'
 import {
+  collectPiBomVirtualRootQtyFromMasterTree,
   collectTopLevelParentKeysFromPiBomTree,
   flattenPiBomPartRows,
   kcaa01MatchesTopLevelFinishedBomCodePrefix,
+  parsePiBomVirtualRootQtyInfo,
   piBomListInsertDedupeKey,
   piBomListPhysicalRowKey,
   resolvePiListExpandKeyFromBomPartsRow,
   resolvePiBomListRawParentKeyFromBomPartsRow,
+  serializePiBomVirtualRootQtyInfo,
   shouldSkipPiBomListWriteByBomCodePrefix,
 } from './salesOrderPiBom.js'
 
@@ -318,6 +321,127 @@ describe('salesOrderPiBom', () => {
     }
 
     assert.equal(dedupeKeys.size, 4, 'BN-0008 四条路径应产生 4 个独立写入键')
+  })
+
+  test('PI-TEST111 拓扑：生产写入循环三条 BN-0005 展开键互不相同', () => {
+    const scCut101 = '349454B1977B8AE65DA68A78C555EEB7EAB'
+    const scCut102 = '3542451205F833D8452960112DA20D0801D'
+    const scCut103 = '359EEF52C77BBD05BF3FC2CA3AE94E8FFA2'
+    const sharedBn5Sc = '637E4014-AAC0-492D-87EF-30F1930A89E2'
+    const sharedBn8Sc = '82C84EC2-4736-42C3-9CF7-C00C7157006F'
+
+    /** @type {Map<string, Record<string, unknown>[]>} */
+    const layerCache = new Map([
+      [
+        'HEAD',
+        [
+          { id: 2, kcaa01: 'CUT-BAG<10-1>', kcac02: scCut101, systemcode: scCut101, kcac04: 1, kcac05: 0 },
+          { id: 3, kcaa01: 'CUT-BAG<10-2>', kcac02: scCut102, systemcode: scCut102, kcac04: 1, kcac05: 0 },
+          { id: 4, kcaa01: 'CUT-BAG<10-3>', kcac02: scCut103, systemcode: scCut103, kcac04: 1, kcac05: 0 },
+        ],
+      ],
+      [
+        scCut101,
+        [
+          {
+            id: 2617990,
+            kcaa01: 'BN-0005/-',
+            kcac02: sharedBn5Sc,
+            systemcode: sharedBn5Sc,
+            kcac04: 1,
+            kcac05: 0,
+          },
+        ],
+      ],
+      [
+        scCut102,
+        [
+          {
+            id: 2617998,
+            kcaa01: 'BN-0005/-',
+            kcac02: sharedBn5Sc,
+            systemcode: sharedBn5Sc,
+            kcac04: 1,
+            kcac05: 0,
+          },
+        ],
+      ],
+      [
+        scCut103,
+        [
+          {
+            id: 2618006,
+            kcaa01: 'BN-0005/-',
+            kcac02: sharedBn5Sc,
+            systemcode: sharedBn5Sc,
+            kcac04: 1,
+            kcac05: 0,
+          },
+        ],
+      ],
+      [
+        sharedBn5Sc,
+        [
+          {
+            id: 71086,
+            kcaa01: 'BN-0008/-',
+            kcac02: sharedBn8Sc,
+            systemcode: sharedBn8Sc,
+            kcac04: 1,
+            kcac05: 0,
+          },
+        ],
+      ],
+    ])
+
+    const tree = buildBomPartsUsageTreeNodesFromLayerCache('HEAD', 1, new Set(['HEAD']), layerCache, false)
+    const flat = []
+    flattenPiBomPartRows('HEAD', tree, flat, 1, 'PQ-3633A1/BLU4')
+
+    const expandKeyByPartsId = new Map()
+    const usedExpandKeys = new Set(['HEAD'])
+    const insertDedupeKeys = new Set()
+    /** @type {string[]} */
+    const bn5ExpandKeys = []
+
+    for (const { parentSc, parentNode, sourceRow } of flat) {
+      if (String(sourceRow?.kcaa01 ?? '') !== 'BN-0005/-') continue
+      const parentSourceRow =
+        parentNode?._sourceRow && typeof parentNode._sourceRow === 'object'
+          ? parentNode._sourceRow
+          : parentNode
+      const listParentSc = parentSourceRow
+        ? resolvePiListExpandKeyFromBomPartsRow(parentSourceRow, expandKeyByPartsId, usedExpandKeys)
+        : parentSc
+      const rowExpandKey = resolvePiListExpandKeyFromBomPartsRow(sourceRow, expandKeyByPartsId, usedExpandKeys)
+      const dedupeKey = piBomListInsertDedupeKey(listParentSc, sourceRow)
+      if (dedupeKey && insertDedupeKeys.has(dedupeKey)) continue
+      if (dedupeKey) insertDedupeKeys.add(dedupeKey)
+      bn5ExpandKeys.push(rowExpandKey)
+    }
+
+    assert.equal(bn5ExpandKeys.length, 3)
+    assert.equal(new Set(bn5ExpandKeys).size, 3, '三条 BN-0005 须分配独立 systemcode')
+    assert.equal(bn5ExpandKeys[0], sharedBn5Sc)
+    assert.notEqual(bn5ExpandKeys[1], sharedBn5Sc)
+    assert.notEqual(bn5ExpandKeys[2], sharedBn5Sc)
+  })
+
+  test('虚拟根用量快照：TAG kcac04=7 可序列化并在运算时还原（info≤50）', () => {
+    const prefixes = ['BAG-', 'TAG-', 'RMP-']
+    const tree = [
+      { kcaa01: 'BAG-PQ3633A1/BLU4', kcac04: 1, kcac05: 0, children: [] },
+      { kcaa01: 'TAG-PQ3633A1/BLU4', kcac04: 7, kcac05: 0, children: [] },
+      { kcaa01: 'RMP-PQ3633A1/BLU4', kcac04: 1, kcac05: 0, children: [] },
+    ]
+    const snap = collectPiBomVirtualRootQtyFromMasterTree(tree, prefixes)
+    assert.equal(snap.get('TAG-PQ3633A1/BLU4')?.kcac04, 7)
+    const info = serializePiBomVirtualRootQtyInfo(snap)
+    assert.ok(info)
+    assert.ok(info.length <= 50, `info 过长: ${info.length} ${info}`)
+    assert.equal(info, 'v1:BAG/1,TAG/7,RMP/1')
+    const parsed = parsePiBomVirtualRootQtyInfo(info)
+    assert.equal(parsed.get('TAG-')?.kcac04, 7)
   })
 
   test('PI-TEST111 拓扑：TC-0001/580 在 BAG 父下仍保留两行', () => {

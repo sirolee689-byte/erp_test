@@ -215,7 +215,11 @@ export async function fetchSalesOrderPiBom(opts) {
     if (err?.code === 'PI_BOM_MISSING') {
       return { ok: false, status: 404, msg: String(err.message) }
     }
-    if (err?.code === 'BOM_CYCLE' || err?.code === 'BOM_DEPTH') {
+    if (
+      err?.code === 'BOM_CYCLE' ||
+      err?.code === 'BOM_DEPTH' ||
+      err?.code === 'PI_BOM_TREE_EMPTY'
+    ) {
       return { ok: false, status: 400, msg: String(err.message) }
     }
     throw err

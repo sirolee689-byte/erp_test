@@ -368,9 +368,12 @@ export async function calculateSalesOrderMaterialBill(opts) {
       const tree = await buildPiBomUsageTreeForProduct(pool, piNo, product)
       const orderQty = qtyByProduct.get(product) ?? null
       const { rows, flat } = await buildPiCostRowsFromTree(pool, tree, product, actor, orderQty)
-      if (rows.length) {
-        await insertCostBulkEnriched(pool, tx, PI_COST_TABLE, product, piNo, rows)
+      if (!rows.length) {
+        const err = new Error(`货品 ${product} 运算结果为空，请检查 PI BOM 或先同步 BOM`)
+        err.code = 'PI_COST_EMPTY'
+        throw err
       }
+      await insertCostBulkEnriched(pool, tx, PI_COST_TABLE, product, piNo, rows)
       for (const f of flat) allFlatForConsumption.push(f)
     }
 
@@ -428,7 +431,13 @@ export async function calculateSalesOrderMaterialBill(opts) {
     } catch {
       // ignore
     }
-    if (err?.code === 'BOM_CYCLE' || err?.code === 'BOM_DEPTH' || err?.code === 'PI_BOM_MISSING') {
+    if (
+      err?.code === 'BOM_CYCLE' ||
+      err?.code === 'BOM_DEPTH' ||
+      err?.code === 'PI_BOM_MISSING' ||
+      err?.code === 'PI_BOM_TREE_EMPTY' ||
+      err?.code === 'PI_COST_EMPTY'
+    ) {
       return { ok: false, status: 409, msg: String(err.message ?? 'BOM 运算失败') }
     }
     throw err

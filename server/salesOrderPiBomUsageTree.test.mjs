@@ -1,9 +1,93 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { buildPiBomUsageTreeNodesFromLayerCache } from './salesOrderPiBomUsageTree.js'
+import { flattenBomPartsCostUsageFlatForBomCost } from './bomUsageFlatten.js'
+import {
+  buildPiBomUsageTreeNodesFromLayerCache,
+  inferVirtualRootTopLevelMeta,
+  resolvePiBomUsageTreeRootKeys,
+} from './salesOrderPiBomUsageTree.js'
 import { flattenPiBomTreeForEdit } from './salesOrderPiBomMaintainLogic.js'
 
 describe('salesOrderPiBomUsageTree', () => {
+  test('订单头无子行时从虚拟根（BAG/TAG/RMP expand key）展开', () => {
+    const headSc = 'HEAD-PQ'
+    const bagSc = 'SC-BAG'
+    const tagSc = 'SC-TAG'
+    const cutBag = 'SC-CUT-BAG'
+    const cutTag = 'SC-CUT-TAG'
+
+    const listRows = [
+      { kcac01: bagSc, kcac02: cutBag, systemcode: cutBag, seq: 1, id: 1 },
+      { kcac01: tagSc, kcac02: cutTag, systemcode: cutTag, seq: 2, id: 2 },
+    ]
+
+    const roots = resolvePiBomUsageTreeRootKeys(headSc, listRows)
+    assert.deepEqual(roots, [bagSc, tagSc])
+
+    /** @type {Map<string, Record<string, unknown>[]>} */
+    const layerCache = new Map([
+      [
+        bagSc,
+        [
+          {
+            id: 1,
+            kcaa01: 'CUT-BAG<1>',
+            kcac01: bagSc,
+            kcac02: cutBag,
+            systemcode: cutBag,
+            kcac04: 1,
+            kcac05: 0,
+          },
+        ],
+      ],
+      [
+        tagSc,
+        [
+          {
+            id: 2,
+            kcaa01: 'CUT-TAG<1>',
+            kcac01: tagSc,
+            kcac02: cutTag,
+            systemcode: cutTag,
+            kcac04: 1,
+            kcac05: 0,
+          },
+        ],
+      ],
+      [cutBag, [{ id: 10, kcaa01: 'BN-0001/-', kcac01: cutBag, kcac02: '', systemcode: 'SC-BN1', kcac04: 1, kcac05: 0 }]],
+      [cutTag, [{ id: 11, kcaa01: 'BN-0002/-', kcac01: cutTag, kcac02: '', systemcode: 'SC-BN2', kcac04: 1, kcac05: 0 }]],
+    ])
+
+    /** @type {any[]} */
+    const tree = []
+    for (const rootKey of roots) {
+      tree.push(
+        ...buildPiBomUsageTreeNodesFromLayerCache(
+          rootKey,
+          1,
+          new Set([rootKey]),
+          layerCache,
+          'PQ-3633A1/BLU4',
+        ),
+      )
+    }
+
+    assert.equal(tree.length, 2)
+    assert.equal(tree[0].kcaa01, 'CUT-BAG<1>')
+    assert.equal(tree[1].kcaa01, 'CUT-TAG<1>')
+    assert.equal(tree[0].children?.[0]?.kcaa01, 'BN-0001/-')
+    assert.equal(tree[1].children?.[0]?.kcaa01, 'BN-0002/-')
+  })
+
+  test('订单头有直接子行时仍从 head systemcode 展开（兼容旧数据）', () => {
+    const headSc = 'HEAD'
+    const listRows = [
+      { kcac01: headSc, kcac02: 'SC-CUT', systemcode: 'SC-CUT', seq: 1, id: 1 },
+      { kcac01: 'VIRTUAL-BAG', kcac02: 'SC-CUT2', systemcode: 'SC-CUT2', seq: 2, id: 2 },
+    ]
+    assert.deepEqual(resolvePiBomUsageTreeRootKeys(headSc, listRows), [headSc])
+  })
+
   test('按 kcac01 父子挂接，每条裁片路径各自展开子件（对标 BOM 用量树）', () => {
     const scCut91 = 'SC-CUT-9-1'
     const scCut101 = 'SC-CUT-10-1'
@@ -268,6 +352,44 @@ describe('salesOrderPiBomUsageTree', () => {
     const cut10 = tree.find((n) => n.kcaa01 === 'CUT-BAG<10-1>')
     const bn5 = cut10?.children?.find((c) => c.kcaa01 === 'BN-0005/-')
     assert.equal(bn5?.children?.filter((c) => c.kcaa01 === 'BN-0008/-').length ?? 0, 1)
+  })
+
+  test('虚拟根合成节点使用 TAG 真实 kcac04=7 参与用量乘算', () => {
+    const qtyByKcaa01 = new Map([['TAG-PQ3633A1/BLU4', { kcac04: 7, kcac05: 0 }]])
+    const children = [
+      {
+        id: 1,
+        kcaa01: 'CUT-TAGPQ3633A1/BLU4<1-1>',
+        kcac04: 1,
+        kcac05: 0,
+        children: [
+          {
+            id: 2,
+            kcaa01: 'MB-0089/CFL',
+            kcac04: 1,
+            kcac05: 0,
+            children: [],
+          },
+        ],
+      },
+    ]
+    const meta = inferVirtualRootTopLevelMeta(children, 'PQ-3633A1/BLU4', qtyByKcaa01)
+    assert.equal(meta.kcaa01, 'TAG-PQ3633A1/BLU4')
+    assert.equal(meta.kcac04, 7)
+
+    const tree = [
+      {
+        id: null,
+        kcaa01: meta.kcaa01,
+        kcac04: meta.kcac04,
+        kcac05: meta.kcac05,
+        kcaa33: 0,
+        children,
+      },
+    ]
+    const flat = flattenBomPartsCostUsageFlatForBomCost(tree, null, [])
+    const mb = flat.find((r) => r.kcaa01 === 'MB-0089/CFL')
+    assert.equal(mb?.yl, 7)
   })
 
   test('多明细款共用 kcac01 父键时 pkcaa01 预过滤后各款树互不影响', () => {
