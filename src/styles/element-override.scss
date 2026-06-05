@@ -18,9 +18,11 @@
   --erp-dialog-close-size: 44px;
   /* × 图标大小，约为方框的一半较协调 */
   --erp-dialog-close-icon-size: 22px;
-  --erp-action-gap: 7px;
-  --erp-action-btn-font-size: 14px;
-  --erp-action-btn-min-height: 32px;
+  --erp-action-gap: 8px;
+  --erp-action-btn-font-size: 13px;
+  --erp-action-btn-min-height: 28px;
+  --erp-action-btn-radius: 20px;
+  --erp-action-btn-padding-x: 12px;
   --erp-list-action-btn-font-size: 11px;
   --erp-list-action-btn-min-height: 22px;
   --erp-list-action-col-gap: 4px;
@@ -95,16 +97,16 @@ html[data-ui='standard'] {
   --el-font-size-extra-small: 12px;
   --el-component-size-large: 40px;
   --el-component-size: 32px;
-  --el-component-size-small: 24px;
-  --el-border-radius-base: 6px;
-  --el-border-radius-small: 4px;
+  --el-component-size-small: 28px;
+  --el-border-radius-base: 20px;
+  --el-border-radius-small: 20px;
 
   --el-text-color-primary: #1f2937;
   --el-text-color-regular: #374151;
   --el-text-color-secondary: #4b5563;
   --el-text-color-placeholder: #6b7280;
 
-  --el-color-primary: #2563eb;
+  --el-color-primary: #165dff;
   --el-color-success: #15803d;
   --el-color-warning: #b45309;
   --el-color-danger: #b91c1c;
@@ -148,8 +150,8 @@ html[data-ui='comfortable'] {
   --erp-shell-user-size: 16px;
   --erp-sidebar-logo-size: 18px;
   --erp-sidebar-menu-size: 16px;
-  --erp-action-btn-font-size: 15px;
-  --erp-action-btn-min-height: 38px;
+  --erp-action-btn-font-size: 13px;
+  --erp-action-btn-min-height: 28px;
   --erp-table-datetime-size: 13px;
   --erp-list-action-btn-font-size: 13px;
   --erp-list-action-btn-min-height: 28px;
@@ -166,9 +168,9 @@ html[data-ui='comfortable'] {
   /* 【触控】控件最小高度 44px */
   --el-component-size-large: 48px;
   --el-component-size: 44px;
-  --el-component-size-small: 36px;
-  --el-border-radius-base: 8px;
-  --el-border-radius-small: 6px;
+  --el-component-size-small: 28px;
+  --el-border-radius-base: 20px;
+  --el-border-radius-small: 20px;
 
   /* 【对比度 WCAG AA 取向】深字 + 浅底 */
   --el-text-color-primary: #111827;
@@ -179,7 +181,7 @@ html[data-ui='comfortable'] {
   --el-fill-color-light: #f3f4f6;
 
   /* 【主操作】高饱和深色，避免浅灰主按钮 */
-  --el-color-primary: #1d4ed8;
+  --el-color-primary: #165dff;
   --el-color-primary-light-3: #3b82f6;
   --el-color-primary-light-5: #60a5fa;
   --el-color-primary-dark-2: #1e3a8a;
@@ -440,6 +442,96 @@ html[data-ui='comfortable'] .el-button.is-text:not(.erp-btn-keep-link) {
   margin-left: 0;
 }
 
+/* Arco-like ERP action controls: pill buttons, compact rhythm, no shadow. */
+.action-bar,
+.erp-action-row,
+.lines-toolbar,
+.so-pi-bom-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--erp-action-gap, 8px);
+}
+
+.action-bar {
+  flex-wrap: nowrap;
+}
+
+.action-bar .el-button + .el-button,
+.erp-action-row .el-button + .el-button,
+.lines-toolbar .el-button + .el-button,
+.so-pi-bom-toolbar .el-button + .el-button {
+  margin-left: 0;
+}
+
+html[data-ui='standard'] .el-button,
+html[data-ui='comfortable'] .el-button,
+.el-button {
+  min-height: var(--erp-action-btn-min-height, 28px);
+  height: var(--erp-action-btn-min-height, 28px);
+  border-radius: var(--erp-action-btn-radius, 20px);
+  box-shadow: none;
+  font-size: var(--erp-action-btn-font-size, 13px);
+  padding-left: var(--erp-action-btn-padding-x, 12px);
+  padding-right: var(--erp-action-btn-padding-x, 12px);
+}
+
+html[data-ui='standard'] .el-button--small,
+html[data-ui='comfortable'] .el-button--small,
+.el-button--small {
+  --el-button-size: var(--erp-action-btn-min-height, 28px);
+  min-height: var(--erp-action-btn-min-height, 28px);
+  height: var(--erp-action-btn-min-height, 28px);
+  border-radius: var(--erp-action-btn-radius, 20px);
+  font-size: var(--erp-action-btn-font-size, 13px);
+  padding-left: var(--erp-action-btn-padding-x, 12px);
+  padding-right: var(--erp-action-btn-padding-x, 12px);
+}
+
+.el-button--primary {
+  --el-button-bg-color: #165dff;
+  --el-button-border-color: #165dff;
+  --el-button-hover-bg-color: #4080ff;
+  --el-button-hover-border-color: #4080ff;
+  --el-button-active-bg-color: #0e42d2;
+  --el-button-active-border-color: #0e42d2;
+}
+
+.pagination-row,
+.pager-row {
+  justify-content: flex-end;
+}
+
+.pagination-row--bottom,
+.pager-row--bottom {
+  margin-top: 16px;
+}
+
+html[data-ui='standard'] .el-pagination,
+html[data-ui='comfortable'] .el-pagination,
+.el-pagination {
+  --el-pagination-button-height: var(--erp-action-btn-min-height, 28px);
+  --el-pagination-button-width: var(--erp-action-btn-min-height, 28px);
+  --el-pagination-font-size: var(--erp-action-btn-font-size, 13px);
+  justify-content: flex-end;
+}
+
+html[data-ui='standard'] .el-pagination .btn-prev,
+html[data-ui='standard'] .el-pagination .btn-next,
+html[data-ui='standard'] .el-pagination .el-pager li,
+html[data-ui='comfortable'] .el-pagination .btn-prev,
+html[data-ui='comfortable'] .el-pagination .btn-next,
+html[data-ui='comfortable'] .el-pagination .el-pager li,
+.el-pagination .btn-prev,
+.el-pagination .btn-next,
+.el-pagination .el-pager li {
+  min-height: var(--erp-action-btn-min-height, 28px);
+  height: var(--erp-action-btn-min-height, 28px);
+  border-radius: var(--erp-action-btn-radius, 20px);
+  font-size: var(--erp-action-btn-font-size, 13px);
+  box-shadow: none;
+}
+
 html[data-ui='comfortable'] .erp-module-page .erp-table-actions .el-button {
   font-size: var(--erp-action-btn-font-size) !important;
   min-height: var(--erp-action-btn-min-height) !important;
@@ -549,8 +641,8 @@ html[data-ui='comfortable'] .el-select__wrapper {
 html[data-ui='comfortable'] .el-pagination .btn-prev,
 html[data-ui='comfortable'] .el-pagination .btn-next,
 html[data-ui='comfortable'] .el-pagination .el-pager li {
-  min-width: var(--erp-touch-min);
-  min-height: 36px;
+  min-width: var(--erp-action-btn-min-height, 28px);
+  min-height: var(--erp-action-btn-min-height, 28px);
   font-weight: var(--erp-font-weight-body);
 }
 
