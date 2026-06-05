@@ -1625,7 +1625,7 @@ const bomUsageTableRef = ref(null)
 const bomCostUsageTableRef = ref(null)
 /** 成本 BOM 用量表展示行（本地：前缀筛选 + 按编码+备注合并） */
 const bomCostUsageFlatRows = ref([])
-/** 成本平铺源行：DFS 的 flatCostUsageRaw，或命中缓存时由 bom_cost 映射成的等价平铺（供合并用） */
+/** 成本平铺源行：bom_cost 映射或 DFS flatCostUsageRaw（与写库同源算法，供合并用） */
 const bomCostUsageRawRows = ref([])
 /** GET/POST：当前 pq+sid 是否已有 bom_cost 缓存（仅控制按钮与提示，不区分展示算法） */
 const bomUsageHasCache = ref(false)
@@ -2177,7 +2177,10 @@ function applyBomUsageCalcResult(body, systemcode) {
   lastBomUsageFetchSystemcode.value = String(systemcode ?? '').trim()
   bomUsageHasCache.value = true
   bomUsageTreeError.value = ''
-  bomCostUsageRawRows.value = Array.isArray(body?.flatCostUsageRaw) ? body.flatCostUsageRaw : []
+  // 展示与 bom_cost 落库同源：优先用刚写入的 bomCost，避免 flatCostUsageRaw 展示算法与写库不一致
+  const bomCostRows = Array.isArray(body?.bomCost) ? body.bomCost : []
+  bomCostUsageRawRows.value =
+    bomCostRows.length > 0 ? mapBomCostApiRowsToCostUsageRawRows(bomCostRows) : []
   bomUsageTreeData.value = Array.isArray(body?.data) ? body.data : []
   recomputeBomCostUsageDisplay()
 }

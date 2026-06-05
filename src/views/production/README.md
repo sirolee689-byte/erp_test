@@ -42,6 +42,6 @@
 - 数据来源：销售订单点击「一键运算」后写入的 `UB_ERP_Bom_pi_cost` / `UB_ERP_Bom_pi_consumption`。
 - 页面顶部只按 PI 号搜索；`GET /api/sales-order/pi-suggest` 仅返回已审核在册销售订单的 PI 候选，候选下拉只显示 PI 号。
 - 页面为报表形态；按钮区先做展示占位，打印/导出/保存暂不绑定动作。
-- 页面分两个标签页：`物料单统计表（明细）`、`物料单统计表（汇总）`。明细按成品款 `pq` 分段，每段抬头从销售订单主从表按 PI 号关联读取；汇总按整张 PI 合并展示，本期不处理汇总抬头。
+- 页面分两个标签页：`物料单统计表（明细）`、`物料单统计表（汇总）`。明细按成品款 `pq` 分段，每段抬头从销售订单主从表按 PI 号关联读取；每段内容对标 BOM 资料「成本BOM用量表」，读取 `UB_ERP_Bom_pi_cost`，按 `px` 有值优先、`px` 升序、`id` 稳定排序；汇总按整张 PI 合并展示，本期不处理汇总抬头。
 - 明细抬头字段：PI号=`UB_ERP_Sales_order_list.xsak01`、PO号=`UB_ERP_Sales_order.xsaj06`、日期=`UB_ERP_Sales_order.xsaj02`、厂款号=`UB_ERP_Sales_order_list.kcaa09`、名称=`UB_ERP_Sales_order_list.kcaa02`、客款号=`UB_ERP_Sales_order_list.kcaa06`、组别=`UB_ERP_Sales_order_list.kcaa10`、订单量=`xsak03`（为空用 `plan_quantity`）；单品用量本期留空。
 - 未运算销售订单没有有效物料单；需要先回销售订单执行「一键运算」。

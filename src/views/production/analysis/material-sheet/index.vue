@@ -72,36 +72,38 @@
               class="product-section"
             >
               <ReportHeader :header="group.header" />
-              <table class="report-table">
-                <thead>
-                  <tr>
-                    <th class="col-index">序号</th>
-                    <th class="col-code">ERP编码</th>
-                    <th>名称</th>
-                    <th>规格</th>
-                    <th class="col-match">搭配</th>
-                    <th class="col-unit">单位</th>
-                    <th class="col-num">用量</th>
-                    <th class="col-num">损耗</th>
-                    <th class="col-num">合计</th>
-                    <th class="col-num">单物料合计</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(row, idx) in group.rows" :key="row.id ?? `${group.key}-${idx}`">
-                    <td>{{ idx + 1 }}</td>
-                    <td>{{ row.kcaa01 }}</td>
-                    <td>{{ row.kcaa02 }}</td>
-                    <td>{{ row.kcaa03 }}</td>
-                    <td>{{ row.Describe }}</td>
-                    <td>{{ row.kcaa04 }}</td>
-                    <td>{{ formatQty(row.kcac04) }}</td>
-                    <td>{{ formatLoss(row.kcac05) }}</td>
-                    <td>{{ formatQty(row.kcac06) }}</td>
-                    <td>{{ formatQty(singleMaterialTotal(row)) }}</td>
-                  </tr>
-                </tbody>
-              </table>
+              <div class="report-table-wrap">
+                <table class="report-table">
+                  <thead>
+                    <tr>
+                      <th class="col-index">序号</th>
+                      <th class="col-code">编码</th>
+                      <th>名称</th>
+                      <th>规格</th>
+                      <th class="col-unit">单位</th>
+                      <th class="col-match">备注</th>
+                      <th class="col-num">用量</th>
+                      <th class="col-num">损耗</th>
+                      <th class="col-num">合计</th>
+                      <th class="col-num">单物料合计</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(row, idx) in group.rows" :key="row.__materialCostRowKey ?? `${group.key}-${idx}`">
+                      <td>{{ idx + 1 }}</td>
+                      <td>{{ row.kcaa01 }}</td>
+                      <td>{{ row.kcaa02 }}</td>
+                      <td>{{ row.kcaa03 }}</td>
+                      <td>{{ row.kcaa04 }}</td>
+                      <td>{{ row.Describe }}</td>
+                      <td>{{ formatQty(row.yl) }}</td>
+                      <td>{{ formatLoss(row.loss_rate) }}</td>
+                      <td>{{ formatQty(row.total_qty) }}</td>
+                      <td>{{ formatQty(singleMaterialTotal(row, group)) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </section>
           </template>
           <el-empty v-else description="请选择 PI 号并查询物料单明细" />
@@ -109,36 +111,38 @@
 
         <template v-else>
           <ReportHeader />
-          <table v-if="consumptionLines.length" class="report-table">
-            <thead>
-              <tr>
-                <th class="col-index">序号</th>
-                <th class="col-code">ERP编码</th>
-                <th>名称</th>
-                <th>规格</th>
-                <th class="col-match">搭配</th>
-                <th class="col-unit">单位</th>
-                <th class="col-num">用量</th>
-                <th class="col-num">损耗</th>
-                <th class="col-num">合计</th>
-                <th class="col-num">单物料合计</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(row, idx) in consumptionLines" :key="row.id ?? idx">
-                <td>{{ idx + 1 }}</td>
-                <td>{{ row.kcaa01 }}</td>
-                <td>{{ row.kcaa02 }}</td>
-                <td>{{ row.kcaa03 }}</td>
-                <td>{{ row.Describe }}</td>
-                <td>{{ row.kcaa04 }}</td>
-                <td>{{ formatQty(row.sumay) }}</td>
-                <td>{{ formatLoss(row.kcac05) }}</td>
-                <td>{{ formatQty(row.sumby) }}</td>
-                <td>{{ formatQty(row.sumby) }}</td>
-              </tr>
-            </tbody>
-          </table>
+          <div v-if="consumptionLines.length" class="report-table-wrap">
+            <table class="report-table">
+              <thead>
+                <tr>
+                  <th class="col-index">序号</th>
+                  <th class="col-code">ERP编码</th>
+                  <th>名称</th>
+                  <th>规格</th>
+                  <th class="col-match">搭配</th>
+                  <th class="col-unit">单位</th>
+                  <th class="col-num">用量</th>
+                  <th class="col-num">损耗</th>
+                  <th class="col-num">合计</th>
+                  <th class="col-num">单物料合计</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, idx) in consumptionLines" :key="row.id ?? idx">
+                  <td>{{ idx + 1 }}</td>
+                  <td>{{ row.kcaa01 }}</td>
+                  <td>{{ row.kcaa02 }}</td>
+                  <td>{{ row.kcaa03 }}</td>
+                  <td>{{ row.Describe }}</td>
+                  <td>{{ row.kcaa04 }}</td>
+                  <td>{{ formatQty(row.sumay) }}</td>
+                  <td>{{ formatLoss(row.kcac05) }}</td>
+                  <td>{{ formatQty(row.sumby) }}</td>
+                  <td>{{ formatQty(row.sumby) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
           <el-empty v-else description="请选择 PI 号并查询物料单汇总" />
         </template>
       </div>
@@ -150,6 +154,42 @@
 import { computed, defineComponent, h, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
+import { aggregateBomCostUsageFlatForDisplay } from '@/utils/bomCostUsageAggregate.js'
+
+const BOM_COST_BUILTIN_HIDE_PREFIXES = [
+  'CUT-',
+  'PQ-',
+  'BAG-',
+  'OUT',
+  'TAG-',
+  'ATG-',
+  'KEY-',
+  'STRAP-',
+  'SP-',
+  'SS-',
+  'GS-',
+  'HD-',
+  'PS-',
+  'CP-',
+  'RP-PQ',
+  'RMP-',
+  'RCP-',
+  'HL-',
+  'CH-',
+  'REM-',
+  'MAK-',
+  'RA-',
+  'PEN-',
+  'CRAD-',
+  'RAIN-',
+  'SA-',
+  'BELT-',
+  'ARH-',
+  'SSB-',
+  'PB-',
+  'DS-',
+  'ASB-',
+]
 
 const ReportHeader = defineComponent({
   name: 'ReportHeader',
@@ -220,6 +260,23 @@ const headerByProduct = computed(() => {
   return map
 })
 
+function mapMaterialCostRowsToBomCostRows(rows) {
+  const list = Array.isArray(rows) ? rows : []
+  return list.map((row, idx) => ({
+    kcaa01: String(row?.kcaa01 ?? '').trim(),
+    kcaa02: row?.kcaa02 != null ? String(row.kcaa02) : '',
+    kcaa03: row?.kcaa03 != null ? String(row.kcaa03) : '',
+    kcaa04: row?.kcaa04 != null ? String(row.kcaa04) : '',
+    Describe: row?.Describe != null ? String(row.Describe) : '',
+    yl: Number(row?.kcac04 ?? 0),
+    loss_rate: Number(row?.kcac05 ?? 0),
+    total_qty: Number.isFinite(Number(row?.kcac06)) ? Number(row.kcac06) : undefined,
+    px: row?.px,
+    level: 1,
+    _flatIndex: idx,
+  }))
+}
+
 const detailGroups = computed(() => {
   const map = new Map()
   for (const row of costLines.value) {
@@ -227,16 +284,25 @@ const detailGroups = computed(() => {
     if (!map.has(key)) map.set(key, [])
     map.get(key).push(row)
   }
-  return [...map.entries()].map(([key, rows]) => ({
-    key,
-    rows,
-    header: headerByProduct.value.get(key) ?? {},
-  }))
+  return [...map.entries()].map(([key, rows]) => {
+    const mergedRows = aggregateBomCostUsageFlatForDisplay(
+      mapMaterialCostRowsToBomCostRows(rows),
+      BOM_COST_BUILTIN_HIDE_PREFIXES,
+    ).map((row, idx) => ({
+      ...row,
+      __materialCostRowKey: `${key}-${idx}`,
+    }))
+    return {
+      key,
+      rows: mergedRows,
+      header: headerByProduct.value.get(key) ?? {},
+    }
+  })
 })
 
-const activeRowCount = computed(() =>
-  activeTab.value === 'detail' ? costLines.value.length : consumptionLines.value.length,
-)
+const detailRowCount = computed(() => detailGroups.value.reduce((sum, group) => sum + group.rows.length, 0))
+
+const activeRowCount = computed(() => (activeTab.value === 'detail' ? detailRowCount.value : consumptionLines.value.length))
 
 function makeReportCode() {
   const raw = `${Date.now()}${Math.random().toString(16).slice(2)}`
@@ -261,6 +327,13 @@ function formatLoss(value) {
   return n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')
 }
 
+function singleMaterialTotal(row, group) {
+  const totalQty = Number(row?.total_qty)
+  const orderQty = Number(group?.header?.orderQty)
+  if (!Number.isFinite(totalQty) || !Number.isFinite(orderQty) || orderQty === 0) return 0
+  return totalQty / orderQty
+}
+
 function formatHeaderDate(value) {
   if (!value) return ''
   const d = value instanceof Date ? value : new Date(value)
@@ -278,13 +351,6 @@ function formatHeaderValue(value, key) {
     return String(n).replace(/\.0+$/, '')
   }
   return value == null ? '' : String(value)
-}
-
-function singleMaterialTotal(row) {
-  const total = Number(row?.kcac06)
-  const orderQty = Number(row?.orderQty)
-  if (!Number.isFinite(total) || !Number.isFinite(orderQty) || orderQty === 0) return 0
-  return total / orderQty
 }
 
 function clearReport() {
@@ -360,131 +426,180 @@ async function loadReport() {
 <style scoped>
 .material-sheet-page {
   min-height: calc(100vh - 118px);
+  padding: 16px;
+  background: #f5f7fb;
 }
 .top-search-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 16px;
+  border: 1px solid #e3e8f2;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 .pi-search {
-  width: 360px;
+  flex: 1;
+  min-width: 260px;
 }
 .report-shell {
   min-height: calc(100vh - 170px);
-  border-left: 5px solid #166f6a;
+  overflow: hidden;
+  border: 1px solid #dce3ee;
+  border-left: 4px solid #1c7c73;
+  border-radius: 8px;
   background: #fff;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.07);
 }
 .report-action-strip {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  background: #f0f2f3;
+  gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid #e5eaf2;
+  background: #f7f9fc;
 }
 .report-tool-row {
   display: flex;
-  gap: 6px;
-  padding: 10px 16px 4px;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 18px 6px;
+  background: #fff;
 }
 .report-meta-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  padding: 0 16px;
-  min-height: 24px;
+  gap: 10px;
+  padding: 0 18px;
+  min-height: 26px;
+  color: #334155;
   font-size: 13px;
 }
 .underline {
   display: inline-block;
   min-width: 170px;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid #94a3b8;
   line-height: 20px;
 }
 .report-page-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
-  margin: 10px 16px 0;
-  padding: 3px 8px;
-  background: #ededed;
+  gap: 8px;
+  margin: 12px 18px 0;
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #334155;
   font-size: 13px;
 }
 .report-body {
-  padding: 8px 16px 18px;
+  padding: 14px 18px 20px;
 }
 .product-section + .product-section {
-  margin-top: 22px;
+  margin-top: 18px;
 }
-.blank-report-head {
+:deep(.blank-report-head) {
   position: relative;
-  max-width: 980px;
-  margin: 4px auto 12px;
+  max-width: 1120px;
+  margin: 0 auto 14px;
+  padding: 18px 22px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
   text-align: center;
 }
-.brand-line {
-  color: #3553ad;
-  font-size: 17px;
+:deep(.brand-line) {
+  color: #1e3a8a;
+  font-size: 16px;
   font-weight: 600;
-  line-height: 28px;
+  line-height: 24px;
 }
-.report-title {
-  margin-bottom: 16px;
-  font-size: 20px;
+:deep(.report-title) {
+  margin-bottom: 14px;
+  color: #0f172a;
+  font-size: 18px;
   font-weight: 700;
+  line-height: 26px;
 }
-.head-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+:deep(.head-grid) {
+  display: grid;
+  gap: 8px;
   text-align: left;
 }
-.head-row {
+:deep(.head-row) {
   display: grid;
-  grid-template-columns: repeat(3, minmax(240px, 1fr));
-  column-gap: 36px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: 22px;
+  row-gap: 8px;
   align-items: center;
 }
-.head-field {
+:deep(.head-field) {
   display: flex;
   align-items: center;
   min-width: 0;
 }
-.head-label {
+:deep(.head-label) {
   flex: none;
+  min-width: 76px;
+  color: #475569;
   font-size: 14px;
   line-height: 22px;
 }
-.head-value {
+:deep(.head-value) {
   display: inline-block;
   flex: 1;
-  min-width: 150px;
-  border-bottom: 1px solid #999;
+  min-width: 0;
+  border-bottom: 1px solid #cbd5e1;
+  color: #0f172a;
   line-height: 22px;
   min-height: 22px;
-  padding: 0 6px;
+  padding: 0 8px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.report-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+}
 .report-table {
   width: 100%;
   border-collapse: collapse;
+  border-style: hidden;
   table-layout: fixed;
-  font-size: 14px;
+  font-size: 13px;
 }
 .report-table th,
 .report-table td {
-  border: 1px solid #8b8b8b;
-  padding: 2px 6px;
-  line-height: 20px;
+  border: 1px solid #cbd5e1;
+  padding: 5px 8px;
+  line-height: 19px;
   text-align: center;
   word-break: break-all;
 }
 .report-table th {
+  color: #0f172a;
   font-weight: 600;
-  background: #fafafa;
+  background: #eef4fb;
+}
+.report-table tbody tr:nth-child(even) {
+  background: #fafcff;
+}
+.report-table tbody tr:hover {
+  background: #edf6ff;
+}
+.report-action-strip :deep(.el-button),
+.report-tool-row :deep(.el-button),
+.report-page-row :deep(.el-button) {
+  border-radius: 16px;
+  font-weight: 600;
 }
 .col-index {
   width: 58px;
@@ -512,7 +627,7 @@ async function loadReport() {
   .head-grid {
     gap: 8px;
   }
-  .head-row {
+  :deep(.head-row) {
     grid-template-columns: 1fr;
     row-gap: 8px;
   }

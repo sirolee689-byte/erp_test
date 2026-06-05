@@ -77,8 +77,7 @@ function flattenBomPartsCostUsageFlatCore(
 }
 
 /**
- * 成本 BOM 用量平铺：深度优先与树构建顺序一致
- * 保留原有展示规则：CUT 自身用量不继续放大下层。
+ * 历史展示平铺（CUT 自身用量不继续放大下层）；API/写库已统一用 flattenBomPartsCostUsageFlatForBomCost。
  * @param {any[]} treeNodes
  * @param {number|null|undefined} parentYl
  * @param {any[]} [acc]

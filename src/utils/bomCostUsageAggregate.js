@@ -25,6 +25,13 @@ export function bomCostFlatRowSortKey(r, flatIndex) {
   return 1_000_000 + flatIndex
 }
 
+export function bomCostFlatRowPxSortKey(r) {
+  const raw = r?.px
+  if (raw == null || raw === '') return null
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : null
+}
+
 /**
  * 剔除前缀行后按 kcaa01+Describe 合并；排序按最小 Seq / 首次摊平顺序（与纸格 Material 列表一致）
  * @param {Record<string, unknown>[]} flatRows
@@ -32,7 +39,7 @@ export function bomCostFlatRowSortKey(r, flatIndex) {
  */
 export function aggregateBomCostUsageFlatForDisplay(flatRows, hidePrefixes) {
   if (!Array.isArray(flatRows) || !flatRows.length) return []
-  /** @type {Map<string, { kcaa01: string, kcaa02: string, kcaa03: string, kcaa04: string, Describe: string, sumYl: number, sumTotal: number, minSort: number, firstFlatIndex: number }>} */
+  /** @type {Map<string, { kcaa01: string, kcaa02: string, kcaa03: string, kcaa04: string, Describe: string, sumYl: number, sumTotal: number, minSort: number, minPx: number | null, firstFlatIndex: number }>} */
   const map = new Map()
   /** @type {string[]} */
   const order = []
@@ -43,6 +50,7 @@ export function aggregateBomCostUsageFlatForDisplay(flatRows, hidePrefixes) {
     const remark = String(r?.Describe ?? '').trim()
     const key = `${code}\u0000${remark}`
     const sortKey = bomCostFlatRowSortKey(r, i)
+    const pxSortKey = bomCostFlatRowPxSortKey(r)
     const yl = Number(r?.yl ?? 0)
     const loss = Number(r?.loss_rate ?? 0)
     const rowTotal = Number.isFinite(Number(r?.total_qty)) ? Number(r.total_qty) : yl * (1 + loss)
@@ -57,6 +65,7 @@ export function aggregateBomCostUsageFlatForDisplay(flatRows, hidePrefixes) {
         sumYl: 0,
         sumTotal: 0,
         minSort: sortKey,
+        minPx: pxSortKey,
         firstFlatIndex: i,
       }
       map.set(key, g)
@@ -66,6 +75,7 @@ export function aggregateBomCostUsageFlatForDisplay(flatRows, hidePrefixes) {
       if (!g.kcaa03 && r?.kcaa03) g.kcaa03 = String(r.kcaa03)
       if (!g.kcaa04 && r?.kcaa04) g.kcaa04 = String(r.kcaa04)
       if (sortKey < g.minSort) g.minSort = sortKey
+      if (pxSortKey != null && (g.minPx == null || pxSortKey < g.minPx)) g.minPx = pxSortKey
     }
     g.sumYl += yl
     g.sumTotal += rowTotal
@@ -90,10 +100,18 @@ export function aggregateBomCostUsageFlatForDisplay(flatRows, hidePrefixes) {
       total_qty,
       level: 1,
       _sortMin: g.minSort,
+      _sortPx: g.minPx,
       _sortFirstFlat: g.firstFlatIndex,
     })
   }
   out.sort((a, b) => {
+    const ap = a._sortPx == null ? null : Number(a._sortPx)
+    const bp = b._sortPx == null ? null : Number(b._sortPx)
+    if (ap != null || bp != null) {
+      if (ap == null) return 1
+      if (bp == null) return -1
+      if (ap !== bp) return ap - bp
+    }
     const sa = Number(a._sortMin)
     const sb = Number(b._sortMin)
     if (sa !== sb) return sa - sb
@@ -104,5 +122,5 @@ export function aggregateBomCostUsageFlatForDisplay(flatRows, hidePrefixes) {
     if (c !== 0) return c
     return String(a.Describe).localeCompare(String(b.Describe), 'zh-Hans-CN', { sensitivity: 'accent' })
   })
-  return out.map(({ _sortMin, _sortFirstFlat, ...rest }) => rest)
+  return out.map(({ _sortMin, _sortPx, _sortFirstFlat, ...rest }) => rest)
 }

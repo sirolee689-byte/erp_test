@@ -216,7 +216,7 @@
                       </template>
                     </el-table-column>
                     <el-table-column label="客款号" prop="customerStyleNo" min-width="150" show-overflow-tooltip />
-                    <el-table-column label="厂款号" prop="factoryStyleNo" min-width="150" show-overflow-tooltip />
+                    <el-table-column label="编码" prop="kcaa01" min-width="150" show-overflow-tooltip />
                     <el-table-column label="名称" prop="materialNameCn" min-width="220" show-overflow-tooltip />
                     <el-table-column label="规格" prop="spec" min-width="220" show-overflow-tooltip />
                     <el-table-column label="组别" prop="groupName" min-width="120" show-overflow-tooltip />

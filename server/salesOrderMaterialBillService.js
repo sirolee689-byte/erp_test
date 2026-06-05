@@ -38,6 +38,53 @@ async function ensureCalcStatusColumn(pool) {
   return CALC_COL_PROMISE
 }
 
+function materialBillPxSortValue(row) {
+  const raw = row?.px
+  if (raw == null || raw === '') return null
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : null
+}
+
+export function buildMaterialBillCostLines(recordset, qtyByProduct = new Map()) {
+  const rows = Array.isArray(recordset) ? [...recordset] : []
+  rows.sort((a, b) => {
+    const pqA = normKcaa01(a?.pq)
+    const pqB = normKcaa01(b?.pq)
+    if (pqA !== pqB) return pqA.localeCompare(pqB, 'zh-Hans-CN', { sensitivity: 'accent' })
+    const pxA = materialBillPxSortValue(a)
+    const pxB = materialBillPxSortValue(b)
+    if (pxA != null || pxB != null) {
+      if (pxA == null) return 1
+      if (pxB == null) return -1
+      if (pxA !== pxB) return pxA - pxB
+    }
+    return Number(a?.id ?? 0) - Number(b?.id ?? 0)
+  })
+  return rows.map((row) => {
+    const pq = normKcaa01(row.pq)
+    const orderQty = qtyByProduct.get(pq) ?? 0
+    const usage = Number(row.kcac04 ?? 0)
+    const px = materialBillPxSortValue(row)
+    return {
+      id: row.id,
+      pq,
+      kcaa01: String(row.kcaa01 ?? ''),
+      kcaa02: String(row.kcaa02 ?? ''),
+      kcaa03: String(row.kcaa03 ?? ''),
+      kcaa04: String(row.kcaa04 ?? ''),
+      kcac04: usage,
+      kcac05: Number(row.kcac05 ?? 0),
+      kcac06: Number(row.kcac06 ?? 0),
+      px,
+      Describe: String(row.Describe ?? ''),
+      topKcaa01: String(row.topKcaa01 ?? ''),
+      topKcaa02: String(row.topKcaa02 ?? ''),
+      orderQty,
+      prepQty: usage * orderQty,
+    }
+  })
+}
+
 /**
  * @param {import('mssql').ConnectionPool} pool
  * @param {number} id
@@ -117,36 +164,25 @@ export async function fetchSalesOrderMaterialBill(pool, id) {
       CAST(ISNULL([kcac04], 0) AS decimal(18, 6)) AS kcac04,
       CAST(ISNULL([kcac05], 0) AS decimal(18, 6)) AS kcac05,
       CAST(ISNULL([kcac06], 0) AS decimal(18, 6)) AS kcac06,
+      CASE
+        WHEN [px] IS NULL THEN NULL
+        WHEN ISNUMERIC(LTRIM(RTRIM(CONVERT(nvarchar(100), [px])))) = 1
+          THEN CONVERT(int, LTRIM(RTRIM(CONVERT(nvarchar(100), [px]))))
+        ELSE NULL
+      END AS px,
       LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([Describe], N'')))) AS Describe,
       LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL([top_kcaa01], N'')))) AS topKcaa01,
       LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([top_kcaa02], N'')))) AS topKcaa02
     FROM ${PI_COST_FROM}
     WHERE LTRIM(RTRIM(ISNULL([sid], N''))) = @pi
-    ORDER BY [pq], [id]
+    ORDER BY
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL([pq], N'')))) ASC,
+      CASE WHEN [px] IS NULL THEN 1 ELSE 0 END ASC,
+      [px] ASC,
+      [id] ASC
   `)
 
-  const costLines = (costR.recordset ?? []).map((row) => {
-    const pq = normKcaa01(row.pq)
-    const orderQty = qtyByProduct.get(pq) ?? 0
-    const usage = Number(row.kcac04 ?? 0)
-    return {
-      id: row.id,
-      pq,
-      kcaa01: String(row.kcaa01 ?? ''),
-      kcaa02: String(row.kcaa02 ?? ''),
-      kcaa03: String(row.kcaa03 ?? ''),
-      kcaa04: String(row.kcaa04 ?? ''),
-      kcac04: usage,
-      kcac05: Number(row.kcac05 ?? 0),
-      kcac06: Number(row.kcac06 ?? 0),
-      Describe: String(row.Describe ?? ''),
-      topKcaa01: String(row.topKcaa01 ?? ''),
-      topKcaa02: String(row.topKcaa02 ?? ''),
-      orderQty,
-      /** 备料用量 = 结构用量 × 该款订货数量（展示用，非落库） */
-      prepQty: usage * orderQty,
-    }
-  })
+  const costLines = buildMaterialBillCostLines(costR.recordset ?? [], qtyByProduct)
 
   const consTableR = await pool
     .request()
