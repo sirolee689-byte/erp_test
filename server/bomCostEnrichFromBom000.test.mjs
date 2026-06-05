@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  applyBomCostPxForRows,
   applyBomCostPxForPqRows,
   applyBomCostAuditToRows,
   enrichBomCostInsertRowsFromBom000,
@@ -130,4 +131,22 @@ test('applyBomCostPxForPqRows 仅 PQ 主 BOM 按分类写 px', () => {
   const bagRows = applyBomCostPxForPqRows(rows, 'BAG-PQ3119B1/N', pxMap)
   assert.equal(bagRows, rows)
   assert.equal('px' in bagRows[0], false)
+})
+
+test('applyBomCostPxForRows writes px by material category without PQ head restriction', () => {
+  const rows = [
+    { kcaa01: 'TT-0018/BLACK', kcaa05: 'TT' },
+    { kcaa01: 'ZS-0003/CFO', kcaa05: 'ZS' },
+    { kcaa01: 'NO-CAT', kcaa05: '' },
+  ]
+  const pxRows = applyBomCostPxForRows(
+    rows,
+    new Map([
+      ['TT', 31],
+      ['ZS', 42],
+    ]),
+  )
+  assert.equal(pxRows[0].px, 31)
+  assert.equal(pxRows[1].px, 42)
+  assert.equal('px' in pxRows[2], false)
 })

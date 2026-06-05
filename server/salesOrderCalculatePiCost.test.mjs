@@ -112,4 +112,34 @@ describe('salesOrderCalculatePiCost', () => {
     const bn08 = payload.filter((r) => r.kcaa01 === 'BN-0008/-')
     assert.equal(bn08.length, 4, 'BN-0008 应对应 4 条 pi_cost 行')
   })
+  test('pi_cost writes RP material rows and skips RP-PQ structure rows', () => {
+    const tree = [
+      {
+        id: 1,
+        kcaa01: 'CUT-BAG<1-1>',
+        kcac04: 1,
+        kcac05: 0,
+        children: [
+          {
+            id: 2,
+            kcaa01: 'RP-0030/-',
+            kcac04: 0.5,
+            kcac05: 0,
+            children: [],
+          },
+          {
+            id: 3,
+            kcaa01: 'RP-PQ3633A1/BLU4',
+            kcac04: 1,
+            kcac05: 0,
+            children: [],
+          },
+        ],
+      },
+    ]
+    const payload = buildPiCostInsertPayloadFromUsageTree(tree, PRODUCT)
+    const codes = payload.map((r) => r.kcaa01)
+    assert.ok(codes.includes('RP-0030/-'))
+    assert.ok(!codes.includes('RP-PQ3633A1/BLU4'))
+  })
 })

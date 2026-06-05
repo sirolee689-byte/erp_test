@@ -672,8 +672,7 @@
                 <template #default="{ row }">
                   <el-input-number
                     v-model="row.orderQty"
-                    :min="0.0001"
-                    :precision="4"
+                    :min="0"
                     :disabled="editDetailLocked"
                     :controls="false"
                     style="width: 100%"
@@ -685,7 +684,6 @@
                   <el-input-number
                     v-model="row.unitPrice"
                     :min="0"
-                    :precision="6"
                     :disabled="editDetailLocked"
                     :controls="false"
                     style="width: 100%"
@@ -861,6 +859,8 @@ const pageTitle = '销售订单'
 const SALES_ORDER_WINDOW_REFRESH_KEY = 'erp:sales-order:list-refresh'
 const DEFAULT_CREATE_CUSTOMER_CODE = '7001'
 const DEFAULT_CREATE_CUSTOMER_NAME = 'PQD'
+const DEFAULT_CREATE_CURRENCY_CODE = '002'
+const DEFAULT_CREATE_CURRENCY_NAME = '美元'
 const salesOrderWindowMode = computed(() => String(route.query?.mode ?? '').trim().toLowerCase())
 const isSalesOrderStandaloneWindow = computed(() => salesOrderWindowMode.value === 'create')
 
@@ -874,7 +874,7 @@ const showUnAudited = ref(false)
 const tableList = ref([])
 const total = ref(0)
 const page = ref(1)
-const pageSize = ref(20)
+const pageSize = ref(10)
 
 const mainTableRef = ref(null)
 const salesOrderActionsColWidth = computed(() => getErpTableActionsColMinWidth(6))
@@ -1243,6 +1243,15 @@ function formatCurrencyOption(c) {
   return name ? `${code},${name}` : code
 }
 
+function findCurrencyOptionByDisplay(code, name) {
+  return currencyOptions.value.find((c) => {
+    const id = Number(c?.id)
+    const displayCode = Number.isFinite(id) ? String(id).padStart(3, '0') : String(c?.id ?? '').trim()
+    const displayName = String(c?.cn_name ?? '').trim()
+    return displayCode === code && displayName === name
+  })
+}
+
 async function searchCustomers(keyword) {
   customerLoading.value = true
   try {
@@ -1268,6 +1277,11 @@ async function applyDefaultCreateCustomer() {
     return code === DEFAULT_CREATE_CUSTOMER_CODE && name === DEFAULT_CREATE_CUSTOMER_NAME
   })
   if (hit) headerForm.customerCode = String(hit.s_code ?? '').trim()
+}
+
+function applyDefaultCreateCurrency() {
+  const hit = findCurrencyOptionByDisplay(DEFAULT_CREATE_CURRENCY_CODE, DEFAULT_CREATE_CURRENCY_NAME)
+  if (hit) headerForm.currencyCode = String(hit.id ?? '').trim()
 }
 
 function resetHeaderForm() {
@@ -1353,6 +1367,7 @@ async function openCreate() {
   editActiveTab.value = 'header'
   resetHeaderForm()
   await loadCurrencyOptions()
+  applyDefaultCreateCurrency()
   await applyDefaultCreateCustomer()
   editVisible.value = true
 }
@@ -1402,8 +1417,8 @@ async function openEdit(row) {
     const lines = Array.isArray(data.lines) ? data.lines : []
     lineRows.value = lines.map((ln) => ({
       kcaa01: String(ln.kcaa01 ?? '').trim(),
-      orderQty: Number(ln.orderQty ?? 0) || 1,
-      unitPrice: Number(ln.unitPrice ?? 0) || 0,
+      orderQty: Number.isFinite(Number(ln.orderQty)) ? Number(ln.orderQty) : 0,
+      unitPrice: Number.isFinite(Number(ln.unitPrice)) ? Number(ln.unitPrice) : 0,
       remark: String(ln.remark ?? ''),
       customerStyleNo: String(ln.customerStyleNo ?? ln.kcaa06 ?? ''),
       materialNameCn: String(ln.materialNameCn ?? ln.productName ?? ln.kcaa02 ?? ''),
@@ -1451,7 +1466,7 @@ function onMaterialsPicked(payloads) {
     if (lineRows.value.some((x) => x.kcaa01 === code)) continue
     lineRows.value.push({
       kcaa01: code,
-      orderQty: 1,
+      orderQty: 0,
       unitPrice: 0,
       remark: String(m.remark ?? ''),
       customerStyleNo: String(m.kcaa06 ?? ''),

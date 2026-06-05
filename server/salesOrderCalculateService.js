@@ -5,7 +5,7 @@ import sql from 'mssql'
 import { getDefaultBomCostHidePrefixes } from './bomCostHidePrefixes.js'
 import { buildBomCostInsertPayloadFromFlatUsage } from './bomUsageYl.js'
 import {
-  applyBomCostPxForPqRows,
+  applyBomCostPxForRows,
   applyBomCostAuditToRows,
   enrichBomCostInsertRowsFromBom000,
   fetchBomMaterialPxByCategoryCodes,
@@ -288,7 +288,7 @@ async function buildPiCostRowsFromTree(pool, tree, productKcaa01, actor, orderQt
     pool,
     enriched.map((r) => r.kcaa05),
   )
-  const rowsWithPx = applyBomCostPxForPqRows(enriched, productKcaa01, bomMaterialPxMap)
+  const rowsWithPx = applyBomCostPxForRows(enriched, bomMaterialPxMap)
   const rowsWithAudit = applyBomCostAuditToRows(rowsWithPx, {
     actor,
     addtime: formatBomCostAuditTimestamp(),

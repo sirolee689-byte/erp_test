@@ -3,7 +3,7 @@
  */
 import { sql } from './db.js'
 import { normKcaa01 } from './salesOrderSaveLogic.js'
-import { formatSalesOrderAuditTime, collectPiBomSubtreeParentCodes, PI_LIST_PKCAA01_EXPR } from './salesOrderPiBom.js'
+import { formatSalesOrderAuditTime, PI_LIST_PKCAA01_EXPR } from './salesOrderPiBom.js'
 import {
   buildPiBomUsageTreeForProduct,
   fetchPiBomHeadSystemcode,
@@ -149,37 +149,20 @@ function applyDisplayToPiBomTree(nodes, displayMap) {
  * @param {string} productKcaa01
  */
 async function fetchPiBomListRowIdsForProduct(tx, piNo, productKcaa01) {
-  const headSc = await fetchPiBomHeadSystemcode(tx, piNo, productKcaa01)
-  if (!headSc) return []
   const product = normKcaa01(productKcaa01)
-  const subtree = await collectPiBomSubtreeParentCodes(tx, piNo, headSc, product)
-  const parents = [...subtree]
-  if (!parents.length) return []
-
-  /** @type {number[]} */
+  const req = new sql.Request(tx)
+  req.input('pi', sql.NVarChar(200), normKcaa01(piNo))
+  req.input('product', sql.NVarChar(300), product)
+  const r = await req.query(`
+    SELECT l.[id]
+    FROM ${PI_BOM_LIST_FROM} AS l
+    WHERE LTRIM(RTRIM(ISNULL(l.[sid], N''))) = @pi
+      AND ${PI_LIST_PKCAA01_EXPR} = @product
+  `)
   const ids = []
-  for (let i = 0; i < parents.length; i += 40) {
-    const batch = parents.slice(i, i + 40)
-    const req = new sql.Request(tx)
-    req.input('pi', sql.NVarChar(200), normKcaa01(piNo))
-    req.input('product', sql.NVarChar(300), product)
-    const or = []
-    for (let j = 0; j < batch.length; j++) {
-      const p = `pp${i}_${j}`
-      req.input(p, sql.NVarChar(500), batch[j])
-      or.push(`LTRIM(RTRIM(ISNULL(CAST(l.[kcac01] AS nvarchar(500)), N''))) = @${p}`)
-    }
-    const r = await req.query(`
-      SELECT l.[id]
-      FROM ${PI_BOM_LIST_FROM} AS l
-      WHERE LTRIM(RTRIM(ISNULL(l.[sid], N''))) = @pi
-        AND ${PI_LIST_PKCAA01_EXPR} = @product
-        AND (${or.join(' OR ')})
-    `)
-    for (const row of r.recordset ?? []) {
-      const id = Number(row.id)
-      if (Number.isFinite(id) && id > 0) ids.push(id)
-    }
+  for (const row of r.recordset ?? []) {
+    const id = Number(row.id)
+    if (Number.isFinite(id) && id > 0) ids.push(id)
   }
   return ids
 }

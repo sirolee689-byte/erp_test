@@ -146,3 +146,47 @@ test('bom_cost 写库：CUT 自身数量要放大下层子编码用量', () => {
   assert.equal(round4(displayMaterial.yl), 0.0612)
   assert.equal(round4(bomCostMaterial.yl), 0.1224)
 })
+
+test('bom_cost write: CUT quantity keeps multiplying deeper child BOM rows', () => {
+  const tree = [
+    {
+      kcaa01: 'CUT-SSPQ3122I2/GRN<5-1>',
+      kcaa02: 'CUT',
+      kcac04: 2,
+      kcac05: 0,
+      children: [
+        {
+          kcaa01: 'BN-0005/-',
+          kcaa02: 'middle bom',
+          kcac04: 0.0037,
+          kcac05: 0,
+          children: [
+            {
+              kcaa01: 'BN-0008/-',
+              kcaa02: 'leaf bom',
+              kcac04: 1,
+              kcac05: 0,
+              children: [],
+            },
+          ],
+        },
+      ],
+    },
+  ]
+
+  const displayFlat = flattenBomPartsCostUsageFlat(tree, null, [])
+  const bomCostFlat = flattenBomPartsCostUsageFlatForBomCost(tree, null, [])
+  const displayBn5 = displayFlat.find((r) => r.kcaa01 === 'BN-0005/-')
+  const displayBn8 = displayFlat.find((r) => r.kcaa01 === 'BN-0008/-')
+  const bomCostBn5 = bomCostFlat.find((r) => r.kcaa01 === 'BN-0005/-')
+  const bomCostBn8 = bomCostFlat.find((r) => r.kcaa01 === 'BN-0008/-')
+
+  assert.ok(displayBn5)
+  assert.ok(displayBn8)
+  assert.ok(bomCostBn5)
+  assert.ok(bomCostBn8)
+  assert.equal(round4(displayBn5.yl), 0.0037)
+  assert.equal(round4(displayBn8.yl), 0.0037)
+  assert.equal(round4(bomCostBn5.yl), 0.0074)
+  assert.equal(round4(bomCostBn8.yl), 0.0074)
+})

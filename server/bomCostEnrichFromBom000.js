@@ -278,6 +278,16 @@ export async function fetchBomMaterialPxByCategoryCodes(poolOrTx, categoryCodes)
 export function applyBomCostPxForPqRows(rows, pq, materialPxMap) {
   if (!Array.isArray(rows) || !rows.length) return []
   if (!isPqBomCostHead(pq)) return rows
+  return applyBomCostPxForRows(rows, materialPxMap)
+}
+
+/**
+ * PI 成本表按行物料分类补 px；销售订单款号不再限定必须 PQ- 开头。
+ * @param {Array<Record<string, unknown>>} rows
+ * @param {Map<string, number>} materialPxMap key = Bom_material.code
+ */
+export function applyBomCostPxForRows(rows, materialPxMap) {
+  if (!Array.isArray(rows) || !rows.length) return []
   return rows.map((row) => {
     const categoryCode = String(row?.kcaa05 ?? '').trim()
     if (!categoryCode || !materialPxMap?.has(categoryCode)) return row
@@ -520,7 +530,7 @@ export async function insertCostBulkEnriched(pool, tx, tableName, pq, sid, rows)
 
   /** @type {typeof BOM_COST_INSERT_FIELD_SPECS} */
   const activeSpecs = []
-  const allowPx = (tbl === BOM_COST_TABLE || isPiCost) && isPqBomCostHead(pqV)
+  const allowPx = isPiCost || (tbl === BOM_COST_TABLE && isPqBomCostHead(pqV))
   for (const spec of BOM_COST_INSERT_FIELD_SPECS) {
     if (spec.key === 'px' && !allowPx) continue
     const colLower =

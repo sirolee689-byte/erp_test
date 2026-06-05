@@ -14,7 +14,7 @@ describe('salesOrderListQuery', () => {
     })
 
     assert.match(listSql, /ROW_NUMBER\(\)\s+OVER\s+\(ORDER BY\s+h\.\[id\]\s+DESC\)/i)
-    assert.match(listSql, /WHERE\s+x\.rn\s+BETWEEN\s+@startRow\s+AND\s+@endRow/i)
+    assert.match(listSql, /WHERE\s+h\.rn\s+BETWEEN\s+@startRow\s+AND\s+@endRow/i)
     assert.doesNotMatch(listSql, /OFFSET\s+\d+\s+ROWS/i)
     assert.match(listSql, /dbo\.\[UB_ERP_Sales_order\]\s+AS\s+h/i)
   })
@@ -32,7 +32,7 @@ describe('salesOrderListQuery', () => {
   test('parseSalesOrderListQuery 默认分页与回收站参数', () => {
     const q = parseSalesOrderListQuery({})
     assert.equal(q.page, 1)
-    assert.equal(q.pageSize, 20)
+    assert.equal(q.pageSize, 10)
     assert.equal(q.recycled, false)
     assert.equal(q.pass, '1')
 

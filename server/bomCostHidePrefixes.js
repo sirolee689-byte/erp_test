@@ -18,6 +18,7 @@ export const BOM_COST_BUILTIN_HIDE_PREFIXES = [
   'HD-',
   'PS-',
   'CP-',
+  // Keep normal RP- material rows; hide only RP-PQ structure rows.
   'RP-PQ',
   'RMP-',
   'RCP-',

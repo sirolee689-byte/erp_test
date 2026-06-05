@@ -34,6 +34,8 @@ export const PI_LIST_PKCAA01_EXPR = `LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l
 
 /** Bom_code.id：不参与 PI「顶级成品」父层（OUT 产品线 / 裁片子档分类） */
 export const PI_BOM_TOP_LEVEL_EXCLUDED_BOM_CODE_IDS = [3, 12]
+export const PI_BOM_LIST_WRITE_THROUGH_PREFIXES = ['CUT-', 'RP-']
+export const PI_BOM_LIST_FORCE_SKIP_PREFIXES = ['RP-PQ']
 
 /**
  * @typedef {{ parentSc?: string, topLevelParentKeys?: Set<string> }} PiBomListDedupeOpts
@@ -76,6 +78,48 @@ export function kcaa01MatchesTopLevelFinishedBomCodePrefix(kcaa01, flag5Prefixes
   for (let i = 0; i < flag5Prefixes.length; i++) {
     const f = String(flag5Prefixes[i] ?? '').trim().toUpperCase()
     if (f && code.startsWith(f)) return true
+  }
+  return false
+}
+
+export async function fetchPiBomListSkipBomCodePrefixes(db) {
+  const r = await new sql.Request(db).query(`
+    SELECT
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc.flag5, N'')))) AS flag5
+    FROM ${INV_BOM_CODE_FROM} AS bc
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(bc.copen, N'')))) = N'1'
+      AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc.flag5, N'')))) <> N''
+    ORDER BY LEN(LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc.flag5, N''))))) DESC
+  `)
+  const out = []
+  const seen = new Set()
+  for (const row of r.recordset ?? []) {
+    const flag5 = String(row.flag5 ?? '').trim().toUpperCase()
+    if (!flag5) continue
+    const prefix = `${flag5}-`
+    if (PI_BOM_LIST_WRITE_THROUGH_PREFIXES.includes(prefix)) continue
+    if (seen.has(prefix)) continue
+    seen.add(prefix)
+    out.push(prefix)
+  }
+  return out
+}
+
+export function shouldSkipPiBomListWriteByBomCodePrefix(kcaa01, skipPrefixes) {
+  const code = String(kcaa01 ?? '').trim().toUpperCase()
+  if (!code) return false
+  for (let i = 0; i < PI_BOM_LIST_FORCE_SKIP_PREFIXES.length; i++) {
+    const prefix = PI_BOM_LIST_FORCE_SKIP_PREFIXES[i]
+    if (prefix && code.startsWith(prefix)) return true
+  }
+  for (let i = 0; i < PI_BOM_LIST_WRITE_THROUGH_PREFIXES.length; i++) {
+    const prefix = PI_BOM_LIST_WRITE_THROUGH_PREFIXES[i]
+    if (prefix && code.startsWith(prefix)) return false
+  }
+  if (!skipPrefixes?.length) return false
+  for (let i = 0; i < skipPrefixes.length; i++) {
+    const prefix = String(skipPrefixes[i] ?? '').trim().toUpperCase()
+    if (prefix && code.startsWith(prefix)) return true
   }
   return false
 }
@@ -137,6 +181,10 @@ export function resolvePiListExpandKeyFromBomPartsRow(sourceRow, expandKeyByPart
   return key
 }
 
+export function resolvePiBomListRawParentKeyFromBomPartsRow(sourceRow) {
+  return usageTreeChildParentKey(sourceRow)
+}
+
 function toNullableNumber(v) {
   const n = Number(v)
   return Number.isFinite(n) ? n : null
@@ -195,25 +243,14 @@ export function flattenPiBomPartRows(parentSc, nodes, out, level, productKcaa01,
  * @param {PiBomListDedupeOpts} [opts]
  */
 export function piBomListPhysicalRowKey(sourceRow, opts) {
-  const parentSc = normalizeUsageTreeParentKey(opts?.parentSc)
-  const topLevel = opts?.topLevelParentKeys
-  if (parentSc && topLevel?.has(parentSc)) {
-    const rawId = sourceRow?.id
-    const idNum = Number(rawId)
-    if (rawId != null && rawId !== '' && Number.isFinite(idNum)) {
-      return `id:${Math.trunc(idNum)}`
-    }
-    const kcac02 = normalizeUsageTreeParentKey(sourceRow?.kcac02)
-    if (kcac02) return kcac02
-    return normKcaa01(sourceRow?.kcaa01 != null ? String(sourceRow.kcaa01) : '')
-  }
-  const sc = normalizeUsageTreeParentKey(sourceRow?.systemcode)
-  if (sc) return sc
+  void opts
   const rawId = sourceRow?.id
   const idNum = Number(rawId)
   if (rawId != null && rawId !== '' && Number.isFinite(idNum)) {
     return `id:${Math.trunc(idNum)}`
   }
+  const sc = normalizeUsageTreeParentKey(sourceRow?.systemcode)
+  if (sc) return sc
   const kcac02 = normalizeUsageTreeParentKey(sourceRow?.kcac02)
   if (kcac02) return kcac02
   return normKcaa01(sourceRow?.kcaa01 != null ? String(sourceRow.kcaa01) : '')
@@ -354,39 +391,15 @@ export async function collectPiBomSubtreeParentCodes(tx, piNo, headSystemcode, p
 export async function deletePiBomProduct(tx, piNo, productKcaa01) {
   const pi = normKcaa01(piNo)
   const product = normKcaa01(productKcaa01)
-  const headReq = new sql.Request(tx)
-  headReq.input('pi', sql.NVarChar(200), pi)
-  headReq.input('product', sql.NVarChar(300), product)
-  const headR = await headReq.query(`
-    SELECT TOP 1 LTRIM(RTRIM(ISNULL(CAST(h.[systemcode] AS nvarchar(500)), N''))) AS systemcode
-    FROM ${PI_BOM_HEAD_FROM} AS h
-    WHERE LTRIM(RTRIM(ISNULL(h.[sid], N''))) = @pi
-      AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(h.[kcaa01], N'')))) = @product
+  const delList = new sql.Request(tx)
+  delList.input('pi', sql.NVarChar(200), pi)
+  delList.input('product', sql.NVarChar(300), product)
+  await delList.query(`
+    DELETE l
+    FROM ${PI_BOM_LIST_FROM} AS l
+    WHERE LTRIM(RTRIM(ISNULL(l.[sid], N''))) = @pi
+      AND ${PI_LIST_PKCAA01_EXPR} = @product
   `)
-  const headSc = normalizeUsageTreeParentKey(headR.recordset?.[0]?.systemcode)
-  if (!headSc) return
-
-  const subtree = await collectPiBomSubtreeParentCodes(tx, pi, headSc, product)
-  const codes = [...subtree]
-  for (let i = 0; i < codes.length; i += 40) {
-    const batch = codes.slice(i, i + 40)
-    const delReq = new sql.Request(tx)
-    delReq.input('pi', sql.NVarChar(200), pi)
-    delReq.input('product', sql.NVarChar(300), product)
-    const or = []
-    for (let j = 0; j < batch.length; j++) {
-      const p = `c${i}_${j}`
-      delReq.input(p, sql.NVarChar(500), batch[j])
-      or.push(`LTRIM(RTRIM(ISNULL(CAST(l.[kcac01] AS nvarchar(500)), N''))) = @${p}`)
-    }
-    await delReq.query(`
-      DELETE l
-      FROM ${PI_BOM_LIST_FROM} AS l
-      WHERE LTRIM(RTRIM(ISNULL(l.[sid], N''))) = @pi
-        AND ${PI_LIST_PKCAA01_EXPR} = @product
-        AND (${or.join(' OR ')})
-    `)
-  }
 
   const delHead = new sql.Request(tx)
   delHead.input('pi', sql.NVarChar(200), pi)
@@ -498,9 +511,6 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
     )
   `)
 
-  const topLevelFlag5Prefixes = await fetchTopLevelFinishedBomCodeFlag5Prefixes(pool)
-  const topLevelParentKeys = collectTopLevelParentKeysFromPiBomTree(tree, topLevelFlag5Prefixes)
-
   /** @type {{ parentSc: string, node: any }[]} */
   const flat = []
   flattenPiBomPartRows(headSc, tree, flat, 1, product)
@@ -509,13 +519,7 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
     .map(({ sourceRow }) => normKcaa01(sourceRow?.kcaa01))
     .filter(Boolean)
   const bom000OverrideByKcaa01 = await prefetchBom000OverrideSnapshotsByKcaa01(pool, kcaa01ForOverride)
-
-  /** @type {Set<string>} */
-  const insertedDedupeKeys = new Set()
-  /** @type {Map<number, string>} */
-  const expandKeyByPartsId = new Map()
-  /** @type {Set<string>} */
-  const usedExpandKeys = new Set([headSc])
+  const skipWritePrefixes = await fetchPiBomListSkipBomCodePrefixes(pool)
 
   for (const { parentSc, parentNode, sourceRow } of flat) {
     const parentSourceRow =
@@ -523,20 +527,14 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
         ? parentNode._sourceRow
         : parentNode
     const listParentSc = parentSourceRow
-      ? resolvePiListExpandKeyFromBomPartsRow(parentSourceRow, expandKeyByPartsId, usedExpandKeys)
+      ? resolvePiBomListRawParentKeyFromBomPartsRow(parentSourceRow)
       : normalizeUsageTreeParentKey(parentSc)
 
-    const dedupeKey = piBomListInsertDedupeKey(listParentSc, sourceRow, { topLevelParentKeys })
-    if (dedupeKey) {
-      if (insertedDedupeKeys.has(dedupeKey)) continue
-      insertedDedupeKeys.add(dedupeKey)
+    if (shouldSkipPiBomListWriteByBomCodePrefix(sourceRow?.kcaa01, skipWritePrefixes)) {
+      continue
     }
 
-    const rowExpandKey = resolvePiListExpandKeyFromBomPartsRow(
-      sourceRow,
-      expandKeyByPartsId,
-      usedExpandKeys,
-    )
+    const rowExpandKey = resolvePiBomListRawParentKeyFromBomPartsRow(sourceRow)
     const childCode = normKcaa01(sourceRow?.kcaa01)
     const bom000Snap = childCode ? bom000OverrideByKcaa01.get(childCode) : undefined
     const partRow = mergePiListPartRowWithBom000Override(

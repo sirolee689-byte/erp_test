@@ -8,6 +8,8 @@ import {
   piBomListInsertDedupeKey,
   piBomListPhysicalRowKey,
   resolvePiListExpandKeyFromBomPartsRow,
+  resolvePiBomListRawParentKeyFromBomPartsRow,
+  shouldSkipPiBomListWriteByBomCodePrefix,
 } from './salesOrderPiBom.js'
 
 describe('salesOrderPiBom', () => {
@@ -86,7 +88,7 @@ describe('salesOrderPiBom', () => {
     const k1 = piBomListInsertDedupeKey(parent, row)
     const k2 = piBomListInsertDedupeKey(parent, { ...row })
     assert.equal(k1, k2)
-    assert.equal(piBomListPhysicalRowKey(row), 'SC-BN8-SAME')
+    assert.equal(piBomListPhysicalRowKey(row), 'id:9001')
   })
 
   test('kcaa01MatchesTopLevelFinishedBomCodePrefix 与 Bom_code flag5 一致', () => {
@@ -141,23 +143,48 @@ describe('salesOrderPiBom', () => {
       piBomListInsertDedupeKey(parent, rowA, opts),
       piBomListInsertDedupeKey(parent, rowA, opts),
     )
-    assert.notEqual(
+    assert.equal(
       piBomListInsertDedupeKey(parent, rowA, opts),
       piBomListInsertDedupeKey(parent, rowA),
     )
   })
 
-  test('piBomListInsertDedupeKey CUT 父层仍用方案 B 合并同 systemcode', () => {
+  test('piBomListInsertDedupeKey CUT parent keeps separate Bom_parts ids', () => {
     const cutParent = 'SC-CUT-PARENT'
     const topLevelParentKeys = new Set(['2541983F-ONLY-BAG'])
-    const row = {
+    const rowA = {
       id: 8001,
       kcaa01: 'BN-0008/-',
       systemcode: 'SC-BN8-SAME',
     }
+    const rowB = { ...rowA, id: 8002 }
+    assert.notEqual(
+      piBomListInsertDedupeKey(cutParent, rowA, { topLevelParentKeys }),
+      piBomListInsertDedupeKey(cutParent, rowB, { topLevelParentKeys }),
+    )
+  })
+
+  test('PI BOM list skip Bom_code structure rows but keep CUT and material rows', () => {
+    const prefixes = ['BAG-', 'TAG-', 'RMP-', 'CUT-', 'RP-', 'RP-PQ']
+    assert.equal(shouldSkipPiBomListWriteByBomCodePrefix('BAG-PQ3633A1/BLU4', prefixes), true)
+    assert.equal(shouldSkipPiBomListWriteByBomCodePrefix('TAG-PQ3633A1/BLU4', prefixes), true)
+    assert.equal(shouldSkipPiBomListWriteByBomCodePrefix('RMP-PQ3633A1/BLU4', prefixes), true)
+    assert.equal(shouldSkipPiBomListWriteByBomCodePrefix('CUT-BAGPQ3633A1/BLU4<9-1>', prefixes), false)
+    assert.equal(shouldSkipPiBomListWriteByBomCodePrefix('RP-0030/-', prefixes), false)
+    assert.equal(shouldSkipPiBomListWriteByBomCodePrefix('RP-PQ3633A1/BLU4', prefixes), true)
+    assert.equal(shouldSkipPiBomListWriteByBomCodePrefix('TT-0018/BLACK', prefixes), false)
+  })
+
+  test('PI BOM list raw parent key keeps original Bom_parts systemcode', () => {
+    const row = {
+      id: 2192457,
+      kcaa01: 'TT-0018/BLACK',
+      kcac02: '2021111C4BFB72633CF60E30041D1C6163581E0109',
+      systemcode: '2021111C4BFB72633CF60E30041D1C6163581E0109',
+    }
     assert.equal(
-      piBomListInsertDedupeKey(cutParent, row, { topLevelParentKeys }),
-      piBomListInsertDedupeKey(cutParent, { ...row }, { topLevelParentKeys }),
+      resolvePiBomListRawParentKeyFromBomPartsRow(row),
+      '2021111C4BFB72633CF60E30041D1C6163581E0109',
     )
   })
 

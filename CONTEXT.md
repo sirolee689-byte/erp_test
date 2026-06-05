@@ -383,7 +383,7 @@
 **散件判定**：`Bom_code` 全部 `copen=1` 且 `flag5` 非空为排除前缀；明细编码不命中任一排除前缀 → 散件行；订单含散件 → `hasSpareParts=true`，显示散件按钮。**纯散件单**（`isPureSpareOrder`）只显示散件按钮、不显示一键运算；**混单**须先一键运算整款（整款 `pi_cost` 就绪后 `canAddSpareUsage=true`）再补散件。实现：`server/salesOrderSpareParts.js` / `server/salesOrderSpareUsageService.js`。
 
 **物料单**：`pi_cost` 同 BOM **成本运算用量表**（数据源为 **PI BOM list**，隐藏前缀与 BOM 资料一致）；`pi_consumption` = **`pi_cost` 按子件编码 + `Describe`（搭配）** 合并。**运算不写订货数量**；展示/订料时 **× 该款订货数量**。
-**pi_cost 落库规则**：与 BOM 资料 **用量运算 → bom_cost** 同链路（`flattenBomPartsCostUsageFlatForBomCost` + 隐藏前缀 + 跳过成品根行，**平铺不合并**）；**不再**按 `UB_ERP_Bom_Sales_list.id` 二次去重。PI BOM 须先 **同步 BOM**（含 list 写入方案 B 去重），否则脏数据会导致 `pi_cost` 行数与 `bom_cost` 不一致。实现：`server/salesOrderCalculateService.js`。
+**pi_cost 落库规则**：与 BOM 资料 **用量运算 → bom_cost** 同链路（`flattenBomPartsCostUsageFlatForBomCost` + 隐藏前缀 + 跳过成品根行，**平铺不合并**）；**不再**按 `UB_ERP_Bom_Sales_list.id` 二次去重。隐藏前缀里普通 `RP-` 材料必须写入，仅 `RP-PQ` 结构行不写入。PI BOM 须先 **同步 BOM**（按旧系统口径重建 list：查到几条写几条，过滤 `Bom_code.flag5 + '-'` 结构行但保留 `CUT-` 和 `RP-`，其中 `RP-PQ` 仍过滤），否则脏数据会导致 `pi_cost` 行数与 `bom_cost` 不一致。实现：`server/salesOrderCalculateService.js`。
 **pi_cost 专用字段**（不改用量行数）：`top_kcaa01/02` = PI BOM **第一层**（成品头直下）且命中 **Bom_code** `flag5`（排除 id=3 OUT、id=12 CUT）的节点作为子树锚点，其下全部子件（含裁片下 `RP-*` 等材料）**继承**该锚点；**深层**命中 `flag5` 不新建锚点（避免 `RP-0030/-` 误写自身）。**散件单**（直接 BOM、非整款 BAG/TAG 子树）第一层即散件本身时，`top_kcaa01` 可为自身。`t_kcaa01/02` = 直接父编码/名称（父即锚点时留空）；`t_kcaa03~11/14/15/25~27` = 直接父行 `UB_ERP_Bom_Sales_list` 同名 `kcaa*`（树父节点复制，与 pi_cost 自身 `kcaa*` 子件字段分开）；`temp` = 该款销售明细 `UB_ERP_Sales_order_list.xsak03`（同 `pq` 下各行相同）；`isok=1`、`pass='1'`、`kcac07=0`、`kcac08=kcac06+kcac07`、`kcaa07/08=0`。`bom_cost.top_kcaa01` 仍为直接父，**勿混用**。
 **入口与审核**：销售订单 **一键运算** 与 **增加散件单用量** 只放在销售订单列表第一列「操作」中；查看/编辑弹窗不再放运算入口。已审核与未审核订单都可以执行；回收站订单不可操作。
 **PX 规则**：销售订单一键运算写 `UB_ERP_Bom_pi_cost.px`，规则照 BOM 资料：子件 `kcaa01` 精确匹配 `bom_000.kcaa01` 取 `kcaa05`，再匹配 `Bom_material.code` 取 `px`；找不到则 `px` 留空。
@@ -414,7 +414,7 @@
   - 直到某一轮查不到子编码（无子行）才停止；最终把整棵子件树全部落入 `UB_ERP_Bom_Sales_list`。
   - `UB_ERP_Bom_Sales_list.sid` 关联 PI 号（=`UB_ERP_Sales_order.xsaj01`）。
   - `UB_ERP_Bom_Sales_list.kcac01` 作为父节点关联键（父节点 `systemcode/GUID`）。
-  - **写入去重（方案 A + B + 路径展开键）**：建树与 BOM 资料用量表/bom_cost 一致（`Bom_parts.kcac02` 向下展开）。写入 `kcac01` 父键用 `resolvePiListExpandKeyFromBomPartsRow`：优先 `systemcode`/`kcac02`，若多路径共用同一键则为后续路径生成新 PI 展开键（如三条 `BN-0005/-` 共用 `637E4014…` 时各路径独立，子件 `BN-0008/-` 可写 4 行）。**方案 A**：父 `kcac01` 为 **Bom_code 顶级成品**展开键（`copen=1` 的 `flag5` 前缀，**排除 id=3 OUT、id=12 CUT**）时子行去重**仅按 `Bom_parts.id`**。**方案 B**：其余父层按 **`systemcode` → 行 `id` → `kcac02` → `kcaa01`**，同一父展开键 + 同一物理行只写一行。实现：`server/salesOrderPiBom.js`。
+  - **写入口径（旧系统口径）**：建树按 `Bom_parts.kcac02` 向下展开；写入 `UB_ERP_Bom_Sales_list` 时不按 `kcaa01`、`systemcode`、`kcac02` 或 `Describe` 智能合并，`Bom_parts.id` 不同即视为不同源行。命中 `Bom_code.copen=1` 且 `flag5 + '-'` 前缀的结构行不写入 list，但继续向下遍历；`CUT-` 和 `RP-` 是允许写入例外，裁片行和普通 `RP-` 材料必须写入；但 `RP-PQ` 仍作为结构前缀过滤，不写入 list。被过滤结构行的子行仍保留原始真实父级 `kcac01`（指向该结构行的 `systemcode/kcac02`）。实现：`server/salesOrderPiBom.js`。
   - `UB_ERP_Bom_Sales_list.pkcaa01`：该 PI BOM 子树所属的 **订单明细顶级成品** `kcaa01`（一单多款则各款子树各自填对应成品码；子件各层行同值）。
   - 子件行 `GUID`/`version`/`kcac03`：按子件 `kcaa01` 查 `bom_000` 覆盖（`kcac03`=`bom_000.kcaa25`；无主档保留 `Bom_parts`）；与 `kcaa02_en` 等字段同一套「先 parts 后 000」规则。
 - `UB_ERP_Bom_Sales` 字段口径（已确认）：
@@ -530,7 +530,7 @@
 - **一单多明细**（同一 PI 多款 `kcaa01`）：读树、一键运算、删款/同步 BOM 遍历子树时须按 **`pkcaa01` = 当前明细款** 过滤 `UB_ERP_Bom_Sales_list`（多款可能共用 Bom_parts 展开父键如 `637E4014…`，不过滤会串款）。
 - 前端树行唯一键使用 `UB_ERP_Bom_Sales_list.id`，不要使用 `systemcode`。
 - **禁止**整棵树按 `list.id` 去重（会把子件挤到先遍历到的裁片下）。
-- 历史 PI 若同父同码少行（旧去重键仅 `kcac02` 压掉第二行搭配等），对该款执行 **「同步 BOM」**（先删后建）；**保存订单不会重写已有款 PI BOM**（仅明细**新款**走建款写入）。不在展示层用 id 硬压。
+- 历史 PI 若同父同码少行（旧去重键按 `systemcode/kcac02` 压掉第二行搭配等），对该款执行 **「同步 BOM」**（先删后建）；**保存订单不会重写已有款 PI BOM**（仅明细**新款**走建款写入）。不在展示层用 id 硬压。
 
 ### 系统单号流水（已定）
 

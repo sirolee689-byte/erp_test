@@ -471,7 +471,7 @@
   - **`syscode`**：销售订单新增保存为空值，不再作为系统单号生成来源。
 - **接口（摘要）**
   - `GET /api/sales-order/list`、`GET /api/sales-order/pi-suggest`、`GET /api/sales-order/:id`、`GET /api/sales-order/currency-options`
-  - `POST` / `PUT /api/sales-order`：事务 — 主表 + 明细替换 + PI BOM 按款对齐（深度 ≤4）
+  - `POST` / `PUT /api/sales-order`：事务 — 主表 + 明细替换 + PI BOM 按款对齐（无固定层数上限，保留循环引用保护）
   - `POST .../approve|unapprove|soft-delete|restore|hard-delete`
   - `POST .../sync-bom` — body `{ kcaa01 }`；`POST .../calculate` — 可选 `{ syncedKcaa01[] }`，已审核/未审核在册订单均可执行，入口只放在销售订单列表操作列
   - `GET .../material-bill`、`GET|PUT .../pi-bom`
@@ -482,10 +482,10 @@
 - **关键字段**
   - 主表：`pass`（审核）、`del`（软删）、运算列（探测 `isok` 或 `is_pur`）、`kehu`/客户名快照、`xsaj05`（客户代码 = `System_sales_customer.s_code`）、`rmb`/币别名称快照、`xsaj07`（币别 id = `bom_currency.id`）、`xsaj02` 销售日期、`xsaj06` PO 号、`d_code` 保存为空值、`type=1` 等
   - 明细：`kcaa01`（货品编码）、`xsak03`/`plan_quantity`（订货数量，**不参与** 运算写入）、`xsak04`（单价）、`xsak05`（金额 = 数量 × 单价）；展示快照字段来自 `bom_000`，当前明细显示使用 `kcaa06`（客款号）、`kcaa02`（用料名称中文）、`kcaa10`（组别）、`kcaa09`（工厂款号）、`version`（版本）；销售订单主列表展开明细的「用量」不来自明细表物理列，而是按 `xsak01/kcaa01` 对应 `UB_ERP_Bom_pi_cost.sid/pq` 汇总 `kcac04/kcac06`，显示为 `成本：SUM(kcac04),SUM(kcac06)`
-  - 一键运算物料明细：`UB_ERP_Bom_pi_cost` 读取 `UB_ERP_Bom_Sales_list`，运算口径照 BOM 资料一键运算；写入前按来源 `UB_ERP_Bom_Sales_list.id` 去重，同一来源明细只允许落库一次；若同一来源行在树形展开中重复命中，保留路径层级更完整的记录，`kcac04` 写父级用量一路连乘后的结果；`px` 按子件 `kcaa01` → `bom_000.kcaa05` → `Bom_material.code` → `Bom_material.px` 补入，找不到则留空。
+  - 一键运算物料明细：`UB_ERP_Bom_pi_cost` 读取 `UB_ERP_Bom_Sales_list`，运算口径照 BOM 资料一键运算；平铺不合并，不按 `UB_ERP_Bom_Sales_list.id` 二次去重；隐藏前缀里普通 `RP-` 材料必须写入，仅 `RP-PQ` 结构行不写入；`kcac04` 写父级用量一路连乘后的结果；`px` 按子件 `kcaa01` → `bom_000.kcaa05` → `Bom_material.code` → `Bom_material.px` 补入，找不到则留空。
   - 审计：`UB_ERP_Sales_order.utruename`、`UB_ERP_Sales_order_list.utruename`、`UB_ERP_Bom_Sales.utruename`、`UB_ERP_Bom_Sales_list.utruename` 写当前操作人真实姓名，必须按登录 `usercode` 查询 `Sys_Users.truename`；禁止写 `Sys_Users.UserNmae` / `UserName` / 登录态显示名。
   - 销售订单明细兼容快照：保存时按明细 `kcaa01` 精确匹配 `bom_000.kcaa01` 最新在册行；`xsak02` 取 `bom_000.GUID`；`kcac01` 取销售订单主表 `GUID/systemcode`；`kcac02`、`GUID`、`systemcode` 同 `xsak02`；`kcac03` 取 `bom_000.kcaa25`（采购单位）；`kcaa07/08/11/12/13/14/15/25/26/16/27/28/29/30/31`、`type`、`location`、`pass`、`remark` 从 `bom_000` 抄快照；保存前校验两表必需列，缺列则提示具体字段。
-  - PI BOM list：`kcac04` 用量、`kcac05` 损耗、`Describe` 备注（维护 UI 可改）；PI BOM 标签页树形展示按 `UB_ERP_Bom_Sales_list.kcac01 -> UB_ERP_Bom_Sales_list.kcac02` 展开，`kcac02` 是下一层子 BOM 头键；前端树行唯一键用物理行 `id`，不使用可能重复的 `systemcode`。
+  - PI BOM list：建款/同步 BOM 时从销售明细 `kcaa01` 对应 `bom_000.GUID` 起递归读取 `Bom_parts`；写入 `UB_ERP_Bom_Sales_list` 时不按 `kcaa01`、`systemcode`、`kcac02` 或 `Describe` 合并，`Bom_parts.id` 不同即不同源行；命中 `Bom_code.copen=1` 且 `flag5 + '-'` 的结构行不写入 list，但继续向下遍历，`CUT-` 和 `RP-` 例外必须写入，`RP-PQ` 仍作为结构前缀过滤不写入；被过滤结构行的子行 `kcac01` 仍保留原始真实父级；`kcac04` 用量、`kcac05` 损耗、`Describe` 备注（维护 UI 可改）；PI BOM 标签页树形展示按 `UB_ERP_Bom_Sales_list.kcac01 -> UB_ERP_Bom_Sales_list.kcac02` 展开，`kcac02` 是下一层子 BOM 头键；前端树行唯一键用物理行 `id`，不使用可能重复的 `systemcode`。
 - **权限（按钮级）**
   - 菜单 path：`supply-chain/daily/sales-order`：`view`、`add`、`edit`、`audit`、`delete`
 

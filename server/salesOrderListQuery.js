@@ -26,7 +26,7 @@ export function escapeSalesOrderSqlLikePattern(s) {
  */
 export function parseSalesOrderListQuery(query) {
   const page = Math.max(1, Number(query?.page ?? 1) || 1)
-  const pageSizeRaw = Number(query?.pageSize ?? 20) || 20
+  const pageSizeRaw = Number(query?.pageSize ?? 10) || 10
   const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
   const recycledRaw = String(query?.recycled ?? '').trim().toLowerCase()
   const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
@@ -120,32 +120,46 @@ export function buildSalesOrderCalcStatusExpr(col) {
 export function buildSalesOrderListPagedSql(opts) {
   const whereSql = String(opts?.whereSql ?? '')
   const calcStatusExpr = String(opts?.calcStatusExpr ?? `N'未运算'`)
+  const calcStatusCol =
+    calcStatusExpr.match(/h\.\[([a-zA-Z0-9_]+)\]/)?.[1]?.replace(/[^a-zA-Z0-9_]/g, '') || 'is_pur'
 
   const sqlText = `
-        SELECT x.*
+        SELECT
+          h.[id],
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj01], N'')))) AS piNo,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj06], N'')))) AS poNo,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[systemcode], N'')))) AS systemCode,
+          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kehu], N'')))) AS customerName,
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[rmb], N'')))) AS currencyName,
+          h.[xsaj02] AS salesDate,
+          h.[xsaj08] AS deliveryDate,
+          LTRIM(RTRIM(ISNULL(h.[pass], N''))) AS pass,
+          LTRIM(RTRIM(ISNULL(h.[del], N''))) AS del,
+          ${calcStatusExpr} AS calcStatus,
+          ${buildSalesOrderHasSparePartsSqlExpr('h')} AS hasSpareParts,
+          ${buildSalesOrderIsPureSpareOrderSqlExpr('h')} AS isPureSpareOrder,
+          ${buildSalesOrderCanAddSpareUsageSqlExpr('h')} AS canAddSpareUsage,
+          h.[rn]
         FROM (
           SELECT
             h.[id],
-            LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj01], N'')))) AS piNo,
-            LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj06], N'')))) AS poNo,
-            LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[systemcode], N'')))) AS systemCode,
-            LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kehu], N'')))) AS customerName,
-            LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[rmb], N'')))) AS currencyName,
-            h.[xsaj02] AS salesDate,
-            h.[xsaj08] AS deliveryDate,
-            LTRIM(RTRIM(ISNULL(h.[pass], N''))) AS pass,
-            LTRIM(RTRIM(ISNULL(h.[del], N''))) AS del,
-            ${calcStatusExpr} AS calcStatus,
-            ${buildSalesOrderHasSparePartsSqlExpr('h')} AS hasSpareParts,
-            ${buildSalesOrderIsPureSpareOrderSqlExpr('h')} AS isPureSpareOrder,
-            ${buildSalesOrderCanAddSpareUsageSqlExpr('h')} AS canAddSpareUsage,
+            h.[xsaj01],
+            h.[xsaj06],
+            h.[systemcode],
+            h.[kehu],
+            h.[rmb],
+            h.[xsaj02],
+            h.[xsaj08],
+            h.[pass],
+            h.[del],
+            h.[${calcStatusCol}],
             ROW_NUMBER() OVER (ORDER BY h.[id] DESC) AS rn
           FROM ${HEADER_FROM} AS h
           WHERE 1 = 1
           ${whereSql}
-        ) AS x
-        WHERE x.rn BETWEEN @startRow AND @endRow
-        ORDER BY x.rn
+        ) AS h
+        WHERE h.rn BETWEEN @startRow AND @endRow
+        ORDER BY h.rn
       `
 
   return { sql: sqlText }
