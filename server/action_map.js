@@ -280,6 +280,19 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
     },
   },
 
+  {
+    method: 'GET',
+    path: '/api/inventory/pi-bom-data/list',
+    action: '查询PI_BOM资料列表',
+    targetTable: 'UB_ERP_Sales_order_list',
+  },
+  {
+    method: 'GET',
+    path: '/api/inventory/pi-bom-data/detail',
+    action: '查询PI_BOM资料详情',
+    targetTable: 'UB_ERP_Bom_Sales',
+  },
+
   { method: 'GET', path: '/api/supply-chain/purchase-quotations/list', action: '查询采购报价列表', targetTable: 'Purchase_Quotation' },
   {
     method: 'GET',

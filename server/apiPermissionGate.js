@@ -613,7 +613,12 @@ export function matchApiPermissionRule(method, path, body, params) {
     }
   }
   if (m === 'GET' && /^\/api\/sales-order\/\d+\/pi-bom$/.test(path)) {
-    return { menuPath: 'supply-chain/daily/sales-order', action: 'view' }
+    return {
+      anyOf: [
+        { menuPath: 'supply-chain/daily/sales-order', action: 'view' },
+        { menuPath: 'inventory/basic/pi-bom-data', action: 'view' },
+      ],
+    }
   }
   if (m === 'PUT' && /^\/api\/sales-order\/\d+\/pi-bom$/.test(path)) {
     return { menuPath: 'supply-chain/daily/sales-order', action: 'edit' }
@@ -808,6 +813,12 @@ export function matchApiPermissionRule(method, path, body, params) {
         { menuPath: 'inventory/basic/bom-data', action: 'view' },
       ],
     }
+  }
+  if (m === 'GET' && path === '/api/inventory/pi-bom-data/list') {
+    return { menuPath: 'inventory/basic/pi-bom-data', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/inventory/pi-bom-data/detail') {
+    return { menuPath: 'inventory/basic/pi-bom-data', action: 'view' }
   }
   if (m === 'POST' && path === '/api/inventory/material-category') {
     return { menuPath: 'inventory/basic/material-category', action: 'add' }

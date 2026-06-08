@@ -47,6 +47,7 @@ import {
 } from './operatorUsersHandlers.js'
 import { registerPurchaseQuotationRoutes } from './purchaseQuotationHandlers.js'
 import { registerSalesOrderRoutes } from './salesOrderHandlers.js'
+import { registerPiBomDataRoutes } from './piBomDataHandlers.js'
 import { registerOutsourcingQuotationRoutes } from './outsourcingQuotationHandlers.js'
 import { registerBomRoutes } from './bom/registerBomRoutes.js'
 import {
@@ -12153,6 +12154,7 @@ registerPurchaseQuotationRoutes(app, {
   getActorAuditTripletFromReq,
 })
 registerSalesOrderRoutes(app, { getPool, getActorAuditTripletFromReq })
+registerPiBomDataRoutes(app, { getPool })
 registerBomRoutes(app, {
   escapeSqlLikePattern,
   formatBomColorcodeTimestamp,
@@ -12211,6 +12213,7 @@ app.listen(port, () => {
   console.log(
     `BOM-Propagate-Master-v1.0.0 ${bootAt} POST /api/inventory/bom/propagate-master → Bom_parts+bom_cost kcaa 同步（不改用量）`,
   )
+  console.log(`PI-BOM-Data-Viewer-v1.1.0 ${bootAt} GET /api/inventory/pi-bom-data/list + detail`)
   console.log(`ColorCode-Module-Initial-v1.0.0 ${bootAt}`)
   console.log(`ColorCode-Add-DirectMode-v1.1.0 ${bootAt}`)
   console.log(`ColorCode-Audit-Fields-Correction-v1.1.1 ${bootAt}`)

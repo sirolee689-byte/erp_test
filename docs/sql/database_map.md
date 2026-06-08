@@ -462,6 +462,7 @@
 - **实现文件**：`server/salesOrderHandlers.js` 及 `server/salesOrder*.js`（保存、生命周期、同步 BOM、运算、PI BOM 维护）
 - **模块/页面**
   - 前端：`src/views/supply-chain/daily/sales-order/index.vue`
+  - 前端：`src/views/inventory/basic/pi-bom-data/index.vue`（库存管理 → 基本资料 → BOM资料 → PI_BOM资料，只读查询与查看入口）
   - 模块说明：`src/views/supply-chain/daily/sales-order/README.md`
   - 领域：`CONTEXT.md` §七；验收：`.scratch/sales-order/E2E-ACCEPTANCE.md`
 - **PI 号关联（核心）**
@@ -475,6 +476,7 @@
   - `POST .../approve|unapprove|soft-delete|restore|hard-delete`
   - `POST .../sync-bom` — body `{ kcaa01 }`；`POST .../calculate` — 可选 `{ syncedKcaa01[] }`，已审核/未审核在册订单均可执行，入口只放在销售订单列表操作列
   - `GET .../material-bill`、`GET|PUT .../pi-bom`
+  - `GET /api/inventory/pi-bom-data/list`、`GET /api/inventory/pi-bom-data/detail`（库存基本资料 → PI_BOM资料，只读）
 - **物料单展示入口**
   - `GET .../pi-suggest` 仅按 PI 号相近匹配已审核在册订单，供 `production/analysis/material-sheet` 顶部下拉选择。
   - `GET .../material-bill` 仍读取 `UB_ERP_Bom_pi_cost` / `UB_ERP_Bom_pi_consumption`；前端统一在 `production/analysis/material-sheet` 展示为「物料单统计表（明细）」和「物料单统计表（汇总）」。明细按成品款 `pq` 分段，汇总按整张 PI 合并；销售订单详情/编辑页不再内嵌物料单 Tab。
@@ -482,6 +484,8 @@
 - **关键字段**
   - 主表：`pass`（审核）、`del`（软删）、运算列（探测 `isok` 或 `is_pur`）、`kehu`/客户名快照、`xsaj05`（客户代码 = `System_sales_customer.s_code`）、`rmb`/币别名称快照、`xsaj07`（币别 id = `bom_currency.id`）、`xsaj02` 销售日期、`xsaj06` PO 号、`d_code` 保存为空值、`type=1` 等
   - 明细：`kcaa01`（货品编码）、`xsak03`/`plan_quantity`（订货数量，**不参与** 运算写入）、`xsak04`（单价）、`xsak05`（金额 = 数量 × 单价）；展示快照字段来自 `bom_000`，当前明细显示使用 `kcaa06`（客款号）、`kcaa02`（用料名称中文）、`kcaa10`（组别）、`kcaa09`（工厂款号）、`version`（版本）；销售订单主列表展开明细的「用量」不来自明细表物理列，而是按 `xsak01/kcaa01` 对应 `UB_ERP_Bom_pi_cost.sid/pq` 汇总 `kcac04/kcac06`，显示为 `成本：SUM(kcac04),SUM(kcac06)`
+  - `GET /api/inventory/pi-bom-data/list`：PI_BOM资料首页分页接口；按销售订单明细款展示，一行 = 一个 PI 号下的一个成品编码。默认只查销售订单主表 `del` 为空或 `0` 且 `pass=1` 的在册已审核订单；搜索只匹配 PI 号 `UB_ERP_Sales_order_list.xsak01` 或编码 `kcaa01`。列表字段来自 `UB_ERP_Sales_order_list`，状态/录入时间/运算状态补 `UB_ERP_Sales_order`，成本用量按 `UB_ERP_Bom_pi_cost.sid = xsak01` 且 `pq = kcaa01` 汇总 `kcac04/kcac06`，分类中文名用 `UB_ERP_Sales_order_list.kcaa05 = Bom_material.code` 取 `Bom_material.name`。操作列只做只读查看。
+  - `GET /api/inventory/pi-bom-data/detail`：PI_BOM资料查看详情接口；入参 `orderId + kcaa01`，先按销售订单主表/明细校验该编码属于该订单且订单未删除，再返回四块只读数据。`基础资料` 取 `UB_ERP_Bom_Sales`（`sid=PI号`、`kcaa01=编码`）；`配件明细` 平铺取 `UB_ERP_Bom_Sales_list`（`sid=PI号`、`pkcaa01=编码`）；`PI_BOM树形` 只按 `UB_ERP_Bom_Sales_list.kcac01 -> systemcode/kcac02` 展开；`成本BOM用量表` 取 `UB_ERP_Bom_pi_cost`（`sid=PI号`、`pq=编码`）。该查看详情不读取 `bom_000`、`Bom_parts`、`bom_cost`，也不触发同步 BOM 或一键运算。
   - 一键运算物料明细：`UB_ERP_Bom_pi_cost` 读取 `UB_ERP_Bom_Sales_list`，运算口径照 BOM 资料一键运算；平铺不合并，不按 `UB_ERP_Bom_Sales_list.id` 二次去重；隐藏前缀里普通 `RP-` 材料必须写入，仅 `RP-PQ` 结构行不写入；`kcac04` 写父级用量一路连乘后的结果；`px` 按子件 `kcaa01` → `bom_000.kcaa05` → `Bom_material.code` → `Bom_material.px` 补入，找不到则留空。
   - 审计：`UB_ERP_Sales_order.utruename`、`UB_ERP_Sales_order_list.utruename`、`UB_ERP_Bom_Sales.utruename`、`UB_ERP_Bom_Sales_list.utruename` 写当前操作人真实姓名，必须按登录 `usercode` 查询 `Sys_Users.truename`；禁止写 `Sys_Users.UserNmae` / `UserName` / 登录态显示名。
   - 销售订单明细兼容快照：保存时按明细 `kcaa01` 精确匹配 `bom_000.kcaa01` 最新在册行；`xsak02` 取 `bom_000.GUID`；`kcac01` 取销售订单主表 `GUID/systemcode`；`kcac02`、`GUID`、`systemcode` 同 `xsak02`；`kcac03` 取 `bom_000.kcaa25`（采购单位）；`kcaa07/08/11/12/13/14/15/25/26/16/27/28/29/30/31`、`type`、`location`、`pass`、`remark` 从 `bom_000` 抄快照；保存前校验两表必需列，缺列则提示具体字段。
@@ -600,4 +604,5 @@
 
 - **`dbo.[UB_ERP_Sales_order]` / `dbo.[UB_ERP_Sales_order_list]` / `dbo.[UB_ERP_Bom_Sales]` / `dbo.[UB_ERP_Bom_Sales_list]` / `dbo.[UB_ERP_Bom_pi_cost]` / `dbo.[UB_ERP_Bom_pi_consumption]`**
   - 来源：`server/salesOrderHandlers.js` 及 `server/salesOrder*.js`（销售订单 REST）
+  - 来源：`server/piBomDataHandlers.js`（PI_BOM资料列表；按销售订单明细款分页查询，成本用量汇总 `UB_ERP_Bom_pi_cost`）
 

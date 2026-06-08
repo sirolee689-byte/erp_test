@@ -72,6 +72,7 @@ export async function prefetchPiBomListLayers(db, piNo, parentCodes, productKcaa
         LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa27], N'')))) AS kcaa27,
         CAST(ISNULL(l.[kcac04], 0) AS decimal(18, 6)) AS kcac04,
         CAST(ISNULL(l.[kcac05], 0) AS decimal(18, 6)) AS kcac05,
+        CAST(ISNULL(l.[cost_price], 0) AS decimal(18, 6)) AS cost_price,
         CAST(ISNULL(l.[kcaa33], 0) AS decimal(18, 6)) AS kcaa33,
         CONVERT(int, ISNULL(l.[seq], 0)) AS seq,
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[Describe], N'')))) AS Describe
@@ -137,6 +138,7 @@ function mapPiBomRowToUsageTreeNode(row, level, children) {
     kcaa27: row.kcaa27 != null ? String(row.kcaa27) : '',
     kcac04: Number(row.kcac04 ?? 0),
     kcac05: Number(row.kcac05 ?? 0),
+    cost_price: Number(row.cost_price ?? 0),
     kcaa33: Number(row.kcaa33 ?? 0),
     Describe: row.Describe != null ? String(row.Describe) : '',
     Seq: seqNum,
