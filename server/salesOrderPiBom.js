@@ -112,12 +112,12 @@ export async function fetchPiBomListSkipBomCodePrefixes(db) {
 }
 
 /**
- * 同步时从主 BOM 第一层收集不写 list 的虚拟根用量（BAG/TAG/RMP 等）
+ * 同步时从主 BOM 第一层收集顶级成品虚拟根用量（BAG/TAG/RMP 等），写入 info 供旧 PI list 回退
  * @param {any[]} tree buildBomPartsUsageTreeNodesFromLayerCache 根层子节点
- * @param {string[]} skipPrefixes fetchPiBomListSkipBomCodePrefixes
+ * @param {string[]} flag5Prefixes fetchTopLevelFinishedBomCodeFlag5Prefixes
  * @returns {Map<string, { kcac04: number, kcac05: number }>}
  */
-export function collectPiBomVirtualRootQtyFromMasterTree(tree, skipPrefixes) {
+export function collectPiBomVirtualRootQtyFromMasterTree(tree, flag5Prefixes) {
   /** @type {Map<string, { kcac04: number, kcac05: number }>} */
   const out = new Map()
   if (!Array.isArray(tree)) return out
@@ -126,7 +126,7 @@ export function collectPiBomVirtualRootQtyFromMasterTree(tree, skipPrefixes) {
     const sourceRow =
       node?._sourceRow && typeof node._sourceRow === 'object' ? node._sourceRow : node
     const code = normKcaa01(sourceRow?.kcaa01 ?? node?.kcaa01)
-    if (!code || !shouldSkipPiBomListWriteByBomCodePrefix(code, skipPrefixes)) continue
+    if (!code || !kcaa01MatchesTopLevelFinishedBomCodePrefix(code, flag5Prefixes)) continue
     const kcac04Raw = Number(sourceRow?.kcac04 ?? node?.kcac04 ?? 1)
     const kcac05Raw = Number(sourceRow?.kcac05 ?? node?.kcac05 ?? 0)
     out.set(code, {
@@ -269,12 +269,12 @@ export function parsePiBomVirtualRootQtyInfo(info) {
 }
 
 /**
- * 无 info 快照时，从主 BOM 头下直接子件读取虚拟根用量（仅 BAG/TAG/RMP 等 skip 前缀）
+ * 无 info 快照时，从主 BOM 头下直接子件读取虚拟根用量（Bom_code 顶级成品 flag5）
  * @param {import('mssql').ConnectionPool | import('mssql').Transaction} db
  * @param {string} headSc bom_000.GUID / Bom_parts 父 systemcode
- * @param {string[]} skipPrefixes
+ * @param {string[]} flag5Prefixes fetchTopLevelFinishedBomCodeFlag5Prefixes
  */
-export async function fetchMasterBomVirtualRootQtyUnderHead(db, headSc, skipPrefixes) {
+export async function fetchMasterBomVirtualRootQtyUnderHead(db, headSc, flag5Prefixes) {
   const parent = normalizeUsageTreeParentKey(headSc)
   /** @type {Map<string, { kcac04: number, kcac05: number }>} */
   const out = new Map()
@@ -289,7 +289,7 @@ export async function fetchMasterBomVirtualRootQtyUnderHead(db, headSc, skipPref
   `)
   for (const row of r.recordset ?? []) {
     const code = normKcaa01(row.kcaa01)
-    if (!code || !shouldSkipPiBomListWriteByBomCodePrefix(code, skipPrefixes)) continue
+    if (!code || !kcaa01MatchesTopLevelFinishedBomCodePrefix(code, flag5Prefixes)) continue
     const kcac04 = Number(row.kcac04 ?? 1)
     const kcac05 = Number(row.kcac05 ?? 0)
     out.set(code, {
@@ -300,20 +300,17 @@ export async function fetchMasterBomVirtualRootQtyUnderHead(db, headSc, skipPref
   return out
 }
 
-export function shouldSkipPiBomListWriteByBomCodePrefix(kcaa01, skipPrefixes) {
+/**
+ * PI list 写入跳过：仅强制过滤结构前缀（RP-PQ）；其余实际子编码均写入 list
+ * @param {unknown} kcaa01
+ * @param {string[]} [_skipPrefixes] 历史参数，方案 A 后不再按 Bom_code flag5 跳过
+ */
+export function shouldSkipPiBomListWriteByBomCodePrefix(kcaa01, _skipPrefixes) {
+  void _skipPrefixes
   const code = String(kcaa01 ?? '').trim().toUpperCase()
   if (!code) return false
   for (let i = 0; i < PI_BOM_LIST_FORCE_SKIP_PREFIXES.length; i++) {
     const prefix = PI_BOM_LIST_FORCE_SKIP_PREFIXES[i]
-    if (prefix && code.startsWith(prefix)) return true
-  }
-  for (let i = 0; i < PI_BOM_LIST_WRITE_THROUGH_PREFIXES.length; i++) {
-    const prefix = PI_BOM_LIST_WRITE_THROUGH_PREFIXES[i]
-    if (prefix && code.startsWith(prefix)) return false
-  }
-  if (!skipPrefixes?.length) return false
-  for (let i = 0; i < skipPrefixes.length; i++) {
-    const prefix = String(skipPrefixes[i] ?? '').trim().toUpperCase()
     if (prefix && code.startsWith(prefix)) return true
   }
   return false
@@ -648,8 +645,8 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
     throw e
   }
 
-  const skipWritePrefixes = await fetchPiBomListSkipBomCodePrefixes(pool)
-  const virtualRootQtyByKcaa01 = collectPiBomVirtualRootQtyFromMasterTree(tree, skipWritePrefixes)
+  const flag5Prefixes = await fetchTopLevelFinishedBomCodeFlag5Prefixes(pool)
+  const virtualRootQtyByKcaa01 = collectPiBomVirtualRootQtyFromMasterTree(tree, flag5Prefixes)
   const virtualRootQtyInfo = serializePiBomVirtualRootQtyInfo(virtualRootQtyByKcaa01)
 
   // PI BOM 头：GUID 与 systemcode 两列写入相同值（均取自 bom_000.GUID）
@@ -719,7 +716,6 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
     .map(({ sourceRow }) => normKcaa01(sourceRow?.kcaa01))
     .filter(Boolean)
   const bom000OverrideByKcaa01 = await prefetchBom000OverrideSnapshotsByKcaa01(pool, kcaa01ForOverride)
-  const flag5Prefixes = await fetchTopLevelFinishedBomCodeFlag5Prefixes(pool)
   const topLevelParentKeys = collectTopLevelParentKeysFromPiBomTree(tree, flag5Prefixes)
 
   /** @type {Map<number, string>} */
@@ -738,7 +734,7 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
       ? resolvePiListExpandKeyFromBomPartsRow(parentSourceRow, expandKeyByPartsId, usedExpandKeys)
       : normalizeUsageTreeParentKey(parentSc)
 
-    if (shouldSkipPiBomListWriteByBomCodePrefix(sourceRow?.kcaa01, skipWritePrefixes)) {
+    if (shouldSkipPiBomListWriteByBomCodePrefix(sourceRow?.kcaa01)) {
       continue
     }
 

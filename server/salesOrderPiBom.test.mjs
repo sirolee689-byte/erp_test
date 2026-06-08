@@ -167,15 +167,14 @@ describe('salesOrderPiBom', () => {
     )
   })
 
-  test('PI BOM list skip Bom_code structure rows but keep CUT and material rows', () => {
-    const prefixes = ['BAG-', 'TAG-', 'RMP-', 'CUT-', 'RP-', 'RP-PQ']
-    assert.equal(shouldSkipPiBomListWriteByBomCodePrefix('BAG-PQ3633A1/BLU4', prefixes), true)
-    assert.equal(shouldSkipPiBomListWriteByBomCodePrefix('TAG-PQ3633A1/BLU4', prefixes), true)
-    assert.equal(shouldSkipPiBomListWriteByBomCodePrefix('RMP-PQ3633A1/BLU4', prefixes), true)
-    assert.equal(shouldSkipPiBomListWriteByBomCodePrefix('CUT-BAGPQ3633A1/BLU4<9-1>', prefixes), false)
-    assert.equal(shouldSkipPiBomListWriteByBomCodePrefix('RP-0030/-', prefixes), false)
-    assert.equal(shouldSkipPiBomListWriteByBomCodePrefix('RP-PQ3633A1/BLU4', prefixes), true)
-    assert.equal(shouldSkipPiBomListWriteByBomCodePrefix('TT-0018/BLACK', prefixes), false)
+  test('PI BOM list 方案 A：实际子编码均写入，仅 RP-PQ 结构行跳过', () => {
+    assert.equal(shouldSkipPiBomListWriteByBomCodePrefix('BAG-PQ3633A1/BLU4'), false)
+    assert.equal(shouldSkipPiBomListWriteByBomCodePrefix('TAG-PQ3633A1/BLU4'), false)
+    assert.equal(shouldSkipPiBomListWriteByBomCodePrefix('RMP-PQ3633A1/BLU4'), false)
+    assert.equal(shouldSkipPiBomListWriteByBomCodePrefix('CUT-BAGPQ3633A1/BLU4<9-1>'), false)
+    assert.equal(shouldSkipPiBomListWriteByBomCodePrefix('RP-0030/-'), false)
+    assert.equal(shouldSkipPiBomListWriteByBomCodePrefix('RP-PQ3633A1/BLU4'), true)
+    assert.equal(shouldSkipPiBomListWriteByBomCodePrefix('TT-0018/BLACK'), false)
   })
 
   test('PI BOM list raw parent key keeps original Bom_parts systemcode', () => {
@@ -428,13 +427,13 @@ describe('salesOrderPiBom', () => {
   })
 
   test('虚拟根用量快照：TAG kcac04=7 可序列化并在运算时还原（info≤50）', () => {
-    const prefixes = ['BAG-', 'TAG-', 'RMP-']
+    const flag5Prefixes = ['BAG', 'TAG', 'RMP']
     const tree = [
       { kcaa01: 'BAG-PQ3633A1/BLU4', kcac04: 1, kcac05: 0, children: [] },
       { kcaa01: 'TAG-PQ3633A1/BLU4', kcac04: 7, kcac05: 0, children: [] },
       { kcaa01: 'RMP-PQ3633A1/BLU4', kcac04: 1, kcac05: 0, children: [] },
     ]
-    const snap = collectPiBomVirtualRootQtyFromMasterTree(tree, prefixes)
+    const snap = collectPiBomVirtualRootQtyFromMasterTree(tree, flag5Prefixes)
     assert.equal(snap.get('TAG-PQ3633A1/BLU4')?.kcac04, 7)
     const info = serializePiBomVirtualRootQtyInfo(snap)
     assert.ok(info)

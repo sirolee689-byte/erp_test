@@ -88,6 +88,110 @@ describe('salesOrderPiBomUsageTree', () => {
     assert.deepEqual(resolvePiBomUsageTreeRootKeys(headSc, listRows), [headSc])
   })
 
+  test('方案 A：头下物理 BAG/TAG/RMP 行从 head 展开且 TAG kcac04=7 参与乘算', () => {
+    const headSc = 'HEAD-PQ'
+    const bagSc = 'SC-BAG'
+    const tagSc = 'SC-TAG'
+    const cutBag = 'SC-CUT-BAG'
+    const cutTag = 'SC-CUT-TAG'
+
+    const listRows = [
+      { kcac01: headSc, kcac02: bagSc, systemcode: bagSc, seq: 1, id: 1 },
+      { kcac01: headSc, kcac02: tagSc, systemcode: tagSc, seq: 2, id: 2 },
+      { kcac01: bagSc, kcac02: cutBag, systemcode: cutBag, seq: 3, id: 3 },
+      { kcac01: tagSc, kcac02: cutTag, systemcode: cutTag, seq: 4, id: 4 },
+    ]
+    assert.deepEqual(resolvePiBomUsageTreeRootKeys(headSc, listRows), [headSc])
+
+    /** @type {Map<string, Record<string, unknown>[]>} */
+    const layerCache = new Map([
+      [
+        headSc,
+        [
+          {
+            id: 1,
+            kcaa01: 'BAG-PQ3633A1/BLU4',
+            kcac01: headSc,
+            kcac02: bagSc,
+            systemcode: bagSc,
+            kcac04: 1,
+            kcac05: 0,
+          },
+          {
+            id: 2,
+            kcaa01: 'TAG-PQ3633A1/BLU4',
+            kcac01: headSc,
+            kcac02: tagSc,
+            systemcode: tagSc,
+            kcac04: 7,
+            kcac05: 0,
+          },
+        ],
+      ],
+      [
+        bagSc,
+        [
+          {
+            id: 3,
+            kcaa01: 'CUT-BAG<1>',
+            kcac01: bagSc,
+            kcac02: cutBag,
+            systemcode: cutBag,
+            kcac04: 1,
+            kcac05: 0,
+          },
+        ],
+      ],
+      [
+        tagSc,
+        [
+          {
+            id: 4,
+            kcaa01: 'CUT-TAG<1>',
+            kcac01: tagSc,
+            kcac02: cutTag,
+            systemcode: cutTag,
+            kcac04: 1,
+            kcac05: 0,
+          },
+        ],
+      ],
+      [cutBag, [{ id: 10, kcaa01: 'BN-0001/-', kcac01: cutBag, kcac02: '', systemcode: 'SC-BN1', kcac04: 1, kcac05: 0 }]],
+      [
+        cutTag,
+        [
+          {
+            id: 11,
+            kcaa01: 'MB-0089/CFL',
+            kcac01: cutTag,
+            kcac02: '',
+            systemcode: 'SC-MB1',
+            kcac04: 1,
+            kcac05: 0,
+          },
+        ],
+      ],
+    ])
+
+    const tree = buildPiBomUsageTreeNodesFromLayerCache(
+      headSc,
+      1,
+      new Set([headSc]),
+      layerCache,
+      'PQ-3633A1/BLU4',
+    )
+    assert.equal(tree.length, 2)
+    assert.equal(tree[0].kcaa01, 'BAG-PQ3633A1/BLU4')
+    assert.equal(tree[1].kcaa01, 'TAG-PQ3633A1/BLU4')
+    assert.equal(tree[1].kcac04, 7)
+    assert.equal(tree[0].children?.[0]?.kcaa01, 'CUT-BAG<1>')
+    assert.equal(tree[1].children?.[0]?.kcaa01, 'CUT-TAG<1>')
+
+    const flat = flattenBomPartsCostUsageFlatForBomCost(tree, null, [])
+    const mb = flat.find((r) => r.kcaa01 === 'MB-0089/CFL')
+    assert.equal(mb?.yl, 7)
+  })
+
   test('按 kcac01 父子挂接，每条裁片路径各自展开子件（对标 BOM 用量树）', () => {
     const scCut91 = 'SC-CUT-9-1'
     const scCut101 = 'SC-CUT-10-1'

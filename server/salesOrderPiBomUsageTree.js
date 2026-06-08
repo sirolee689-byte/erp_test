@@ -9,7 +9,7 @@ import {
 } from './bomUsageTreeBuild.js'
 import {
   fetchMasterBomVirtualRootQtyUnderHead,
-  fetchPiBomListSkipBomCodePrefixes,
+  fetchTopLevelFinishedBomCodeFlag5Prefixes,
   parsePiBomVirtualRootQtyInfo,
   PI_LIST_PKCAA01_EXPR,
 } from './salesOrderPiBom.js'
@@ -383,8 +383,8 @@ export async function fetchPiBomVirtualRootQtyFromHead(db, piNo, productKcaa01) 
 export async function resolvePiBomVirtualRootQtyByKcaa01(pool, piNo, productKcaa01, headSc) {
   const fromHead = await fetchPiBomVirtualRootQtyFromHead(pool, piNo, productKcaa01)
   if (fromHead.size) return fromHead
-  const skipPrefixes = await fetchPiBomListSkipBomCodePrefixes(pool)
-  return fetchMasterBomVirtualRootQtyUnderHead(pool, headSc, skipPrefixes)
+  const flag5Prefixes = await fetchTopLevelFinishedBomCodeFlag5Prefixes(pool)
+  return fetchMasterBomVirtualRootQtyUnderHead(pool, headSc, flag5Prefixes)
 }
 
 export async function fetchPiBomHeadSystemcode(pool, piNo, productKcaa01) {
