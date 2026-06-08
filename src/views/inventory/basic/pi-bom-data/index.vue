@@ -6,10 +6,25 @@
       </template>
 
       <div class="pi-bom-mode-row">
-        <el-button type="primary" plain>管理PI-BOM资料</el-button>
-        <el-button type="info" plain disabled>PI-BOM物料批量替换功能(待定)</el-button>
+        <el-button
+          :type="pageMode === 'list' ? 'primary' : 'default'"
+          plain
+          @click="pageMode = 'list'"
+        >
+          管理PI-BOM资料
+        </el-button>
+        <el-button
+          :type="pageMode === 'replace' ? 'primary' : 'default'"
+          plain
+          @click="pageMode = 'replace'"
+        >
+          PI-BOM物料批量替换
+        </el-button>
       </div>
 
+      <PiBomMaterialReplacePanel v-if="pageMode === 'replace'" @replaced="onMaterialReplaced" />
+
+      <template v-else>
       <div class="search-row">
         <el-input
           v-model="keyword"
@@ -55,7 +70,7 @@
             >
               <el-table-column
                 label="操作"
-                width="132"
+                :width="listActionsColWidth"
                 fixed="left"
                 align="left"
                 header-align="center"
@@ -63,7 +78,8 @@
               >
                 <template #default="{ row }">
                   <ErpTableActions>
-                    <el-button type="primary" plain size="small" @click="openPiBomViewer(row)">查看PI-BOM</el-button>
+                    <el-button type="primary" plain size="small" @click="openPiBomViewer(row)">查看</el-button>
+                    <el-button type="warning" plain size="small" @click="openPiBomEditor(row)">编辑</el-button>
                   </ErpTableActions>
                 </template>
               </el-table-column>
@@ -108,6 +124,7 @@
           </div>
         </template>
       </el-skeleton>
+      </template>
     </el-card>
 
     <el-dialog
@@ -261,18 +278,35 @@
             </el-tab-pane>
 
             <el-tab-pane label="配件明细" name="parts" lazy>
+              <div class="pi-bom-tab-toolbar pi-bom-parts-toolbar">
+                <el-button v-if="partsParentStack.length > 1" :disabled="partsLoading" @click="backPiBomPartLevel">
+                  返回上级
+                </el-button>
+                <span class="pi-bom-parts-path">{{ partsPathText }}</span>
+              </div>
+              <el-alert v-if="partsError" :title="partsError" type="error" show-icon class="pi-bom-parts-alert" />
               <ErpTableViewportHScroll>
                 <el-table
                   ref="piBomPartsTableRef"
                   :data="viewerParts"
+                  v-loading="viewerLoading || partsLoading"
                   border
                   stripe
-                  row-key="id"
+                  :row-key="partRowKey"
                   class="erp-list-table pi-bom-detail-table"
                   max-height="calc(84vh - 260px)"
-                  :empty-text="viewerLoading ? '加载中...' : '暂无配件明细'"
+                  :empty-text="viewerLoading || partsLoading ? '加载中...' : '暂无配件明细'"
                 >
                   <el-table-column type="index" label="序号" width="58" align="center" fixed="left" />
+                  <el-table-column label="操作" width="96" align="center" fixed="left">
+                    <template #default="{ row }">
+                      <ErpTableActions>
+                        <el-button type="primary" plain size="small" :disabled="!canOpenPiBomPartChild(row)" @click="openPiBomPartChild(row)">
+                          查看
+                        </el-button>
+                      </ErpTableActions>
+                    </template>
+                  </el-table-column>
                   <el-table-column label="编码" min-width="200" fixed="left" show-overflow-tooltip>
                     <template #default="{ row }">
                       <span class="pi-bom-parts-code" :style="piBomPartsCodeCellStyle(row)">
@@ -378,6 +412,26 @@
         </template>
       </el-skeleton>
     </el-dialog>
+
+    <el-dialog
+      v-model="editVisible"
+      :title="editTitle"
+      width="94vw"
+      top="4vh"
+      destroy-on-close
+      :close-on-click-modal="false"
+      class="pi-bom-edit-dialog erp-detail-form-context"
+      @closed="resetEditor"
+    >
+      <PiBomEditorPanel
+        v-if="editVisible && editRow"
+        :order-id="Number(editRow.orderId)"
+        :product-kcaa01="String(editRow.kcaa01 ?? '').trim()"
+        window-mode="edit"
+        @saved-basic="onEditorSaved"
+        @saved-parts="onEditorSaved"
+      />
+    </el-dialog>
   </div>
 </template>
 
@@ -388,10 +442,14 @@ import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import ErpTableActions from '@/components/erp/ErpTableActions.vue'
 import ErpTableViewportHScroll from '@/components/erp/ErpTableViewportHScroll.vue'
+import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout.js'
 import { aggregateBomCostUsageFlatForDisplay } from '@/utils/bomCostUsageAggregate.js'
+import PiBomEditorPanel from './PiBomEditorPanel.vue'
+import PiBomMaterialReplacePanel from './PiBomMaterialReplacePanel.vue'
 
 defineOptions({ name: 'inventory-basic-pi-bom-data' })
 
+const pageMode = ref('list')
 const loading = ref(false)
 const errorMessage = ref('')
 const tableList = ref([])
@@ -414,12 +472,26 @@ const piBomPartsTableRef = ref(null)
 const piBomTreeTableRef = ref(null)
 const piBomCostTableRef = ref(null)
 const piBomTreeAutoExpanded = ref(false)
+const partsLoading = ref(false)
+const partsError = ref('')
+const partsParentStack = ref([])
+
+const editVisible = ref(false)
+const editRow = ref(null)
+const listActionsColWidth = getErpTableActionsColMinWidth(2, { compact: true })
 
 const viewerTitle = computed(() => {
   const row = viewerRow.value
   const pi = String(row?.piNo ?? '').trim()
   const code = String(row?.kcaa01 ?? '').trim()
-  return pi || code ? `查看PI-BOM：${pi} / ${code}` : '查看PI-BOM'
+  return pi || code ? `查看 PI-BOM：${pi} / ${code}` : '查看 PI-BOM'
+})
+
+const editTitle = computed(() => {
+  const row = editRow.value
+  const pi = String(row?.piNo ?? '').trim()
+  const code = String(row?.kcaa01 ?? '').trim()
+  return pi || code ? `编辑 PI-BOM：${pi} / ${code}` : '编辑 PI-BOM'
 })
 
 const costUsageHeaderText = computed(() => {
@@ -428,6 +500,12 @@ const costUsageHeaderText = computed(() => {
   const name = dVal(b?.kcaa02)
   const styleNo = dVal(b?.kcaa06)
   return `《成本BOM用量表》编码【${code}】,名称【${name}】,客户款号【${styleNo}】`
+})
+
+const partsPathText = computed(() => {
+  const stack = partsParentStack.value ?? []
+  if (!stack.length) return ''
+  return stack.map((item) => String(item?.title ?? '').trim()).filter(Boolean).join(' / ')
 })
 
 function recomputePiBomCostUsageRows() {
@@ -509,6 +587,119 @@ function piBomPartsCodeCellStyle(row) {
   const level = Number(row?.level ?? 1)
   const depth = Number.isFinite(level) && level > 1 ? Math.min(level - 1, 10) : 0
   return { paddingLeft: `${depth * 18}px` }
+}
+
+function bomRound6(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return 0
+  return Math.round(n * 1000000) / 1000000
+}
+
+function partUsageSum(row) {
+  const qty = Number(row?.kcac04 ?? 0)
+  const loss = Number(row?.kcac05 ?? 0)
+  return (Number.isFinite(qty) ? qty : 0) * (1 + (Number.isFinite(loss) ? loss : 0))
+}
+
+function syncPartKcac06(row) {
+  if (!row) return
+  row.kcac06 = bomRound6(partUsageSum(row))
+}
+
+function genLocalKey() {
+  return `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+function partRowKey(row) {
+  const id = Number(row?.id)
+  return Number.isFinite(id) && id > 0 ? `id-${id}` : row?._localKey || genLocalKey()
+}
+
+function resetViewerPartsState() {
+  partsError.value = ''
+}
+
+function canOpenPiBomPartChild(row) {
+  return Number(row?.id) > 0 && !!String(row?.systemcode ?? row?.kcac02 ?? '').trim()
+}
+
+function currentPartsParentSystemcode() {
+  const stack = partsParentStack.value ?? []
+  return String(stack[stack.length - 1]?.parentSystemcode ?? '').trim()
+}
+
+function rootPartsParentFromBasic() {
+  const basic = viewerBasic.value
+  const parentSystemcode = String(basic?.systemcode ?? '').trim()
+  const code = String(basic?.kcaa01 ?? viewerRow.value?.kcaa01 ?? '').trim()
+  return {
+    title: code || '成品',
+    parentSystemcode,
+  }
+}
+
+function prepareViewerParts(list) {
+  return (Array.isArray(list) ? list : []).map((row, idx) => {
+    const item = {
+      ...row,
+      _localKey: row?._localKey || genLocalKey(),
+    }
+    if (item.Seq == null || item.Seq === '') item.Seq = idx + 1
+    syncPartKcac06(item)
+    return item
+  })
+}
+
+function replaceViewerParts(list) {
+  viewerParts.value = prepareViewerParts(list)
+  resetViewerPartsState()
+  schedulePiBomTableLayout(piBomPartsTableRef)
+}
+
+async function loadPiBomPartsForParent(parentSystemcode) {
+  const orderId = Number(viewerRow.value?.orderId)
+  const code = String(viewerRow.value?.kcaa01 ?? '').trim()
+  const parent = String(parentSystemcode ?? '').trim()
+  if (!Number.isFinite(orderId) || orderId <= 0 || !code || !parent) {
+    partsError.value = '缺少订单ID、编码或父级systemcode，无法加载配件明细'
+    viewerParts.value = []
+    return
+  }
+  partsLoading.value = true
+  partsError.value = ''
+  try {
+    const res = await axios.get('/api/inventory/pi-bom-data/parts', {
+      params: { orderId, kcaa01: code, parentSystemcode: parent },
+    })
+    const body = res.data
+    if (body?.code !== 200) {
+      partsError.value = body?.msg || '加载配件明细失败'
+      viewerParts.value = []
+      return
+    }
+    replaceViewerParts(body?.data?.parts ?? [])
+  } catch (e) {
+    partsError.value = String(e?.response?.data?.msg ?? e?.message ?? '加载配件明细失败')
+    viewerParts.value = []
+  } finally {
+    partsLoading.value = false
+  }
+}
+
+async function openPiBomPartChild(row) {
+  if (!canOpenPiBomPartChild(row)) return
+  const parentSystemcode = String(row?.systemcode ?? row?.kcac02 ?? '').trim()
+  const title = String(row?.kcaa01 ?? '').trim() || '下级'
+  partsParentStack.value = [...partsParentStack.value, { title, parentSystemcode }]
+  await loadPiBomPartsForParent(parentSystemcode)
+}
+
+async function backPiBomPartLevel() {
+  if ((partsParentStack.value ?? []).length <= 1) return
+  const nextStack = partsParentStack.value.slice(0, -1)
+  const parentSystemcode = String(nextStack[nextStack.length - 1]?.parentSystemcode ?? '').trim()
+  partsParentStack.value = nextStack
+  await loadPiBomPartsForParent(parentSystemcode)
 }
 
 function walkTreeRows(rows, cb) {
@@ -650,6 +841,8 @@ async function openPiBomViewer(row) {
   viewerTree.value = []
   viewerCostRows.value = []
   costUsageRows.value = []
+  partsParentStack.value = []
+  resetViewerPartsState()
   piBomTreeAutoExpanded.value = false
   try {
     const res = await axios.get('/api/inventory/pi-bom-data/detail', {
@@ -662,7 +855,9 @@ async function openPiBomViewer(row) {
     }
     const data = body.data ?? {}
     viewerBasic.value = data.basic ?? null
-    viewerParts.value = Array.isArray(data.parts) ? data.parts : []
+    const rootParent = rootPartsParentFromBasic()
+    partsParentStack.value = rootParent.parentSystemcode ? [rootParent] : []
+    replaceViewerParts(Array.isArray(data.parts) ? data.parts : [])
     viewerTree.value = Array.isArray(data.tree) ? data.tree : []
     viewerCostRows.value = Array.isArray(data.costRows) ? data.costRows : []
     recomputePiBomCostUsageRows()
@@ -681,7 +876,33 @@ function resetViewer() {
   viewerTree.value = []
   viewerCostRows.value = []
   costUsageRows.value = []
+  partsParentStack.value = []
+  resetViewerPartsState()
   piBomTreeAutoExpanded.value = false
+}
+
+function openPiBomEditor(row) {
+  const orderId = Number(row?.orderId)
+  const code = String(row?.kcaa01 ?? '').trim()
+  if (!Number.isFinite(orderId) || orderId <= 0 || !code) {
+    ElMessage.warning('缺少订单ID或编码，无法编辑PI-BOM')
+    return
+  }
+  editRow.value = row
+  editVisible.value = true
+}
+
+function resetEditor() {
+  editRow.value = null
+}
+
+async function onEditorSaved() {
+  if (editRow.value) editRow.value.calcStatus = '未运算'
+  await loadData()
+}
+
+async function onMaterialReplaced() {
+  if (pageMode.value === 'list') await loadData()
 }
 
 loadData()
@@ -745,8 +966,26 @@ loadData()
 .pi-bom-tab-toolbar {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
   margin-bottom: 10px;
+}
+
+.pi-bom-parts-toolbar {
+  row-gap: 8px;
+}
+
+.pi-bom-parts-path {
+  color: var(--el-text-color-regular);
+  line-height: 32px;
+}
+
+.pi-bom-parts-alert {
+  margin-bottom: 10px;
+}
+
+.pi-bom-parts-num {
+  width: 100%;
 }
 
 .pi-bom-detail-table,

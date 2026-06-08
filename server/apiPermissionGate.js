@@ -820,6 +820,33 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'GET' && path === '/api/inventory/pi-bom-data/detail') {
     return { menuPath: 'inventory/basic/pi-bom-data', action: 'view' }
   }
+  if (m === 'GET' && path === '/api/inventory/pi-bom-data/parts') {
+    return { menuPath: 'inventory/basic/pi-bom-data', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/inventory/pi-bom-data/node-basic') {
+    return { menuPath: 'inventory/basic/pi-bom-data', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/inventory/pi-bom-data/pi-suggest') {
+    return { menuPath: 'inventory/basic/pi-bom-data', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/inventory/pi-bom-data/pq-suggest') {
+    return { menuPath: 'inventory/basic/pi-bom-data', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/inventory/pi-bom-data/material-suggest') {
+    return { menuPath: 'inventory/basic/pi-bom-data', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/inventory/pi-bom-data/match-suggest') {
+    return { menuPath: 'inventory/basic/pi-bom-data', action: 'view' }
+  }
+  if (m === 'PUT' && path === '/api/inventory/pi-bom-data/basic') {
+    return { menuPath: 'inventory/basic/pi-bom-data', action: 'edit' }
+  }
+  if (m === 'PUT' && path === '/api/inventory/pi-bom-data/parts') {
+    return { menuPath: 'inventory/basic/pi-bom-data', action: 'edit' }
+  }
+  if (m === 'POST' && path === '/api/inventory/pi-bom-data/replace-material') {
+    return { menuPath: 'inventory/basic/pi-bom-data', action: 'edit' }
+  }
   if (m === 'POST' && path === '/api/inventory/material-category') {
     return { menuPath: 'inventory/basic/material-category', action: 'add' }
   }

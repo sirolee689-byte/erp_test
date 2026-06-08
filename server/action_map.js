@@ -292,6 +292,81 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
     action: '查询PI_BOM资料详情',
     targetTable: 'UB_ERP_Bom_Sales',
   },
+  {
+    method: 'GET',
+    path: '/api/inventory/pi-bom-data/parts',
+    action: '查询PI_BOM配件明细',
+    targetTable: 'UB_ERP_Bom_Sales_list',
+  },
+  {
+    method: 'GET',
+    path: '/api/inventory/pi-bom-data/node-basic',
+    action: '查询PI_BOM节点资料',
+    targetTable: 'UB_ERP_Bom_Sales_list',
+  },
+  {
+    method: 'GET',
+    path: '/api/inventory/pi-bom-data/pi-suggest',
+    action: '查询PI-BOM替换 PI 候选',
+    targetTable: 'UB_ERP_Sales_order',
+  },
+  {
+    method: 'GET',
+    path: '/api/inventory/pi-bom-data/pq-suggest',
+    action: '查询PI-BOM替换 PQ 候选',
+    targetTable: 'UB_ERP_Bom_Sales_list',
+  },
+  {
+    method: 'GET',
+    path: '/api/inventory/pi-bom-data/material-suggest',
+    action: '查询PI-BOM替换物料候选',
+    targetTable: 'bom_000',
+  },
+  {
+    method: 'GET',
+    path: '/api/inventory/pi-bom-data/match-suggest',
+    action: '查询PI-BOM替换搭配候选',
+    targetTable: 'UB_ERP_Bom_Sales_list',
+  },
+  {
+    method: 'PUT',
+    path: '/api/inventory/pi-bom-data/basic',
+    action: '保存PI_BOM主档',
+    targetTable: 'UB_ERP_Bom_Sales',
+    detail: (body) => {
+      const orderId = body?.orderId ?? ''
+      const code = body?.kcaa01 ?? ''
+      return `订单ID=${orderId}，编码=${code}`
+    },
+  },
+  {
+    method: 'PUT',
+    path: '/api/inventory/pi-bom-data/parts',
+    action: '保存PI_BOM配件明细',
+    targetTable: 'UB_ERP_Bom_Sales_list',
+    detail: (body) => {
+      const orderId = body?.orderId ?? ''
+      const code = body?.kcaa01 ?? ''
+      const parent = body?.parentSystemcode ?? ''
+      const lines = Array.isArray(body?.lines) ? body.lines.length : 0
+      return `订单ID=${orderId}，编码=${code}，父级=${parent}，明细行=${lines}`
+    },
+  },
+  {
+    method: 'POST',
+    path: '/api/inventory/pi-bom-data/replace-material',
+    action: 'PI-BOM物料批量替换',
+    targetTable: 'UB_ERP_Bom_Sales_list',
+    detail: (body) => {
+      const pi = body?.piNo ?? ''
+      const pq = body?.pqCode ?? ''
+      const src = body?.sourceCode ?? ''
+      const tgt = body?.targetCode ?? ''
+      const match = body?.matchDescribe ?? ''
+      const dry = body?.dryRun === true ? '，预检' : ''
+      return `PI=${pi}，PQ=${pq || '全部'}，源=${src}，目标=${tgt}，搭配=${match || '不限'}${dry}`
+    },
+  },
 
   { method: 'GET', path: '/api/supply-chain/purchase-quotations/list', action: '查询采购报价列表', targetTable: 'Purchase_Quotation' },
   {

@@ -73,6 +73,13 @@ const bomDataWindowRoute = {
   meta: { title: 'BOM资料窗口', permissionPath: '/inventory/basic/bom-data' },
 }
 
+const piBomDataWindowRoute = {
+  path: '/inventory/basic/pi-bom-data-window',
+  name: 'inventory-basic-pi-bom-data-window',
+  component: () => import('@/views/inventory/basic/pi-bom-data/window.vue'),
+  meta: { title: 'PI-BOM资料窗口', permissionPath: '/inventory/basic/pi-bom-data' },
+}
+
 const salesOrderWindowRoute = {
   path: '/supply-chain/daily/sales-order-window',
   name: 'supply-chain-daily-sales-order-window',
@@ -111,6 +118,7 @@ const router = createRouter({
       meta: { title: '登录' },
     },
     bomDataWindowRoute,
+    piBomDataWindowRoute,
     salesOrderWindowRoute,
     {
       path: '/',
