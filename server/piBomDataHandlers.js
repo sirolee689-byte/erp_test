@@ -769,6 +769,17 @@ function quoteSqlBracketCol(tableAlias, col) {
   return `${tableAlias}.[${safe}]`
 }
 
+export function buildPiBomReplaceBomSelectList(syncCols) {
+  return syncCols
+    .map((col) => {
+      const safe = String(col ?? '').replace(/]/g, '')
+      const lower = safe.toLowerCase()
+      const sourceExpr = lower === 'kcac03' ? 'b.[kcaa25]' : quoteSqlBracketCol('b', safe)
+      return `${sourceExpr} AS [${safe}]`
+    })
+    .join(',\n          ')
+}
+
 async function fetchPiBomOrderContextByPiNo(pool, piNo) {
   const pi = String(piNo ?? '').trim()
   if (!pi) return { ok: false, status: 400, msg: '请填写 PI 号' }
@@ -809,21 +820,22 @@ async function assertBom000TargetMaterialExists(pool, targetKcaa01) {
   return { ok: true, target, kcaa02: String(row.kcaa02 ?? '').trim() }
 }
 
-function bindPiBomReplaceFilterInputs(req, { piNo, pqCode, sourceCode, matchDescribe, hasPq, hasMatch }) {
+function bindPiBomReplaceFilterInputs(req, { piNo, pqCode, sourceCode, matchDescribe, hasPq }) {
   req.input('pi', sql.NVarChar(200), piNo)
   req.input('source', sql.NVarChar(300), sourceCode)
+  req.input('matchDescribe', sql.NVarChar(500), String(matchDescribe ?? '').trim())
   if (hasPq) req.input('pq', sql.NVarChar(300), pqCode)
-  if (hasMatch) req.input('matchDescribe', sql.NVarChar(500), matchDescribe)
 }
 
-function buildPiBomReplaceWhereSql(hasPq, hasMatch) {
+/** @param {boolean} hasPq */
+export function buildPiBomReplaceWhereSql(hasPq) {
   const parts = [
     `LTRIM(RTRIM(ISNULL(l.[sid], N''))) = @pi`,
     `${PI_LIST_KCAA01_EXPR} = @source`,
     `(ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')`,
+    `${PI_LIST_DESCRIBE_EXPR} = @matchDescribe`,
   ]
   if (hasPq) parts.push(`${PI_LIST_PKCAA01_EXPR} = @pq`)
-  if (hasMatch) parts.push(`${PI_LIST_DESCRIBE_EXPR} = @matchDescribe`)
   return parts.join('\n        AND ')
 }
 
@@ -833,7 +845,7 @@ async function countPiBomReplaceMatches(pool, filters) {
   const r = await req.query(`
     SELECT COUNT(1) AS matchedCount
     FROM ${PI_BOM_LIST_FROM} AS l
-    WHERE ${buildPiBomReplaceWhereSql(filters.hasPq, filters.hasMatch)}
+    WHERE ${buildPiBomReplaceWhereSql(filters.hasPq)}
   `)
   return Number(r.recordset?.[0]?.matchedCount ?? 0)
 }
@@ -846,7 +858,6 @@ async function executePiBomMaterialReplace(tx, opts) {
     targetCode,
     matchDescribe,
     hasPq,
-    hasMatch,
     syncCols,
     listColset,
     actor,
@@ -859,9 +870,9 @@ async function executePiBomMaterialReplace(tx, opts) {
   req.input('source', sql.NVarChar(300), sourceCode)
   req.input('target', sql.NVarChar(300), targetCode)
   if (hasPq) req.input('pq', sql.NVarChar(300), pqCode)
-  if (hasMatch) req.input('matchDescribe', sql.NVarChar(500), matchDescribe)
+  req.input('matchDescribe', sql.NVarChar(500), String(matchDescribe ?? '').trim())
 
-  const bomSelect = syncCols.map((col) => quoteSqlBracketCol('b', col)).join(',\n          ')
+  const bomSelect = buildPiBomReplaceBomSelectList(syncCols)
   const setParts = syncCols.map((col) => `${quoteSqlBracketCol('l', col)} = ${quoteSqlBracketCol('b', col)}`)
   if (listColset.has('edittime')) {
     setParts.push('l.[edittime] = @edittime')
@@ -892,7 +903,7 @@ async function executePiBomMaterialReplace(tx, opts) {
         AND (ISNULL(b.[del], N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.[del]), N''))) = N'0')
       ORDER BY b.[id] DESC
     ) AS b
-    WHERE ${buildPiBomReplaceWhereSql(hasPq, hasMatch)}
+    WHERE ${buildPiBomReplaceWhereSql(hasPq)}
   `)
   return Number(r.rowsAffected?.[0] ?? 0)
 }
@@ -1604,14 +1615,12 @@ export function registerPiBomDataRoutes(app, { getPool }) {
       }
 
       const hasPq = !!pqCode
-      const hasMatch = !!matchDescribe
       const filters = {
         piNo: orderCtx.piNo,
         pqCode,
         sourceCode,
         matchDescribe,
         hasPq,
-        hasMatch,
       }
       const matchedCount = await countPiBomReplaceMatches(pool, filters)
       if (matchedCount <= 0) {
@@ -1663,7 +1672,6 @@ export function registerPiBomDataRoutes(app, { getPool }) {
         targetCode,
         matchDescribe,
         hasPq,
-        hasMatch,
         syncCols,
         listColset,
         actor,

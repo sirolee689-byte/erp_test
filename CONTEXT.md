@@ -392,7 +392,7 @@
 
 **销售订单主列表展开明细用量**：展开明细的「用量」为展示字段，不写入销售订单明细表；按该行 `xsak01`（PI号）+ `kcaa01`（成品款号）汇总 `UB_ERP_Bom_pi_cost.sid/pq` 下的 `kcac04` 与 `kcac06`，显示为 `成本：SUM(kcac04),SUM(kcac06)`；未运算或无结果显示 `-`。
 
-**物料单明细抬头**：明细页按成品款 `pq` 分段，每段抬头按 `UB_ERP_Sales_order.xsaj01 = UB_ERP_Sales_order_list.xsak01` 关联销售订单主从表取得。字段对应：PI号=`xsak01`、PO号=`xsaj06`、日期=`xsaj02`、厂款号=`kcaa09`、名称=`kcaa02`、客款号=`kcaa06`、组别=`kcaa10`、订单量=`xsak03`（空则 `plan_quantity`）；`UB_ERP_Sales_order_list` 当前无 `yl` 列，单品用量本期留空。汇总页抬头本期不处理。
+**物料单明细抬头**：明细页按成品款 `pq` 分段，每段抬头按 `UB_ERP_Sales_order.xsaj01 = UB_ERP_Sales_order_list.xsak01` 关联销售订单主从表取得。字段对应：PI号=`xsak01`、PO号=`xsaj06`、日期=`xsaj02`、厂款号=`kcaa09`、名称=`kcaa02`、客款号=`kcaa06`、组别=`kcaa10`、订单量=`xsak03`（空则 `plan_quantity`）；单品用量按该 PI + 成品款 `pq` 汇总 `UB_ERP_Bom_pi_cost.kcac06`。汇总页抬头本期不处理。
 
 **运算范围**：
 

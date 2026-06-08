@@ -124,6 +124,19 @@ export function buildMaterialBillCostLines(recordset, qtyByProduct = new Map()) 
   })
 }
 
+export function buildMaterialBillSingleUsageByProduct(costLines) {
+  const map = new Map()
+  const list = Array.isArray(costLines) ? costLines : []
+  for (const row of list) {
+    const pq = normKcaa01(row?.pq)
+    if (!pq) continue
+    const qty = Number(row?.kcac06 ?? 0)
+    const next = (map.get(pq) ?? 0) + (Number.isFinite(qty) ? qty : 0)
+    map.set(pq, Math.round(next * 1000000) / 1000000)
+  }
+  return map
+}
+
 /**
  * @param {import('mssql').ConnectionPool} pool
  * @param {number} id
@@ -178,20 +191,6 @@ export async function fetchSalesOrderMaterialBill(pool, id) {
     orderQty: Number(row.orderQty ?? 0),
   }))
   const qtyByProduct = new Map(lines.map((l) => [l.kcaa01, l.orderQty]))
-  const materialHeaders = (lr.recordset ?? []).map((row) => ({
-    key: normKcaa01(row.kcaa01),
-    productCode: normKcaa01(row.kcaa01),
-    piNo: String(row.linePiNo ?? '').trim(),
-    poNo: String(row.poNo ?? '').trim(),
-    salesDate: row.salesDate ?? null,
-    factoryStyleNo: String(row.factoryStyleNo ?? '').trim(),
-    productName: String(row.productName ?? '').trim(),
-    singleUsage: '',
-    customerStyleNo: String(row.customerStyleNo ?? '').trim(),
-    groupName: String(row.groupName ?? '').trim(),
-    orderQty: Number(row.orderQty ?? 0),
-  }))
-
   const costR = await pool.request().input('pi', sql.NVarChar(200), piNo).query(`
     SELECT
       [id],
@@ -222,6 +221,23 @@ export async function fetchSalesOrderMaterialBill(pool, id) {
   `)
 
   const costLines = buildMaterialBillCostLines(costR.recordset ?? [], qtyByProduct)
+  const singleUsageByProduct = buildMaterialBillSingleUsageByProduct(costLines)
+  const materialHeaders = (lr.recordset ?? []).map((row) => {
+    const productCode = normKcaa01(row.kcaa01)
+    return {
+      key: productCode,
+      productCode,
+      piNo: String(row.linePiNo ?? '').trim(),
+      poNo: String(row.poNo ?? '').trim(),
+      salesDate: row.salesDate ?? null,
+      factoryStyleNo: String(row.factoryStyleNo ?? '').trim(),
+      productName: String(row.productName ?? '').trim(),
+      singleUsage: singleUsageByProduct.get(productCode) ?? 0,
+      customerStyleNo: String(row.customerStyleNo ?? '').trim(),
+      groupName: String(row.groupName ?? '').trim(),
+      orderQty: Number(row.orderQty ?? 0),
+    }
+  })
 
   // 汇总展示：库内 pi_consumption 为单品合并口径；接口按各款订单量缩放后重聚合
   const consumptionLines = buildMaterialBillConsumptionLinesFromCost(costLines)

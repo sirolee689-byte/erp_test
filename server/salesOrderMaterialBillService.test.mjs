@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   buildMaterialBillConsumptionLinesFromCost,
   buildMaterialBillCostLines,
+  buildMaterialBillSingleUsageByProduct,
 } from './salesOrderMaterialBillService.js'
 
 test('buildMaterialBillCostLines returns px and sorts by pq then px then id', () => {
@@ -43,4 +44,19 @@ test('buildMaterialBillConsumptionLinesFromCost scales usage by orderQty before 
   assert.equal(out[0].kcaa01, 'MAT-1')
   assert.equal(out[0].sumay, 90)
   assert.equal(out[0].sumby, 90)
+})
+
+test('buildMaterialBillSingleUsageByProduct sums kcac06 by product code', () => {
+  const costLines = buildMaterialBillCostLines(
+    [
+      { id: 1, pq: 'PQ-3675A1/MO', kcaa01: 'MAT-1', kcac04: 10, kcac05: 0, kcac06: 66.7459 },
+      { id: 2, pq: 'PQ-3675A1/MO', kcaa01: 'MAT-2', kcac04: 20, kcac05: 0, kcac06: 1.3511 },
+      { id: 3, pq: 'PQ-OTHER', kcaa01: 'MAT-3', kcac04: 30, kcac05: 0, kcac06: 30 },
+    ],
+    new Map(),
+  )
+  const out = buildMaterialBillSingleUsageByProduct(costLines)
+
+  assert.equal(out.get('PQ-3675A1/MO'), 68.097)
+  assert.equal(out.get('PQ-OTHER'), 30)
 })

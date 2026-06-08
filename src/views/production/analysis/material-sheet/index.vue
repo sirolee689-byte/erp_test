@@ -22,7 +22,7 @@
           size="small"
           @click="activeTab = 'detail'"
         >
-          物料单统计表1（明细）
+          物料单统计表（明细）
         </el-button>
         <el-button
           :type="activeTab === 'summary' ? 'warning' : 'primary'"
@@ -68,8 +68,8 @@
                       <th class="col-code">编码</th>
                       <th>名称</th>
                       <th>规格</th>
+                      <th class="col-match">搭配</th>
                       <th class="col-unit">单位</th>
-                      <th class="col-match">备注</th>
                       <th class="col-num">用量</th>
                       <th class="col-num">损耗</th>
                       <th class="col-num">合计</th>
@@ -82,8 +82,8 @@
                       <td>{{ row.kcaa01 }}</td>
                       <td>{{ row.kcaa02 }}</td>
                       <td>{{ row.kcaa03 }}</td>
-                      <td>{{ row.kcaa04 }}</td>
                       <td>{{ row.Describe }}</td>
+                      <td>{{ row.kcaa04 }}</td>
                       <td>{{ formatQty(scaleByOrderQty(row.yl, group)) }}</td>
                       <td>{{ formatLoss(row.loss_rate) }}</td>
                       <td>{{ formatQty(lineTotalQty(row, group)) }}</td>
@@ -164,8 +164,8 @@
                 <th>编码</th>
                 <th>名称</th>
                 <th>规格</th>
+                <th>搭配</th>
                 <th>单位</th>
-                <th>备注</th>
                 <th>用量</th>
                 <th>损耗</th>
                 <th>合计</th>
@@ -178,8 +178,8 @@
                 <td>{{ row.kcaa01 }}</td>
                 <td>{{ row.kcaa02 }}</td>
                 <td>{{ row.kcaa03 }}</td>
-                <td>{{ row.kcaa04 }}</td>
                 <td>{{ row.Describe }}</td>
+                <td>{{ row.kcaa04 }}</td>
                 <td class="num">{{ formatQty(scaleByOrderQty(row.yl, group)) }}</td>
                 <td class="num">{{ formatLoss(row.loss_rate) }}</td>
                 <td class="num">{{ formatQty(lineTotalQty(row, group)) }}</td>
@@ -246,7 +246,8 @@ import { aggregateBomCostUsageFlatForDisplay } from '@/utils/bomCostUsageAggrega
 
 const REPORT_BRAND = '中山市卓越皮具有限公司'
 const REPORT_TITLE = '成本物料单统计报表（成本价物料明细）'
-const MATERIAL_SHEET_COL_COUNT = 10
+const DETAIL_MATERIAL_SHEET_COL_COUNT = 10
+const SUMMARY_MATERIAL_SHEET_COL_COUNT = 10
 
 const SUMMARY_HEADER_FIELD_ROWS = [
   [
@@ -270,9 +271,10 @@ const DETAIL_HEADER_FIELD_ROWS = [
   ],
 ]
 
-const DETAIL_EXPORT_HEADERS = ['序号', '编码', '名称', '规格', '单位', '备注', '用量', '损耗', '合计', '单物料合计']
+const DETAIL_EXPORT_HEADERS = ['序号', '编码', '名称', '规格', '搭配', '单位', '用量', '损耗', '合计', '单物料合计']
 const SUMMARY_EXPORT_HEADERS = ['序号', 'ERP编码', '名称', '规格', '搭配', '单位', '用量', '损耗', '合计', '单物料合计']
-const MATERIAL_SHEET_EXPORT_COL_WIDTHS = [8, 18, 18, 18, 8, 14, 12, 10, 12, 14]
+const DETAIL_MATERIAL_SHEET_EXPORT_COL_WIDTHS = [8, 18, 18, 18, 14, 8, 12, 10, 12, 14]
+const SUMMARY_MATERIAL_SHEET_EXPORT_COL_WIDTHS = [8, 18, 18, 18, 14, 8, 12, 10, 12, 14]
 const MATERIAL_SHEET_EXPORT_THIN_BORDER = {
   top: { style: 'thin', color: { argb: 'FF333333' } },
   left: { style: 'thin', color: { argb: 'FF333333' } },
@@ -469,7 +471,7 @@ function formatQty(value) {
 function formatLoss(value) {
   const n = Number(value)
   if (!Number.isFinite(n) || n === 0) return '0'
-  return n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')
+  return n.toFixed(2)
 }
 
 function orderQtyFromGroup(group) {
@@ -511,7 +513,11 @@ function formatHeaderDate(value) {
 
 function formatHeaderValue(value, key) {
   if (key === 'salesDate') return formatHeaderDate(value)
-  if (key === 'singleUsage') return ''
+  if (key === 'singleUsage') {
+    const n = Number(value)
+    if (!Number.isFinite(n)) return ''
+    return n.toFixed(4)
+  }
   if (key === 'orderQty') {
     const n = Number(value)
     if (!Number.isFinite(n)) return ''
@@ -616,12 +622,13 @@ function formatHeaderRowText(header, fieldRow) {
 }
 
 function applyMaterialSheetExportTableStyle(ws, rowNumber, opts = {}) {
+  const numStartCol = Number(opts.numStartCol ?? 7)
   const row = ws.getRow(rowNumber)
   row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
     cell.border = MATERIAL_SHEET_EXPORT_THIN_BORDER
     cell.alignment = {
       vertical: 'top',
-      horizontal: colNumber >= 7 ? 'right' : 'left',
+      horizontal: colNumber >= numStartCol ? 'right' : 'left',
       wrapText: true,
     }
     if (opts.bold) cell.font = { ...(cell.font || {}), bold: true }
@@ -654,8 +661,8 @@ function detailRowToExportCells(row, group, idx) {
     row.kcaa01,
     row.kcaa02,
     row.kcaa03,
-    row.kcaa04,
     row.Describe,
+    row.kcaa04,
     formatQty(scaleByOrderQty(row.yl, group)),
     formatLoss(row.loss_rate),
     formatQty(lineTotalQty(row, group)),
@@ -708,20 +715,20 @@ async function exportDetailMaterialSheetXls(downloadFileName = materialSheetDefa
     }
     const brandRow = ws.addRow([REPORT_BRAND])
     rowNum = brandRow.number
-    ws.mergeCells(rowNum, 1, rowNum, MATERIAL_SHEET_COL_COUNT)
+    ws.mergeCells(rowNum, 1, rowNum, DETAIL_MATERIAL_SHEET_COL_COUNT)
     ws.getRow(rowNum).font = { bold: true, size: 14 }
     ws.getCell(rowNum, 1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
 
     const titleRow = ws.addRow([REPORT_TITLE])
     rowNum = titleRow.number
-    ws.mergeCells(rowNum, 1, rowNum, MATERIAL_SHEET_COL_COUNT)
+    ws.mergeCells(rowNum, 1, rowNum, DETAIL_MATERIAL_SHEET_COL_COUNT)
     ws.getRow(rowNum).font = { bold: true, size: 12 }
     ws.getCell(rowNum, 1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
 
     for (const fieldRow of DETAIL_HEADER_FIELD_ROWS) {
       const added = ws.addRow([formatHeaderRowText(group.header, fieldRow)])
       rowNum = added.number
-      ws.mergeCells(rowNum, 1, rowNum, MATERIAL_SHEET_COL_COUNT)
+      ws.mergeCells(rowNum, 1, rowNum, DETAIL_MATERIAL_SHEET_COL_COUNT)
       ws.getCell(rowNum, 1).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }
     }
 
@@ -738,7 +745,7 @@ async function exportDetailMaterialSheetXls(downloadFileName = materialSheetDefa
     }
   }
   ws.columns.forEach((col, index) => {
-    col.width = MATERIAL_SHEET_EXPORT_COL_WIDTHS[index] || 10
+    col.width = DETAIL_MATERIAL_SHEET_EXPORT_COL_WIDTHS[index] || 10
   })
   await downloadMaterialSheetWorkbook(wb, downloadFileName)
 }
@@ -750,19 +757,19 @@ async function exportSummaryMaterialSheetXls(downloadFileName = materialSheetDef
     pageSetup: materialSheetExportPageSetup(),
   })
   const brandRow = ws.addRow([REPORT_BRAND])
-  ws.mergeCells(1, 1, 1, MATERIAL_SHEET_COL_COUNT)
+  ws.mergeCells(1, 1, 1, SUMMARY_MATERIAL_SHEET_COL_COUNT)
   ws.getRow(1).font = { bold: true, size: 14 }
   ws.getCell(1, 1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
 
   const titleRow = ws.addRow([REPORT_TITLE])
-  ws.mergeCells(2, 1, 2, MATERIAL_SHEET_COL_COUNT)
+  ws.mergeCells(2, 1, 2, SUMMARY_MATERIAL_SHEET_COL_COUNT)
   ws.getRow(2).font = { bold: true, size: 12 }
   ws.getCell(2, 1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
 
   const headRow = ws.addRow([
     formatHeaderRowText(summaryHeader.value, SUMMARY_HEADER_FIELD_ROWS[0]),
   ])
-  ws.mergeCells(headRow.number, 1, headRow.number, MATERIAL_SHEET_COL_COUNT)
+  ws.mergeCells(headRow.number, 1, headRow.number, SUMMARY_MATERIAL_SHEET_COL_COUNT)
   ws.getCell(headRow.number, 1).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }
 
   const headerAdded = ws.addRow([...SUMMARY_EXPORT_HEADERS])
@@ -777,7 +784,7 @@ async function exportSummaryMaterialSheetXls(downloadFileName = materialSheetDef
   }
 
   ws.columns.forEach((col, index) => {
-    col.width = MATERIAL_SHEET_EXPORT_COL_WIDTHS[index] || 10
+    col.width = SUMMARY_MATERIAL_SHEET_EXPORT_COL_WIDTHS[index] || 10
   })
   await downloadMaterialSheetWorkbook(wb, downloadFileName)
 }
@@ -1164,8 +1171,7 @@ function onPrintMaterialSheet() {
   html.print-material-sheet .material-sheet-print-table th {
     background: #eef4fb;
   }
-  html.print-material-sheet .material-sheet-print-table td.num,
-  html.print-material-sheet .material-sheet-print-table th:nth-child(n + 7) {
+  html.print-material-sheet .material-sheet-print-table td.num {
     text-align: right;
   }
 }

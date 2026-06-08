@@ -66,7 +66,7 @@
           :fetch-suggestions="fetchMatchSuggestions"
           value-key="code"
           clearable
-          placeholder="留空则不限搭配"
+          placeholder="留空则仅替换搭配为空的行"
           style="width: 100%"
           maxlength="500"
           :disabled="!String(form.piNo ?? '').trim()"
@@ -285,7 +285,7 @@ async function onExecute() {
     const pqHint = String(form.pqCode ?? '').trim() ? `PQ：${form.pqCode}` : 'PQ：全部款'
     const matchHint = String(form.matchDescribe ?? '').trim()
       ? `搭配：${form.matchDescribe}`
-      : '搭配：不限'
+      : '搭配：（空，仅匹配无搭配行）'
     const targetName = String(preview.targetName ?? '').trim()
     const targetHint = targetName ? `${form.targetCode}（${targetName}）` : form.targetCode
 

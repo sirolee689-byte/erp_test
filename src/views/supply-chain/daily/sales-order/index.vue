@@ -2,10 +2,7 @@
   <div class="erp-module-page" :class="{ 'so-standalone-window': isSalesOrderStandaloneWindow }">
     <!-- 销售订单 issue 01：列表 + 只读详情（主表 Tab / 明细 Tab） -->
     <el-card v-if="!isSalesOrderStandaloneWindow" shadow="never">
-      <p class="page-desc">
-        主表 <code>UB_ERP_Sales_order</code>（PI 号 <code>xsaj01</code>、PO 号 <code>xsaj06</code>）与明细
-        <code>UB_ERP_Sales_order_list</code>（<code>xsak01</code> 关联 PI）。
-      </p>
+     
 
       <div class="so-toolbar">
         <div class="so-toolbar-row">
@@ -320,6 +317,29 @@
             <el-empty v-else description="无主表数据" />
           </el-tab-pane>
           <el-tab-pane label="明细" name="lines">
+            <div
+              v-if="viewHeader && !showRecycle && !passIsAudited(viewHeader) && viewLines.length"
+              class="lines-toolbar"
+            >
+              <el-button
+                v-permission="'edit'"
+                type="primary"
+                plain
+                size="small"
+                :disabled="!syncBomSelectedCount || syncBomBatchLoading"
+                :loading="syncBomBatchLoading"
+                @click="batchSyncBomFromView"
+              >
+                {{
+                  syncBomBatchLoading && syncBomBatchProgress.total
+                    ? `同步中 (${syncBomBatchProgress.current}/${syncBomBatchProgress.total})`
+                    : '批量同步 BOM'
+                }}
+              </el-button>
+              <span v-if="syncBomSelectedCount" class="so-sync-bom-selected-hint">
+                已选 {{ syncBomSelectedCount }} 款
+              </span>
+            </div>
             <el-table
               v-if="viewLines.length"
               class="so-lines-table"
@@ -347,13 +367,13 @@
                     <el-button
                       v-if="!passIsAudited(viewHeader)"
                       v-permission="'edit'"
-                      type="primary"
-                      plain
                       size="small"
-                      :loading="syncBomLoading === row.kcaa01"
-                      @click="syncBomLine(row, Number(viewHeader.id))"
+                      class="so-sync-bom-mark-btn"
+                      :class="{ 'so-sync-bom-mark-btn--on': isSyncBomSelected(row.kcaa01) }"
+                      :disabled="syncBomBatchLoading"
+                      @click="toggleSyncBomSelection(row)"
                     >
-                      同步 BOM
+                      {{ isSyncBomSelected(row.kcaa01) ? '已选择' : '同步 BOM' }}
                     </el-button>
                   </div>
                 </template>
@@ -618,6 +638,28 @@
               >
                 增行
               </el-button>
+              <el-button
+                v-if="editMode === 'edit' && editId"
+                v-permission="'edit'"
+                type="primary"
+                plain
+                size="small"
+                :disabled="editDetailLocked || !syncBomSelectedCount || syncBomBatchLoading"
+                :loading="syncBomBatchLoading"
+                @click="batchSyncBomFromEdit"
+              >
+                {{
+                  syncBomBatchLoading && syncBomBatchProgress.total
+                    ? `同步中 (${syncBomBatchProgress.current}/${syncBomBatchProgress.total})`
+                    : '批量同步 BOM'
+                }}
+              </el-button>
+              <span
+                v-if="editMode === 'edit' && editId && syncBomSelectedCount"
+                class="so-sync-bom-selected-hint"
+              >
+                已选 {{ syncBomSelectedCount }} 款
+              </span>
             </div>
             <el-table
               :data="lineRows"
@@ -652,14 +694,13 @@
                     <el-button
                       v-if="editMode === 'edit' && editId"
                       v-permission="'edit'"
-                      type="primary"
-                      plain
                       size="small"
-                      :disabled="editDetailLocked"
-                      :loading="syncBomLoading === row.kcaa01"
-                      @click="syncBomLine(row, editId)"
+                      class="so-sync-bom-mark-btn"
+                      :class="{ 'so-sync-bom-mark-btn--on': isSyncBomSelected(row.kcaa01) }"
+                      :disabled="editDetailLocked || syncBomBatchLoading"
+                      @click="toggleSyncBomSelection(row)"
                     >
-                      同步 BOM
+                      {{ isSyncBomSelected(row.kcaa01) ? '已选择' : '同步 BOM' }}
                     </el-button>
                     <el-button
                       type="danger"
@@ -995,8 +1036,13 @@ const currencyOptions = ref([])
 const customerOptions = ref([])
 const customerLoading = ref(false)
 const materialVisible = ref(false)
-/** 按款同步 BOM 加载中（kcaa01） */
-const syncBomLoading = ref('')
+/** 批量同步 BOM：待同步款号（关弹窗/重开订单清空） */
+const syncBomSelected = ref([])
+/** 批量同步进行中 */
+const syncBomBatchLoading = ref(false)
+/** 批量同步进度 */
+const syncBomBatchProgress = ref({ current: 0, total: 0 })
+const syncBomSelectedCount = computed(() => syncBomSelected.value.length)
 /** 编辑弹窗主表 pass（已审锁明细） */
 const editHeaderPass = ref('0')
 /** 编辑弹窗运算状态（与列表 calcStatus 一致） */
@@ -1146,6 +1192,35 @@ function resetPiBomState() {
   piBomProduct.value = ''
   piBomTree.value = []
   piBomProducts.value = []
+}
+
+function clearSyncBomSelected() {
+  syncBomSelected.value = []
+}
+
+/** @param {string} kcaa01 */
+function isSyncBomSelected(kcaa01) {
+  const code = String(kcaa01 ?? '').trim()
+  return Boolean(code && syncBomSelected.value.includes(code))
+}
+
+/** @param {{ kcaa01?: string }} row */
+function toggleSyncBomSelection(row) {
+  if (editVisible.value && editDetailLocked.value) {
+    ElMessage.warning('该订单已审核，请先反审后再同步 BOM。')
+    return
+  }
+  if (viewVisible.value && passIsAudited(viewHeader.value)) {
+    ElMessage.warning('该订单已审核，请先反审后再同步 BOM。')
+    return
+  }
+  const code = String(row?.kcaa01 ?? '').trim()
+  if (!code) return
+  if (isSyncBomSelected(code)) {
+    syncBomSelected.value = syncBomSelected.value.filter((c) => c !== code)
+  } else {
+    syncBomSelected.value = [...syncBomSelected.value, code]
+  }
 }
 
 function formatPiBomQty(v) {
@@ -1451,6 +1526,7 @@ async function openCreate() {
   editHeaderPass.value = '0'
   editHeaderCalcStatus.value = '未运算'
   syncedSinceCalc.value = []
+  clearSyncBomSelected()
   resetPiBomState()
   editActiveTab.value = 'header'
   resetHeaderForm()
@@ -1489,6 +1565,7 @@ async function openEdit(row) {
   editMode.value = 'edit'
   editId.value = Number(row.id)
   editHeaderPass.value = String(row.pass ?? '0')
+  clearSyncBomSelected()
   resetPiBomState()
   editActiveTab.value = 'header'
   editLoading.value = true
@@ -1566,51 +1643,106 @@ function onMaterialsPicked(payloads) {
 }
 
 /**
- * @param {{ kcaa01: string }} row
+ * @param {number} orderId
+ * @param {string} lastSyncedCode
+ */
+async function refreshOrderAfterSyncBom(orderId, lastSyncedCode) {
+  if (viewVisible.value && viewHeader.value?.id === orderId) {
+    const detail = await fetchOrderDetail(orderId, { force: true })
+    viewHeader.value = detail.header ?? viewHeader.value
+    viewLines.value = detail.lines
+  }
+  if (editVisible.value && editId.value === orderId) {
+    const detail = await fetchOrderDetail(orderId, { force: true })
+    const hdr = detail.header ?? {}
+    editHeaderPass.value = String(hdr.pass ?? '0')
+    editHeaderCalcStatus.value = String(hdr.calcStatus ?? '未运算')
+    if (editActiveTab.value === 'piBom' && piBomProduct.value === lastSyncedCode) {
+      await loadPiBomTree(orderId, lastSyncedCode)
+    }
+  }
+  await loadData()
+}
+
+/**
+ * 单款同步 BOM（无确认框，供批量顺序调用）
+ * @param {string} code
  * @param {number} orderId
  */
-async function syncBomLine(row, orderId) {
-  const code = String(row?.kcaa01 ?? '').trim()
-  if (!code || !orderId) return
-  if (editDetailLocked.value) {
+async function executeSyncBomForLine(code, orderId) {
+  const res = await axios.post(`/api/sales-order/${orderId}/sync-bom`, { kcaa01: code })
+  if (!syncedSinceCalc.value.includes(code)) syncedSinceCalc.value.push(code)
+  forgetDetail(orderId)
+  return String(res?.data?.msg ?? '同步 BOM 成功')
+}
+
+/**
+ * @param {number} orderId
+ * @param {string[]} codes
+ */
+async function batchSyncBom(orderId, codes) {
+  const list = codes.map((c) => String(c ?? '').trim()).filter(Boolean)
+  if (!orderId || !list.length) {
+    ElMessage.warning('请先选择要同步的款。')
+    return
+  }
+  if (editVisible.value && editDetailLocked.value) {
+    ElMessage.warning('该订单已审核，请先反审后再同步 BOM。')
+    return
+  }
+  if (viewVisible.value && passIsAudited(viewHeader.value)) {
     ElMessage.warning('该订单已审核，请先反审后再同步 BOM。')
     return
   }
   try {
     await ElMessageBox.confirm(
-      `确认将款【${code}】的 PI BOM 从主 BOM 覆盖吗？将覆盖 PI 内该款全部子件用量，订单将标为「未运算」。`,
-      '同步 BOM 确认',
+      `确认将以下 ${list.length} 款的 PI BOM 从主 BOM 覆盖吗？将覆盖 PI 内该款全部子件用量，订单将标为「未运算」。\n\n${list.join('\n')}`,
+      '批量同步 BOM 确认',
       { type: 'warning', confirmButtonText: '同步', cancelButtonText: '取消' },
     )
   } catch {
     return
   }
-  syncBomLoading.value = code
+  syncBomBatchLoading.value = true
+  syncBomBatchProgress.value = { current: 0, total: list.length }
+  const succeeded = []
   try {
-    const res = await axios.post(`/api/sales-order/${orderId}/sync-bom`, { kcaa01: code })
-    ElMessage.success(res?.data?.msg ?? '同步 BOM 成功')
-    if (!syncedSinceCalc.value.includes(code)) syncedSinceCalc.value.push(code)
-    forgetDetail(orderId)
-    if (viewVisible.value && viewHeader.value?.id === orderId) {
-      const detail = await fetchOrderDetail(orderId, { force: true })
-      viewHeader.value = detail.header ?? viewHeader.value
-      viewLines.value = detail.lines
-    }
-    if (editVisible.value && editId.value === orderId) {
-      const detail = await fetchOrderDetail(orderId, { force: true })
-      const hdr = detail.header ?? {}
-      editHeaderPass.value = String(hdr.pass ?? '0')
-      editHeaderCalcStatus.value = String(hdr.calcStatus ?? '未运算')
-      if (editActiveTab.value === 'piBom' && piBomProduct.value === code) {
-        await loadPiBomTree(orderId, code)
+    for (let i = 0; i < list.length; i++) {
+      const code = list[i]
+      syncBomBatchProgress.value = { current: i + 1, total: list.length }
+      try {
+        await executeSyncBomForLine(code, orderId)
+        succeeded.push(code)
+      } catch (e) {
+        const msg = String(e?.response?.data?.msg ?? e?.message ?? '同步失败')
+        ElMessage.error(`款【${code}】同步失败：${msg}`)
+        if (succeeded.length) {
+          ElMessage.warning(`已成功同步 ${succeeded.length} 款，后续已停止。`)
+        }
+        if (succeeded.length) {
+          await refreshOrderAfterSyncBom(orderId, succeeded[succeeded.length - 1])
+        }
+        return
       }
     }
-    await loadData()
-  } catch (e) {
-    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '同步失败'))
+    ElMessage.success(`批量同步成功，共 ${succeeded.length} 款`)
+    clearSyncBomSelected()
+    await refreshOrderAfterSyncBom(orderId, succeeded[succeeded.length - 1])
   } finally {
-    syncBomLoading.value = ''
+    syncBomBatchLoading.value = false
+    syncBomBatchProgress.value = { current: 0, total: 0 }
   }
+}
+
+async function batchSyncBomFromEdit() {
+  if (!editId.value) return
+  await batchSyncBom(editId.value, syncBomSelected.value)
+}
+
+async function batchSyncBomFromView() {
+  const orderId = Number(viewHeader.value?.id)
+  if (!orderId) return
+  await batchSyncBom(orderId, syncBomSelected.value)
 }
 
 async function confirmRemoveLine(index) {
@@ -1921,6 +2053,7 @@ async function openView(row) {
   viewActiveTab.value = 'header'
   viewHeader.value = null
   viewLines.value = []
+  clearSyncBomSelected()
   resetPiBomState()
   try {
     const data = await fetchOrderDetail(row.id)
@@ -2085,6 +2218,32 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
+}
+.so-sync-bom-selected-hint {
+  font-size: var(--so-lines-hint-size, 13px);
+  color: var(--el-text-color-secondary);
+}
+/** 明细行「同步 BOM」：未选＝主色，已选＝灰 */
+.so-sync-bom-mark-btn {
+  min-width: 72px;
+  background-color: var(--el-color-primary);
+  border-color: var(--el-color-primary);
+  color: #fff;
+}
+.so-sync-bom-mark-btn:hover {
+  background-color: var(--el-color-primary-light-3);
+  border-color: var(--el-color-primary-light-3);
+  color: #fff;
+}
+.so-sync-bom-mark-btn--on {
+  background-color: #ccc !important;
+  border-color: #ccc !important;
+  color: #333 !important;
+}
+.so-sync-bom-mark-btn--on:hover {
+  background-color: #bbb !important;
+  border-color: #bbb !important;
+  color: #333 !important;
 }
 /* DIY：PI BOM Tab 工具栏与用量输入 — index.vue .so-pi-bom-toolbar / .so-pi-bom-num */
 .so-pi-bom-toolbar {
