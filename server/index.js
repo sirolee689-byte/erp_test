@@ -49,6 +49,7 @@ import { registerPurchaseQuotationRoutes } from './purchaseQuotationHandlers.js'
 import { registerSalesOrderRoutes } from './salesOrderHandlers.js'
 import { registerPiBomDataRoutes } from './piBomDataHandlers.js'
 import { registerOutsourcingQuotationRoutes } from './outsourcingQuotationHandlers.js'
+import { registerAssistOrderRoutes } from './assistOrderHandlers.js'
 import { registerBomRoutes } from './bom/registerBomRoutes.js'
 import {
   BOM_COST_TABLE,
@@ -12154,6 +12155,7 @@ registerPurchaseQuotationRoutes(app, {
   getActorAuditTripletFromReq,
 })
 registerSalesOrderRoutes(app, { getPool, getActorAuditTripletFromReq })
+registerAssistOrderRoutes(app, { getPool })
 registerPiBomDataRoutes(app, { getPool })
 registerBomRoutes(app, {
   escapeSqlLikePattern,

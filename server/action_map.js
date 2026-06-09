@@ -22,6 +22,38 @@ export const DEFAULT_UNKNOWN_TARGET_TABLE = 'ERP'
  * @type {OperationAuditRouteRule[]}
  */
 export const OPERATION_AUDIT_ROUTE_RULES = [
+  { method: 'GET', path: '/api/assist-order/list', action: '查询外协订单列表', targetTable: 'UB_ERP_assist_order' },
+  { method: 'GET', path: '/api/assist-order/print-data', action: '打印外协订单', targetTable: 'UB_ERP_assist_order' },
+  { method: 'GET', path: /^\/api\/assist-order\/\d+$/, action: '查看外协订单', targetTable: 'UB_ERP_assist_order' },
+  {
+    method: 'POST',
+    path: '/api/assist-order',
+    action: '新增外协订单',
+    targetTable: 'UB_ERP_assist_order',
+    detail: (body) => {
+      const orderNo = String(body?.header?.assistOrderNo ?? '').trim()
+      const n = Array.isArray(body?.lines) ? body.lines.length : 0
+      return orderNo ? `单号：${orderNo}；明细 ${n} 行` : `明细 ${n} 行`
+    },
+  },
+  {
+    method: 'PUT',
+    path: /^\/api\/assist-order\/\d+$/,
+    action: '修改外协订单',
+    targetTable: 'UB_ERP_assist_order',
+    detail: (body) => {
+      const n = Array.isArray(body?.lines) ? body.lines.length : 0
+      const f = Array.isArray(body?.fees) ? body.fees.length : 0
+      return `明细 ${n} 行；额外费用 ${f} 行`
+    },
+  },
+  { method: 'POST', path: /^\/api\/assist-order\/\d+\/audit$/, action: '审核外协订单', targetTable: 'UB_ERP_assist_order' },
+  { method: 'POST', path: /^\/api\/assist-order\/\d+\/unaudit$/, action: '反审外协订单', targetTable: 'UB_ERP_assist_order' },
+  { method: 'POST', path: /^\/api\/assist-order\/\d+\/close$/, action: '结案外协订单', targetTable: 'UB_ERP_assist_order' },
+  { method: 'POST', path: /^\/api\/assist-order\/\d+\/unclose$/, action: '反结案外协订单', targetTable: 'UB_ERP_assist_order' },
+  { method: 'POST', path: /^\/api\/assist-order\/\d+\/restore$/, action: '恢复外协订单', targetTable: 'UB_ERP_assist_order' },
+  { method: 'DELETE', path: /^\/api\/assist-order\/\d+\/hard$/, action: '彻底删除外协订单', targetTable: 'UB_ERP_assist_order' },
+  { method: 'DELETE', path: /^\/api\/assist-order\/\d+$/, action: '删除外协订单', targetTable: 'UB_ERP_assist_order' },
   { method: 'PUT', path: '/api/hr/staff/audit', action: '审核员工档案', targetTable: 'HR_staff' },
   { method: 'PUT', path: '/api/hr/staff/unaudit', action: '反审员工档案', targetTable: 'HR_staff' },
   { method: 'PUT', path: '/api/hr/staff/restore', action: '恢复员工档案', targetTable: 'HR_staff' },

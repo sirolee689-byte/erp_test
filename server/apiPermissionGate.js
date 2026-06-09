@@ -574,6 +574,45 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'GET' && /^\/api\/sales-order\/\d+$/.test(path)) {
     return { menuPath: 'supply-chain/daily/sales-order', action: 'view' }
   }
+  if (m === 'GET' && path === '/api/assist-order/list') {
+    return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/assist-order/suggest-doc-no') {
+    return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'add' }
+  }
+  if (m === 'GET' && path === '/api/assist-order/supplier-options') {
+    return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/assist-order/currency-options') {
+    return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/assist-order/material-options') {
+    return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/assist-order/fee-options') {
+    return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/assist-order/print-data') {
+    return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'view' }
+  }
+  if (m === 'GET' && /^\/api\/assist-order\/\d+$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'view' }
+  }
+  if (m === 'POST' && path === '/api/assist-order') {
+    return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'add' }
+  }
+  if (m === 'PUT' && /^\/api\/assist-order\/\d+$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'edit' }
+  }
+  if (m === 'POST' && /^\/api\/assist-order\/\d+\/(?:audit|unaudit|close|unclose)$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'audit' }
+  }
+  if (m === 'POST' && /^\/api\/assist-order\/\d+\/restore$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'delete' }
+  }
+  if (m === 'DELETE' && /^\/api\/assist-order\/\d+(?:\/hard)?$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'delete' }
+  }
   if (m === 'POST' && path === '/api/sales-order') {
     return { menuPath: 'supply-chain/daily/sales-order', action: 'add' }
   }
