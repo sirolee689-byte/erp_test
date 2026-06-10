@@ -1,3 +1,5 @@
+import crypto from 'node:crypto'
+
 function text(v) {
   return String(v ?? '').trim()
 }
@@ -20,6 +22,12 @@ export function buildAssistOrderNoForDate(saveDate, seq) {
   if (!Number.isInteger(n) || n <= 0) throw new Error('外协订单流水号无效')
   const tail = n < 100 ? pad2(n) : String(n)
   return `WX${assistDateParts(saveDate)}${tail}`
+}
+
+/** @param {string | Date} assistDate */
+export function buildAssistOrderGuid(assistDate) {
+  const stamp = assistDateParts(assistDate)
+  return `WX-${stamp}${crypto.randomBytes(17).toString('hex').toUpperCase()}`
 }
 
 export function buildNextAssistOrderNo(opts) {
@@ -64,5 +72,29 @@ export function validateAssistOrderHeader(header) {
   if ((h.assistType === '1' || h.assistType === '2') && !h.referenceNo) return '关联单号不能为空'
   if (!h.supplierCode) return '外协商不能为空'
   if (!h.currencyCode) return '币别不能为空'
+  if (h.deliveryDate) {
+    const assist = new Date(h.assistDate)
+    const delivery = new Date(h.deliveryDate)
+    if (!Number.isNaN(delivery.getTime()) && delivery < assist) {
+      return '交货日期不能早于外协日期'
+    }
+  }
   return null
+}
+
+/** @param {unknown} value */
+export function formatAssistOrderDeliveryDate(value) {
+  const raw = text(value)
+  if (!raw) return null
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (m) return `${m[1]}-${m[2]}-${m[3]} 00:00:00`
+  const d = value instanceof Date ? value : new Date(raw)
+  if (Number.isNaN(d.getTime())) return null
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} 00:00:00`
+}
+
+/** @param {unknown} referenceNo */
+export function resolveAssistOrderPiValue(referenceNo) {
+  const ref = text(referenceNo)
+  return ref || null
 }

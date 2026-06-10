@@ -12155,7 +12155,7 @@ registerPurchaseQuotationRoutes(app, {
   getActorAuditTripletFromReq,
 })
 registerSalesOrderRoutes(app, { getPool, getActorAuditTripletFromReq })
-registerAssistOrderRoutes(app, { getPool })
+registerAssistOrderRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerPiBomDataRoutes(app, { getPool })
 registerBomRoutes(app, {
   escapeSqlLikePattern,

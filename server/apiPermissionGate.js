@@ -565,6 +565,7 @@ export function matchApiPermissionRule(method, path, body, params) {
       anyOf: [
         { menuPath: 'supply-chain/daily/sales-order', action: 'view' },
         { menuPath: 'production/analysis/material-sheet', action: 'view' },
+        { menuPath: 'supply-chain/daily/outsourcing-order', action: 'view' },
       ],
     }
   }

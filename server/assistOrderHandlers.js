@@ -49,7 +49,7 @@ function serializeAssistOrderRow(row) {
 }
 
 export function registerAssistOrderRoutes(app, deps) {
-  const { getPool } = deps
+  const { getPool, getActorAuditTripletFromReq } = deps
   const saveService = deps.saveService ?? { createAssistOrder, updateAssistOrder, suggestAssistOrderNo }
   const lifecycleService = deps.lifecycleService ?? { applyAssistOrderLifecycleAction }
   const printService = deps.printService ?? { fetchAssistOrderPrintDocuments }
@@ -345,7 +345,8 @@ export function registerAssistOrderRoutes(app, deps) {
   app.post('/api/assist-order', async (req, res) => {
     try {
       const pool = await getPool()
-      const result = await saveService.createAssistOrder({ pool, body: req.body ?? {}, req })
+      const actor = getActorAuditTripletFromReq?.(req) ?? { uidInt: null, uname: null, utruename: null }
+      const result = await saveService.createAssistOrder({ pool, body: req.body ?? {}, req, actor })
       saveJson(res, result, result?.changedOrderNo ? '保存成功，单号已自动顺延' : '保存成功')
     } catch (err) {
       console.error('POST /api/assist-order failed:', err)
@@ -362,7 +363,8 @@ export function registerAssistOrderRoutes(app, deps) {
         return
       }
       const pool = await getPool()
-      const result = await saveService.updateAssistOrder({ pool, id, body: req.body ?? {}, req })
+      const actor = getActorAuditTripletFromReq?.(req) ?? { uidInt: null, uname: null, utruename: null }
+      const result = await saveService.updateAssistOrder({ pool, id, body: req.body ?? {}, req, actor })
       saveJson(res, result, result?.changedOrderNo ? '保存成功，单号已自动顺延' : '保存成功')
     } catch (err) {
       console.error('PUT /api/assist-order/:id failed:', err)

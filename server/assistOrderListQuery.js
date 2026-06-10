@@ -24,6 +24,7 @@ export function parseAssistOrderListQuery(query) {
     pass: recycled ? '' : showUnaudited ? '0' : normalizeAssistOrderPass(query?.pass),
     closed: normalizeClosed(query?.closed),
     keyword: String(query?.keyword ?? '').trim(),
+    keywordField: normalizeKeywordField(query?.keywordField),
     supplier: String(query?.supplier ?? '').trim(),
     assistType: normalizeAssistType(query?.assistType),
     sortBy: normalizeSortBy(query?.sortBy),
@@ -51,6 +52,12 @@ function normalizeAssistType(v) {
 function normalizeSortBy(v) {
   const s = String(v ?? '').trim()
   if (s === 'deliveryDate' || s === 'assistDate' || s === 'supplier') return s
+  return ''
+}
+
+function normalizeKeywordField(v) {
+  const s = String(v ?? '').trim()
+  if (s === 'assistOrderNo' || s === 'assistDate' || s === 'referenceNo' || s === 'remark') return s
   return ''
 }
 
@@ -91,18 +98,37 @@ export function buildAssistOrderListWhereSql(opts) {
   }
 
   if (opts?.keyword) {
-    whereSql += `
-      AND (
-        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj01], N'')))) LIKE @keyword
-        OR CONVERT(nvarchar(30), h.[wxaj02], 120) LIKE @keyword
-        OR LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj04], N'')))) LIKE @keyword
-        OR LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj05], N'')))) LIKE @keyword
-        OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kehu], N'')))) LIKE @keyword
-        OR LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[rmb], N'')))) LIKE @keyword
-        OR LTRIM(RTRIM(CONVERT(nvarchar(1000), ISNULL(h.[remark], N'')))) LIKE @keyword
-        OR LTRIM(RTRIM(CONVERT(nvarchar(1000), ISNULL(h.[notes], N'')))) LIKE @keyword
-      )
-    `
+    const keywordField = normalizeKeywordField(opts?.keywordField)
+    if (keywordField === 'assistOrderNo') {
+      whereSql += `
+        AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj01], N'')))) LIKE @keyword
+      `
+    } else if (keywordField === 'assistDate') {
+      whereSql += `
+        AND CONVERT(nvarchar(30), h.[wxaj02], 120) LIKE @keyword
+      `
+    } else if (keywordField === 'referenceNo') {
+      whereSql += `
+        AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj04], N'')))) LIKE @keyword
+      `
+    } else if (keywordField === 'remark') {
+      whereSql += `
+        AND LTRIM(RTRIM(CONVERT(nvarchar(1000), ISNULL(h.[remark], N'')))) LIKE @keyword
+      `
+    } else {
+      whereSql += `
+        AND (
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj01], N'')))) LIKE @keyword
+          OR CONVERT(nvarchar(30), h.[wxaj02], 120) LIKE @keyword
+          OR LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj04], N'')))) LIKE @keyword
+          OR LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj05], N'')))) LIKE @keyword
+          OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kehu], N'')))) LIKE @keyword
+          OR LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[rmb], N'')))) LIKE @keyword
+          OR LTRIM(RTRIM(CONVERT(nvarchar(1000), ISNULL(h.[remark], N'')))) LIKE @keyword
+          OR LTRIM(RTRIM(CONVERT(nvarchar(1000), ISNULL(h.[notes], N'')))) LIKE @keyword
+        )
+      `
+    }
     params.keyword = `%${opts.keyword}%`
   }
 

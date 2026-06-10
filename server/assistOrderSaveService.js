@@ -1,9 +1,13 @@
 import { sql } from './db.js'
 import {
+  buildAssistOrderGuid,
   buildNextAssistOrderNo,
+  formatAssistOrderDeliveryDate,
   normalizeAssistOrderHeader,
+  resolveAssistOrderPiValue,
   validateAssistOrderHeader,
 } from './assistOrderSaveLogic.js'
+import { formatSalesOrderAuditTime } from './salesOrderPiBom.js'
 import { rewriteAssistOrderLines } from './assistOrderLineSave.js'
 import { rewriteAssistOrderFees } from './assistOrderFeeSave.js'
 import {
@@ -93,7 +97,8 @@ async function resolveCurrency(pool, currencyCode) {
     .query(`
       SELECT TOP 1
         LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.[code], N'')))) AS code,
-        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.[name], N'')))) AS name
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.[name], N'')))) AS name,
+        LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(c.[rate], N'')))) AS rate
       FROM ${CURRENCY_FROM} AS c
       WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.[code], N'')))) = @code
         AND ${auditedWhere('c')}
@@ -102,7 +107,43 @@ async function resolveCurrency(pool, currencyCode) {
     `)
   const row = r.recordset?.[0]
   if (!row?.code) return { ok: false, msg: '币别不存在、未审核或不可用' }
-  return { ok: true, code: row.code, name: row.name ?? '' }
+  return { ok: true, code: row.code, name: row.name ?? '', rate: row.rate ?? '' }
+}
+
+function bindAssistOrderHeaderFields(req, opts) {
+  const { header, supplier, currency, finalNo, orderGuid, actor, forInsert } = opts
+  const now = formatSalesOrderAuditTime()
+  const deliveryStr = formatAssistOrderDeliveryDate(header.deliveryDate)
+  const piValue = resolveAssistOrderPiValue(header.referenceNo)
+  const uidStr = actor?.uidInt != null ? String(actor.uidInt) : ''
+
+  req.input('wxaj01', sql.NVarChar(200), finalNo.assistOrderNo)
+  req.input('wxaj02', sql.DateTime, new Date(header.assistDate))
+  req.input('wxaj03', sql.NVarChar(20), header.assistType)
+  req.input('wxaj04', sql.NVarChar(200), header.referenceNo)
+  req.input('wxaj05', sql.NVarChar(200), supplier.code)
+  req.input('wxaj06', sql.NVarChar(20), header.taxIncluded)
+  req.input('wxaj07', sql.NVarChar(100), currency.code)
+  req.input('wxaj08', sql.NVarChar(50), deliveryStr)
+  req.input('kehu', sql.NVarChar(500), supplier.name)
+  req.input('rmb', sql.NVarChar(200), currency.name)
+  req.input('rmb_hl', sql.NVarChar(50), String(currency.rate ?? ''))
+  req.input('pi', sql.NVarChar(500), piValue)
+  req.input('remark', sql.NVarChar(sql.MAX), header.remark)
+  req.input('notes', sql.NVarChar(sql.MAX), header.notes)
+  req.input('decimal', sql.Int, header.decimalPlaces)
+  req.input('uid', sql.NVarChar(50), uidStr)
+  req.input('uname', sql.NVarChar(50), String(actor?.uname ?? ''))
+  req.input('utruename', sql.NVarChar(50), String(actor?.utruename ?? ''))
+
+  if (forInsert) {
+    req.input('guid', sql.NVarChar(500), orderGuid)
+    req.input('systemcode', sql.NVarChar(50), orderGuid)
+    req.input('type', sql.Int, 1)
+    req.input('addtime', sql.NVarChar(50), now)
+  } else {
+    req.input('edittime', sql.NVarChar(50), now)
+  }
 }
 
 export async function suggestAssistOrderNo(pool, saveDate = new Date()) {
@@ -111,7 +152,7 @@ export async function suggestAssistOrderNo(pool, saveDate = new Date()) {
 }
 
 export async function createAssistOrder(opts) {
-  const { pool, body, req: httpReq } = opts
+  const { pool, body, req: httpReq, actor } = opts
   const header = normalizeAssistOrderHeader(body?.header ?? {})
   const valErr = validateAssistOrderHeader(header)
   if (valErr) return { ok: false, status: 400, msg: valErr }
@@ -121,34 +162,32 @@ export async function createAssistOrder(opts) {
   const currency = await resolveCurrency(pool, header.currencyCode)
   if (!currency.ok) return { ok: false, status: 400, msg: currency.msg }
   const finalNo = await resolveFinalOrderNo(pool, header)
+  const orderGuid = buildAssistOrderGuid(header.assistDate)
 
   const tx = new sql.Transaction(pool)
   await tx.begin()
   try {
     const req = new sql.Request(tx)
-    req.input('wxaj01', sql.NVarChar(200), finalNo.assistOrderNo)
-    req.input('wxaj02', sql.DateTime, new Date(header.assistDate))
-    req.input('wxaj03', sql.NVarChar(20), header.assistType)
-    req.input('wxaj04', sql.NVarChar(200), header.referenceNo)
-    req.input('wxaj05', sql.NVarChar(200), supplier.code)
-    req.input('wxaj06', sql.NVarChar(20), header.taxIncluded)
-    req.input('wxaj07', sql.NVarChar(100), currency.code)
-    req.input('wxaj08', sql.DateTime, header.deliveryDate ? new Date(header.deliveryDate) : null)
-    req.input('kehu', sql.NVarChar(500), supplier.name)
-    req.input('rmb', sql.NVarChar(200), currency.name)
-    req.input('remark', sql.NVarChar(sql.MAX), header.remark)
-    req.input('notes', sql.NVarChar(sql.MAX), header.notes)
-    req.input('decimal', sql.Int, header.decimalPlaces)
-    req.input('systemcode', sql.NVarChar(200), finalNo.assistOrderNo)
+    bindAssistOrderHeaderFields(req, {
+      header,
+      supplier,
+      currency,
+      finalNo,
+      orderGuid,
+      actor: actor ?? { uidInt: null, uname: null, utruename: null },
+      forInsert: true,
+    })
     const out = await req.query(`
       INSERT INTO ${HEADER_FROM} (
         [wxaj01], [wxaj02], [wxaj03], [wxaj04], [wxaj05], [wxaj06], [wxaj07], [wxaj08],
-        [kehu], [rmb], [remark], [notes], [decimal], [systemcode], [pass], [closed], [del]
+        [kehu], [rmb], [rmb_hl], [pi], [type], [remark], [notes], [decimal], [GUID], [systemcode],
+        [uid], [uname], [utruename], [addtime], [pass], [closed], [del]
       )
       OUTPUT INSERTED.[id] AS id
       VALUES (
         @wxaj01, @wxaj02, @wxaj03, @wxaj04, @wxaj05, @wxaj06, @wxaj07, @wxaj08,
-        @kehu, @rmb, @remark, @notes, @decimal, @systemcode, N'0', N'0', N'0'
+        @kehu, @rmb, @rmb_hl, @pi, @type, @remark, @notes, @decimal, @guid, @systemcode,
+        @uid, @uname, @utruename, @addtime, N'0', N'0', N'0'
       )
     `)
     await rewriteAssistOrderLines({
@@ -166,12 +205,12 @@ export async function createAssistOrder(opts) {
       info: buildAssistOrderLogInfo({
         orderNo: finalNo.assistOrderNo,
         referenceNo: header.referenceNo,
-        systemCode: finalNo.assistOrderNo,
+        systemCode: orderGuid,
         actor: httpReq?.user,
       }),
       actor: httpReq?.user,
       orderNo: finalNo.assistOrderNo,
-      systemCode: finalNo.assistOrderNo,
+      systemCode: orderGuid,
     })
     await tx.commit()
     return {
@@ -191,7 +230,7 @@ export async function createAssistOrder(opts) {
 }
 
 export async function updateAssistOrder(opts) {
-  const { pool, id, body, req: httpReq } = opts
+  const { pool, id, body, req: httpReq, actor } = opts
   const current = await pool.request().input('id', sql.Int, id).query(`
     SELECT TOP 1
       [id],
@@ -227,19 +266,14 @@ export async function updateAssistOrder(opts) {
   try {
     const req = new sql.Request(tx)
     req.input('id', sql.Int, id)
-    req.input('wxaj01', sql.NVarChar(200), finalNo.assistOrderNo)
-    req.input('wxaj02', sql.DateTime, new Date(header.assistDate))
-    req.input('wxaj03', sql.NVarChar(20), header.assistType)
-    req.input('wxaj04', sql.NVarChar(200), header.referenceNo)
-    req.input('wxaj05', sql.NVarChar(200), supplier.code)
-    req.input('wxaj06', sql.NVarChar(20), header.taxIncluded)
-    req.input('wxaj07', sql.NVarChar(100), currency.code)
-    req.input('wxaj08', sql.DateTime, header.deliveryDate ? new Date(header.deliveryDate) : null)
-    req.input('kehu', sql.NVarChar(500), supplier.name)
-    req.input('rmb', sql.NVarChar(200), currency.name)
-    req.input('remark', sql.NVarChar(sql.MAX), header.remark)
-    req.input('notes', sql.NVarChar(sql.MAX), header.notes)
-    req.input('decimal', sql.Int, header.decimalPlaces)
+    bindAssistOrderHeaderFields(req, {
+      header,
+      supplier,
+      currency,
+      finalNo,
+      actor: actor ?? { uidInt: null, uname: null, utruename: null },
+      forInsert: false,
+    })
     await req.query(`
       UPDATE ${HEADER_FROM}
       SET [wxaj01]=@wxaj01,
@@ -252,9 +286,15 @@ export async function updateAssistOrder(opts) {
           [wxaj08]=@wxaj08,
           [kehu]=@kehu,
           [rmb]=@rmb,
+          [rmb_hl]=@rmb_hl,
+          [pi]=@pi,
           [remark]=@remark,
           [notes]=@notes,
-          [decimal]=@decimal
+          [decimal]=@decimal,
+          [uid]=@uid,
+          [uname]=@uname,
+          [utruename]=@utruename,
+          [edittime]=@edittime
       WHERE [id]=@id
     `)
     await rewriteAssistOrderLines({

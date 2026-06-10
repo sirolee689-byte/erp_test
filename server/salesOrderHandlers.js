@@ -230,7 +230,8 @@ export function registerSalesOrderRoutes(app, deps) {
         .query(`
           SELECT TOP 20
             h.[id],
-            LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj01], N'')))) AS piNo
+            LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj01], N'')))) AS piNo,
+            h.[xsaj08] AS deliveryDate
           FROM ${HEADER_FROM} AS h
           WHERE (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
             AND LTRIM(RTRIM(ISNULL(h.[pass], N''))) = N'1'
@@ -238,7 +239,14 @@ export function registerSalesOrderRoutes(app, deps) {
           ORDER BY h.[id] DESC
         `)
       const list = (r.recordset ?? [])
-        .map((row) => ({ id: Number(row.id), piNo: String(row.piNo ?? '').trim() }))
+        .map((row) => {
+          const serialized = serializeRow(row)
+          return {
+            id: Number(serialized.id),
+            piNo: String(serialized.piNo ?? '').trim(),
+            deliveryDate: serialized.deliveryDate ?? null,
+          }
+        })
         .filter((row) => row.id && row.piNo)
       res.json({ code: 200, msg: 'success', data: { list } })
     } catch (err) {

@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import {
+  buildAssistOrderGuid,
   buildAssistOrderNoForDate,
   buildNextAssistOrderNo,
+  formatAssistOrderDeliveryDate,
   normalizeAssistOrderHeader,
+  resolveAssistOrderPiValue,
   validateAssistOrderHeader,
 } from './assistOrderSaveLogic.js'
 
@@ -81,6 +84,52 @@ describe('assistOrderSaveLogic', () => {
         notes: '',
         decimalPlaces: 6,
       },
+    )
+  })
+
+  test('formats delivery date as YYYY-MM-DD 00:00:00', () => {
+    assert.equal(formatAssistOrderDeliveryDate('2026-06-29'), '2026-06-29 00:00:00')
+    assert.equal(formatAssistOrderDeliveryDate('2026-06-29T15:30:00'), '2026-06-29 00:00:00')
+    assert.equal(formatAssistOrderDeliveryDate(''), null)
+    assert.equal(formatAssistOrderDeliveryDate(null), null)
+  })
+
+  test('resolves pi from reference number', () => {
+    assert.equal(resolveAssistOrderPiValue('PI-4152'), 'PI-4152')
+    assert.equal(resolveAssistOrderPiValue('  '), null)
+    assert.equal(resolveAssistOrderPiValue(''), null)
+  })
+
+  test('buildAssistOrderGuid matches WX-yyMMdd + 34 uppercase hex', () => {
+    const guid = buildAssistOrderGuid('2026-06-10')
+    assert.match(guid, /^WX-260610[0-9A-F]{34}$/)
+    assert.equal(guid.length, 43)
+  })
+
+  test('validateAssistOrderHeader rejects delivery date before assist date', () => {
+    const base = {
+      assistDate: '2026-06-10',
+      assistType: '0',
+      supplierCode: 'S001',
+      taxIncluded: '1',
+      currencyCode: 'RMB',
+      decimalPlaces: 4,
+    }
+    assert.equal(
+      validateAssistOrderHeader(normalizeAssistOrderHeader({ ...base, deliveryDate: '2026-06-09' })),
+      '交货日期不能早于外协日期',
+    )
+    assert.equal(
+      validateAssistOrderHeader(normalizeAssistOrderHeader({ ...base, deliveryDate: '2026-06-10' })),
+      null,
+    )
+    assert.equal(
+      validateAssistOrderHeader(normalizeAssistOrderHeader({ ...base, deliveryDate: '2026-06-11' })),
+      null,
+    )
+    assert.equal(
+      validateAssistOrderHeader(normalizeAssistOrderHeader({ ...base, deliveryDate: '' })),
+      null,
     )
   })
 })

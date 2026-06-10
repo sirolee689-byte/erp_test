@@ -1,12 +1,27 @@
 <template>
   <div class="erp-module-page assist-order-page">
+    <div class="assist-mode-bar">
+      <el-button
+        :type="pageMode === 'manage' ? 'primary' : 'default'"
+        plain
+        @click="switchToManage"
+      >
+        管理外协订单
+      </el-button>
+      <el-button
+        v-permission="'add'"
+        :type="pageMode === 'create' ? 'primary' : 'default'"
+        plain
+        @click="switchToCreate"
+      >
+        外协订单添加
+      </el-button>
+    </div>
+
+    <div v-show="pageMode === 'manage'" class="assist-manage-panel">
     <div class="assist-toolbar">
-      <div class="assist-toolbar__title">
-        <h2>外协订单</h2>
-      </div>
       <div class="assist-toolbar__actions">
-        <el-button type="primary" @click="openCreate">新增</el-button>
-        <el-button :disabled="!selectedRows.length" @click="openBatchPrint">批量打印</el-button>
+        <el-button :disabled="printSelectedCount === 0" @click="openBatchPrint">批量打印</el-button>
         <el-button :loading="loading" @click="loadData">
           <el-icon><Refresh /></el-icon>
           刷新
@@ -17,58 +32,107 @@
     <el-alert v-if="errorMessage" :title="errorMessage" type="error" show-icon class="assist-alert" />
 
     <div class="assist-filter-bar">
-      <el-input v-model="filters.keyword" clearable placeholder="全字段模糊搜索" @keyup.enter="onSearch" />
-      <el-select
-        v-model="filters.supplier"
-        clearable
-        filterable
-        remote
-        reserve-keyword
-        :remote-method="fetchSupplierOptions"
-        :loading="supplierLoading"
-        placeholder="外协商"
-      >
-        <el-option
-          v-for="item in supplierOptions"
-          :key="item.code"
-          :label="`${item.code} ${item.name}`"
-          :value="item.code"
+      <div class="assist-filter-row">
+        <el-select
+          v-model="filters.supplier"
+          clearable
+          filterable
+          remote
+          reserve-keyword
+          class="assist-filter-select"
+          :remote-method="fetchSupplierOptions"
+          :loading="supplierLoading"
+          placeholder="外协商"
+        >
+          <el-option
+            v-for="item in supplierOptions"
+            :key="item.code"
+            :label="`${item.code} ${item.name}`"
+            :value="item.code"
+          />
+        </el-select>
+        <el-select v-model="filters.assistType" clearable class="assist-filter-select" placeholder="外协类型">
+          <el-option label="其他外协" value="0" />
+          <el-option label="订单外协" value="1" />
+          <el-option label="订单外发" value="2" />
+        </el-select>
+        <el-select v-model="filters.keywordField" clearable class="assist-filter-select" placeholder="条件项目">
+          <el-option label="全部字段" value="" />
+          <el-option label="外协订单号" value="assistOrderNo" />
+          <el-option label="外协日期" value="assistDate" />
+          <el-option label="关联单号" value="referenceNo" />
+          <el-option label="备注" value="remark" />
+        </el-select>
+      </div>
+      <div class="assist-filter-row">
+        <el-input
+          v-model="filters.keyword"
+          clearable
+          class="assist-keyword-input"
+          :placeholder="keywordPlaceholder"
+          @keyup.enter="onSearch"
         />
-      </el-select>
-      <el-select v-model="filters.assistType" clearable placeholder="外协类型">
-        <el-option label="其他外协" value="0" />
-        <el-option label="订单外协" value="1" />
-        <el-option label="订单外发" value="2" />
-      </el-select>
-      <el-select v-model="filters.closed" clearable placeholder="结案状态">
-        <el-option label="未结案" value="0" />
-        <el-option label="已结案" value="1" />
-      </el-select>
-      <el-select v-model="filters.sortBy" clearable placeholder="排序">
-        <el-option label="按交货日期" value="deliveryDate" />
-        <el-option label="按外协日期" value="assistDate" />
-        <el-option label="按供应商" value="supplier" />
-      </el-select>
-      <el-checkbox v-model="filters.showUnaudited">显示未审核</el-checkbox>
-      <el-checkbox v-model="filters.recycled">回收站</el-checkbox>
-      <el-button type="primary" @click="onSearch">查询</el-button>
+        <el-button type="primary" size="small" @click="onSearch">查询</el-button>
+        <div class="audit-switch">
+          <span class="switch-label">回收站</span>
+          <el-switch v-model="filters.recycled" @change="onRecycleChange" />
+        </div>
+        <div v-if="!filters.recycled" class="audit-switch">
+          <span class="switch-label">显示未审核</span>
+          <el-switch v-model="filters.showUnaudited" @change="onSearch" />
+        </div>
+        <el-button size="small" @click="onReset">重置</el-button>
+      </div>
     </div>
 
-    <el-table
-      v-loading="loading"
-      :data="tableList"
-      row-key="id"
-      border
-      stripe
-      class="assist-table"
-      :empty-text="loading ? '加载中...' : '暂无外协订单'"
-      @selection-change="onSelectionChange"
-      @expand-change="onExpandChange"
-    >
+    <el-alert
+      v-if="filters.recycled"
+      title="当前为回收站视图：可恢复或彻底删除（不可恢复）。"
+      type="info"
+      show-icon
+      class="audit-alert"
+    />
+    <el-alert
+      v-else-if="filters.showUnaudited"
+      title="当前显示：未审核外协订单"
+      type="warning"
+      show-icon
+      class="audit-alert"
+    />
+
+    <div class="pagination-row pagination-row--top">
+      <el-pagination
+        v-model:current-page="page"
+        v-model:page-size="pageSize"
+        background
+        layout="total, sizes, prev, pager, next, jumper"
+        :total="total"
+        :page-sizes="[10, 20, 50, 100]"
+        @size-change="onPageSizeChange"
+        @current-change="onPageChange"
+      />
+    </div>
+
+    <el-skeleton :loading="loading" animated :rows="8">
+      <template #default>
+        <ErpTableViewportHScroll>
+        <el-table
+          ref="listTableRef"
+          :data="tableList"
+          row-key="id"
+          border
+          stripe
+          class="erp-list-table assist-table"
+          style="width: 100%"
+          :empty-text="loading ? '加载中...' : '暂无外协订单'"
+          @expand-change="onExpandChange"
+        >
       <el-table-column type="expand">
         <template #default="{ row }">
           <el-table :data="row.expandedLines || []" border size="small" empty-text="暂无明细">
-            <el-table-column label="序号" prop="seq" width="70" />
+            <el-table-column label="序号" width="70">
+              <template #default="{ $index }">{{ $index + 1 }}</template>
+            </el-table-column>
             <el-table-column label="PI号" prop="piNo" min-width="120" show-overflow-tooltip />
             <el-table-column label="款号" prop="product" min-width="120" show-overflow-tooltip />
             <el-table-column label="物料编码" prop="kcaa01" min-width="150" show-overflow-tooltip />
@@ -87,25 +151,86 @@
           </el-table>
         </template>
       </el-table-column>
-      <el-table-column type="selection" width="48" />
-      <el-table-column label="操作" fixed="left" width="400">
+      <el-table-column
+        label="操作"
+        :width="assistOrderActionsColWidth"
+        fixed="left"
+        align="left"
+        header-align="center"
+        class-name="erp-col-actions"
+      >
         <template #default="{ row }">
-          <el-button type="primary" link size="small" @click="openView(row)">查看</el-button>
-          <el-button
-            type="primary"
-            link
-            size="small"
-            :disabled="!canEdit(row)"
-            @click="openEdit(row)"
-          >
-            编辑
-          </el-button>
-          <el-button type="success" link size="small" :disabled="!canAudit(row)" @click="runLifecycle(row, 'audit')">审核</el-button>
-          <el-button type="warning" link size="small" :disabled="!canUnaudit(row)" @click="runLifecycle(row, 'unaudit')">反审</el-button>
-          <el-button type="success" link size="small" :disabled="!canClose(row)" @click="runLifecycle(row, 'close')">结案</el-button>
-          <el-button type="warning" link size="small" :disabled="!canUnclose(row)" @click="runLifecycle(row, 'unclose')">反结案</el-button>
-          <el-button type="primary" link size="small" @click="openPrint([row])">打印</el-button>
-          <el-button type="danger" link size="small" :disabled="!canDelete(row)" @click="runLifecycle(row, 'delete')">删除</el-button>
+          <div class="action-bar assist-order-actions">
+            <template v-if="filters.recycled">
+              <el-button type="primary" plain size="small" @click="runLifecycle(row, 'restore')">恢复</el-button>
+              <el-button type="danger" plain size="small" @click="runLifecycle(row, 'hard-delete')">彻底删除</el-button>
+            </template>
+            <template v-else>
+              <el-button plain size="small" @click="openView(row)">查看</el-button>
+              <template v-if="!isAudited(row)">
+                <el-button
+                  type="primary"
+                  plain
+                  size="small"
+                  :disabled="!canEdit(row)"
+                  @click="openEdit(row)"
+                >
+                  编辑
+                </el-button>
+                <el-button
+                  plain
+                  size="small"
+                  :disabled="!canAudit(row)"
+                  @click="runLifecycle(row, 'audit')"
+                >
+                  审核
+                </el-button>
+                <el-button
+                  type="danger"
+                  plain
+                  size="small"
+                  :disabled="!canDelete(row)"
+                  @click="runLifecycle(row, 'delete')"
+                >
+                  删除
+                </el-button>
+              </template>
+              <template v-else>
+                <el-button
+                  v-if="canUnaudit(row)"
+                  plain
+                  size="small"
+                  @click="runLifecycle(row, 'unaudit')"
+                >
+                  反审
+                </el-button>
+                <el-button
+                  v-if="canClose(row)"
+                  plain
+                  size="small"
+                  @click="runLifecycle(row, 'close')"
+                >
+                  结案
+                </el-button>
+                <el-button
+                  v-if="canUnclose(row)"
+                  plain
+                  size="small"
+                  @click="runLifecycle(row, 'unclose')"
+                >
+                  反结案
+                </el-button>
+              </template>
+              <el-button
+                plain
+                size="small"
+                :type="isPrintSelected(row) ? 'primary' : 'default'"
+                @click="togglePrintSelect(row)"
+              >
+                {{ isPrintSelected(row) ? '已选择' : '打印选择' }}
+              </el-button>
+            </template>
+          </div>
         </template>
       </el-table-column>
       <el-table-column label="结案" width="88">
@@ -128,17 +253,19 @@
       <el-table-column label="交货日期" width="116">
         <template #default="{ row }">{{ formatDate(row.deliveryDate) }}</template>
       </el-table-column>
-      <el-table-column label="交期" width="110">
-        <template #default="{ row }">{{ deliveryDaysText(row.deliveryDate) }}</template>
-      </el-table-column>
-      <el-table-column label="汇总" min-width="260">
+      <el-table-column label="外协订单数据" min-width="500" class-name="assist-order-data-col">
         <template #default="{ row }">
-          <span>项: {{ row.itemCount || 0 }} / 数量: {{ row.totalQty || 0 }} / 含税: {{ row.taxIncludedTotal || 0 }} / 不含税: {{ row.taxExcludedTotal || 0 }} / 税点: {{ row.taxDiffTotal || 0 }} / 额外: {{ row.extraFeeTotal || 0 }}</span>
+          <div class="assist-order-data">
+            <div class="assist-order-data__line">{{ assistOrderDataLines(row).line1 }}</div>
+            <div class="assist-order-data__line">{{ assistOrderDataLines(row).line2 }}</div>
+            <div class="assist-order-data__line">{{ assistOrderDataLines(row).line3 }}</div>
+            <div class="assist-order-data__line">{{ assistOrderDataLines(row).line4 }}</div>
+          </div>
         </template>
       </el-table-column>
       <el-table-column label="关联单号" prop="referenceNo" min-width="140" show-overflow-tooltip />
       <el-table-column label="币别" prop="currencyCode" width="92" show-overflow-tooltip />
-      <el-table-column label="外协商" prop="supplierName" min-width="160" show-overflow-tooltip />
+      <el-table-column label="外协商" prop="supplierName" min-width="220" show-overflow-tooltip />
       <el-table-column label="备注" prop="remark" min-width="180" show-overflow-tooltip />
       <el-table-column label="打印注释" prop="notes" min-width="180" show-overflow-tooltip />
       <el-table-column label="审核" width="88">
@@ -147,210 +274,54 @@
           <el-tag v-else type="warning" size="small">未审核</el-tag>
         </template>
       </el-table-column>
-    </el-table>
+        </el-table>
+        </ErpTableViewportHScroll>
 
-    <div class="assist-pagination">
-      <el-pagination
-        v-model:current-page="page"
-        v-model:page-size="pageSize"
-        background
-        layout="total, sizes, prev, pager, next, jumper"
-        :total="total"
-        :page-sizes="[10, 20, 50, 100]"
-        @size-change="onPageSizeChange"
-        @current-change="onPageChange"
-      />
+        <div class="pagination-row pagination-row--bottom">
+          <el-pagination
+            v-model:current-page="page"
+            v-model:page-size="pageSize"
+            background
+            layout="total, sizes, prev, pager, next, jumper"
+            :total="total"
+            :page-sizes="[10, 20, 50, 100]"
+            @size-change="onPageSizeChange"
+            @current-change="onPageChange"
+          />
+        </div>
+      </template>
+    </el-skeleton>
     </div>
 
-    <el-dialog
-      v-model="editVisible"
-      :title="editMode === 'create' ? '新增外协订单' : '编辑外协订单'"
-      width="960px"
-      top="5vh"
-      destroy-on-close
-      class="assist-edit-dialog"
+    <div
+      v-show="isFormPanel"
+      v-loading="pageMode === 'edit' && detailLoading"
+      class="assist-create-panel"
     >
-      <el-form ref="editFormRef" :model="editForm" :rules="editRules" label-width="110px" class="assist-edit-form">
-        <el-tabs v-model="editTab">
-          <el-tab-pane label="外协订单基础资料" name="header">
-            <div class="assist-form-grid">
-              <el-form-item label="外协订单号" prop="assistOrderNo">
-                <el-input v-model="editForm.assistOrderNo" placeholder="系统建议，可手动修改" />
-              </el-form-item>
-              <el-form-item label="外协日期" prop="assistDate">
-                <el-date-picker
-                  v-model="editForm.assistDate"
-                  type="date"
-                  value-format="YYYY-MM-DD"
-                  placeholder="请选择外协日期"
-                  @change="onAssistDateChange"
-                />
-              </el-form-item>
-              <el-form-item label="外协类型" prop="assistType">
-                <el-select v-model="editForm.assistType">
-                  <el-option label="其他外协" value="0" />
-                  <el-option label="订单外协" value="1" />
-                  <el-option label="订单外发" value="2" />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="关联单号" prop="referenceNo">
-                <el-input v-model="editForm.referenceNo" :disabled="editForm.assistType === '0'" />
-              </el-form-item>
-              <el-form-item label="外协商" prop="supplierCode">
-                <el-select
-                  v-model="editForm.supplierCode"
-                  filterable
-                  remote
-                  reserve-keyword
-                  :remote-method="fetchSupplierOptions"
-                  :loading="supplierLoading"
-                  placeholder="输入编码或名称搜索"
-                >
-                  <el-option
-                    v-for="item in supplierOptions"
-                    :key="item.code"
-                    :label="`${item.code} ${item.name}`"
-                    :value="item.code"
-                  />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="是否含税" prop="taxIncluded">
-                <el-select v-model="editForm.taxIncluded">
-                  <el-option label="含税" value="1" />
-                  <el-option label="不含税" value="2" />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="币别" prop="currencyCode">
-                <el-select v-model="editForm.currencyCode" filterable placeholder="请选择币别">
-                  <el-option
-                    v-for="item in currencyOptions"
-                    :key="item.code"
-                    :label="`${item.code} ${item.name}`"
-                    :value="item.code"
-                  />
-                </el-select>
-              </el-form-item>
-              <el-form-item label="交货日期">
-                <el-date-picker
-                  v-model="editForm.deliveryDate"
-                  type="date"
-                  value-format="YYYY-MM-DD"
-                  placeholder="请选择交货日期"
-                />
-              </el-form-item>
-              <el-form-item label="单价小数位" prop="decimalPlaces">
-                <el-input-number v-model="editForm.decimalPlaces" :min="0" :max="6" :step="1" />
-              </el-form-item>
-            </div>
-            <el-form-item label="备注">
-              <el-input v-model="editForm.remark" type="textarea" :rows="3" />
-            </el-form-item>
-            <el-form-item label="打印注释">
-              <el-input v-model="editForm.notes" type="textarea" :rows="3" />
-            </el-form-item>
-          </el-tab-pane>
-          <el-tab-pane label="外协订单明细" name="lines">
-            <div class="assist-lines-toolbar">
-              <el-button type="primary" @click="openMaterialSelector">选材</el-button>
-              <el-button @click="addBlankLine">新增空行</el-button>
-            </div>
-            <el-table :data="editForm.lines" border stripe height="360" empty-text="暂无明细">
-              <el-table-column label="操作" width="72" fixed="left">
-                <template #default="{ $index }">
-                  <el-button type="danger" link size="small" @click="removeLine($index)">删除</el-button>
-                </template>
-              </el-table-column>
-              <el-table-column label="序号" width="64">
-                <template #default="{ $index }">{{ $index + 1 }}</template>
-              </el-table-column>
-              <el-table-column label="PI号" prop="piNo" min-width="120" show-overflow-tooltip />
-              <el-table-column label="物料编码" prop="kcaa01" min-width="150" show-overflow-tooltip />
-              <el-table-column label="中文名" prop="kcaa02" min-width="160" show-overflow-tooltip />
-              <el-table-column label="规格" prop="kcaa03" min-width="140" show-overflow-tooltip />
-              <el-table-column label="单位" prop="kcaa04" width="90" />
-              <el-table-column label="数量" width="126">
-                <template #default="{ row }">
-                  <el-input-number v-model="row.wxak03" :precision="2" :min="0" controls-position="right" @change="onLineTaxExcludedChange(row)" />
-                </template>
-              </el-table-column>
-              <el-table-column label="不含税单价" width="138">
-                <template #default="{ row }">
-                  <el-input-number v-model="row.wxak04" :precision="editForm.decimalPlaces" :min="0" controls-position="right" @change="onLineTaxExcludedChange(row)" />
-                </template>
-              </el-table-column>
-              <el-table-column label="税点" width="116">
-                <template #default="{ row }">
-                  <el-input-number v-model="row.tax" :precision="6" :min="0" controls-position="right" @change="onLineTaxExcludedChange(row)" />
-                </template>
-              </el-table-column>
-              <el-table-column label="含税单价" width="138">
-                <template #default="{ row }">
-                  <el-input-number v-model="row.wxak041" :precision="editForm.decimalPlaces" :min="0" controls-position="right" @change="onLineTaxIncludedChange(row)" />
-                </template>
-              </el-table-column>
-              <el-table-column label="不含税金额" prop="wxak05" width="116" align="right" />
-              <el-table-column label="含税金额" prop="wxak051" width="116" align="right" />
-              <el-table-column label="交货日期" width="150">
-                <template #default="{ row }">
-                  <el-date-picker v-model="row.deliveryDate" type="date" value-format="YYYY-MM-DD" />
-                </template>
-              </el-table-column>
-              <el-table-column label="参考单号" width="150">
-                <template #default="{ row }">
-                  <el-input v-model="row.referenceNo" />
-                </template>
-              </el-table-column>
-              <el-table-column label="备注" width="180">
-                <template #default="{ row }">
-                  <el-input v-model="row.remark" />
-                </template>
-              </el-table-column>
-            </el-table>
-          </el-tab-pane>
-          <el-tab-pane label="额外费用清单" name="fees">
-            <div class="assist-lines-toolbar">
-              <el-button type="primary" @click="openFeeSelector">选择费用</el-button>
-              <el-button @click="addBlankFee">新增空行</el-button>
-            </div>
-            <el-table :data="editForm.fees" border stripe height="340" empty-text="暂无额外费用">
-              <el-table-column label="操作" width="72" fixed="left">
-                <template #default="{ $index }">
-                  <el-button type="danger" link size="small" @click="removeFee($index)">删除</el-button>
-                </template>
-              </el-table-column>
-              <el-table-column label="序号" width="64">
-                <template #default="{ $index }">{{ $index + 1 }}</template>
-              </el-table-column>
-              <el-table-column label="费用编码及名称" min-width="240">
-                <template #default="{ row }">
-                  <el-input v-model="row.feeCode" placeholder="费用编码" />
-                  <el-input v-model="row.feeName" placeholder="费用名称" class="assist-inline-input" />
-                </template>
-              </el-table-column>
-              <el-table-column label="费用" width="140">
-                <template #default="{ row }">
-                  <el-input-number v-model="row.money" :precision="2" :min="0" controls-position="right" />
-                </template>
-              </el-table-column>
-              <el-table-column label="税点" width="120">
-                <template #default="{ row }">
-                  <el-input-number v-model="row.tax" :precision="6" :min="0" controls-position="right" />
-                </template>
-              </el-table-column>
-              <el-table-column label="备注" min-width="180">
-                <template #default="{ row }">
-                  <el-input v-model="row.remark" />
-                </template>
-              </el-table-column>
-            </el-table>
-          </el-tab-pane>
-        </el-tabs>
-      </el-form>
-      <template #footer>
-        <el-button @click="editVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saveLoading" @click="onSave">保存</el-button>
-      </template>
-    </el-dialog>
+      <AssistOrderEditForm
+        ref="activeFormRef"
+        :model="editForm"
+        :rules="editRules"
+        v-model:edit-tab="editTab"
+        :supplier-options="supplierOptions"
+        :supplier-loading="supplierLoading"
+        :currency-options="currencyOptions"
+        @assist-date-change="onAssistDateChange"
+        @fetch-supplier="fetchSupplierOptions"
+        @open-material-selector="openMaterialSelector"
+        @add-blank-line="addBlankLine"
+        @remove-line="removeLine"
+        @line-tax-excluded-change="onLineTaxExcludedChange"
+        @line-tax-included-change="onLineTaxIncludedChange"
+        @open-fee-selector="openFeeSelector"
+        @add-blank-fee="addBlankFee"
+        @remove-fee="removeFee"
+      />
+      <div class="assist-form-footer">
+        <el-button type="primary" :loading="saveLoading" @click="onSave">立即提交</el-button>
+        <el-button @click="onFormReset">重置</el-button>
+      </div>
+    </div>
 
     <el-dialog
       v-model="detailVisible"
@@ -386,7 +357,9 @@
 
             <el-tab-pane label="外协订单明细" name="lines">
               <el-table :data="detail.lines" border stripe height="430" empty-text="暂无明细">
-                <el-table-column label="序号" prop="seq" width="72" />
+                <el-table-column label="序号" width="72">
+                  <template #default="{ $index }">{{ $index + 1 }}</template>
+                </el-table-column>
                 <el-table-column label="PI号" prop="piNo" min-width="120" show-overflow-tooltip />
                 <el-table-column label="款号/材料编码" prop="kcaa01" min-width="150" show-overflow-tooltip />
                 <el-table-column label="中文名" prop="kcaa02" min-width="160" show-overflow-tooltip />
@@ -406,7 +379,9 @@
 
             <el-tab-pane label="额外费用清单" name="fees">
               <el-table :data="detail.fees" border stripe height="430" empty-text="暂无额外费用">
-                <el-table-column label="序号" prop="seq" width="72" />
+                <el-table-column label="序号" width="72">
+                  <template #default="{ $index }">{{ $index + 1 }}</template>
+                </el-table-column>
                 <el-table-column label="费用编码" prop="feeCode" min-width="140" show-overflow-tooltip />
                 <el-table-column label="费用名称" prop="feeName" min-width="180" show-overflow-tooltip />
                 <el-table-column label="费用金额" prop="money" width="120" align="right" />
@@ -571,17 +546,24 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import {
   recalcAssistOrderLineFromTaxExcluded,
   recalcAssistOrderLineFromTaxIncluded,
 } from '@/utils/assistOrderAmount'
+import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
+import AssistOrderEditForm from './AssistOrderEditForm.vue'
 
 defineOptions({ name: 'supply-chain-daily-outsourcing-order' })
 
+const pageMode = ref('manage')
+const createPanelInitialized = ref(false)
+
+const listTableRef = ref(null)
 const loading = ref(false)
 const detailLoading = ref(false)
 const saveLoading = ref(false)
@@ -596,7 +578,6 @@ const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
 const detailVisible = ref(false)
-const editVisible = ref(false)
 const materialVisible = ref(false)
 const feeVisible = ref(false)
 const printVisible = ref(false)
@@ -604,12 +585,12 @@ const activeTab = ref('header')
 const editTab = ref('header')
 const editMode = ref('create')
 const editId = ref(null)
-const editFormRef = ref(null)
+const activeFormRef = ref(null)
 const materialKeyword = ref('')
 const materialOptions = ref([])
 const feeKeyword = ref('')
 const feeOptions = ref([])
-const selectedRows = ref([])
+const printSelectedIds = ref(new Set())
 const printLoading = ref(false)
 const printDocs = ref([])
 const printIds = ref([])
@@ -619,10 +600,9 @@ const printSetup = reactive({
 })
 const filters = reactive({
   keyword: '',
+  keywordField: '',
   supplier: '',
   assistType: '',
-  closed: '',
-  sortBy: '',
   showUnaudited: false,
   recycled: false,
 })
@@ -632,6 +612,32 @@ const detail = reactive({
   fees: [],
 })
 const editForm = reactive(defaultEditForm())
+
+const assistOrderActionsColWidth = computed(() => {
+  if (filters.recycled) return getErpTableActionsColMinWidth(2)
+  return getErpTableActionsColMinWidth(5)
+})
+
+const keywordPlaceholder = computed(() => {
+  const field = String(filters.keywordField ?? '').trim()
+  if (field === 'assistOrderNo') return '输入外协订单号'
+  if (field === 'assistDate') return '输入外协日期，如 2026-06-09'
+  if (field === 'referenceNo') return '输入关联单号'
+  if (field === 'remark') return '输入备注'
+  return '全字段模糊搜索'
+})
+
+const printSelectedCount = computed(() => printSelectedIds.value.size)
+
+const isFormPanel = computed(() => pageMode.value === 'create' || pageMode.value === 'edit')
+
+watch([tableList, loading, () => filters.recycled], async () => {
+  if (loading.value) return
+  await nextTick()
+  listTableRef.value?.doLayout?.()
+  const el = listTableRef.value?.$el
+  if (el) refreshErpTableViewportHScroll(el)
+})
 
 const editRules = computed(() => ({
   assistOrderNo: [{ required: true, message: '请输入外协订单号', trigger: 'blur' }],
@@ -645,6 +651,27 @@ const editRules = computed(() => ({
   taxIncluded: [{ required: true, message: '请选择含税标记', trigger: 'change' }],
   currencyCode: [{ required: true, message: '请选择币别', trigger: 'change' }],
   decimalPlaces: [{ required: true, message: '请输入单价小数位', trigger: 'change' }],
+  deliveryDate: [
+    {
+      validator: (_rule, value, callback) => {
+        if (!value) {
+          callback()
+          return
+        }
+        const assist = editForm.assistDate
+        if (!assist) {
+          callback()
+          return
+        }
+        if (new Date(value) < new Date(assist)) {
+          callback(new Error('交货日期不能早于外协日期'))
+          return
+        }
+        callback()
+      },
+      trigger: 'change',
+    },
+  ],
 }))
 
 function todayYmd() {
@@ -655,18 +682,21 @@ function todayYmd() {
   return `${y}-${m}-${day}`
 }
 
+const DEFAULT_PRINT_NOTES =
+  '注：仅加工，不含开料，不含包装     以上价格包含乙方送货至甲方的单程运费'
+
 function defaultEditForm() {
   return {
     assistOrderNo: '',
     assistDate: todayYmd(),
-    assistType: '0',
+    assistType: '1',
     referenceNo: '',
     supplierCode: '',
     taxIncluded: '1',
     currencyCode: '',
     deliveryDate: '',
     remark: '',
-    notes: '',
+    notes: DEFAULT_PRINT_NOTES,
     decimalPlaces: 4,
     lines: [],
     fees: [],
@@ -675,7 +705,11 @@ function defaultEditForm() {
 
 function resetEditForm(next = {}) {
   Object.assign(editForm, defaultEditForm(), next)
-  editFormRef.value?.clearValidate?.()
+  activeFormRef.value?.clearValidate?.()
+}
+
+function activeEditFormRef() {
+  return isFormPanel.value ? activeFormRef.value : null
 }
 
 function formatCell(value) {
@@ -696,19 +730,6 @@ function formatDate(value) {
 function dateForInput(value) {
   const s = formatDate(value)
   return s === '-' ? '' : s
-}
-
-function deliveryDaysText(value) {
-  if (!value) return '-'
-  const d = new Date(formatDate(value))
-  if (Number.isNaN(d.getTime())) return '-'
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  d.setHours(0, 0, 0, 0)
-  const days = Math.round((d.getTime() - today.getTime()) / 86400000)
-  if (days === 0) return '今天到期'
-  if (days > 0) return `还剩 ${days} 天`
-  return `逾期 ${Math.abs(days)} 天`
 }
 
 function normalizeLine(row = {}, index = 0) {
@@ -801,6 +822,36 @@ function taxFlagText(value) {
   return '-'
 }
 
+function formatMoney(n) {
+  const num = Number(n)
+  if (!Number.isFinite(num)) return '0.00'
+  return num.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function assistOrderDataLines(row) {
+  const supplier = formatCell(row?.supplierName || row?.supplierCode)
+  return {
+    line1: `外协商：${supplier}`,
+    line2: `${taxFlagText(row?.taxIncluded)}，总项数: ${row?.itemCount ?? 0}，总数量: ${row?.totalQty ?? 0}`,
+    line3: `含税总价: ${formatMoney(row?.taxIncludedTotal)} 元，不含税总价: ${formatMoney(row?.taxExcludedTotal)} 元，税点总价: ${formatMoney(row?.taxDiffTotal)} 元`,
+    line4: `额外费用：${formatMoney(row?.extraFeeTotal)} 元`,
+  }
+}
+
+function isPrintSelected(row) {
+  const id = Number(row?.id)
+  return Number.isInteger(id) && id > 0 && printSelectedIds.value.has(id)
+}
+
+function togglePrintSelect(row) {
+  const id = Number(row?.id)
+  if (!Number.isInteger(id) || id <= 0) return
+  const next = new Set(printSelectedIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  printSelectedIds.value = next
+}
+
 async function loadData() {
   loading.value = true
   errorMessage.value = ''
@@ -810,10 +861,9 @@ async function loadData() {
         page: page.value,
         pageSize: pageSize.value,
         keyword: filters.keyword,
+        keywordField: filters.keywordField || '',
         supplier: filters.supplier,
         assistType: filters.assistType,
-        closed: filters.closed,
-        sortBy: filters.sortBy,
         showUnaudited: filters.showUnaudited ? '1' : '',
         recycled: filters.recycled ? '1' : '',
       },
@@ -827,11 +877,31 @@ async function loadData() {
     tableList.value = []
     total.value = 0
   } finally {
+    printSelectedIds.value = new Set()
     loading.value = false
   }
 }
 
 function onSearch() {
+  page.value = 1
+  loadData()
+}
+
+function onRecycleChange() {
+  page.value = 1
+  if (filters.recycled) {
+    filters.showUnaudited = false
+  }
+  loadData()
+}
+
+function onReset() {
+  filters.keyword = ''
+  filters.keywordField = ''
+  filters.supplier = ''
+  filters.assistType = ''
+  filters.showUnaudited = false
+  filters.recycled = false
   page.value = 1
   loadData()
 }
@@ -843,10 +913,6 @@ function onPageSizeChange() {
 
 function onPageChange() {
   loadData()
-}
-
-function onSelectionChange(rows) {
-  selectedRows.value = Array.isArray(rows) ? rows : []
 }
 
 async function fetchSupplierOptions(keyword = '') {
@@ -876,13 +942,71 @@ async function fetchSuggestedNo() {
   if (suggested) editForm.assistOrderNo = suggested
 }
 
-async function openCreate() {
+function switchToManage() {
+  if (pageMode.value === 'manage') return
+  pageMode.value = 'manage'
+}
+
+async function switchToCreate() {
+  if (pageMode.value === 'create') return
+  const preserveDraft =
+    createPanelInitialized.value &&
+    editMode.value === 'create' &&
+    pageMode.value !== 'edit'
+
+  pageMode.value = 'create'
   editMode.value = 'create'
   editId.value = null
   editTab.value = 'header'
-  resetEditForm()
-  editVisible.value = true
-  await Promise.all([fetchSupplierOptions(''), fetchCurrencyOptions(), fetchSuggestedNo()])
+
+  if (!preserveDraft) {
+    resetEditForm()
+    await fetchSuggestedNo()
+  }
+  if (!createPanelInitialized.value) {
+    await Promise.all([fetchSupplierOptions(''), fetchCurrencyOptions()])
+  }
+  createPanelInitialized.value = true
+}
+
+function applyDetailToEditForm(data) {
+  const h = data?.header || {}
+  resetEditForm({
+    assistOrderNo: String(h.assistOrderNo ?? ''),
+    assistDate: dateForInput(h.assistDate),
+    assistType: String(h.assistType ?? '0'),
+    referenceNo: String(h.referenceNo ?? ''),
+    supplierCode: String(h.supplierCode ?? ''),
+    taxIncluded: String(h.taxIncluded ?? '1') === '2' ? '2' : '1',
+    currencyCode: String(h.currencyCode ?? ''),
+    deliveryDate: dateForInput(h.deliveryDate),
+    remark: String(h.remark ?? ''),
+    notes: String(h.notes ?? ''),
+    decimalPlaces: Number(h.decimalPlaces ?? 4),
+    lines: (data?.lines || []).map((line, index) => normalizeLine(line, index)),
+    fees: (data?.fees || []).map((fee, index) => normalizeFee(fee, index)),
+  })
+}
+
+async function onFormReset() {
+  if (pageMode.value === 'create') {
+    resetEditForm()
+    editTab.value = 'header'
+    await Promise.all([fetchSupplierOptions(''), fetchCurrencyOptions(), fetchSuggestedNo()])
+    return
+  }
+  if (pageMode.value === 'edit' && editId.value) {
+    detailLoading.value = true
+    try {
+      const data = await loadDetail(editId.value)
+      applyDetailToEditForm(data)
+      editTab.value = 'header'
+    } catch (err) {
+      ElMessage.error(err?.response?.data?.msg || err?.message || '重置失败')
+    } finally {
+      detailLoading.value = false
+    }
+  }
 }
 
 async function openEdit(row) {
@@ -895,30 +1019,17 @@ async function openEdit(row) {
   editMode.value = 'edit'
   editId.value = id
   editTab.value = 'header'
-  editVisible.value = true
+  pageMode.value = 'edit'
+  createPanelInitialized.value = true
   detailLoading.value = true
   try {
     await Promise.all([fetchSupplierOptions(''), fetchCurrencyOptions()])
     const data = await loadDetail(id)
-    const h = data.header || {}
-    resetEditForm({
-      assistOrderNo: String(h.assistOrderNo ?? ''),
-      assistDate: dateForInput(h.assistDate),
-      assistType: String(h.assistType ?? '0'),
-      referenceNo: String(h.referenceNo ?? ''),
-      supplierCode: String(h.supplierCode ?? ''),
-      taxIncluded: String(h.taxIncluded ?? '1') === '2' ? '2' : '1',
-      currencyCode: String(h.currencyCode ?? ''),
-      deliveryDate: dateForInput(h.deliveryDate),
-      remark: String(h.remark ?? ''),
-      notes: String(h.notes ?? ''),
-      decimalPlaces: Number(h.decimalPlaces ?? 4),
-      lines: data.lines.map((line, index) => normalizeLine(line, index)),
-      fees: data.fees.map((fee, index) => normalizeFee(fee, index)),
-    })
+    applyDetailToEditForm(data)
   } catch (err) {
     ElMessage.error(err?.response?.data?.msg || err?.message || '读取外协订单详情失败')
-    editVisible.value = false
+    pageMode.value = 'manage'
+    editId.value = null
   } finally {
     detailLoading.value = false
   }
@@ -926,6 +1037,14 @@ async function openEdit(row) {
 
 async function onAssistDateChange() {
   if (editMode.value === 'create') await fetchSuggestedNo()
+  if (editForm.deliveryDate && editForm.assistDate) {
+    if (new Date(editForm.deliveryDate) < new Date(editForm.assistDate)) {
+      editForm.deliveryDate = ''
+      ElMessage.warning('交货日期不能早于外协日期，已清空交货日期')
+    }
+  }
+  await nextTick()
+  activeEditFormRef()?.validateField?.('deliveryDate')
 }
 
 async function loadDetail(id) {
@@ -1054,7 +1173,8 @@ function appendFee(row) {
 }
 
 function openBatchPrint() {
-  openPrint(selectedRows.value)
+  const rows = tableList.value.filter((row) => isPrintSelected(row))
+  openPrint(rows)
 }
 
 async function openPrint(rows) {
@@ -1127,17 +1247,76 @@ async function openView(row) {
   }
 }
 
+const LIFECYCLE_CONFIRM = {
+  audit: (label) => ({
+    message: `确认要审核外协订单【${label}】吗？审核后将锁定编辑与删除。`,
+    title: '审核确认',
+    options: { type: 'warning', confirmButtonText: '审核', cancelButtonText: '取消' },
+  }),
+  unaudit: (label) => ({
+    message: `确认要反审外协订单【${label}】吗？反审后可再编辑保存。`,
+    title: '反审确认',
+    options: { type: 'warning', confirmButtonText: '反审', cancelButtonText: '取消' },
+  }),
+  close: (label) => ({
+    message: `确认要结案外协订单【${label}】吗？结案后须先反结案才能反审。`,
+    title: '结案确认',
+    options: { type: 'warning', confirmButtonText: '结案', cancelButtonText: '取消' },
+  }),
+  unclose: (label) => ({
+    message: `确认要反结案外协订单【${label}】吗？反结案后可再结案或反审。`,
+    title: '反结案确认',
+    options: { type: 'warning', confirmButtonText: '反结案', cancelButtonText: '取消' },
+  }),
+  delete: (label) => ({
+    message: `确认要删除外协订单【${label}】吗？删除后将移入回收站，可在回收站恢复。`,
+    title: '删除确认',
+    options: { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+  }),
+  'hard-delete': (label) => ({
+    message: `确认要彻底删除外协订单【${label}】吗？该操作不可恢复。`,
+    title: '危险操作',
+    options: {
+      type: 'error',
+      confirmButtonText: '彻底删除',
+      cancelButtonText: '取消',
+      confirmButtonClass: 'el-button--danger',
+    },
+  }),
+  restore: (label) => ({
+    message: `确认要恢复外协订单【${label}】吗？`,
+    title: '恢复确认',
+    options: { type: 'info', confirmButtonText: '恢复', cancelButtonText: '取消' },
+  }),
+}
+
+async function confirmAssistOrderLifecycle(row, action) {
+  const factory = LIFECYCLE_CONFIRM[action]
+  if (!factory) return true
+  const label = formatCell(row.assistOrderNo)
+  const { message, title, options } = factory(label)
+  try {
+    await ElMessageBox.confirm(message, title, options)
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function runLifecycle(row, action) {
   const id = Number(row?.id)
   if (!Number.isFinite(id) || id <= 0) {
     ElMessage.warning('外协订单参数无效')
     return
   }
+  if (!(await confirmAssistOrderLifecycle(row, action))) return
   try {
     const res =
       action === 'delete'
         ? await axios.delete(`/api/assist-order/${id}`)
-        : await axios.post(`/api/assist-order/${id}/${action}`)
+        : action === 'hard-delete'
+          ? await axios.delete(`/api/assist-order/${id}/hard`)
+          : await axios.post(`/api/assist-order/${id}/${action}`)
     const body = res.data ?? {}
     if (body.code !== 200) throw new Error(body.msg || '操作失败')
     ElMessage.success(body.msg || '操作成功')
@@ -1148,7 +1327,7 @@ async function runLifecycle(row, action) {
 }
 
 async function onSave() {
-  await editFormRef.value?.validate?.()
+  await activeEditFormRef()?.validate?.()
   saveLoading.value = true
   try {
     const body = {
@@ -1156,15 +1335,19 @@ async function onSave() {
       lines: editForm.lines.map((line, index) => ({ ...line, seq: index + 1 })),
       fees: editForm.fees.map((fee, index) => ({ ...fee, seq: index + 1 })),
     }
-    const res =
-      editMode.value === 'create'
-        ? await axios.post('/api/assist-order', body)
-        : await axios.put(`/api/assist-order/${editId.value}`, body)
+    const isCreateSave = pageMode.value === 'create'
+    const res = isCreateSave
+      ? await axios.post('/api/assist-order', body)
+      : await axios.put(`/api/assist-order/${editId.value}`, body)
     const resp = res.data ?? {}
     if (resp.code !== 200) throw new Error(resp.msg || '保存失败')
     const finalNo = String(resp.data?.assistOrderNo ?? '').trim()
     ElMessage.success(resp.data?.changedOrderNo && finalNo ? `保存成功，最终单号：${finalNo}` : '保存成功')
-    editVisible.value = false
+    pageMode.value = 'manage'
+    if (isCreateSave) {
+      resetEditForm()
+      createPanelInitialized.value = false
+    }
     await loadData()
   } catch (err) {
     ElMessage.error(err?.response?.data?.msg || err?.message || '保存失败')
@@ -1185,17 +1368,19 @@ onMounted(async () => {
   gap: 12px;
 }
 
+.assist-mode-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
 .assist-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 16px;
-}
-
-.assist-toolbar__title h2 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 650;
 }
 
 .assist-toolbar__actions {
@@ -1204,37 +1389,85 @@ onMounted(async () => {
   gap: 8px;
 }
 
-.assist-alert {
+.assist-create-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.assist-form-footer {
+  display: flex;
+  justify-content: flex-start;
+  gap: 8px;              /* 两按钮间距，只改这里 */
+  padding-top: 4px;
+  margin-left: 110px;    /* 整组右移，与打印注释输入框对齐 */
+}
+
+.assist-form-footer :deep(.el-button) {
+  min-height: 40px;
+  height: 40px;
+  font-size: 15px;
+  padding-left: 20px;
+  padding-right: 20px;
+  /* 不要在这里写 margin-left */
+}
+.assist-alert,
+.audit-alert {
   margin-bottom: 4px;
+}
+
+.assist-filter-bar {
+  margin-bottom: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.assist-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.assist-filter-select {
+  min-width: 200px;
+  width: min(240px, 100%);
+}
+
+.assist-keyword-input {
+  flex: 0 1 420px;
+  width: min(420px, 100%);
+}
+
+.audit-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.switch-label {
+  font-size: 13px;
+  color: var(--el-text-color-regular);
 }
 
 .assist-table {
   width: 100%;
 }
 
-.assist-pagination {
+.assist-order-data {
   display: flex;
-  justify-content: flex-end;
-  padding: 4px 0 0;
+  flex-direction: column;
+  gap: 4px;
+  line-height: 1.6;
+  font-size: 13px;
 }
 
-.assist-edit-form {
-  max-width: 860px;
+.assist-order-data__line {
+  white-space: normal;
+  word-break: break-all;
 }
 
-.assist-form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: 24px;
-}
-
-.assist-form-grid :deep(.el-select),
-.assist-form-grid :deep(.el-date-editor),
-.assist-form-grid :deep(.el-input-number) {
-  width: 100%;
-}
-
-.assist-lines-toolbar,
 .assist-material-toolbar {
   display: flex;
   align-items: center;
@@ -1246,13 +1479,7 @@ onMounted(async () => {
   max-width: 360px;
 }
 
-.assist-inline-input {
-  margin-top: 6px;
-}
-
-.assist-table :deep(.el-input-number),
-.assist-edit-dialog :deep(.el-input-number),
-.assist-edit-dialog :deep(.el-date-editor) {
+.assist-table :deep(.el-input-number) {
   width: 100%;
 }
 
@@ -1268,8 +1495,7 @@ onMounted(async () => {
   font-weight: 650;
 }
 
-:deep(.assist-detail-dialog .el-dialog__body),
-:deep(.assist-edit-dialog .el-dialog__body) {
+:deep(.assist-detail-dialog .el-dialog__body) {
   padding-top: 10px;
 }
 

@@ -66,6 +66,20 @@ describe('assistOrderListQuery', () => {
     assert.match(listSql, /ORDER BY\s+h\.\[wxaj08\]\s+ASC/i)
   })
 
+  test('keywordField assistOrderNo limits keyword search to order number column', () => {
+    const parsed = parseAssistOrderListQuery({
+      keyword: 'WX2606',
+      keywordField: 'assistOrderNo',
+    })
+    const { whereSql, params } = buildAssistOrderListWhereSql(parsed)
+
+    assert.equal(parsed.keywordField, 'assistOrderNo')
+    assert.equal(params.keyword, '%WX2606%')
+    assert.match(whereSql, /h\.\[wxaj01\]/i)
+    assert.doesNotMatch(whereSql, /h\.\[notes\]/i)
+    assert.doesNotMatch(whereSql, /h\.\[kehu\]/i)
+  })
+
   test('list sql exposes line and fee summary columns', () => {
     const { whereSql } = buildAssistOrderListWhereSql(parseAssistOrderListQuery({}))
     const { sql: listSql } = buildAssistOrderListPagedSql({ whereSql })
