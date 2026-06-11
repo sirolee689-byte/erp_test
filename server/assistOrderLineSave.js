@@ -96,6 +96,7 @@ export async function rewriteAssistOrderLines({
   assistType = '0',
   referenceNo = '',
   actor = null,
+  clientIp = '',
   tx = null,
   requestFactory,
   resolveLineSnapshot,
@@ -153,6 +154,7 @@ export async function rewriteAssistOrderLines({
     req.input('seq', sql.Int, enriched.seq)
     req.input('pi', sql.NVarChar(200), nullableText(enriched.piNo))
     req.input('Product', sql.NVarChar(200), nullableText(enriched.product))
+    req.input('pq', sql.NVarChar(200), nullableText(enriched.product))
     req.input('kcaa02_en', sql.NVarChar(500), nullableText(enriched.kcaa02En))
     req.input('kpname', sql.NVarChar(500), nullableText(enriched.invoiceName))
     bindKcaaInputs(req, enriched)
@@ -167,13 +169,15 @@ export async function rewriteAssistOrderLines({
     req.input('wxak06', sql.NVarChar(1000), nullableText(enriched.remark))
     req.input('version', sql.Int, enriched.version)
     req.input('Customer_supply', sql.Int, enriched.customerSupply)
-    req.input('type', sql.Int, enriched.type)
+    req.input('type', sql.Int, enriched.type ?? 1)
+    req.input('snapshotRemark', sql.NVarChar(sql.MAX), nullableText(enriched.snapshotRemark))
+    req.input('ip', sql.NVarChar(50), nullableText(clientIp))
     req.input('location', sql.NVarChar(500), nullableText(enriched.location))
     req.input('sale_price', sql.Decimal(18, 6), enriched.salePrice)
     req.input('cost_price', sql.Decimal(18, 6), enriched.costPrice)
     await req.query(`
       INSERT INTO ${LINE_FROM} (
-        [wxak01], [seq], [pi], [Product],
+        [wxak01], [seq], [pi], [Product], [pq],
         [kcaa01], [kcaa02], [kcaa02_en], [kpname],
         [kcaa03], [kcaa04], [kcaa05], [kcaa06], [kcaa07], [kcaa08], [kcaa09], [kcaa10], [kcaa11],
         [kcaa12], [kcaa13], [kcaa14], [kcaa15], [kcaa16], [kcaa17], [kcaa18], [kcaa19], [kcaa20],
@@ -182,10 +186,10 @@ export async function rewriteAssistOrderLines({
         [wxak02], [GUID], [systemcode],
         [wxak03], [wxak04], [wxak041], [wxak05], [wxak051], [tax],
         [delivery_date], [reference], [wxak06], [version], [Customer_supply], [type], [location], [sale_price], [cost_price],
-        [Customer_Name], [uid], [uname], [utruename], [addtime], [del]
+        [Customer_Name], [uid], [uname], [utruename], [addtime], [remark], [pass], [ip], [del]
       )
       VALUES (
-        @wxak01, @seq, @pi, @Product,
+        @wxak01, @seq, @pi, @Product, @pq,
         @kcaa01, @kcaa02, @kcaa02_en, @kpname,
         @kcaa03, @kcaa04, @kcaa05, @kcaa06, @kcaa07, @kcaa08, @kcaa09, @kcaa10, @kcaa11,
         @kcaa12, @kcaa13, @kcaa14, @kcaa15, @kcaa16, @kcaa17, @kcaa18, @kcaa19, @kcaa20,
@@ -194,7 +198,7 @@ export async function rewriteAssistOrderLines({
         @wxak02, @guid, @systemcode,
         @wxak03, @wxak04, @wxak041, @wxak05, @wxak051, @tax,
         @delivery_date, @reference, @wxak06, @version, @Customer_supply, @type, @location, @sale_price, @cost_price,
-        @Customer_Name, @uid, @uname, @utruename, @addtime, N'0'
+        @Customer_Name, @uid, @uname, @utruename, @addtime, @snapshotRemark, N'1', @ip, N'0'
       )
     `)
   }

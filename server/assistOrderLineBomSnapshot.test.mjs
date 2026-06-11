@@ -19,8 +19,10 @@ describe('assistOrderLineBomSnapshot', () => {
       cost_price: 8,
       type: 2,
       Customer_Name: 'SUP-001',
+      remark: '物料快照备注',
     })
     assert.equal(mapped.kcaa01, 'MAT-1')
+    assert.equal(mapped.snapshotRemark, '物料快照备注')
     assert.equal(mapped.kcaa02, '材料')
     assert.equal(mapped.kcaa12, 1)
     assert.equal(mapped.kcaa35, 'RMB')
@@ -55,5 +57,12 @@ describe('assistOrderLineBomSnapshot', () => {
     const line = normalizeAssistOrderLine({ kcaa01: 'MAT-1', wxak03: 1 })
     const merged = mergeBomSnapshotIntoAssistLine(line, { customerName: 'PI-SUP-88' })
     assert.equal(merged.customerName, 'PI-SUP-88')
+  })
+
+  test('mergeBomSnapshotIntoAssistLine merges snapshotRemark without touching user remark', () => {
+    const line = normalizeAssistOrderLine({ kcaa01: 'MAT-1', remark: '用户备注', wxak03: 1 })
+    const merged = mergeBomSnapshotIntoAssistLine(line, { snapshotRemark: 'BOM备注' })
+    assert.equal(merged.snapshotRemark, 'BOM备注')
+    assert.equal(merged.remark, '用户备注')
   })
 })

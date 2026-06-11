@@ -50,6 +50,7 @@ export function mapAssistOrderBomSnapshotRow(row) {
     salePrice: bomCostParseDecimal6OrNull(row.sale_price),
     costPrice: bomCostParseDecimal6OrNull(row.cost_price),
     customerName: text(row.Customer_Name ?? row.customerName),
+    snapshotRemark: text(row.remark),
   }
   for (const col of ASSIST_LINE_KCAA_SNAPSHOT_FIELDS) {
     out[col] = parseKcaaCell(col, row[col])
@@ -89,6 +90,7 @@ export function mergeBomSnapshotIntoAssistLine(line, snapshot) {
   if (snapshot.salePrice != null) merged.salePrice = snapshot.salePrice
   if (snapshot.costPrice != null) merged.costPrice = snapshot.costPrice
   if (snapshot.customerName) merged.customerName = snapshot.customerName
+  if (snapshot.snapshotRemark) merged.snapshotRemark = snapshot.snapshotRemark
   return merged
 }
 
@@ -119,7 +121,8 @@ async function fetchFromBomSalesList(db, referenceNo, product, kcaa01) {
       LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(src.[location], N'')))) AS location,
       src.[sale_price] AS sale_price,
       src.[cost_price] AS cost_price,
-      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(src.[Customer_Name], N'')))) AS Customer_Name
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(src.[Customer_Name], N'')))) AS Customer_Name,
+      CONVERT(nvarchar(max), ISNULL(src.[remark], N'')) AS remark
     FROM ${PI_BOM_LIST_FROM} AS src
     WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(src.[sid], N'')))) = @referenceNo
       AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(src.[kcaa01], N'')))) = @kcaa01
@@ -148,9 +151,10 @@ async function fetchFromBomSales(db, referenceNo, kcaa01) {
         src.[type] AS type,
         LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(src.[location], N'')))) AS location,
         src.[sale_price] AS sale_price,
-        src.[cost_price] AS cost_price,
-        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(src.[Customer_Name], N'')))) AS Customer_Name
-      FROM ${PI_BOM_HEAD_FROM} AS src
+      src.[cost_price] AS cost_price,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(src.[Customer_Name], N'')))) AS Customer_Name,
+      CONVERT(nvarchar(max), ISNULL(src.[remark], N'')) AS remark
+    FROM ${PI_BOM_HEAD_FROM} AS src
       WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(src.[sid], N'')))) = @referenceNo
         AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(src.[kcaa01], N'')))) = @kcaa01
         AND (ISNULL(src.[del], N'') = N'' OR src.[del] = N'0')

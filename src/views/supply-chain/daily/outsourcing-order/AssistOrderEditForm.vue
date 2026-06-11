@@ -5,7 +5,12 @@
         <div class="assist-header-rows">
           <div class="assist-form-row assist-form-row--1">
             <el-form-item label="外协单号" prop="assistOrderNo">
-              <el-input v-model="model.assistOrderNo" placeholder="系统建议，可手动修改" />
+              <el-input
+                v-model="model.assistOrderNo"
+                placeholder="系统建议，可手动修改"
+                @focus="emit('assist-order-no-focus')"
+                @blur="emit('assist-order-no-blur')"
+              />
             </el-form-item>
           </div>
           <div class="assist-form-row assist-form-row--2">
@@ -331,6 +336,8 @@ const props = defineProps({
 
 const emit = defineEmits([
   'update:editTab',
+  'assist-order-no-focus',
+  'assist-order-no-blur',
   'assist-date-change',
   'fetch-supplier',
   'delete-selected-lines',

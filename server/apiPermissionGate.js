@@ -581,6 +581,9 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'GET' && path === '/api/assist-order/suggest-doc-no') {
     return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'add' }
   }
+  if (m === 'GET' && path === '/api/assist-order/check-doc-no') {
+    return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'add' }
+  }
   if (m === 'GET' && path === '/api/assist-order/supplier-options') {
     return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'view' }
   }

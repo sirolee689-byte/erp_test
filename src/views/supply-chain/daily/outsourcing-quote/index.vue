@@ -8,10 +8,6 @@
       <template #header>
         <span class="page-title">{{ pageTitle }}</span>
       </template>
-      <p class="page-desc">
-        主表 <code>Outsourcing_Quotation</code>（单号 <code>wxaa01</code>）与明细 <code>Outsourcing_Quotation_list</code>（<code>wxab01</code>）关联；列表汇总明细
-        <code>wxab04</code>/<code>wxab05</code>；供应商字段为 <code>kehu</code>（界面称供应商/外协商）。
-      </p>
 
       <div class="search-row">
         <el-input
@@ -1652,7 +1648,8 @@ loadData()
 }
 .code-bold {
   font-weight: 600;
-}
+}
+
 .pq-main-table :deep(.el-table__body-wrapper .el-table__body tr) {
   cursor: pointer;
 }

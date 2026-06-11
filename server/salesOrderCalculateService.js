@@ -24,7 +24,9 @@ import {
 } from './salesOrderPiBom.js'
 import {
   applyPiCostExtendedFieldsToRows,
+  applyPiCostKcaa13FromSalesList,
   collectPiCostHierarchyMetaFromTree,
+  collectPiCostKcaa13BySourceIdFromTree,
 } from './salesOrderPiCostFields.js'
 import { buildPiBomUsageTreeForProduct } from './salesOrderPiBomUsageTree.js'
 import {
@@ -284,11 +286,13 @@ async function buildPiCostRowsFromTree(pool, tree, productKcaa01, actor, orderQt
     payload.map((r) => r.kcaa01),
   )
   const enriched = enrichBomCostInsertRowsFromBom000(payload, bom000Map)
+  const kcaa13BySourceId = collectPiCostKcaa13BySourceIdFromTree(tree)
+  const enrichedWithListKcaa13 = applyPiCostKcaa13FromSalesList(enriched, kcaa13BySourceId)
   const bomMaterialPxMap = await fetchBomMaterialPxByCategoryCodes(
     pool,
-    enriched.map((r) => r.kcaa05),
+    enrichedWithListKcaa13.map((r) => r.kcaa05),
   )
-  const rowsWithPx = applyBomCostPxForRows(enriched, bomMaterialPxMap)
+  const rowsWithPx = applyBomCostPxForRows(enrichedWithListKcaa13, bomMaterialPxMap)
   const rowsWithAudit = applyBomCostAuditToRows(rowsWithPx, {
     actor,
     addtime: formatBomCostAuditTimestamp(),

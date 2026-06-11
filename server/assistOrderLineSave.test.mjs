@@ -67,6 +67,8 @@ describe('rewriteAssistOrderLines', () => {
         },
       ],
       actor: { uidInt: 42, uname: 'tester', utruename: '测试员' },
+      clientIp: '192.168.1.20',
+      resolveLineSnapshot: async () => ({ snapshotRemark: 'BOM快照备注' }),
       resolveBom000Keys: mockBom000Keys,
       requestFactory: recorder.requestFactory,
     })
@@ -97,6 +99,14 @@ describe('rewriteAssistOrderLines', () => {
     assert.equal(recorder.calls[1].inputs.Customer_Name, 'BOM-SUP-MAT-001')
     assert.match(recorder.calls[1].sqlText, /\[wxak02\]/i)
     assert.match(recorder.calls[1].sqlText, /\[Customer_Name\]/i)
+    assert.match(recorder.calls[1].sqlText, /\[pass\]/i)
+    assert.match(recorder.calls[1].sqlText, /\[remark\]/i)
+    assert.match(recorder.calls[1].sqlText, /\[ip\]/i)
+    assert.equal(recorder.calls[1].inputs.wxak06, 'first')
+    assert.equal(recorder.calls[1].inputs.snapshotRemark, 'BOM快照备注')
+    assert.equal(recorder.calls[1].inputs.type, 1)
+    assert.equal(recorder.calls[1].inputs.ip, '192.168.1.20')
+    assert.match(recorder.calls[1].sqlText, /N'1',\s*@ip,\s*N'0'/i)
   })
 
   test('applies resolveLineSnapshot before insert when provided', async () => {

@@ -644,6 +644,8 @@
 ### 操作日志（已定）
 
 - 外协订单操作日志写入 `UB_Date_ERP_Operation_log`。
+- `UB_Date_ERP_Operation_log` 是操作日志表名，不是数据库名。
+- 全系统操作日志统一写入 `UB_Date_ERP_Operation_log`；旧的 `Sys_OperationLogs` 自动审计日志属于测试遗留，不再作为正式操作日志来源。
 - 日志按旧系统 `act_name` / `act_info` 形态记录中文内容。
 - 新增外协订单：`act_name` 为外协订单录入，`act_info` 记录录入成功、等待审核、单号、关联号、操作时间、操作者。
 - 修改外协订单：`act_name` 为外协订单修改，`act_info` 记录修改成功、等待审核、单号、关联号、操作时间、操作者。

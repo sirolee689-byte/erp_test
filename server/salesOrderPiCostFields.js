@@ -248,7 +248,63 @@ export function collectPiCostHierarchyMetaFromTree(treeNodes, topLevelFlag5Prefi
 
 }
 
+/**
+ * Sales_list.kcaa13 有值（含 0）时解析为整数；NULL/空则返回 null（不覆盖 bom_000）
+ * @param {unknown} raw
+ * @returns {number | null}
+ */
+export function parsePiCostSalesListKcaa13(raw) {
+  if (raw == null || raw === '') return null
+  if (!Number.isFinite(Number(raw))) return null
+  return Math.trunc(Number(raw))
+}
 
+/**
+ * DFS 收集 PI BOM 树每行 Sales_list.id → kcaa13（仅含 list 有值的行）
+ * @param {any[]} treeNodes
+ * @returns {Map<number, number>}
+ */
+export function collectPiCostKcaa13BySourceIdFromTree(treeNodes) {
+  /** @type {Map<number, number>} */
+  const bySourceId = new Map()
+
+  /** @param {any[]} nodes */
+  function walk(nodes) {
+    if (!Array.isArray(nodes) || !nodes.length) return
+    for (let i = 0; i < nodes.length; i++) {
+      const node = nodes[i]
+      const sourceId = node?.id != null && Number.isFinite(Number(node.id)) ? Number(node.id) : null
+      if (sourceId != null && sourceId > 0) {
+        const kcaa13 = parsePiCostSalesListKcaa13(node.kcaa13)
+        if (kcaa13 != null) bySourceId.set(sourceId, kcaa13)
+      }
+      const ch = node?.children
+      if (Array.isArray(ch) && ch.length) walk(ch)
+    }
+  }
+
+  walk(treeNodes)
+  return bySourceId
+}
+
+/**
+ * pi_cost 落库：Sales_list 有 kcaa13 时覆盖 enrich 自 bom_000 的值（用量与其它 kcaa 不动）
+ * @param {Array<Record<string, unknown>>} rows
+ * @param {Map<number, number>} kcaa13BySourceId
+ */
+export function applyPiCostKcaa13FromSalesList(rows, kcaa13BySourceId) {
+  if (!Array.isArray(rows) || !rows.length || !kcaa13BySourceId?.size) return rows ?? []
+  return rows.map((row) => {
+    const sourceId =
+      row?.sourceRowId != null && Number.isFinite(Number(row.sourceRowId))
+        ? Number(row.sourceRowId)
+        : null
+    if (sourceId == null) return row
+    const kcaa13 = kcaa13BySourceId.get(sourceId)
+    if (kcaa13 == null) return row
+    return { ...row, kcaa13 }
+  })
+}
 
 /**
 

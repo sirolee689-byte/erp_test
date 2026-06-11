@@ -126,10 +126,17 @@
           style="width: 100%"
           :empty-text="loading ? '加载中...' : '暂无外协订单'"
           @expand-change="onExpandChange"
+          @row-click="onListRowClick"
         >
       <el-table-column type="expand">
         <template #default="{ row }">
-          <el-table :data="row.expandedLines || []" border size="small" empty-text="暂无明细">
+          <div v-loading="row.expandedLoading" class="assist-expand-inner">
+          <el-table
+            v-if="(row.expandedLines || []).length"
+            :data="row.expandedLines || []"
+            border
+            size="small"
+          >
             <el-table-column label="序号" width="70">
               <template #default="{ $index }">{{ $index + 1 }}</template>
             </el-table-column>
@@ -148,6 +155,8 @@
             <el-table-column label="参考单号" prop="referenceNo" min-width="120" show-overflow-tooltip />
             <el-table-column label="备注" prop="remark" min-width="160" show-overflow-tooltip />
           </el-table>
+          <el-empty v-else-if="!row.expandedLoading" description="暂无明细" />
+          </div>
         </template>
       </el-table-column>
       <el-table-column
@@ -161,18 +170,18 @@
         <template #default="{ row }">
           <div class="action-bar assist-order-actions">
             <template v-if="filters.recycled">
-              <el-button type="primary" plain size="small" @click="runLifecycle(row, 'restore')">恢复</el-button>
-              <el-button type="danger" plain size="small" @click="runLifecycle(row, 'hard-delete')">彻底删除</el-button>
+              <el-button type="primary" plain size="small" @click.stop="runLifecycle(row, 'restore')">恢复</el-button>
+              <el-button type="danger" plain size="small" @click.stop="runLifecycle(row, 'hard-delete')">彻底删除</el-button>
             </template>
             <template v-else>
-              <el-button plain size="small" @click="openView(row)">查看</el-button>
+              <el-button plain size="small" @click.stop="openView(row)">查看</el-button>
               <template v-if="!isAudited(row)">
                 <el-button
                   type="primary"
                   plain
                   size="small"
                   :disabled="!canEdit(row)"
-                  @click="openEdit(row)"
+                  @click.stop="openEdit(row)"
                 >
                   编辑
                 </el-button>
@@ -180,7 +189,7 @@
                   plain
                   size="small"
                   :disabled="!canAudit(row)"
-                  @click="runLifecycle(row, 'audit')"
+                  @click.stop="runLifecycle(row, 'audit')"
                 >
                   审核
                 </el-button>
@@ -189,7 +198,7 @@
                   plain
                   size="small"
                   :disabled="!canDelete(row)"
-                  @click="runLifecycle(row, 'delete')"
+                  @click.stop="runLifecycle(row, 'delete')"
                 >
                   删除
                 </el-button>
@@ -199,7 +208,7 @@
                   v-if="canUnaudit(row)"
                   plain
                   size="small"
-                  @click="runLifecycle(row, 'unaudit')"
+                  @click.stop="runLifecycle(row, 'unaudit')"
                 >
                   反审
                 </el-button>
@@ -207,7 +216,7 @@
                   v-if="canClose(row)"
                   plain
                   size="small"
-                  @click="runLifecycle(row, 'close')"
+                  @click.stop="runLifecycle(row, 'close')"
                 >
                   结案
                 </el-button>
@@ -215,7 +224,7 @@
                   v-if="canUnclose(row)"
                   plain
                   size="small"
-                  @click="runLifecycle(row, 'unclose')"
+                  @click.stop="runLifecycle(row, 'unclose')"
                 >
                   反结案
                 </el-button>
@@ -224,7 +233,7 @@
                 plain
                 size="small"
                 :type="isPrintSelected(row) ? 'primary' : 'default'"
-                @click="togglePrintSelect(row)"
+                @click.stop="togglePrintSelect(row)"
               >
                 {{ isPrintSelected(row) ? '已选择' : '打印选择' }}
               </el-button>
@@ -306,6 +315,8 @@
         :supplier-loading="supplierLoading"
         :currency-options="currencyOptions"
         @assist-date-change="onAssistDateChange"
+        @assist-order-no-focus="onAssistOrderNoFocus"
+        @assist-order-no-blur="onAssistOrderNoBlur"
         @fetch-supplier="fetchSupplierOptions"
         @delete-selected-lines="deleteSelectedLines"
         @delete-all-lines="deleteAllLines"
@@ -933,6 +944,44 @@ async function fetchSuggestedNo() {
   })
   const suggested = String(res.data?.data?.suggested ?? '').trim()
   if (suggested) editForm.assistOrderNo = suggested
+  return suggested
+}
+
+async function checkAssistOrderNo(options = {}) {
+  const { silent = false } = options
+  const code = String(editForm.assistOrderNo ?? '').trim()
+  if (!code) return null
+  const params = { assistOrderNo: code }
+  if (editMode.value === 'edit' && editId.value) {
+    params.excludeId = editId.value
+  }
+  try {
+    const res = await axios.get('/api/assist-order/check-doc-no', { params })
+    const available = Boolean(res.data?.data?.available)
+    const message = String(res.data?.data?.message ?? res.data?.msg ?? '').trim()
+    if (!silent) {
+      if (available) ElMessage.success('该单号可以使用')
+      else ElMessage.error(message || '该外协单号已在在册记录中存在')
+    }
+    return { available, message }
+  } catch (err) {
+    if (!silent) {
+      ElMessage.error(err?.response?.data?.msg || err?.message || '检测外协单号失败')
+    }
+    return null
+  }
+}
+
+async function onAssistOrderNoFocus() {
+  if (editMode.value !== 'create') return
+  if (String(editForm.assistOrderNo ?? '').trim()) return
+  await fetchSuggestedNo()
+  await checkAssistOrderNo()
+}
+
+async function onAssistOrderNoBlur() {
+  if (!String(editForm.assistOrderNo ?? '').trim()) return
+  await checkAssistOrderNo()
 }
 
 function switchToManage() {
@@ -1092,14 +1141,30 @@ function buildExpandedDisplayRows(lines, fees) {
 
 async function onExpandChange(row, expandedRows) {
   const expanded = expandedRows.some((item) => item.id === row.id)
-  if (!expanded || row.expandedLoaded) return
+  if (!expanded) return
+  if (row.expandedLoaded) return
+  row.expandedLoading = true
   try {
     const data = await loadDetail(row.id)
     row.expandedLines = buildExpandedDisplayRows(data.lines, data.fees)
     row.expandedLoaded = true
   } catch (err) {
+    row.expandedLines = []
     ElMessage.error(err?.response?.data?.msg || err?.message || '读取明细失败')
+  } finally {
+    row.expandedLoading = false
   }
+}
+
+function onListRowClick(row, column, event) {
+  if (!row?.id || !listTableRef.value) return
+  const target = event?.target
+  if (target && typeof target.closest === 'function') {
+    if (target.closest('.el-button, button, a, input, textarea, select')) return
+    if (target.closest('.el-table__expand-icon')) return
+  }
+  if (column?.type === 'expand') return
+  listTableRef.value.toggleRowExpansion(row)
 }
 
 function renumberLines() {
@@ -1616,6 +1681,11 @@ onUnmounted(() => {
 
 .assist-table {
   width: 100%;
+}
+
+.assist-expand-inner {
+  padding: 8px 12px 12px;
+  min-height: 48px;
 }
 
 .assist-order-data {

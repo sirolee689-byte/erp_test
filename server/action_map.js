@@ -23,6 +23,8 @@ export const DEFAULT_UNKNOWN_TARGET_TABLE = 'ERP'
  */
 export const OPERATION_AUDIT_ROUTE_RULES = [
   { method: 'GET', path: '/api/assist-order/list', action: '查询外协订单列表', targetTable: 'UB_ERP_assist_order' },
+  { method: 'GET', path: '/api/assist-order/suggest-doc-no', action: '获取外协订单建议单号', targetTable: 'UB_ERP_assist_order' },
+  { method: 'GET', path: '/api/assist-order/check-doc-no', action: '检测外协订单单号是否可用', targetTable: 'UB_ERP_assist_order' },
   { method: 'GET', path: '/api/assist-order/batch-add-tree', action: '查询外协订单批量选材', targetTable: 'UB_ERP_assist_order' },
   { method: 'GET', path: '/api/assist-order/print-data', action: '打印外协订单', targetTable: 'UB_ERP_assist_order' },
   { method: 'GET', path: /^\/api\/assist-order\/\d+$/, action: '查看外协订单', targetTable: 'UB_ERP_assist_order' },

@@ -63,6 +63,7 @@ export async function prefetchPiBomListLayers(db, piNo, parentCodes, productKcaa
         LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa09], N'')))) AS kcaa09,
         LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa10], N'')))) AS kcaa10,
         LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa11], N'')))) AS kcaa11,
+        l.[kcaa13] AS kcaa13,
         l.[kcaa07] AS kcaa07,
         l.[kcaa08] AS kcaa08,
         l.[kcaa14] AS kcaa14,
@@ -108,6 +109,10 @@ function mapPiBomRowToUsageTreeNode(row, level, children) {
     row.kcaa08 != null && row.kcaa08 !== '' && Number.isFinite(Number(row.kcaa08))
       ? Number(row.kcaa08)
       : null
+  const kcaa13 =
+    row.kcaa13 != null && row.kcaa13 !== '' && Number.isFinite(Number(row.kcaa13))
+      ? Math.trunc(Number(row.kcaa13))
+      : null
   const kcaa14 =
     row.kcaa14 != null && row.kcaa14 !== '' && Number.isFinite(Number(row.kcaa14))
       ? Math.trunc(Number(row.kcaa14))
@@ -129,6 +134,7 @@ function mapPiBomRowToUsageTreeNode(row, level, children) {
     kcaa09: row.kcaa09 != null ? String(row.kcaa09) : '',
     kcaa10: row.kcaa10 != null ? String(row.kcaa10) : '',
     kcaa11: row.kcaa11 != null ? String(row.kcaa11) : '',
+    kcaa13,
     kcaa07,
     kcaa08,
     kcaa14,

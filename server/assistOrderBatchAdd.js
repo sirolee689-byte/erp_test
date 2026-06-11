@@ -498,6 +498,12 @@ export async function fetchAssistOrderBatchAddTree(pool, opts) {
       END AS px
     FROM ${PI_COST_FROM} AS c
     WHERE LTRIM(RTRIM(ISNULL(c.[sid], N''))) = @pi
+      AND ISNULL(c.[kcaa13], 0) = 1
+      AND ISNULL(c.[isok], 0) = 1
+    ORDER BY
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[pq], N'')))) ASC,
+      CASE WHEN c.[px] IS NULL THEN 1 ELSE 0 END ASC,
+      c.[px] ASC
   `)
   const costRawRows = (costR.recordset ?? []).map((row) => ({ ...row, id: 0 }))
   const costLines = buildMaterialBillCostLines(costRawRows, qtyByProduct)
@@ -540,7 +546,10 @@ export async function fetchAssistOrderBatchAddTree(pool, opts) {
   const outsourcedR = await outsourcedReq.query(`
     SELECT
       LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[pi], N'')))) AS piNo,
-      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[Product], N'')))) AS product,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(
+        NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[pq], N'')))), N''),
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[Product], N''))))
+      )))) AS product,
       LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N'')))) AS kcaa01,
       SUM(ISNULL(l.[wxak03], 0)) AS outsourcedQty
     FROM ${ASSIST_LINE_FROM} AS l
@@ -553,7 +562,10 @@ export async function fetchAssistOrderBatchAddTree(pool, opts) {
       ${excludeSql}
     GROUP BY
       LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[pi], N'')))),
-      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[Product], N'')))),
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(
+        NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[pq], N'')))), N''),
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[Product], N''))))
+      )))),
       LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N''))))
   `)
 

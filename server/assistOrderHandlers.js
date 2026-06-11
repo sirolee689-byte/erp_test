@@ -6,6 +6,7 @@ import {
   parseAssistOrderListQuery,
 } from './assistOrderListQuery.js'
 import {
+  checkAssistOrderNoAvailable,
   createAssistOrder,
   suggestAssistOrderNo,
   updateAssistOrder,
@@ -13,6 +14,7 @@ import {
 import { applyAssistOrderLifecycleAction } from './assistOrderLifecycle.js'
 import { fetchAssistOrderPrintDocuments } from './assistOrderPrintData.js'
 import { fetchAssistOrderBatchAddTree } from './assistOrderBatchAdd.js'
+import { resolveActorAuditTripletFromReq } from './businessAuditFields.js'
 
 const HEADER_FROM = `dbo.[${ASSIST_ORDER_HEADER_TABLE}]`
 const LINE_FROM = 'dbo.[UB_ERP_assist_order_list]'
@@ -50,8 +52,13 @@ function serializeAssistOrderRow(row) {
 }
 
 export function registerAssistOrderRoutes(app, deps) {
-  const { getPool, getActorAuditTripletFromReq } = deps
-  const saveService = deps.saveService ?? { createAssistOrder, updateAssistOrder, suggestAssistOrderNo }
+  const { getPool } = deps
+  const saveService = deps.saveService ?? {
+    createAssistOrder,
+    updateAssistOrder,
+    suggestAssistOrderNo,
+    checkAssistOrderNoAvailable,
+  }
   const lifecycleService = deps.lifecycleService ?? { applyAssistOrderLifecycleAction }
   const printService = deps.printService ?? { fetchAssistOrderPrintDocuments }
 
@@ -150,6 +157,33 @@ export function registerAssistOrderRoutes(app, deps) {
       console.error('GET /api/assist-order/suggest-doc-no failed:', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? 'database query failed')
       res.status(500).json({ code: 500, msg: `获取外协订单建议单号失败：${detail}`, data: null })
+    }
+  })
+
+  app.get('/api/assist-order/check-doc-no', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const assistOrderNo = String(req.query?.assistOrderNo ?? '').trim()
+      if (!assistOrderNo) {
+        res.status(400).json({ code: 400, msg: '参数错误：assistOrderNo', data: null })
+        return
+      }
+      const excludeRaw = String(req.query?.excludeId ?? '').trim()
+      const excludeId = excludeRaw ? Number(excludeRaw) : null
+      const result = await saveService.checkAssistOrderNoAvailable(
+        pool,
+        assistOrderNo,
+        Number.isInteger(excludeId) && excludeId > 0 ? excludeId : null,
+      )
+      res.json({
+        code: 200,
+        msg: 'success',
+        data: { available: result.available, message: result.message || '' },
+      })
+    } catch (err) {
+      console.error('GET /api/assist-order/check-doc-no failed:', err)
+      const detail = String(err?.message ?? err?.originalError?.message ?? 'database query failed')
+      res.status(500).json({ code: 500, msg: `检测外协单号失败：${detail}`, data: null })
     }
   })
 
@@ -374,7 +408,7 @@ export function registerAssistOrderRoutes(app, deps) {
   app.post('/api/assist-order', async (req, res) => {
     try {
       const pool = await getPool()
-      const actor = getActorAuditTripletFromReq?.(req) ?? { uidInt: null, uname: null, utruename: null }
+      const actor = await resolveActorAuditTripletFromReq(pool, req)
       const result = await saveService.createAssistOrder({ pool, body: req.body ?? {}, req, actor })
       saveJson(res, result, result?.changedOrderNo ? '保存成功，单号已自动顺延' : '保存成功')
     } catch (err) {
@@ -392,7 +426,7 @@ export function registerAssistOrderRoutes(app, deps) {
         return
       }
       const pool = await getPool()
-      const actor = getActorAuditTripletFromReq?.(req) ?? { uidInt: null, uname: null, utruename: null }
+      const actor = await resolveActorAuditTripletFromReq(pool, req)
       const result = await saveService.updateAssistOrder({ pool, id, body: req.body ?? {}, req, actor })
       saveJson(res, result, result?.changedOrderNo ? '保存成功，单号已自动顺延' : '保存成功')
     } catch (err) {

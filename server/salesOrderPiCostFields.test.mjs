@@ -6,10 +6,14 @@ import { describe, test } from 'node:test'
 import { flattenBomPartsCostUsageFlatForBomCost } from './bomUsageFlatten.js'
 import { buildBomCostInsertPayloadFromFlatUsage } from './bomUsageYl.js'
 import { getDefaultBomCostHidePrefixes } from './bomCostHidePrefixes.js'
+import { enrichBomCostInsertRowsFromBom000 } from './bomCostEnrichFromBom000.js'
 import {
   applyPiCostExtendedFieldsToRows,
+  applyPiCostKcaa13FromSalesList,
   collectPiCostHierarchyMetaFromTree,
+  collectPiCostKcaa13BySourceIdFromTree,
   formatPiCostTempFromOrderQty,
+  parsePiCostSalesListKcaa13,
 } from './salesOrderPiCostFields.js'
 
 const BAG_PREFIXES = ['BAG', 'TAG', 'OUT', 'RMP', 'RP']
@@ -191,6 +195,51 @@ describe('salesOrderPiCostFields', () => {
     assert.equal(la.t_kcaa01, 'CUT-BAGPQ3633A1/BLU4<1-1>')
     assert.equal(la.t_kcaa03, 'BLU4')
     assert.equal(la.kcac08, la.kcac06)
+  })
+
+  test('parsePiCostSalesListKcaa13：0 与 NULL', () => {
+    assert.equal(parsePiCostSalesListKcaa13(0), 0)
+    assert.equal(parsePiCostSalesListKcaa13(1), 1)
+    assert.equal(parsePiCostSalesListKcaa13(null), null)
+    assert.equal(parsePiCostSalesListKcaa13(''), null)
+  })
+
+  test('applyPiCostKcaa13FromSalesList：list 有值（含 0）覆盖 bom_000', () => {
+    const tree = [
+      {
+        id: 201,
+        kcaa01: 'MB-0001/-',
+        kcaa13: 1,
+        children: [],
+      },
+      {
+        id: 202,
+        kcaa01: 'MB-0002/-',
+        kcaa13: 0,
+        children: [],
+      },
+    ]
+    const byId = collectPiCostKcaa13BySourceIdFromTree(tree)
+    assert.equal(byId.get(201), 1)
+    assert.equal(byId.get(202), 0)
+
+    const payload = [
+      { sourceRowId: 201, kcaa01: 'MB-0001/-', kcac04: 1, kcac06: 1 },
+      { sourceRowId: 202, kcaa01: 'MB-0002/-', kcac04: 2, kcac06: 2 },
+      { sourceRowId: 203, kcaa01: 'MB-0003/-', kcac04: 3, kcac06: 3 },
+    ]
+    const bom000Map = new Map([
+      ['mb-0001/-', { kcaa13: 0 }],
+      ['mb-0002/-', { kcaa13: 1 }],
+      ['mb-0003/-', { kcaa13: 1 }],
+    ])
+    const enriched = enrichBomCostInsertRowsFromBom000(payload, bom000Map)
+    const merged = applyPiCostKcaa13FromSalesList(enriched, byId)
+    assert.equal(merged[0].kcaa13, 1)
+    assert.equal(merged[1].kcaa13, 0)
+    assert.equal(merged[2].kcaa13, 1)
+    assert.equal(merged[0].kcac04, 1)
+    assert.equal(merged[1].kcac06, 2)
   })
 
   test('用量 kcac04/06 与 bom_cost payload 一致', () => {

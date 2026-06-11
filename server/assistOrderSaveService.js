@@ -55,6 +55,18 @@ async function orderNoExists(pool, assistOrderNo, excludeId = null) {
   return Boolean(r.recordset?.[0])
 }
 
+export async function checkAssistOrderNoAvailable(pool, assistOrderNo, excludeId = null) {
+  const code = String(assistOrderNo ?? '').trim()
+  if (!code) {
+    return { available: false, message: '外协单号不能为空' }
+  }
+  const exists = await orderNoExists(pool, code, excludeId)
+  return {
+    available: !exists,
+    message: exists ? '该外协单号已在在册记录中存在' : '',
+  }
+}
+
 async function resolveFinalOrderNo(pool, header, excludeId = null) {
   const saveDate = new Date(header.assistDate)
   const requested = header.assistOrderNo || buildNextAssistOrderNo({
@@ -133,17 +145,19 @@ function bindAssistOrderHeaderFields(req, opts) {
   req.input('remark', sql.NVarChar(sql.MAX), header.remark)
   req.input('notes', sql.NVarChar(sql.MAX), header.notes)
   req.input('decimal', sql.Int, header.decimalPlaces)
-  req.input('uid', sql.NVarChar(50), uidStr)
-  req.input('uname', sql.NVarChar(50), String(actor?.uname ?? ''))
-  req.input('utruename', sql.NVarChar(50), String(actor?.utruename ?? ''))
 
   if (forInsert) {
+    req.input('uid', sql.NVarChar(50), uidStr)
+    req.input('uname', sql.NVarChar(50), String(actor?.uname ?? ''))
+    req.input('utruename', sql.NVarChar(50), String(actor?.utruename ?? ''))
     req.input('guid', sql.NVarChar(500), orderGuid)
     req.input('systemcode', sql.NVarChar(50), orderGuid)
     req.input('type', sql.Int, 1)
     req.input('addtime', sql.NVarChar(50), now)
   } else {
     req.input('edittime', sql.NVarChar(50), now)
+    req.input('upname', sql.NVarChar(50), String(actor?.uname ?? ''))
+    req.input('uptruename', sql.NVarChar(50), String(actor?.utruename ?? ''))
   }
 }
 
@@ -191,12 +205,14 @@ export async function createAssistOrder(opts) {
         @uid, @uname, @utruename, @addtime, N'0', N'0', N'0'
       )
     `)
+    const clientIp = httpReq ? getRequestIp(httpReq) : ''
     await rewriteAssistOrderLines({
       assistOrderNo: finalNo.assistOrderNo,
       lines: body?.lines ?? [],
       assistType: header.assistType,
       referenceNo: header.referenceNo,
       actor: actor ?? { uidInt: null, uname: null, utruename: null },
+      clientIp,
       tx,
     })
     await rewriteAssistOrderFees({
@@ -296,18 +312,19 @@ export async function updateAssistOrder(opts) {
           [remark]=@remark,
           [notes]=@notes,
           [decimal]=@decimal,
-          [uid]=@uid,
-          [uname]=@uname,
-          [utruename]=@utruename,
+          [upname]=@upname,
+          [uptruename]=@uptruename,
           [edittime]=@edittime
       WHERE [id]=@id
     `)
+    const clientIp = httpReq ? getRequestIp(httpReq) : ''
     await rewriteAssistOrderLines({
       assistOrderNo: finalNo.assistOrderNo,
       lines: body?.lines ?? [],
       assistType: header.assistType,
       referenceNo: header.referenceNo,
       actor: actor ?? { uidInt: null, uname: null, utruename: null },
+      clientIp,
       tx,
     })
     await rewriteAssistOrderFees({
