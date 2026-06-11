@@ -61,4 +61,11 @@ describe('updateAssistOrder header audit SQL', () => {
     assert.doesNotMatch(updateBlock, /\[utruename\]=@utruename/)
     assert.doesNotMatch(updateBlock, /\[uid\]=@uid/)
   })
+
+  test('keeps current reference number available for edit operation log fallback', () => {
+    const src = readFileSync(fileURLToPath(new URL('./assistOrderSaveService.js', import.meta.url)), 'utf8')
+    const updateBlock = src.slice(src.indexOf('export async function updateAssistOrder'))
+    assert.match(updateBlock, /AS referenceNo/)
+    assert.match(updateBlock, /referenceNo:\s*header\.referenceNo\s*\|\|\s*row\.referenceNo/)
+  })
 })

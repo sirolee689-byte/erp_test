@@ -72,8 +72,60 @@ describe('applyAssistOrderLifecycleAction', () => {
     assert.ok(pool.calls.some((call) => /UPDATE\s+dbo\.\[UB_ERP_assist_order\]/i.test(call.sqlText) && /\[pass\]=N'1'/i.test(call.sqlText)))
     const logCall = pool.calls.find((call) => /INSERT\s+INTO\s+dbo\.\[UB_Date_ERP_Operation_log\]/i.test(call.sqlText))
     assert.ok(logCall)
-    assert.equal(logCall.inputs.act_name, '申请审核')
+    assert.equal(logCall.inputs.act_name, '审核')
     assert.match(logCall.inputs.act_info, /WX26060902/)
     assert.equal(logCall.inputs.act_user, '张三')
+  })
+  test('unaudits an audited active order and writes standard operation log action', async () => {
+    const pool = createMockPool({
+      id: 11,
+      assistOrderNo: 'WX26060501',
+      referenceNo: 'PI-001',
+      systemCode: 'WX26060501',
+      pass: '1',
+      closed: '0',
+      del: '0',
+    })
+
+    const result = await applyAssistOrderLifecycleAction({
+      pool,
+      id: 11,
+      action: 'unaudit',
+      actor: { uidInt: 42, uname: 'u01', utruename: 'operator01' },
+    })
+
+    assert.equal(result.ok, true)
+    const logCall = pool.calls.find((call) => /INSERT\s+INTO\s+dbo\.\[UB_Date_ERP_Operation_log\]/i.test(call.sqlText))
+    assert.ok(logCall)
+    assert.equal(logCall.inputs.act_name, '反审')
+    assert.equal(logCall.inputs.code, 'UB_ERP_assist_order')
+    assert.equal(logCall.inputs.systemcode, 'WX26060501')
+  })
+
+  test('hard deletes a recycled order and writes operation log with actor uid', async () => {
+    const pool = createMockPool({
+      id: 10,
+      assistOrderNo: 'WX26060903',
+      referenceNo: 'PI-003',
+      systemCode: 'WX26060903',
+      pass: '0',
+      closed: '0',
+      del: '1',
+    })
+
+    const result = await applyAssistOrderLifecycleAction({
+      pool,
+      id: 10,
+      action: 'hard-delete',
+      actor: { uidInt: 77, uname: 'delete01', utruename: 'operator01' },
+    })
+
+    assert.equal(result.ok, true)
+    assert.ok(pool.calls.some((call) => /DELETE\s+FROM\s+dbo\.\[UB_ERP_assist_order\]/i.test(call.sqlText)))
+    const logCall = pool.calls.find((call) => /INSERT\s+INTO\s+dbo\.\[UB_Date_ERP_Operation_log\]/i.test(call.sqlText))
+    assert.ok(logCall)
+    assert.equal(logCall.inputs.uid, '77')
+    assert.equal(logCall.inputs.uname, 'delete01')
+    assert.equal(logCall.inputs.utruename, 'operator01')
   })
 })

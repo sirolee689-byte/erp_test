@@ -460,4 +460,62 @@ describe('assistOrderHandlers', () => {
     assert.equal(lifecycleCalls[0].action, 'audit')
     assert.equal(lifecycleCalls[0].actor.trueName, '张三')
   })
+  test('POST /api/assist-order/:id/audit resolves audit triplet before lifecycle action', async () => {
+    const routes = {}
+    const app = {
+      get(path, handler) {
+        routes[`GET ${path}`] = handler
+      },
+      post(path, handler) {
+        routes[`POST ${path}`] = handler
+      },
+      put() {},
+      delete() {},
+    }
+    const lifecycleCalls = []
+    const lifecycleService = {
+      async applyAssistOrderLifecycleAction(opts) {
+        lifecycleCalls.push(opts)
+        return { ok: true, msg: 'ok', id: 8, assistOrderNo: 'WX26060901' }
+      },
+    }
+    const pool = {
+      request() {
+        const req = {
+          input() {
+            return req
+          },
+          async query(sqlText) {
+            if (/INFORMATION_SCHEMA\.COLUMNS/i.test(sqlText)) {
+              return {
+                recordset: [
+                  { n: 'UserID' },
+                  { n: 'usercode' },
+                  { n: 'username' },
+                  { n: 'truename' },
+                ],
+              }
+            }
+            if (/FROM\s+Sys_Users\s+AS\s+u/i.test(sqlText)) {
+              return { recordset: [{ userId: 42, userName: 'u01', truename: 'operator01' }] }
+            }
+            return { recordset: [] }
+          },
+        }
+        return req
+      },
+    }
+
+    registerAssistOrderRoutes(app, { getPool: async () => pool, lifecycleService })
+    const handler = routes['POST /api/assist-order/:id/audit']
+    assert.equal(typeof handler, 'function')
+
+    const res = createMockRes()
+    await handler({ params: { id: '8' }, user: { userId: 42, userCode: 'admin' } }, res)
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(lifecycleCalls[0].actor.uidInt, 42)
+    assert.equal(lifecycleCalls[0].actor.uname, 'u01')
+    assert.equal(lifecycleCalls[0].actor.utruename, 'operator01')
+  })
 })

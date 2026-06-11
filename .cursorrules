@@ -97,12 +97,12 @@
 
 ## 14. 自动化质检 (RPA 2.0)
 - 修改代码后，AI 必须主动提出：“是否需要我启动 Browser DevTools 模拟操作并用 SQLServer 验证数据？” 
-- 验证路径：点击按钮 -> 观察 Console -> 查询 SQL -> 确认审计字段 (Rule 16)。
+- 验证路径：点击按钮 -> 观察 Console -> 查询 SQL -> 确认业务表审计字段（`CONTEXT.md` 第三节）与操作日志落库（`UB_Date_ERP_Operation_log`，见 `server/operationLogWriter.js`）。
 
 ## 15. 数据库文档自动同步 (Self-Documenting)
 - **同步触发条件**：凡是修改了后端 SQL 语句、增加了新表、或调整了 `INSERT/UPDATE` 字段逻辑，必须执行以下同步操作。
 - **强制更新文档**：
-    1. 修改完代码后，立即打开 `docs/database_map.md`。
+    1. 修改完代码后，立即打开 `docs/sql/database_map.md`。
     2. 根据最新的代码逻辑，更新对应的【业务功能】与【物理表】映射关系。
     3. 如果新增了字段（如 v1.1.0 增加的 `remark`），必须在文档的“备注/关键字段”一栏中补充。
 - **自检逻辑**：更新文档前，AI 需调用 `user-sqlserver` 的 `get_table_schema` 确保文档记录的字段名与数据库真实情况完全一致。
@@ -110,19 +110,11 @@
 - **业务中文名 → 物理表名**：当用户提到“房间表/入住/电费”等中文业务名时，助手必须先查 docs/sql/database_map.md，用映射结果（例如 Hr_room）再继续写接口/SQL/页面字段。
 - **缺失处理** ：如果映射表里没找到，助手必须先提示“映射缺失”，并给出建议把这一行补到 docs/sql/database_map.md（然后再继续）
 
-## 16. 全局操作审计规范 (Global Audit Trail)
-    - **审计字段**：所有业务表必须包含 uid, uname, utruename, addtime, edittime, deltime。写入口径：uid=Sys_Users.UserID，uname=Sys_Users.UserName，utruename=Sys_Users.truename（实现见 server/businessAuditFields.js）。
-    - **禁止 JSON 裸投**：审计日志的 `详细内容` 严禁直接存入 JSON 字符串（如截图中所示）。
-    - **日志标准模版 (面向用户)**：必须将数据翻译为中文短句。
-        - **格式**：`[动作]了[模块名]，编号为：[code]，名称为：[name]。关键改动：[字段中文名]从[原值]变更为[新值]`。
-        - **示例**：`录入了供应商，编号为：SUP001，名称为：测试供应商。`
-    - **后端实现**：在 Service 层构建 SQL 前，手动拼接该中文描述字符串存入日志表。
-
-## 17. 运维守则升级（写死命令流程）
+## 16. 运维守则升级（写死命令流程）
 
 > 说明：`taskkill` 会结束本机 **所有** `node.exe`（含 Vite 前端、其它 Node 工具）。若前端也要跑，杀完后在 **另一终端** 再执行 `npm run dev`。
 
-### 17.1 仅重启 API（端口 3001，仓库根目录）
+### 17 仅重启 API（端口 3001，仓库根目录）
 
 **PowerShell（推荐，与 Cursor 终端一致）：**
 

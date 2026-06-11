@@ -86,11 +86,12 @@ export function registerAssistOrderRoutes(app, deps) {
         return
       }
       const pool = await getPool()
+      const auditActor = await resolveActorAuditTripletFromReq(pool, req)
       const result = await lifecycleService.applyAssistOrderLifecycleAction({
         pool,
         id,
         action,
-        actor: req.user ?? req.session?.user ?? {},
+        actor: { ...(req.user ?? req.session?.user ?? {}), ...auditActor },
       })
       if (!result?.ok) {
         res.status(result?.status ?? 400).json({ code: result?.status ?? 400, msg: result?.msg || '操作失败', data: null })

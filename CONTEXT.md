@@ -42,6 +42,26 @@
 > 实现：`server/businessAuditFields.js` 的 `getActorAuditTripletFromReq`（令牌）与 `resolveActorAuditTripletFromReq`（按 `usercode` 查库覆盖）。登录令牌另存 `auditUserName` / `auditTruename`，界面显示名仍用 `userName`（可含人事 `StaffDisplayName`）。
 > 经典易错点：勿把 **`usercode`** 写入业务表 `uname`；勿把 **`Sys_Users.uname`**（创建人姓名）当成当前操作人；`utruename` 必须落 **`truename`**。
 
+### 操作日志（全系统，已定）
+
+与上节「业务表审计列」不同：操作日志写入独立表 **`UB_Date_ERP_Operation_log`**（表名不是数据库名）。
+
+| 项 | 约定 |
+|---|---|
+| 正式日志表 | `UB_Date_ERP_Operation_log` |
+| 遗留表 | `Sys_OperationLogs` 为测试遗留，**不再**作为正式来源 |
+| 统一写入口 | `server/operationLogWriter.js`：`writeOperationLog(poolOrTx, payload)` / `writeLog(req, action, details, options)` |
+| 自动审计 | `server/operationAuditMiddleware.js`：POST/PUT/DELETE 成功（HTTP 200）后异步写入；动作名与表名映射见 `server/action_map.js` |
+| 模块手写 | 外协订单等事务内日志见 `server/assistOrderOperationLog.js` |
+| 字段形态 | 旧系统口径：`act_name`（动作中文名）、`act_info`（可读中文详情，最长 500 字） |
+| `code` | 被操作的物理表名（如 `Bom_colorcode`、`UB_Date_ERP_Assist_order`） |
+| `systemcode` | 被操作业务单据的系统编码（无则空） |
+| `uname` / `utruename` | 操作人登录账号 / 真实姓名（从登录态取，禁止前端覆盖） |
+| `ip` | 请求 IP（`getRequestIp`） |
+| 文案要求 | `act_info` 须为**可读中文短句**；禁止把 JSON 原样当正式业务文案（中间件对 body 脱敏后 stringify 仅作兜底） |
+
+各模块 `act_name` / `act_info` 具体文案允许按业务逐条调整；外协订单定稿见下文「操作日志（外协订单文案，已定）」。
+
 ### 操作员表 Sys_Users（列名勿与业务表审计列混用）
 
 | 列 / 概念 | 说明 |
@@ -385,7 +405,7 @@
 **物料单**：`pi_cost` 同 BOM **成本运算用量表**（数据源为 **PI BOM list**，隐藏前缀与 BOM 资料一致）；`pi_consumption` = **`pi_cost` 按子件编码 + `Describe`（搭配）** 合并。**运算不写订货数量**；展示/订料时 **× 该款订货数量**。
 **pi_cost 落库规则**：与 BOM 资料 **用量运算 → bom_cost** 同链路（`flattenBomPartsCostUsageFlatForBomCost` + 隐藏前缀 + 跳过成品根行，**平铺不合并**）；**不再**按 `UB_ERP_Bom_Sales_list.id` 二次去重。隐藏前缀里普通 `RP-` 材料必须写入，仅 `RP-PQ` 结构行不写入。PI BOM 须先 **同步 BOM**（按旧系统口径重建 list：查到几条写几条，过滤 `Bom_code.flag5 + '-'` 结构行但保留 `CUT-` 和 `RP-`，其中 `RP-PQ` 仍过滤），否则脏数据会导致 `pi_cost` 行数与 `bom_cost` 不一致。实现：`server/salesOrderCalculateService.js`。
 **pi_cost 专用字段**（不改用量行数）：`top_kcaa01/02` = PI BOM **第一层**（成品头直下）且命中 **Bom_code** `flag5`（排除 id=3 OUT、id=12 CUT）的节点作为子树锚点，其下全部子件（含裁片下 `RP-*` 等材料）**继承**该锚点；**深层**命中 `flag5` 不新建锚点（避免 `RP-0030/-` 误写自身）。**散件单**（直接 BOM、非整款 BAG/TAG 子树）第一层即散件本身时，`top_kcaa01` 可为自身。`t_kcaa01/02` = 直接父编码/名称（父即锚点时留空）；`t_kcaa03~11/14/15/25~27` = 直接父行 `UB_ERP_Bom_Sales_list` 同名 `kcaa*`（树父节点复制，与 pi_cost 自身 `kcaa*` 子件字段分开）；`temp` = 该款销售明细 `UB_ERP_Sales_order_list.xsak03`（同 `pq` 下各行相同）；`isok=1`、`pass='1'`、`kcac07=0`、`kcac08=kcac06+kcac07`、`kcaa07/08=0`。`bom_cost.top_kcaa01` 仍为直接父，**勿混用**。
-**入口与审核**：销售订单 **一键运算** 与 **增加散件单用量** 只放在销售订单列表第一列「操作」中；查看/编辑弹窗不再放运算入口。已审核与未审核订单都可以执行；回收站订单不可操作。
+**入口与审核**：销售订单 **一键运算** 与 **增加散件单用量** 只放在销售订单列表第一列「操作」中；查看弹窗与编辑页不再放运算入口。已审核与未审核订单都可以执行；回收站订单不可操作。
 **PX 规则**：销售订单一键运算写 `UB_ERP_Bom_pi_cost.px`，规则照 BOM 资料：子件 `kcaa01` 精确匹配 `bom_000.kcaa01` 取 `kcaa05`，再匹配 `Bom_material.code` 取 `px`；找不到则 `px` 留空。
 
 **物料单查看入口**：销售订单仍负责点击「一键运算」生成物料单；生成后的结果统一在 **生产管理 → 统计分析 → 物料单** 查看，页面分为 **物料单统计表（明细）** 与 **物料单统计表（汇总）**。销售订单详情/编辑页不再内嵌物料单 Tab。
@@ -641,12 +661,12 @@
 - 每页行数可配置，默认 12 行换页，可选 3～15 行；配置按用户保存到 `UB_ERP_User_print_setup`。
 - 打印单价小数位可配置，默认 2 位，可选 2～5 位。
 
-### 操作日志（已定）
+### 操作日志（外协订单文案，已定）
 
-- 外协订单操作日志写入 `UB_Date_ERP_Operation_log`。
-- `UB_Date_ERP_Operation_log` 是操作日志表名，不是数据库名。
-- 全系统操作日志统一写入 `UB_Date_ERP_Operation_log`；旧的 `Sys_OperationLogs` 自动审计日志属于测试遗留，不再作为正式操作日志来源。
-- 日志按旧系统 `act_name` / `act_info` 形态记录中文内容。
+> 全系统写表与写入口见第三节「操作日志（全系统）」。
+
+- 外协订单在事务内通过 `assistOrderOperationLog.js` 写入 `UB_Date_ERP_Operation_log`。
+- 各动作 `act_name` / `act_info` 示例如下（允许后续按业务逐条重写）：
 - 新增外协订单：`act_name` 为外协订单录入，`act_info` 记录录入成功、等待审核、单号、关联号、操作时间、操作者。
 - 修改外协订单：`act_name` 为外协订单修改，`act_info` 记录修改成功、等待审核、单号、关联号、操作时间、操作者。
 - 删除外协订单：`act_name` 为外协订单删除，`act_info` 记录单号、操作时间、系统编号。

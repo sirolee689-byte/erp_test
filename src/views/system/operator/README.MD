@@ -22,10 +22,10 @@
 ### 3. 已完成的功能（CRUD 进度表）
 - [x] **查**：GET `/api/users`（分页 `ROW_NUMBER`，`page`/`pageSize` 默认每页 **20**）
 - [x] **看**：GET `/api/users/:id` 只读详情弹窗
-- [x] **增**：POST `/api/users`（动态列插入；规则 16 录入日志）
-- [x] **改**：PUT `/api/users`（写 `edittime` 与审计列；日志模版「操作员状态变更！账号…姓名…」）
-- [x] **反审核（禁用）**：PUT `/api/users` body 含 `op: 'unpass'`（或兼容旧版 `Status:0`）；`pass=0`；同上日志模版
-- [x] **软删除**：PUT `/api/users` body 含 `op: 'soft_delete'`；`del=1` + `deltime`；规则 16「编码删除！操作员编码…」
+- [x] **增**：POST `/api/users`（动态列插入；`writeLog` 写入 `UB_Date_ERP_Operation_log`）
+- [x] **改**：PUT `/api/users`（写 `edittime` 与业务表审计列；`act_info` 模版「操作员状态变更！账号…姓名…」）
+- [x] **反审核（禁用）**：PUT `/api/users` body 含 `op: 'unpass'`（或兼容旧版 `Status:0`）；`pass=0`；同上操作日志模版
+- [x] **软删除**：PUT `/api/users` body 含 `op: 'soft_delete'`；`del=1` + `deltime`；`act_info`「编码删除！操作员编码…」
 - [x] **恢复**：PUT `/api/users/resume`（回收站 → `del=0`）
 - [x] **禁止物理删**：旧版+v2 下 DELETE `/api/users/:id` 返回 400，勿用
 
@@ -137,12 +137,12 @@
 #### 5.4 反审核（原「禁用」按钮）
 - **方法/路径**：PUT `/api/users`
 - **Body**：`{ UserID, op: 'unpass' }`（兼容旧客户端：`{ UserID, Status: 0 }`）
-- **效果**：`pass` 置 0；写审计与规则 16 日志（模版「操作员状态变更！账号…姓名…」）
+- **效果**：`pass` 置 0；写业务表审计列与操作日志（`UB_Date_ERP_Operation_log`，模版「操作员状态变更！账号…姓名…」）
 
 #### 5.5 软删除
 - **方法/路径**：PUT `/api/users`
 - **Body**：`{ UserID, op: 'soft_delete' }`
-- **效果**：`del=1`，写 `deltime`（若存在列）；规则 16「编码删除！操作员编码…名称…」
+- **效果**：`del=1`，写 `deltime`（若存在列）；操作日志 `act_info`「编码删除！操作员编码…名称…」
 
 #### 5.6 恢复用户（回收站 → 在册）
 - **方法/路径**：PUT `/api/users/resume`

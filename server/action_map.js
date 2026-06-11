@@ -100,8 +100,6 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   { method: 'PUT', path: '/api/users', action: '修改操作员', targetTable: 'Sys_Users' },
   { method: 'DELETE', path: /^\/api\/users\/\d+$/, action: '删除操作员', targetTable: 'Sys_Users' },
 
-  { method: 'DELETE', path: '/api/sys/logs/clear', action: '清空操作日志', targetTable: 'Sys_OperationLogs' },
-
   { method: 'GET', path: '/api/inv/bom/list', action: '查询BOM资料列表', targetTable: 'bom_000' },
   { method: 'GET', path: '/api/inv/bom/bom-code-categories', action: '查询BOM分类下拉', targetTable: 'Bom_code' },
   { method: 'GET', path: '/api/inventory/bom/check-code', action: '校验BOM编码重复', targetTable: 'bom_000' },

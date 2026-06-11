@@ -1,7 +1,25 @@
 <template>
   <div class="erp-module-page" :class="{ 'so-standalone-window': isSalesOrderStandaloneWindow }">
     <!-- 销售订单 issue 01：列表 + 只读详情（主表 Tab / 明细 Tab） -->
-    <el-card v-if="!isSalesOrderStandaloneWindow" shadow="never">
+    <div v-if="!isSalesOrderStandaloneWindow" class="so-mode-bar">
+      <el-button
+        :type="pageMode === 'manage' ? 'primary' : 'default'"
+        plain
+        @click="switchToManage"
+      >
+        管理销售订单
+      </el-button>
+      <el-button
+        v-permission="'add'"
+        :type="pageMode === 'create' ? 'primary' : 'default'"
+        plain
+        @click="switchToCreate"
+      >
+        销售订单添加
+      </el-button>
+    </div>
+
+    <el-card v-show="!isSalesOrderStandaloneWindow && pageMode === 'manage'" shadow="never">
      
 
       <div class="so-toolbar">
@@ -26,16 +44,6 @@
             <el-button size="small" @click="onReset">重置</el-button>
           </div>
           <div class="so-command-actions">
-            <el-button
-              v-if="!showRecycle"
-              v-permission="'add'"
-              type="success"
-              plain
-              size="small"
-              @click="openCreate"
-            >
-              新增销售订单
-            </el-button>
             <el-button class="btn-view" size="small" :loading="loading" @click="loadData">
               <el-icon class="btn-icon"><Refresh /></el-icon>
               刷新
@@ -501,18 +509,15 @@
       </template>
     </el-dialog>
 
-    <el-dialog
-      v-model="editVisible"
-      :title="editMode === 'create' ? '新增销售订单' : '编辑销售订单'"
-      width="85%"
-      top="5vh"
-      draggable
-      destroy-on-close
-      :modal="!isSalesOrderStandaloneWindow"
-      :close-on-click-modal="false"
-      :class="['so-edit-dialog', 'erp-page-dialog', { 'so-edit-dialog--standalone': isSalesOrderStandaloneWindow }]"
-      @closed="onEditClosed"
+    <section
+      v-show="editVisible"
+      :class="['so-edit-panel', { 'so-edit-panel--standalone': isSalesOrderStandaloneWindow }]"
     >
+      <div class="so-edit-panel__header">
+        <h2 class="so-edit-panel__title">
+          {{ editMode === 'create' ? '新增销售订单' : '编辑销售订单' }}
+        </h2>
+      </div>
       <div v-loading="editLoading" class="detail-wrap">
         <el-tabs v-model="editActiveTab" @tab-change="onEditTabChange">
           <el-tab-pane label="主表" name="header">
@@ -855,7 +860,7 @@
           </el-tab-pane>
         </el-tabs>
       </div>
-      <template #footer>
+      <div class="so-edit-panel__footer">
         <div class="action-bar action-bar--footer">
           <el-button size="small" @click="closeEditWindowOrDialog">取消</el-button>
           <el-button
@@ -880,8 +885,8 @@
             保存
           </el-button>
         </div>
-      </template>
-    </el-dialog>
+      </div>
+    </section>
 
     <MaterialSelector v-model="materialVisible" multiple @batch-confirm="onMaterialsPicked" />
   </div>
@@ -915,6 +920,7 @@ const isSalesOrderStandaloneWindow = computed(() => salesOrderWindowMode.value =
 
 const loading = ref(false)
 const errorMessage = ref('')
+const pageMode = ref('manage')
 const filterKeyword = ref('')
 const showRecycle = ref(false)
 const showUnAudited = ref(false)
@@ -1043,9 +1049,9 @@ const syncBomBatchLoading = ref(false)
 /** 批量同步进度 */
 const syncBomBatchProgress = ref({ current: 0, total: 0 })
 const syncBomSelectedCount = computed(() => syncBomSelected.value.length)
-/** 编辑弹窗主表 pass（已审锁明细） */
+/** 编辑页主表 pass（已审锁明细） */
 const editHeaderPass = ref('0')
-/** 编辑弹窗运算状态（与列表 calcStatus 一致） */
+/** 编辑页运算状态（与列表 calcStatus 一致） */
 const editHeaderCalcStatus = ref('未运算')
 const calculateLoading = ref(false)
 const spareUsageLoading = ref(false)
@@ -1480,10 +1486,16 @@ function closeEditWindowOrDialog() {
     return
   }
   editVisible.value = false
+  pageMode.value = 'manage'
 }
 
-function onEditClosed() {
-  if (isSalesOrderStandaloneWindow.value) closeStandaloneBrowserWindow()
+function switchToManage() {
+  editVisible.value = false
+  pageMode.value = 'manage'
+}
+
+async function switchToCreate() {
+  await openCreate()
 }
 
 function setRowLoading(row, key) {
@@ -1523,6 +1535,7 @@ async function onPiNoBlur() {
 async function openCreate() {
   editMode.value = 'create'
   editId.value = null
+  pageMode.value = 'create'
   editHeaderPass.value = '0'
   editHeaderCalcStatus.value = '未运算'
   syncedSinceCalc.value = []
@@ -1564,6 +1577,7 @@ async function openEdit(row) {
   }
   editMode.value = 'edit'
   editId.value = Number(row.id)
+  pageMode.value = 'edit'
   editHeaderPass.value = String(row.pass ?? '0')
   clearSyncBomSelected()
   resetPiBomState()
@@ -1602,6 +1616,7 @@ async function openEdit(row) {
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '加载失败'))
     editVisible.value = false
+    pageMode.value = 'manage'
   } finally {
     editLoading.value = false
   }
@@ -1942,9 +1957,11 @@ async function onSave() {
     if (isSalesOrderStandaloneWindow.value) {
       notifySalesOrderListRefresh()
       editVisible.value = false
+      closeStandaloneBrowserWindow()
       return
     }
     editVisible.value = false
+    pageMode.value = 'manage'
     await loadData()
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '保存失败'))
@@ -2107,6 +2124,15 @@ onUnmounted(() => {
 .page-desc code {
   font-size: 12px;
 }
+.so-mode-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-left: 4px solid var(--el-color-primary);
+  background: var(--el-fill-color-lighter);
+}
 .so-toolbar {
   margin-bottom: 12px;
 }
@@ -2187,10 +2213,32 @@ onUnmounted(() => {
   margin-left: 0;
   margin-right: 0;
 }
-/* DIY：编辑弹窗与明细工具栏字号 — index.vue .so-edit-dialog / .so-lines-hint */
-.so-edit-dialog :deep(.el-dialog__title) {
+.so-edit-panel {
+  box-sizing: border-box;
+  min-height: 360px;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--el-border-color-light);
+  background: var(--el-bg-color);
+}
+.so-edit-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.so-edit-panel__title {
+  margin: 0;
   font-size: var(--so-dialog-title-size, 18px);
   font-weight: 600;
+}
+.so-edit-panel__footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: 12px -16px -12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--el-border-color-light);
+  background: var(--el-bg-color);
 }
 .so-edit-form {
   max-width: 1180px;
@@ -2269,52 +2317,27 @@ onUnmounted(() => {
 .erp-action-tooltip-wrap {
   display: inline-block;
 }
-</style>
-
-<style>
-.so-edit-dialog--standalone.el-dialog {
-  width: 100vw !important;
-  height: 100vh;
-  max-height: none;
-  margin: 0 !important;
-  border-radius: 0;
-  box-shadow: none;
-}
-
-.so-edit-dialog--standalone.el-dialog .el-dialog__header {
-  height: 0;
-  min-height: 0;
-  margin: 0;
-  padding: 0 !important;
+.so-edit-panel--standalone {
+  min-height: 100vh;
+  padding: 10px 12px 60px;
   border: 0;
-  background: transparent;
 }
-
-.so-edit-dialog--standalone.el-dialog .el-dialog__title {
+.so-edit-panel--standalone .so-edit-panel__header {
   display: none;
 }
-
-.so-edit-dialog--standalone.el-dialog .el-dialog__headerbtn {
-  top: 10px !important;
-  right: 14px !important;
-  z-index: 5;
-}
-
-.so-edit-dialog--standalone.el-dialog .el-dialog__body {
-  box-sizing: border-box;
-  height: calc(100vh - 48px);
-  padding: 10px 12px 12px !important;
-  overflow: auto;
-}
-
-.so-edit-dialog--standalone.el-dialog .so-edit-form {
+.so-edit-panel--standalone .so-edit-form {
   max-width: 1180px;
 }
-
-.so-edit-dialog--standalone.el-dialog .el-dialog__footer {
+.so-edit-panel--standalone .so-edit-panel__footer {
   box-sizing: border-box;
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
   height: 48px;
-  padding: 8px 12px !important;
+  margin: 0;
+  padding: 8px 12px;
   border-top: 1px solid var(--el-border-color-light);
+  background: var(--el-bg-color);
 }
 </style>

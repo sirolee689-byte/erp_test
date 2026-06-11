@@ -182,6 +182,7 @@ export async function createAssistOrder(opts) {
   const tx = new sql.Transaction(pool)
   await tx.begin()
   try {
+    const auditActor = actor ?? { uidInt: null, uname: null, utruename: null }
     const req = new sql.Request(tx)
     bindAssistOrderHeaderFields(req, {
       header,
@@ -189,7 +190,7 @@ export async function createAssistOrder(opts) {
       currency,
       finalNo,
       orderGuid,
-      actor: actor ?? { uidInt: null, uname: null, utruename: null },
+      actor: auditActor,
       forInsert: true,
     })
     const out = await req.query(`
@@ -211,7 +212,7 @@ export async function createAssistOrder(opts) {
       lines: body?.lines ?? [],
       assistType: header.assistType,
       referenceNo: header.referenceNo,
-      actor: actor ?? { uidInt: null, uname: null, utruename: null },
+      actor: auditActor,
       clientIp,
       tx,
     })
@@ -226,9 +227,9 @@ export async function createAssistOrder(opts) {
         orderNo: finalNo.assistOrderNo,
         referenceNo: header.referenceNo,
         systemCode: orderGuid,
-        actor: httpReq?.user,
+        actor: auditActor,
       }),
-      actor: httpReq?.user,
+      actor: auditActor,
       orderNo: finalNo.assistOrderNo,
       systemCode: orderGuid,
       ip: httpReq ? getRequestIp(httpReq) : '',
@@ -256,6 +257,7 @@ export async function updateAssistOrder(opts) {
     SELECT TOP 1
       [id],
       LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([wxaj01], N'')))) AS assistOrderNo,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([wxaj04], N'')))) AS referenceNo,
       LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([systemcode], N'')))) AS systemCode,
       LTRIM(RTRIM(ISNULL([pass], N''))) AS pass,
       LTRIM(RTRIM(ISNULL([closed], N''))) AS closed,
@@ -285,6 +287,7 @@ export async function updateAssistOrder(opts) {
   const tx = new sql.Transaction(pool)
   await tx.begin()
   try {
+    const auditActor = actor ?? { uidInt: null, uname: null, utruename: null }
     const req = new sql.Request(tx)
     req.input('id', sql.Int, id)
     bindAssistOrderHeaderFields(req, {
@@ -292,7 +295,7 @@ export async function updateAssistOrder(opts) {
       supplier,
       currency,
       finalNo,
-      actor: actor ?? { uidInt: null, uname: null, utruename: null },
+      actor: auditActor,
       forInsert: false,
     })
     await req.query(`
@@ -323,7 +326,7 @@ export async function updateAssistOrder(opts) {
       lines: body?.lines ?? [],
       assistType: header.assistType,
       referenceNo: header.referenceNo,
-      actor: actor ?? { uidInt: null, uname: null, utruename: null },
+      actor: auditActor,
       clientIp,
       tx,
     })
@@ -336,11 +339,11 @@ export async function updateAssistOrder(opts) {
       actName: '外协订单修改',
       info: buildAssistOrderLogInfo({
         orderNo: finalNo.assistOrderNo,
-        referenceNo: header.referenceNo,
+        referenceNo: header.referenceNo || row.referenceNo,
         systemCode: row.systemCode || row.assistOrderNo,
-        actor: httpReq?.user,
+        actor: auditActor,
       }),
-      actor: httpReq?.user,
+      actor: auditActor,
       orderNo: finalNo.assistOrderNo,
       systemCode: row.systemCode || row.assistOrderNo,
       ip: httpReq ? getRequestIp(httpReq) : '',

@@ -73,6 +73,19 @@ function actionConfig(action, row) {
   return { error: '不支持的外协订单动作' }
 }
 
+function actionLogName(action, fallback) {
+  const names = {
+    audit: '审核',
+    unaudit: '反审',
+    close: '结案',
+    unclose: '反结案',
+    delete: '删除',
+    restore: '恢复',
+    'hard-delete': '彻底删除',
+  }
+  return names[action] ?? fallback
+}
+
 export async function applyAssistOrderLifecycleAction({ pool, id, action, actor }) {
   const row = await fetchOrder(pool, id)
   if (!row) return { ok: false, status: 404, msg: '外协订单不存在' }
@@ -94,7 +107,7 @@ export async function applyAssistOrderLifecycleAction({ pool, id, action, actor 
       DELETE FROM ${HEADER_FROM} WHERE [id] = @id;
     `)
     await writeAssistOrderOperationLog(pool, {
-      actName: config.actName,
+      actName: actionLogName(action, config.actName),
       info,
       actor,
       orderNo: row.assistOrderNo,
@@ -110,7 +123,7 @@ export async function applyAssistOrderLifecycleAction({ pool, id, action, actor 
     WHERE [id] = @id
   `)
   await writeAssistOrderOperationLog(pool, {
-    actName: config.actName,
+    actName: actionLogName(action, config.actName),
     info,
     actor,
     orderNo: row.assistOrderNo,

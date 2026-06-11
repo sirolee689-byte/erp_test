@@ -11,7 +11,7 @@
 - **Hr_room**：宿舍房间主数据（v1.1.3 起）
 - **Hr_room_in**：宿舍入住记录（v1.1.3 起）
 - **Hr_room_use**：宿舍电费/用量等（`room_code` 与 `Hr_room.s_code` 对应；住宿总览按 `tj_date` 所在月汇总 `c_sum_money`，v1.1.4 起）
-- **Sys_OperationLogs**：全局操作审计日志（新增）
+- **UB_Date_ERP_Operation_log**：全系统操作日志（正式表；写入口 `server/operationLogWriter.js`；`Sys_OperationLogs` 为测试遗留，不再写入）
 - **Sys_Roles**：角色管理（含菜单权限 `Permissions`）
 - **Sys_Users**：用户/操作员（通过 `RoleID` 关联角色）
 - **bom_000**：BOM 主档 / 物料清单头（v1.1.7 列表查询；约 6.8W 行量级，**必须分页**）
@@ -612,4 +612,11 @@
 - **`dbo.[UB_ERP_Sales_order]` / `dbo.[UB_ERP_Sales_order_list]` / `dbo.[UB_ERP_Bom_Sales]` / `dbo.[UB_ERP_Bom_Sales_list]` / `dbo.[UB_ERP_Bom_pi_cost]` / `dbo.[UB_ERP_Bom_pi_consumption]`**
   - 来源：`server/salesOrderHandlers.js` 及 `server/salesOrder*.js`（销售订单 REST）
   - 来源：`server/piBomDataHandlers.js`（PI_BOM资料列表；按销售订单明细款分页查询，成本用量汇总 `UB_ERP_Bom_pi_cost`）
+
+- **`dbo.[UB_Date_ERP_Operation_log]`**（全系统操作日志）
+  - 写入口：`server/operationLogWriter.js`（`writeOperationLog` / `writeLog`）
+  - 自动写入：`server/operationAuditMiddleware.js` + `server/action_map.js`（POST/PUT/DELETE 成功且 HTTP 200）
+  - 模块手写：`server/assistOrderOperationLog.js`（外协订单事务内）、`server/operatorUsersHandlers.js`（操作员）等
+  - 关键字段：`act_name`（动作中文名）、`act_info`（可读详情，≤500 字）、`uname`/`utruename`（操作人）、`code`（被操作物理表）、`systemcode`（业务单号）、`ip`、`addtime`
+  - 约定详见：`CONTEXT.md` 第三节「操作日志（全系统，已定）」
 

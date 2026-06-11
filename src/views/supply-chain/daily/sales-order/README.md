@@ -48,7 +48,7 @@
 | GET | `/api/sales-order/:id/pi-bom?kcaa01=` | view | 无 `kcaa01`：款列表；有：树 + flat |
 | PUT | `/api/sales-order/:id/pi-bom` | edit | body `{ kcaa01, lines: [{ id, kcac04, kcac05?, Describe? }] }` |
 
-审计中文名见 `server/action_map.js`（与上表路由一一对应）。
+操作日志：`server/action_map.js` 登记各路由 `act_name`；HTTP 200 后由 `operationAuditMiddleware` 经 `operationLogWriter` 写入 **`UB_Date_ERP_Operation_log`**（与上表路由一一对应）。
 
 > 审计三字段（与 `CONTEXT.md` 第三节一致，服务端 `resolveActorAuditTripletFromReq`）：`uid`=`UserID`，`uname`=`UserName`，`utruename`=`truename`（按登录 `usercode` 查库）。禁止把 `usercode` 写入 `uname`，禁止用工牌显示名写入 `utruename`。
 
@@ -83,7 +83,7 @@
 - **一键运算** 只读 **PI BOM**（`UB_ERP_Bom_Sales_list`），写入 `UB_ERP_Bom_pi_*`，**不乘订货数量**；**无 BOM 层数上限**（与主 BOM 用量树一致；循环引用仍失败）；隐藏前缀与 BOM 资料内置列表一致（`server/bomCostHidePrefixes.js`）；下游订料时 **用量 × 订货数量**
 - **一键运算写 `UB_ERP_Bom_pi_cost`**：与 BOM 资料 **用量运算 → bom_cost** 同规则（平铺不合并、隐藏前缀一致、跳过成品根行）；普通 `RP-` 材料写入，`RP-PQ` 结构行不写入；**不**再按 `UB_ERP_Bom_Sales_list.id` 去重。验收：同款同步 BOM 后，`pi_cost` 行数与用量应对齐该款 `bom_cost`（仅 `sid` 为 PI 号）。历史脏 PI list 须先 **同步 BOM**。
 - **`pi_cost` 专用字段**（用量 `kcac04/05/06` 不变）：`top_kcaa01/02` = PI BOM **第一层**命中 `Bom_code flag5`（排除 OUT/CUT）的锚点，子树继承（裁片下 `RP-*` 等材料不新建锚点）；**散件单**第一层即散件时 `top` 可为自身；`t_kcaa01/02` = 直接父（父即锚点时 **留空**）；`t_kcaa03~11/14/15/25~27` = 直接父行在 `UB_ERP_Bom_Sales_list` 的同名 `kcaa*`（树遍历复制，等价 `sid`+`t_kcaa01` 查父行；父留空时 t 扩展字段亦空）；**`kcaa13`**：先按 `bom_000` enrich，若该行对应 `UB_ERP_Bom_Sales_list` 的 `kcaa13` **有值（含 0）** 则照抄覆盖；`temp` = 该款销售明细 `xsak03`（同 `pq` 下各行相同）；`isok=1`、`pass='1'`、`kcac07=0`、`kcac08=kcac06+kcac07`、`kcaa07/08=0`。实现：`server/salesOrderPiCostFields.js`。
-- **一键运算入口** 只放在列表第一列「操作」；查看/编辑弹窗不放入口。已审核、未审核在册订单都可以点；回收站订单不可运算。
+- **一键运算入口** 只放在列表第一列「操作」；查看弹窗和编辑页不放入口。已审核、未审核在册订单都可以点；回收站订单不可运算。
 - **散件判定**（`hasSpareParts`）：`Bom_code` 全部 `copen=1` 且 `flag5` 非空的前缀为「排除前缀」；明细 `kcaa01` **不命中**任一排除前缀 → 散件行；订单含至少一行散件 → 列表显示 **「增加散件单用量」**。
 - **订单类型与按钮**：
   - **纯整款**（无散件）：仅 **一键运算**。
@@ -112,17 +112,19 @@
 
 ## 新增页交互
 
-- 列表【新增销售订单】在当前页面直接打开新增弹窗，不再新开浏览器页（不使用 `target="_blank"`）。
-- 列表按钮文案固定为 **「新增销售订单」**（与页面标题一致）。
-- 新增弹窗初始化时，PI 号默认填 `PI-`，小数位数默认 `6`；编辑已有订单时仍以接口返回值为准。
+- 页面顶部为 **管理销售订单 / 销售订单添加** 双模式；默认进入管理列表。
+- 管理列表工具栏不再放「新增销售订单」按钮，新增入口统一使用顶部 **销售订单添加**。
+- **销售订单添加** 在当前页面整页显示新增表单，不再使用新增弹窗，也不新开浏览器页（不使用 `target="_blank"`）。
+- 行内 **编辑** 进入与新增同一套整页表单；查看仍使用原查看弹窗。
+- 新增表单初始化时，PI 号默认填 `PI-`，小数位数默认 `6`；编辑已有订单时仍以接口返回值为准。
 - 主表新增 `PO号` 输入框；保存时写入主表字段 `UB_ERP_Sales_order.xsaj06`。
 - 客户保存时写入 `xsaj05 = System_sales_customer.s_code`；客户名称仍写入 `kehu` 快照。
 - 币别下拉显示为 `001,人民币`、`002,美元` 这类格式；新增时默认选中接口真实返回的 `002,美元`；保存时写入 `xsaj07 = bom_currency.id`，币别名称仍写入 `rmb` 快照。
 - 新增保存自动生成 `GUID`，并同步写入 `systemcode`；`syscode` 与 `d_code` 保存为空值，`type` 固定写 `1`。
 - PI 号查重时机：**输入框失焦即校验**（`GET /api/sales-order/check-pi`）；点击保存前后端都会再做一次兜底校验，避免并发撞号。
-- 新增弹窗默认客户不写死假选项：打开时调用 `GET /api/supply-chain/customers/list?pass=1&keyword=PQD`，仅当接口返回真实存在的 `s_code=7001` 且 `s_name=PQD` 记录时，才默认选中该客户。
+- 新增表单默认客户不写死假选项：打开时调用 `GET /api/supply-chain/customers/list?pass=1&keyword=PQD`，仅当接口返回真实存在的 `s_code=7001` 且 `s_name=PQD` 记录时，才默认选中该客户。
 - 新增明细行时，数量和单价默认显示 `0`，输入框不强制显示固定小数位；保存仍走原字段，不改写入规则。
-- 新增保存仍走现有 `POST /api/sales-order`；保存成功后关闭弹窗并刷新当前列表。
+- 新增保存仍走现有 `POST /api/sales-order`；保存成功后返回管理列表并刷新当前列表。
 
 ## 列表交互
 

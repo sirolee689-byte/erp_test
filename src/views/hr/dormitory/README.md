@@ -15,14 +15,14 @@
   - **Tab1 房间列表**（`RoomList.vue`）：总览、办理入住、入住管理（在住/退宿）；`GET /api/hr/dormitory/lodging-overview` 等
   - **Tab2 审核入住申请**（`AuditList.vue`）：「显示已审核」联动 `pass`；列表 `GET /api/hr/dormitory/lodging-in/audit-center-list`；部门列仅展示 `HR_Departments.name`；**通过审核** `PUT /api/hr/dormitory/lodging-in/audit`；**反审核** `PUT /api/dorm/un-audit`；**彻底删除（仅未审核）** `DELETE /api/dorm/delete-checkin`（SQL 带 `pass='0'`）；驳回接口仍保留 `PUT /api/hr/dormitory/lodging-in/reject`（当前 Tab 未挂按钮）
   - **Tab3 住宿历史列表**（`HistoryList.vue`）：只读流水，**无**「仅未审核」开关、**无**审核状态列与审核按钮；**无设定日期（年/月）**，列表为全量（`del=0`），按入住时间倒序分页（默认 `pageSize=20`）
-  - `POST /api/hr/dormitory/check-in`：弹窗办理入住；**写入 `Hr_room_in` 默认 `pass=1`（自动过审）**；**INSERT 前**校验在住与历史区间时间重叠（与 `staff_code` 写入口径一致）；操作审计见 `Sys_OperationLogs`
+  - `POST /api/hr/dormitory/check-in`：弹窗办理入住；**写入 `Hr_room_in` 默认 `pass=1`（自动过审）**；**INSERT 前**校验在住与历史区间时间重叠（与 `staff_code` 写入口径一致）；操作日志写入 **`UB_Date_ERP_Operation_log`**
   - 说明文档：`src/views/dormitory/README.md`
 
 - **入住管理 & 退宿**（v1.1.3+）
   - 在房间列表点击【入住管理】，仅展示当前在住人员：`Hr_room_in.del=0 AND out_room=0 AND room_code=房号`
   - 部门展示：`Hr_staff.join_department`，关联键：`Hr_staff.new_code = Hr_room_in.staff_code`
   - 退宿：点击人员旁【退宿】→ 更新当前行 `out_room=1` 且写入 `out_time=YYYY-MM-DD HH:mm`（只更新该 id，不覆盖历史）
-  - 审计：`Sys_OperationLogs.Action=办理了退宿`，Content 含「管理员[uname]办理了员工[姓名]的退宿，日期：[退宿时间]」
+  - 操作日志：`act_name` 为办理了退宿，`act_info` 含「管理员[uname]办理了员工[姓名]的退宿，日期：[退宿时间]」（表 `UB_Date_ERP_Operation_log`）
 - **宿舍电费情况统计报表**（`hr/dormitory/electric-report`，v1.1.6）
   - Tabs：宿舍维度报表 + **宿舍费用分摊**（人员维度，`GET /api/dorm/electric-allocation-report`，与电费弹窗 v1.1.9 按天权重一致）；导出 XLS / 打印；说明见 `electric-report/README.md`
 - **住宿总览**（`GET /api/hr/dormitory/lodging-overview`，与页面「房间列表」Tab 对应）

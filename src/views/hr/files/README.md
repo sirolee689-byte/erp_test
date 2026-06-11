@@ -64,7 +64,7 @@
 - **迁移脚本**：
   - SQL：`docs/sql/sqlserver_v1.1.2_hr_staff_leave_fields.txt`
   - 命令：`npm run migrate:hr-staff-leave-fields`
-- **接口**：`PUT /api/hr/staff/leave/:id`（事务：更新员工状态 + 封禁账号；成功后写操作日志）
+- **接口**：`PUT /api/hr/staff/leave/:id`（事务：更新员工状态 + 封禁账号；成功后 `writeLog` 写入 **`UB_Date_ERP_Operation_log`**）
 - **前端**：员工列表新增「在职状态」标签，并提供【办理离职】按钮（danger，二次确认）。
 
 #### v1.1.0 新增员工（Staff Profile）调整

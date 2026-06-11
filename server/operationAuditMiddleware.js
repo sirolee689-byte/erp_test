@@ -1,7 +1,7 @@
 /**
  * v1.1.1+：全局操作审计中间件
  * - 准备阶段：DELETE/PUT 员工前读库，生成可读中文详情（挂到 req 上）
- * - 完成阶段：POST/PUT/DELETE 且 HTTP 200 后异步写入 Sys_OperationLogs
+ * - 完成阶段：POST/PUT/DELETE 且 HTTP 200 后异步写入 UB_Date_ERP_Operation_log
  */
 import { getPool, sql } from './db.js'
 import { resolveAuditActionAndTable } from './action_map.js'
@@ -1070,6 +1070,22 @@ export function createOperationAuditPrepareMiddleware() {
 }
 
 /**
+ * 外协订单写接口已在业务事务内写 UB_Date_ERP_Operation_log，
+ * 全局审计不再补第二行。
+ * @param {string} method
+ * @param {string} path
+ */
+function isAssistOrderBusinessLoggedWriteRoute(method, path) {
+  if (method === 'POST' && path === '/api/assist-order') return true
+  if (method === 'PUT' && /^\/api\/assist-order\/\d+$/.test(path)) return true
+  if (method === 'POST' && /^\/api\/assist-order\/\d+\/(audit|unaudit|close|unclose|restore)$/.test(path)) {
+    return true
+  }
+  if (method === 'DELETE' && /^\/api\/assist-order\/\d+(\/hard)?$/.test(path)) return true
+  return false
+}
+
+/**
  * @param {{
  *   getCurrentUserFromReq: (req: import('express').Request) => any | null,
  *   writeOperationLogAsync: (payload: {
@@ -1098,6 +1114,7 @@ export function createOperationAuditMiddleware(deps) {
         if (res.statusCode !== 200) return
 
         if (path === '/api/login' || path === '/api/health') return
+        if (isAssistOrderBusinessLoggedWriteRoute(method, path)) return
 
         const user = getCurrentUserFromReq(req)
         if (!user) return
@@ -1623,15 +1640,20 @@ export function createOperationAuditMiddleware(deps) {
         void (async () => {
           try {
             await writeOperationLogAsync({
-              userId: user.userId ?? null,
-              userName: String(user.userName ?? user.userCode ?? '').trim() || null,
+              uname: String(user.userCode ?? '').trim() || null,
+              utruename:
+                String(user.userName ?? '').trim() ||
+                String(user.auditTruename ?? '').trim() ||
+                String(user.userCode ?? '').trim() ||
+                null,
               action,
-              targetTable,
+              code: targetTable || 'ERP',
+              systemcode: '',
               content,
-              ipAddress: getRequestIp(req) || null,
+              ip: getRequestIp(req) || null,
             })
           } catch (err) {
-            console.error('[操作审计中间件] 写入 Sys_OperationLogs 失败：', err?.message ?? err)
+            console.error('[操作审计中间件] 写入 UB_Date_ERP_Operation_log 失败：', err?.message ?? err)
           }
         })()
       } catch (err) {

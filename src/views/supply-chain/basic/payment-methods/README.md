@@ -50,9 +50,10 @@
 - `audit`：`PUT .../audit`、`PUT .../unaudit`
 - `delete`：`DELETE .../:id`、`DELETE .../:id/permanent`
 
-## 操作审计
+## 操作日志
 
-- 审计映射：`server/action_map.js`
-- 可读文案：`server/operationAuditMiddleware.js`
+- 落库表：`UB_Date_ERP_Operation_log`
+- 动作映射：`server/action_map.js`
+- 自动写入：`server/operationAuditMiddleware.js` → `server/operationLogWriter.js`
 - 文案要求：软删与彻底删除必须区分；编辑会记录关键字段差异（名称/天数/备注）。
 

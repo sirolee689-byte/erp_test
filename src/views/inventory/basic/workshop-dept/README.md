@@ -7,14 +7,14 @@
 - 默认视图：**`pass=1`（已审核）**；「显示未审核」查询 **`pass=0`**（与回收站互斥）。
 - 回收站：**`recycled=1`** 仅 **`del=1`**；支持同一关键字搜索；操作 **恢复**。
 - 回收站强删除：`DELETE /api/inventory/workshop-dept/:id/permanent`（仅 `del=1` 可物理删除，删除后不可恢复）。
-- 审核 / 反审：`PUT /api/inventory/workshop-dept/audit`、`PUT /api/inventory/workshop-dept/unaudit`，body **`{ id }`**；每次 **UPDATE 写 `edittime`**（规则 16，格式同下）。
+- 审核 / 反审：`PUT /api/inventory/workshop-dept/audit`、`PUT /api/inventory/workshop-dept/unaudit`，body **`{ id }`**；每次 **UPDATE 写 `edittime`**（业务表审计字段，见 `CONTEXT.md` 第三节）。
 - 逻辑删除 / 恢复：`DELETE /api/inventory/workshop-dept/:id` 将 **`del=1`** 并写 **`deltime`**；`PUT /api/inventory/workshop-dept/restore` 将 **`del=0`** 并写 **`edittime`**。**已审核不可软删**（提示同员工档案锁定文案）。
 - 新增：`POST /api/inventory/workshop-dept`，body **`{ code, name, info? }`**；后端做 **code 唯一性校验**（`del=0` 下不允许重复）；**`uid`/`uname`/`utruename`** 由 `getActorAuditTripletFromReq(req)` 从登录态写入；**`addtime`** 业务时间串；**`pass=0`、`del=0`**；**`id` 自增**（`OUTPUT INSERTED.id`）。**禁止前端传审计字段**。
 - 前端路由：`inventory/basic/workshop-dept`（与 `erp_structure_dump.json` 菜单一致）。
 
-## 操作日志（规则 16 模版）
+## 操作日志
 
-本模块已按 `.cursorrules` 第 16 条，在自动审计中生成**可读中文** `Content`（不让前端传日志内容）：
+由 `operationAuditMiddleware` 写入 **`UB_Date_ERP_Operation_log`**，`act_info` 为可读中文（前端不传日志内容）：
 
 - 新增：`录入成功,等待审核！车间与部门编码：[编码]，车间/部门名称：[名称]`
 - 审核：`申请通过审核！车间与部门编码：[编码]，车间/部门名称：[名称]`
@@ -26,7 +26,7 @@
 ## 数据库说明
 
 - 必备业务列：**`id`**（主键 `IDENTITY`）、**`code`**、**`name`**、**`info`**（可空）、**`pass`**、**`del`**。
-- **规则 16 审计列**（建议 `NVARCHAR(50)` 存时间串；`uid` 为 `INT`）：
+- **业务表审计列**（建议 `NVARCHAR(50)` 存时间串；`uid` 为 `INT`；见 `CONTEXT.md` 第三节）：
   - **`uid` / `uname` / `utruename`**：录入人（对应 `Sys_Users.UserID`、`UserCode`、`UserName`）；
   - **`addtime`**：新增时写入；
   - **`edittime`**：审核、反审、恢复时写入；

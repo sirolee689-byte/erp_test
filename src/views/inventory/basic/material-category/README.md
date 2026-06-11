@@ -6,9 +6,9 @@
 - 搜索：关键字对 **`code` / `name` / `customs_code`** 参数化 `LIKE`（防注入）。
 - 默认视图：**`pass=1`（已审核）**；「显示未审核」查询 **`pass=0`**（与回收站互斥）。
 - 回收站：**`recycled=1`** 仅 **`del=1`**；支持同一关键字搜索；操作 **恢复**。
-- 审核 / 反审：`PUT /api/inventory/material-category/audit`、`PUT /api/inventory/material-category/unaudit`，body **`{ id }`**；每次更新写 **`edittime`**（规则 16）。
+- 审核 / 反审：`PUT /api/inventory/material-category/audit`、`PUT /api/inventory/material-category/unaudit`，body **`{ id }`**；每次更新写 **`edittime`**（业务表审计字段，见 `CONTEXT.md` 第三节）。
 - 逻辑删除 / 恢复：`DELETE /api/inventory/material-category/:id` 将 **`del=1`** 并写 **`deltime`**；`PUT /api/inventory/material-category/restore` 将 **`del=0`** 并写 **`edittime`**。**已审核（`pass=1`）不可软删**，提示同员工档案锁定。
-- 新增：`POST /api/inventory/material-category`，body **`{ code, name, customs_code?, stocks_in?, stocks_out? }`**；`uid`/`uname`/`utruename` + `addtime` 由后端从登录态写入（规则 16）；`pass=0`、`del=0`；`id` 自增（`OUTPUT INSERTED.id`）。
+- 新增：`POST /api/inventory/material-category`，body **`{ code, name, customs_code?, stocks_in?, stocks_out? }`**；`uid`/`uname`/`utruename` + `addtime` 由后端从登录态写入；`pass=0`、`del=0`；`id` 自增（`OUTPUT INSERTED.id`）。
 - 前端路由：`inventory/basic/material-category`（与 `erp_structure_dump.json` 菜单一致）。
 
 ## 字段说明
@@ -20,7 +20,7 @@
 - `stocks_out`：出库浮动率（可空，建议字符串存原始录入，如 `0.05` 或 `5%`）
 - `pass` / `del`：项目约定
 
-## 数据库说明（规则 16）
+## 数据库说明
 
 - 必备业务列：`id`（主键 `IDENTITY`）、`code`、`name`、`customs_code`、`stocks_in`、`stocks_out`、`pass`、`del`。
 - 审计列（建议 `NVARCHAR(50)` 存时间串；`uid` 为 `INT`）：`uid`、`uname`、`utruename`、`addtime`、`edittime`、`deltime`。
@@ -48,7 +48,7 @@ ALTER TABLE dbo.[Bom_material] ADD deltime NVARCHAR(50) NULL;
 
 细粒度 `Permissions` 须包含上述动作，否则对应按钮隐藏或接口 403。
 
-## 操作日志（可读中文）
+## 操作日志
 
-本模块的新增/审核/反审/删除/恢复已在全局操作审计中间件中输出可读中文 `Content`（不带“操作人”前缀）。
+新增/审核/反审/删除/恢复由 `operationAuditMiddleware` 写入 **`UB_Date_ERP_Operation_log`**，`act_info` 为可读中文（不带“操作人”前缀）。
 
