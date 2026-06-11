@@ -123,20 +123,57 @@
         </div>
       </el-tab-pane>
       <el-tab-pane label="外协订单明细" name="lines">
-        <div class="assist-lines-toolbar">
-          <el-button type="primary" @click="$emit('open-material-selector')">选材</el-button>
-          <el-button @click="$emit('add-blank-line')">新增空行</el-button>
-        </div>
-        <el-table :data="model.lines" border stripe height="360" empty-text="暂无明细">
-          <el-table-column label="操作" width="72" fixed="left">
-            <template #default="{ $index }">
-              <el-button type="danger" link size="small" @click="$emit('remove-line', $index)">删除</el-button>
-            </template>
-          </el-table-column>
-          <el-table-column label="序号" width="64">
-            <template #default="{ $index }">{{ $index + 1 }}</template>
-          </el-table-column>
-          <el-table-column label="PI号" prop="piNo" min-width="120" show-overflow-tooltip />
+        <div class="assist-lines-pane">
+          <div class="assist-lines-toolbar">
+            <el-button type="danger" plain @click="$emit('delete-selected-lines')">删除选定明细</el-button>
+            <el-button type="danger" plain @click="$emit('delete-all-lines')">删除全部明细</el-button>
+            <el-button type="primary" @click="$emit('open-batch-add')">批量添加</el-button>
+          </div>
+          <div class="assist-lines-table-wrap">
+            <ErpTableViewportHScroll :bottom-offset="assistLinesHScrollBottom">
+              <el-table
+                ref="linesTableRef"
+                :data="model.lines"
+                border
+                stripe
+                class="erp-list-table assist-lines-table"
+                :max-height="linesTableMaxHeight"
+                empty-text="暂无明细"
+                :row-class-name="lineRowClassName"
+              >
+                <el-table-column
+                  label="操作"
+                  :width="assistLineActionsColWidth"
+                  fixed="left"
+                  align="center"
+                  header-align="center"
+                  class-name="erp-col-actions"
+                >
+                  <template #default="{ row }">
+                    <ErpTableActions class="assist-line-actions">
+                      <el-button
+                        size="small"
+                        type="primary"
+                        plain
+                        class="assist-line-action-btn"
+                        @click="$emit('view-line-pi-bom', row)"
+                      >
+                        查看
+                      </el-button>
+                      <el-button
+                        size="small"
+                        class="assist-line-action-btn assist-line-mark-btn"
+                        :class="{ 'assist-line-mark-btn--on': row._lineMarked }"
+                        @click="$emit('toggle-line-mark', row)"
+                      >
+                        {{ row._lineMarked ? '已选择' : '删除' }}
+                      </el-button>
+                    </ErpTableActions>
+                  </template>
+                </el-table-column>
+                <el-table-column label="序号" width="64" align="center">
+                  <template #default="{ $index }">{{ model.lines.length - $index }}</template>
+                </el-table-column>
           <el-table-column label="物料编码" prop="kcaa01" min-width="150" show-overflow-tooltip />
           <el-table-column label="中文名" prop="kcaa02" min-width="160" show-overflow-tooltip />
           <el-table-column label="规格" prop="kcaa03" min-width="140" show-overflow-tooltip />
@@ -202,36 +239,66 @@
               <el-input v-model="row.remark" />
             </template>
           </el-table-column>
-        </el-table>
+              </el-table>
+            </ErpTableViewportHScroll>
+          </div>
+        </div>
       </el-tab-pane>
       <el-tab-pane label="额外费用清单" name="fees">
-        <div class="assist-lines-toolbar">
-          <el-button type="primary" @click="$emit('open-fee-selector')">选择费用</el-button>
-          <el-button @click="$emit('add-blank-fee')">新增空行</el-button>
-        </div>
-        <el-table :data="model.fees" border stripe height="340" empty-text="暂无额外费用">
-          <el-table-column label="操作" width="72" fixed="left">
-            <template #default="{ $index }">
-              <el-button type="danger" link size="small" @click="$emit('remove-fee', $index)">删除</el-button>
-            </template>
-          </el-table-column>
-          <el-table-column label="序号" width="64">
+        <div class="assist-fees-pane">
+          <div class="assist-fees-toolbar">
+            <el-button size="small" @click="$emit('add-fee-row')">增行</el-button>
+            <el-button size="small" @click="$emit('reset-fees')">重置</el-button>
+          </div>
+          <div class="assist-fees-table-wrap">
+            <el-table
+              ref="feesTableRef"
+              :data="model.fees"
+              border
+              stripe
+              :height="feesTableHeight"
+              class="assist-fees-table"
+            >
+          <el-table-column label="序号" width="64" align="center">
             <template #default="{ $index }">{{ $index + 1 }}</template>
           </el-table-column>
-          <el-table-column label="费用编码及名称" min-width="240">
+          <el-table-column label="费用编码及名称" min-width="280">
             <template #default="{ row }">
-              <el-input v-model="row.feeCode" placeholder="费用编码" />
-              <el-input v-model="row.feeName" placeholder="费用名称" class="assist-inline-input" />
+              <el-select
+                v-model="row.feeCode"
+                class="assist-fee-select"
+                filterable
+                remote
+                clearable
+                reserve-keyword
+                placeholder="===请选择==="
+                :remote-method="searchFeeOptions"
+                :loading="feeOptionsLoading"
+                @change="(code) => onFeeCodeChange(row, code)"
+                @clear="onFeeCodeClear(row)"
+              >
+                <el-option
+                  v-if="row.feeCode && !feeOptionExists(row.feeCode)"
+                  :label="formatFeeLabel(row)"
+                  :value="row.feeCode"
+                />
+                <el-option
+                  v-for="opt in feeOptions"
+                  :key="opt.feeCode"
+                  :label="formatFeeLabel(opt)"
+                  :value="opt.feeCode"
+                />
+              </el-select>
             </template>
           </el-table-column>
           <el-table-column label="费用" width="140">
             <template #default="{ row }">
-              <el-input-number v-model="row.money" :precision="2" :min="0" controls-position="right" />
+              <el-input v-model="row.money" />
             </template>
           </el-table-column>
-          <el-table-column label="税点" width="120">
+          <el-table-column label="税点(不含税填0)" width="150">
             <template #default="{ row }">
-              <el-input-number v-model="row.tax" :precision="6" :min="0" controls-position="right" />
+              <el-input v-model="row.tax" />
             </template>
           </el-table-column>
           <el-table-column label="备注" min-width="180">
@@ -239,16 +306,19 @@
               <el-input v-model="row.remark" />
             </template>
           </el-table-column>
-        </el-table>
+            </el-table>
+          </div>
+        </div>
       </el-tab-pane>
     </el-tabs>
   </el-form>
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
 
 const props = defineProps({
   model: { type: Object, required: true },
@@ -263,15 +333,124 @@ const emit = defineEmits([
   'update:editTab',
   'assist-date-change',
   'fetch-supplier',
-  'open-material-selector',
-  'add-blank-line',
-  'remove-line',
+  'delete-selected-lines',
+  'delete-all-lines',
+  'open-batch-add',
+  'toggle-line-mark',
+  'view-line-pi-bom',
   'line-tax-excluded-change',
   'line-tax-included-change',
-  'open-fee-selector',
-  'add-blank-fee',
-  'remove-fee',
+  'add-fee-row',
+  'reset-fees',
 ])
+
+const feeOptions = ref([])
+const feeOptionsLoading = ref(false)
+let feeSearchTimer = null
+
+function formatFeeLabel(item) {
+  const code = String(item?.feeCode ?? '').trim()
+  const name = String(item?.feeName ?? '').trim()
+  if (!code && !name) return ''
+  if (!name) return code
+  return `${code}, ${name}`
+}
+
+function feeOptionExists(feeCode) {
+  const code = String(feeCode ?? '').trim()
+  if (!code) return false
+  return feeOptions.value.some((opt) => String(opt?.feeCode ?? '').trim() === code)
+}
+
+async function loadFeeOptions(keyword = '') {
+  feeOptionsLoading.value = true
+  try {
+    const res = await axios.get('/api/assist-order/fee-options', {
+      params: { keyword: String(keyword ?? '').trim() },
+    })
+    const body = res.data ?? {}
+    if (body.code !== 200) throw new Error(body.msg || '读取费用失败')
+    feeOptions.value = Array.isArray(body.data?.list) ? body.data.list : []
+  } catch (err) {
+    feeOptions.value = []
+    ElMessage.error(err?.response?.data?.msg || err?.message || '读取费用失败')
+  } finally {
+    feeOptionsLoading.value = false
+  }
+}
+
+function searchFeeOptions(keyword) {
+  if (feeSearchTimer) clearTimeout(feeSearchTimer)
+  feeSearchTimer = setTimeout(() => {
+    loadFeeOptions(keyword)
+  }, 200)
+}
+
+function onFeeCodeChange(row, code) {
+  const nextCode = String(code ?? '').trim()
+  if (!nextCode) {
+    onFeeCodeClear(row)
+    return
+  }
+  const matched = feeOptions.value.find((opt) => String(opt?.feeCode ?? '').trim() === nextCode)
+  if (matched) {
+    row.feeName = String(matched.feeName ?? '').trim()
+  }
+}
+
+function onFeeCodeClear(row) {
+  row.feeCode = ''
+  row.feeName = ''
+}
+
+const linesTableMaxHeight = 'calc(100vh - var(--assist-lines-offset, 320px))'
+/** DIY：费用表铺满高度，调小 --assist-fees-offset 则表更高 */
+const feesTableHeight = 'calc(100vh - var(--assist-fees-offset, 268px))'
+const assistLinesHScrollBottom = 64
+/** DIY：操作列宽，约两钮最小宽之和 + 间距 + 单元格留白（见 .assist-line-action-btn） */
+const assistLineActionsColWidth = 118
+const linesTableRef = ref(null)
+const feesTableRef = ref(null)
+
+async function refreshLinesTableLayout() {
+  await nextTick()
+  linesTableRef.value?.doLayout?.()
+  const el = linesTableRef.value?.$el
+  if (el) refreshErpTableViewportHScroll(el)
+}
+
+async function refreshFeesTableLayout() {
+  await nextTick()
+  feesTableRef.value?.doLayout?.()
+}
+
+watch(
+  () => props.editTab,
+  (tab) => {
+    if (tab === 'lines') refreshLinesTableLayout()
+    if (tab === 'fees') {
+      refreshFeesTableLayout()
+      if (!feeOptions.value.length) loadFeeOptions('')
+    }
+  },
+)
+
+watch(
+  () => props.model.lines,
+  () => {
+    if (props.editTab === 'lines') refreshLinesTableLayout()
+  },
+  { deep: true },
+)
+
+onMounted(() => {
+  if (props.editTab === 'lines') refreshLinesTableLayout()
+  if (props.editTab === 'fees') refreshFeesTableLayout()
+})
+
+function lineRowClassName({ row }) {
+  return row?._lineMarked ? 'assist-line-row--marked' : ''
+}
 
 const formRef = ref(null)
 
@@ -291,6 +470,7 @@ watch(
   (now, prev) => {
     if (prev !== undefined && now !== prev) {
       props.model.referenceNo = ''
+      props.model.referenceOrderId = null
     }
   },
 )
@@ -372,15 +552,24 @@ async function resolvePiRowByNo(piNo) {
 
 function onPickPi(row) {
   props.model.referenceNo = String(row?.piNo ?? '')
+  const id = Number(row?.id ?? 0)
+  props.model.referenceOrderId = Number.isFinite(id) && id > 0 ? id : null
   applyDeliveryFromPiRow(row)
 }
 
 async function onReferenceNoBlur() {
   if (!isOrderAssistType.value) return
   const piNo = String(props.model.referenceNo ?? '').trim()
-  if (!piNo) return
+  if (!piNo) {
+    props.model.referenceOrderId = null
+    return
+  }
   const row = await resolvePiRowByNo(piNo)
-  if (row) applyDeliveryFromPiRow(row)
+  if (row) {
+    const id = Number(row.id ?? 0)
+    props.model.referenceOrderId = Number.isFinite(id) && id > 0 ? id : null
+    applyDeliveryFromPiRow(row)
+  }
 }
 
 defineExpose({
@@ -473,14 +662,136 @@ defineExpose({
   color: #fff;
 }
 
+.assist-edit-form :deep(.el-tabs) {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 200px);
+}
+
+.assist-edit-form :deep(.el-tabs__content) {
+  flex: 1;
+  min-height: 0;
+}
+
+.assist-edit-form :deep(#pane-lines),
+.assist-edit-form :deep(#pane-fees) {
+  height: 100%;
+}
+
+.assist-lines-pane {
+  /* DIY：明细表距视口顶留白，调大则表格变矮 */
+  --assist-lines-offset: 320px;
+  /* DIY：底横条距视口底留白（为「立即提交」栏留空），改 assistLinesHScrollBottom 同步 */
+  --assist-lines-hscroll-bottom: 64px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
 .assist-lines-toolbar {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 10px;
+  flex-shrink: 0;
 }
 
-.assist-inline-input {
-  margin-top: 6px;
+.assist-lines-table-wrap {
+  flex: 1;
+  min-height: 0;
+}
+
+/* DIY：操作列两钮等宽 AssistOrderEditForm.vue .assist-line-action-btn */
+.assist-line-action-btn {
+  --assist-line-action-btn-min-width: 52px;
+  min-width: var(--assist-line-action-btn-min-width);
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+:deep(.assist-lines-table td.erp-col-actions .cell) {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+:deep(.assist-lines-table .assist-line-actions.erp-table-actions--grid) {
+  column-gap: 2px;
+}
+
+/* DIY：删除/已选择按钮配色 AssistOrderEditForm.vue .assist-line-mark-btn */
+.assist-line-mark-btn {
+  background-color: #ff7800;
+  border-color: #ff7800;
+  color: #fff;
+}
+
+.assist-line-mark-btn:hover {
+  background-color: #e56e00;
+  border-color: #e56e00;
+  color: #fff;
+}
+
+.assist-line-mark-btn--on {
+  background-color: #ccc !important;
+  border-color: #ccc !important;
+  color: #333 !important;
+}
+
+.assist-line-mark-btn--on:hover {
+  background-color: #bbb !important;
+  border-color: #bbb !important;
+  color: #333 !important;
+}
+
+:deep(.assist-line-row--marked) {
+  --el-table-tr-bg-color: #f5f5f5;
+}
+
+.assist-fees-pane {
+  /* DIY：费用表距视口顶留白，调大则表格变矮 */
+  --assist-fees-offset: 268px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.assist-fees-toolbar {
+  display: flex;
+  align-items: center;
+  margin-bottom: 6px;
+  flex-shrink: 0;
+}
+
+.assist-fees-table-wrap {
+  flex: 1;
+  min-height: 0;
+}
+
+.assist-fee-select {
+  width: 100%;
+}
+
+:deep(.assist-fees-table .assist-fee-select .el-select__wrapper) {
+  width: 100%;
+}
+
+/* 10 行均分表体高度，减少表内底部留白 */
+:deep(.assist-fees-table .el-table__body-wrapper table) {
+  height: 100%;
+}
+
+:deep(.assist-fees-table .el-table__body) {
+  height: 100%;
+}
+
+:deep(.assist-fees-table .el-table__body tr) {
+  height: 10%;
+}
+
+:deep(.assist-fees-table .el-table__body td .cell) {
+  display: flex;
+  align-items: center;
 }
 </style>

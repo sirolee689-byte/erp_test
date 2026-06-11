@@ -12,6 +12,7 @@ import {
 } from './assistOrderSaveService.js'
 import { applyAssistOrderLifecycleAction } from './assistOrderLifecycle.js'
 import { fetchAssistOrderPrintDocuments } from './assistOrderPrintData.js'
+import { fetchAssistOrderBatchAddTree } from './assistOrderBatchAdd.js'
 
 const HEADER_FROM = `dbo.[${ASSIST_ORDER_HEADER_TABLE}]`
 const LINE_FROM = 'dbo.[UB_ERP_assist_order_list]'
@@ -202,6 +203,34 @@ export function registerAssistOrderRoutes(app, deps) {
     } catch (err) {
       console.error('GET /api/assist-order/currency-options failed:', err)
       res.status(500).json({ code: 500, msg: '读取币别失败', data: null })
+    }
+  })
+
+  app.get('/api/assist-order/batch-add-tree', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const piNo = String(req.query?.piNo ?? req.query?.referenceNo ?? '').trim()
+      const excludeOrderNo = String(req.query?.excludeOrderNo ?? '').trim()
+      const currentLines = req.query?.currentLines
+      const result = await fetchAssistOrderBatchAddTree(pool, { piNo, excludeOrderNo, currentLines })
+      if (!result?.ok) {
+        res.status(result?.status ?? 400).json({ code: result?.status ?? 400, msg: result?.msg || '读取批量选材失败', data: null })
+        return
+      }
+      res.json({
+        code: 200,
+        msg: 'success',
+        data: {
+          piNo: result.piNo,
+          orderId: result.orderId,
+          calcStatus: result.calcStatus,
+          styles: result.styles,
+        },
+      })
+    } catch (err) {
+      console.error('GET /api/assist-order/batch-add-tree failed:', err)
+      const detail = String(err?.message ?? err?.originalError?.message ?? 'database query failed')
+      res.status(500).json({ code: 500, msg: `读取外协订单批量选材失败：${detail}`, data: null })
     }
   })
 

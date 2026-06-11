@@ -8,6 +8,7 @@ import {
   validateAssistOrderHeader,
 } from './assistOrderSaveLogic.js'
 import { formatSalesOrderAuditTime } from './salesOrderPiBom.js'
+import { getRequestIp } from './operationAuditMiddleware.js'
 import { rewriteAssistOrderLines } from './assistOrderLineSave.js'
 import { rewriteAssistOrderFees } from './assistOrderFeeSave.js'
 import {
@@ -193,6 +194,9 @@ export async function createAssistOrder(opts) {
     await rewriteAssistOrderLines({
       assistOrderNo: finalNo.assistOrderNo,
       lines: body?.lines ?? [],
+      assistType: header.assistType,
+      referenceNo: header.referenceNo,
+      actor: actor ?? { uidInt: null, uname: null, utruename: null },
       tx,
     })
     await rewriteAssistOrderFees({
@@ -211,6 +215,7 @@ export async function createAssistOrder(opts) {
       actor: httpReq?.user,
       orderNo: finalNo.assistOrderNo,
       systemCode: orderGuid,
+      ip: httpReq ? getRequestIp(httpReq) : '',
     })
     await tx.commit()
     return {
@@ -300,6 +305,9 @@ export async function updateAssistOrder(opts) {
     await rewriteAssistOrderLines({
       assistOrderNo: finalNo.assistOrderNo,
       lines: body?.lines ?? [],
+      assistType: header.assistType,
+      referenceNo: header.referenceNo,
+      actor: actor ?? { uidInt: null, uname: null, utruename: null },
       tx,
     })
     await rewriteAssistOrderFees({
@@ -318,6 +326,7 @@ export async function updateAssistOrder(opts) {
       actor: httpReq?.user,
       orderNo: finalNo.assistOrderNo,
       systemCode: row.systemCode || row.assistOrderNo,
+      ip: httpReq ? getRequestIp(httpReq) : '',
     })
     await tx.commit()
     return { ok: true, id, assistOrderNo: finalNo.assistOrderNo, changedOrderNo: finalNo.changedOrderNo }

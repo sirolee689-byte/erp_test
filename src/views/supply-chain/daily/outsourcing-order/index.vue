@@ -133,7 +133,6 @@
             <el-table-column label="序号" width="70">
               <template #default="{ $index }">{{ $index + 1 }}</template>
             </el-table-column>
-            <el-table-column label="PI号" prop="piNo" min-width="120" show-overflow-tooltip />
             <el-table-column label="款号" prop="product" min-width="120" show-overflow-tooltip />
             <el-table-column label="物料编码" prop="kcaa01" min-width="150" show-overflow-tooltip />
             <el-table-column label="名称" prop="kcaa02" min-width="160" show-overflow-tooltip />
@@ -308,14 +307,15 @@
         :currency-options="currencyOptions"
         @assist-date-change="onAssistDateChange"
         @fetch-supplier="fetchSupplierOptions"
-        @open-material-selector="openMaterialSelector"
-        @add-blank-line="addBlankLine"
-        @remove-line="removeLine"
+        @delete-selected-lines="deleteSelectedLines"
+        @delete-all-lines="deleteAllLines"
+        @open-batch-add="openBatchAdd"
+        @toggle-line-mark="toggleLineMark"
+        @view-line-pi-bom="openLinePiBom"
         @line-tax-excluded-change="onLineTaxExcludedChange"
         @line-tax-included-change="onLineTaxIncludedChange"
-        @open-fee-selector="openFeeSelector"
-        @add-blank-fee="addBlankFee"
-        @remove-fee="removeFee"
+        @add-fee-row="addFeesRow"
+        @reset-fees="resetFeesTab"
       />
       <div class="assist-form-footer">
         <el-button type="primary" :loading="saveLoading" @click="onSave">立即提交</el-button>
@@ -360,7 +360,6 @@
                 <el-table-column label="序号" width="72">
                   <template #default="{ $index }">{{ $index + 1 }}</template>
                 </el-table-column>
-                <el-table-column label="PI号" prop="piNo" min-width="120" show-overflow-tooltip />
                 <el-table-column label="款号/材料编码" prop="kcaa01" min-width="150" show-overflow-tooltip />
                 <el-table-column label="中文名" prop="kcaa02" min-width="160" show-overflow-tooltip />
                 <el-table-column label="数量" prop="wxak03" width="100" align="right" />
@@ -394,68 +393,6 @@
       </el-skeleton>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="materialVisible" title="选择外协物料" width="1080px" top="6vh" destroy-on-close>
-      <div class="assist-material-toolbar">
-        <el-input
-          v-model="materialKeyword"
-          clearable
-          placeholder="按编码、名称、规格搜索"
-          @keyup.enter="loadMaterialOptions"
-        />
-        <el-button type="primary" :loading="materialLoading" @click="loadMaterialOptions">搜索</el-button>
-      </div>
-      <el-table
-        :data="materialOptions"
-        v-loading="materialLoading"
-        border
-        stripe
-        height="460"
-        row-key="kcaa01"
-        :row-class-name="materialRowClassName"
-      >
-        <el-table-column label="操作" width="76" fixed="left">
-          <template #default="{ row }">
-            <el-button type="primary" link size="small" @click="appendMaterial(row)">选择</el-button>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="86">
-          <template #default="{ row }">
-            <el-tag v-if="row.isSelectable" type="warning" size="small">可外协</el-tag>
-            <el-tag v-else type="info" size="small">不可选</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="来源" prop="source" width="92" />
-        <el-table-column label="PI号" prop="piNo" min-width="120" show-overflow-tooltip />
-        <el-table-column label="物料编码" prop="kcaa01" min-width="160" show-overflow-tooltip />
-        <el-table-column label="中文名" prop="kcaa02" min-width="180" show-overflow-tooltip />
-        <el-table-column label="规格" prop="kcaa03" min-width="160" show-overflow-tooltip />
-        <el-table-column label="单位" prop="kcaa04" width="90" />
-        <el-table-column label="默认数量" prop="orderQty" width="100" align="right" />
-      </el-table>
-      <template #footer>
-        <el-button @click="materialVisible = false">关闭</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="feeVisible" title="选择额外费用" width="720px" top="8vh" destroy-on-close>
-      <div class="assist-material-toolbar">
-        <el-input v-model="feeKeyword" clearable placeholder="按费用编码或名称搜索" @keyup.enter="loadFeeOptions" />
-        <el-button type="primary" :loading="feeLoading" @click="loadFeeOptions">搜索</el-button>
-      </div>
-      <el-table :data="feeOptions" v-loading="feeLoading" border stripe height="380" row-key="feeCode">
-        <el-table-column label="操作" width="76" fixed="left">
-          <template #default="{ row }">
-            <el-button type="primary" link size="small" @click="appendFee(row)">选择</el-button>
-          </template>
-        </el-table-column>
-        <el-table-column label="费用编码" prop="feeCode" min-width="160" show-overflow-tooltip />
-        <el-table-column label="费用名称" prop="feeName" min-width="220" show-overflow-tooltip />
-      </el-table>
-      <template #footer>
-        <el-button @click="feeVisible = false">关闭</el-button>
       </template>
     </el-dialog>
 
@@ -546,7 +483,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
@@ -557,6 +494,17 @@ import {
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
 import AssistOrderEditForm from './AssistOrderEditForm.vue'
+import {
+  ASSIST_BATCH_MSG_ACCEPTED,
+  ASSIST_BATCH_MSG_APPLY,
+  ASSIST_BATCH_MSG_REJECTED,
+  ASSIST_BATCH_REJECT_PI_MISMATCH,
+  ASSIST_BATCH_RESULT_PREFIX,
+  buildAssistBatchSessionId,
+  parseAssistBatchResultPayload,
+  validateBatchApply,
+  writeAssistBatchContext,
+} from '@/utils/assistOrderBatchAdd'
 
 defineOptions({ name: 'supply-chain-daily-outsourcing-order' })
 
@@ -568,8 +516,6 @@ const loading = ref(false)
 const detailLoading = ref(false)
 const saveLoading = ref(false)
 const supplierLoading = ref(false)
-const materialLoading = ref(false)
-const feeLoading = ref(false)
 const errorMessage = ref('')
 const tableList = ref([])
 const supplierOptions = ref([])
@@ -578,18 +524,13 @@ const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
 const detailVisible = ref(false)
-const materialVisible = ref(false)
-const feeVisible = ref(false)
 const printVisible = ref(false)
 const activeTab = ref('header')
 const editTab = ref('header')
 const editMode = ref('create')
 const editId = ref(null)
 const activeFormRef = ref(null)
-const materialKeyword = ref('')
-const materialOptions = ref([])
-const feeKeyword = ref('')
-const feeOptions = ref([])
+const activeBatchSessionId = ref('')
 const printSelectedIds = ref(new Set())
 const printLoading = ref(false)
 const printDocs = ref([])
@@ -691,6 +632,7 @@ function defaultEditForm() {
     assistDate: todayYmd(),
     assistType: '1',
     referenceNo: '',
+    referenceOrderId: null,
     supplierCode: '',
     taxIncluded: '1',
     currencyCode: '',
@@ -699,7 +641,7 @@ function defaultEditForm() {
     notes: DEFAULT_PRINT_NOTES,
     decimalPlaces: 4,
     lines: [],
-    fees: [],
+    fees: blankFeesRows(),
   }
 }
 
@@ -735,6 +677,7 @@ function dateForInput(value) {
 function normalizeLine(row = {}, index = 0) {
   return {
     seq: index + 1,
+    _lineMarked: false,
     piNo: String(row.piNo ?? ''),
     product: String(row.product ?? ''),
     kcaa01: String(row.kcaa01 ?? ''),
@@ -761,6 +704,36 @@ function normalizeLine(row = {}, index = 0) {
   }
 }
 
+/** DIY：额外费用 Tab 默认行数（重置/新建时） */
+const ASSIST_FEE_ROW_COUNT = 5
+
+const ASSIST_HEADER_TAB_PROPS = new Set([
+  'assistOrderNo',
+  'assistDate',
+  'assistType',
+  'referenceNo',
+  'supplierCode',
+  'taxIncluded',
+  'currencyCode',
+  'decimalPlaces',
+  'deliveryDate',
+])
+
+function pickFirstValidationMessage(invalidFields) {
+  if (!invalidFields || typeof invalidFields !== 'object') return ''
+  for (const field of Object.keys(invalidFields)) {
+    const errors = invalidFields[field]
+    if (Array.isArray(errors) && errors[0]?.message) return String(errors[0].message)
+  }
+  return ''
+}
+
+function focusAssistEditTabForField(prop) {
+  if (ASSIST_HEADER_TAB_PROPS.has(String(prop ?? '').trim())) {
+    editTab.value = 'header'
+  }
+}
+
 function normalizeFee(row = {}, index = 0) {
   return {
     seq: index + 1,
@@ -770,6 +743,26 @@ function normalizeFee(row = {}, index = 0) {
     tax: Number(row.tax ?? 0),
     remark: String(row.remark ?? ''),
   }
+}
+
+function padFeesToFixedRows(fees) {
+  const rows = (Array.isArray(fees) ? fees : []).map((fee, i) => normalizeFee(fee, i))
+  while (rows.length < ASSIST_FEE_ROW_COUNT) {
+    rows.push(normalizeFee({}, rows.length))
+  }
+  return rows
+}
+
+function blankFeesRows() {
+  return padFeesToFixedRows([])
+}
+
+function addFeesRow() {
+  editForm.fees.push(normalizeFee({}, editForm.fees.length))
+}
+
+function resetFeesTab() {
+  editForm.fees = blankFeesRows()
 }
 
 function isAudited(row) {
@@ -969,7 +962,21 @@ async function switchToCreate() {
   createPanelInitialized.value = true
 }
 
-function applyDetailToEditForm(data) {
+async function resolveOrderIdByPi(piNo) {
+  const keyword = String(piNo ?? '').trim()
+  if (!keyword) return null
+  try {
+    const res = await axios.get('/api/sales-order/pi-suggest', { params: { keyword } })
+    const list = Array.isArray(res?.data?.data?.list) ? res.data.data.list : []
+    const row = list.find((item) => String(item.piNo ?? '').trim() === keyword)
+    const id = Number(row?.id ?? 0)
+    return Number.isFinite(id) && id > 0 ? id : null
+  } catch {
+    return null
+  }
+}
+
+async function applyDetailToEditForm(data) {
   const h = data?.header || {}
   resetEditForm({
     assistOrderNo: String(h.assistOrderNo ?? ''),
@@ -983,9 +990,14 @@ function applyDetailToEditForm(data) {
     remark: String(h.remark ?? ''),
     notes: String(h.notes ?? ''),
     decimalPlaces: Number(h.decimalPlaces ?? 4),
-    lines: (data?.lines || []).map((line, index) => normalizeLine(line, index)),
-    fees: (data?.fees || []).map((fee, index) => normalizeFee(fee, index)),
+    lines: [...(data?.lines || [])]
+      .sort((a, b) => Number(b?.seq ?? 0) - Number(a?.seq ?? 0))
+      .map((line, index) => normalizeLine(line, index)),
+    fees: padFeesToFixedRows(data?.fees),
   })
+  renumberLines()
+  const refNo = String(editForm.referenceNo ?? '').trim()
+  editForm.referenceOrderId = refNo ? await resolveOrderIdByPi(refNo) : null
 }
 
 async function onFormReset() {
@@ -1058,27 +1070,226 @@ async function loadDetail(id) {
   }
 }
 
+function buildExpandedDisplayRows(lines, fees) {
+  const lineRows = Array.isArray(lines) ? lines : []
+  const feeRows = (Array.isArray(fees) ? fees : []).map((fee) => ({
+    _rowType: 'fee',
+    product: '',
+    kcaa01: '',
+    kcaa02: String(fee.feeName ?? fee.kcaa02 ?? fee.mtitle ?? ''),
+    wxak03: '',
+    wxak04: '',
+    wxak041: '',
+    wxak05: '',
+    wxak051: fee.money,
+    tax: fee.tax,
+    deliveryDate: '',
+    referenceNo: '',
+    remark: String(fee.remark ?? ''),
+  }))
+  return [...lineRows, ...feeRows]
+}
+
 async function onExpandChange(row, expandedRows) {
   const expanded = expandedRows.some((item) => item.id === row.id)
   if (!expanded || row.expandedLoaded) return
   try {
     const data = await loadDetail(row.id)
-    row.expandedLines = data.lines
+    row.expandedLines = buildExpandedDisplayRows(data.lines, data.fees)
     row.expandedLoaded = true
   } catch (err) {
     ElMessage.error(err?.response?.data?.msg || err?.message || '读取明细失败')
   }
 }
 
-function addBlankLine() {
-  editForm.lines.push(normalizeLine({}, editForm.lines.length))
+function renumberLines() {
+  const total = editForm.lines.length
+  editForm.lines.forEach((line, i) => {
+    line.seq = total - i
+  })
 }
 
-function removeLine(index) {
-  editForm.lines.splice(index, 1)
-  editForm.lines.forEach((line, i) => {
-    line.seq = i + 1
+async function deleteSelectedLines() {
+  const marked = editForm.lines.filter((line) => line._lineMarked)
+  if (!marked.length) {
+    ElMessage.warning('请先在操作列点击删除标记要移除的行')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确认删除已标记的 ${marked.length} 条明细吗？此操作仅影响当前页面，点「立即提交」后才会落库。`,
+      '删除选定明细',
+      {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch {
+    return
+  }
+  const removeSet = new Set(marked)
+  editForm.lines = editForm.lines.filter((line) => !removeSet.has(line))
+  renumberLines()
+  ElMessage.success('已删除选定明细')
+}
+
+async function deleteAllLines() {
+  if (!editForm.lines.length) {
+    ElMessage.warning('当前没有明细行')
+    return
+  }
+  try {
+    await ElMessageBox.confirm('确认要删除全部明细行吗？此操作仅影响当前页面，点「立即提交」后才会落库。', '删除全部明细', {
+      type: 'warning',
+      confirmButtonText: '删除全部',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+  editForm.lines = []
+  ElMessage.success('已清空全部明细')
+}
+
+function buildBatchCurrentLines() {
+  return editForm.lines.map((line) => ({
+    piNo: line.piNo || editForm.referenceNo,
+    product: line.product,
+    kcaa01: line.kcaa01,
+    wxak03: line.wxak03,
+  }))
+}
+
+function applyBatchAddLines(lines) {
+  const list = Array.isArray(lines) ? lines : []
+  if (!list.length) return
+  const newLines = list.map((row) => {
+    const line = normalizeLine(row, 0)
+    applyLineCalc(line, recalcAssistOrderLineFromTaxExcluded(line, { priceDecimals: editForm.decimalPlaces }))
+    return line
   })
+  editForm.lines.unshift(...newLines)
+  renumberLines()
+  ElMessage.success(`已批量添加 ${list.length} 条明细`)
+}
+
+function openBatchAdd() {
+  const assistType = String(editForm.assistType ?? '')
+  if (assistType !== '1') {
+    ElMessage.warning('当前外协类型暂不支持批量添加，后续版本开放')
+    return
+  }
+  const piNo = String(editForm.referenceNo ?? '').trim()
+  if (!piNo) {
+    ElMessage.warning('订单外协须先填写关联 PI 号')
+    return
+  }
+  const sessionId = buildAssistBatchSessionId()
+  activeBatchSessionId.value = sessionId
+  writeAssistBatchContext(sessionId, {
+    piNo,
+    assistType,
+    excludeOrderNo: editMode.value === 'edit' ? String(editForm.assistOrderNo ?? '').trim() : '',
+    deliveryDate: editForm.deliveryDate,
+    decimalPlaces: editForm.decimalPlaces,
+    currentLines: buildBatchCurrentLines(),
+  })
+  const url = `/supply-chain/daily/outsourcing-order-batch-window?sessionId=${encodeURIComponent(sessionId)}&piNo=${encodeURIComponent(piNo)}`
+  const opened = window.open(url, '_blank')
+  if (!opened) {
+    ElMessage.error('无法打开新窗口，请检查浏览器是否拦截弹窗')
+  }
+}
+
+function handleBatchStorageEvent(event) {
+  const key = String(event?.key ?? '')
+  if (!key.startsWith(ASSIST_BATCH_RESULT_PREFIX)) return
+  const sessionId = key.slice(ASSIST_BATCH_RESULT_PREFIX.length)
+  if (sessionId !== activeBatchSessionId.value) return
+  const payload = parseAssistBatchResultPayload(event?.newValue)
+  if (!payload?.lines?.length) return
+  applyBatchAddLines(payload.lines)
+  activeBatchSessionId.value = ''
+}
+
+function postBatchMessageToSource(source, payload) {
+  if (!source || typeof source.postMessage !== 'function') return
+  source.postMessage(payload, window.location.origin)
+}
+
+function handleBatchMessage(event) {
+  if (event.origin !== window.location.origin) return
+  const data = event.data
+  if (!data || data.type !== ASSIST_BATCH_MSG_APPLY) return
+  const sessionId = String(data.sessionId ?? '').trim()
+  if (!sessionId || sessionId !== activeBatchSessionId.value) return
+
+  const validation = validateBatchApply({
+    openedPiNo: data.openedPiNo,
+    currentPiNo: editForm.referenceNo,
+  })
+  if (!validation.ok) {
+    if (validation.reason === ASSIST_BATCH_REJECT_PI_MISMATCH) {
+      ElMessage.warning('关联 PI 已变更，批量选材已取消')
+    }
+    postBatchMessageToSource(event.source, {
+      type: ASSIST_BATCH_MSG_REJECTED,
+      sessionId,
+      reason: validation.reason,
+    })
+    return
+  }
+
+  const lines = Array.isArray(data.lines) ? data.lines : []
+  if (!lines.length) {
+    postBatchMessageToSource(event.source, {
+      type: ASSIST_BATCH_MSG_REJECTED,
+      sessionId,
+      reason: 'empty-lines',
+    })
+    return
+  }
+
+  applyBatchAddLines(lines)
+  activeBatchSessionId.value = ''
+  postBatchMessageToSource(event.source, {
+    type: ASSIST_BATCH_MSG_ACCEPTED,
+    sessionId,
+    lineCount: lines.length,
+  })
+}
+
+function toggleLineMark(row) {
+  if (!row) return
+  row._lineMarked = !row._lineMarked
+}
+
+async function openLinePiBom(row) {
+  const product = String(row?.product ?? '').trim()
+  if (!product) {
+    ElMessage.warning('该行缺少款号，无法打开 PI-BOM')
+    return
+  }
+  let orderId = Number(editForm.referenceOrderId ?? 0)
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    const refNo = String(editForm.referenceNo ?? '').trim()
+    if (!refNo) {
+      ElMessage.warning('请先填写关联 PI 号')
+      return
+    }
+    orderId = await resolveOrderIdByPi(refNo)
+    if (orderId) editForm.referenceOrderId = orderId
+  }
+  if (!orderId) {
+    ElMessage.warning('无法解析销售订单，请确认关联 PI 号是否正确')
+    return
+  }
+  const url = `/inventory/basic/pi-bom-data-window?mode=edit&orderId=${encodeURIComponent(orderId)}&kcaa01=${encodeURIComponent(product)}`
+  const opened = window.open(url, '_blank')
+  if (!opened) {
+    ElMessage.error('无法打开新窗口，请检查浏览器是否拦截弹窗')
+  }
 }
 
 function applyLineCalc(row, next) {
@@ -1091,85 +1302,6 @@ function onLineTaxExcludedChange(row) {
 
 function onLineTaxIncludedChange(row) {
   applyLineCalc(row, recalcAssistOrderLineFromTaxIncluded(row, { priceDecimals: editForm.decimalPlaces }))
-}
-
-async function openMaterialSelector() {
-  materialVisible.value = true
-  materialKeyword.value = ''
-  await loadMaterialOptions()
-}
-
-async function loadMaterialOptions() {
-  materialLoading.value = true
-  try {
-    const res = await axios.get('/api/assist-order/material-options', {
-      params: {
-        assistType: editForm.assistType,
-        referenceNo: editForm.referenceNo,
-        keyword: materialKeyword.value,
-      },
-    })
-    const body = res.data ?? {}
-    if (body.code !== 200) throw new Error(body.msg || '读取选材失败')
-    materialOptions.value = Array.isArray(body.data?.list) ? body.data.list : []
-  } catch (err) {
-    materialOptions.value = []
-    ElMessage.error(err?.response?.data?.msg || err?.message || '读取选材失败')
-  } finally {
-    materialLoading.value = false
-  }
-}
-
-function appendMaterial(row) {
-  if (!row?.isSelectable) {
-    ElMessage.warning('该物料未勾选外协')
-    return
-  }
-  const line = normalizeLine(row, editForm.lines.length)
-  applyLineCalc(line, recalcAssistOrderLineFromTaxExcluded(line, { priceDecimals: editForm.decimalPlaces }))
-  editForm.lines.push(line)
-}
-
-function materialRowClassName({ row }) {
-  return row?.isSelectable ? 'assist-material-row--selectable' : 'assist-material-row--disabled'
-}
-
-function addBlankFee() {
-  editForm.fees.push(normalizeFee({}, editForm.fees.length))
-}
-
-function removeFee(index) {
-  editForm.fees.splice(index, 1)
-  editForm.fees.forEach((fee, i) => {
-    fee.seq = i + 1
-  })
-}
-
-async function openFeeSelector() {
-  feeVisible.value = true
-  feeKeyword.value = ''
-  await loadFeeOptions()
-}
-
-async function loadFeeOptions() {
-  feeLoading.value = true
-  try {
-    const res = await axios.get('/api/assist-order/fee-options', {
-      params: { keyword: feeKeyword.value },
-    })
-    const body = res.data ?? {}
-    if (body.code !== 200) throw new Error(body.msg || '读取费用失败')
-    feeOptions.value = Array.isArray(body.data?.list) ? body.data.list : []
-  } catch (err) {
-    feeOptions.value = []
-    ElMessage.error(err?.response?.data?.msg || err?.message || '读取费用失败')
-  } finally {
-    feeLoading.value = false
-  }
-}
-
-function appendFee(row) {
-  editForm.fees.push(normalizeFee(row, editForm.fees.length))
 }
 
 function openBatchPrint() {
@@ -1327,13 +1459,28 @@ async function runLifecycle(row, action) {
 }
 
 async function onSave() {
-  await activeEditFormRef()?.validate?.()
+  const form = activeEditFormRef()
+  if (!form) return
+  try {
+    await form.validate()
+  } catch (invalidFields) {
+    const msg = pickFirstValidationMessage(invalidFields)
+    ElMessage.warning(msg || '请完善必填项后再提交')
+    focusAssistEditTabForField(Object.keys(invalidFields || {})[0])
+    return
+  }
   saveLoading.value = true
   try {
+    const { lines: _lines, fees: _fees, referenceOrderId: _refOid, ...headerFields } = editForm
     const body = {
-      header: { ...editForm, lines: undefined },
-      lines: editForm.lines.map((line, index) => ({ ...line, seq: index + 1 })),
-      fees: editForm.fees.map((fee, index) => ({ ...fee, seq: index + 1 })),
+      header: headerFields,
+      lines: editForm.lines.map((line, index) => {
+        const { _lineMarked, ...rest } = line
+        return { ...rest, seq: editForm.lines.length - index }
+      }),
+      fees: editForm.fees
+        .filter((fee) => String(fee.feeCode ?? '').trim())
+        .map((fee, index) => ({ ...fee, seq: index + 1 })),
     }
     const isCreateSave = pageMode.value === 'create'
     const res = isCreateSave
@@ -1357,7 +1504,14 @@ async function onSave() {
 }
 
 onMounted(async () => {
+  window.addEventListener('storage', handleBatchStorageEvent)
+  window.addEventListener('message', handleBatchMessage)
   await loadData()
+})
+
+onUnmounted(() => {
+  window.removeEventListener('storage', handleBatchStorageEvent)
+  window.removeEventListener('message', handleBatchMessage)
 })
 </script>
 
@@ -1393,6 +1547,15 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+.assist-create-panel :deep(.assist-edit-form) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .assist-form-footer {

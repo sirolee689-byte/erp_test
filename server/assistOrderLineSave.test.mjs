@@ -23,6 +23,11 @@ function createRequestRecorder() {
   }
 }
 
+const mockBom000Keys = async (kcaa01) => ({
+  bomGuid: `GUID-${kcaa01}`,
+  customerName: `BOM-SUP-${kcaa01}`,
+})
+
 describe('rewriteAssistOrderLines', () => {
   test('physically deletes old lines then inserts current lines including duplicates and raw amount fields', async () => {
     const recorder = createRequestRecorder()
@@ -61,6 +66,8 @@ describe('rewriteAssistOrderLines', () => {
           remark: 'duplicate material is allowed',
         },
       ],
+      actor: { uidInt: 42, uname: 'tester', utruename: '测试员' },
+      resolveBom000Keys: mockBom000Keys,
       requestFactory: recorder.requestFactory,
     })
 
@@ -78,5 +85,55 @@ describe('rewriteAssistOrderLines', () => {
     assert.equal(recorder.calls[1].inputs.tax, 0.13)
     assert.equal(recorder.calls[2].inputs.kcaa01, 'MAT-001')
     assert.equal(recorder.calls[2].inputs.seq, 2)
+    assert.match(recorder.calls[1].sqlText, /\[kcaa12\]/i)
+    assert.match(recorder.calls[1].sqlText, /\[kcaa35\]/i)
+    assert.equal(recorder.calls[1].inputs.wxak02, 'GUID-MAT-001')
+    assert.equal(recorder.calls[1].inputs.guid, 'GUID-MAT-001')
+    assert.equal(recorder.calls[1].inputs.systemcode, 'GUID-MAT-001')
+    assert.equal(recorder.calls[1].inputs.uid, '42')
+    assert.equal(recorder.calls[1].inputs.uname, 'tester')
+    assert.equal(recorder.calls[1].inputs.utruename, '测试员')
+    assert.match(recorder.calls[1].inputs.addtime, /^\d{4}-\d{1,2}-\d{1,2} \d{2}:\d{2}:\d{2}$/)
+    assert.equal(recorder.calls[1].inputs.Customer_Name, 'BOM-SUP-MAT-001')
+    assert.match(recorder.calls[1].sqlText, /\[wxak02\]/i)
+    assert.match(recorder.calls[1].sqlText, /\[Customer_Name\]/i)
+  })
+
+  test('applies resolveLineSnapshot before insert when provided', async () => {
+    const recorder = createRequestRecorder()
+
+    await rewriteAssistOrderLines({
+      assistOrderNo: 'WX26060902',
+      lines: [{ kcaa01: 'MAT-002', kcaa02: '旧名', wxak03: 1 }],
+      resolveLineSnapshot: async () => ({
+        kcaa02: '库内名',
+        kcaa12: 1,
+        kcaa35: 'RMB',
+        customerName: 'PI-SUP-001',
+      }),
+      resolveBom000Keys: mockBom000Keys,
+      requestFactory: recorder.requestFactory,
+    })
+
+    assert.equal(recorder.calls[1].inputs.kcaa02, '库内名')
+    assert.equal(recorder.calls[1].inputs.kcaa12, 1)
+    assert.equal(recorder.calls[1].inputs.kcaa35, 'RMB')
+    assert.equal(recorder.calls[1].inputs.Customer_Name, 'PI-SUP-001')
+  })
+
+  test('throws when bom_000 GUID is missing', async () => {
+    const recorder = createRequestRecorder()
+
+    await assert.rejects(
+      () =>
+        rewriteAssistOrderLines({
+          assistOrderNo: 'WX26060903',
+          lines: [{ kcaa01: 'MAT-NO-GUID', wxak03: 1 }],
+          resolveBom000Keys: async () => ({ bomGuid: '', customerName: '' }),
+          requestFactory: recorder.requestFactory,
+        }),
+      /缺少 GUID/,
+    )
+    assert.equal(recorder.calls.length, 1)
   })
 })
