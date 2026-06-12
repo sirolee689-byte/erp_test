@@ -5,6 +5,7 @@ export const ASSIST_BATCH_MSG_APPLY = 'assist-order-batch-apply'
 export const ASSIST_BATCH_MSG_ACCEPTED = 'assist-order-batch-accepted'
 export const ASSIST_BATCH_MSG_REJECTED = 'assist-order-batch-rejected'
 export const ASSIST_BATCH_REJECT_PI_MISMATCH = 'pi-mismatch'
+export const ASSIST_BATCH_REJECT_SUPPLIER_MISMATCH = 'supplier-mismatch'
 
 export function buildAssistBatchSessionId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -64,14 +65,27 @@ export function parseAssistBatchResultPayload(raw) {
 }
 
 /** @returns {{ ok: true } | { ok: false, reason: string }} */
-export function validateBatchApply({ openedPiNo, currentPiNo }) {
+export function validateBatchApply({
+  openedPiNo,
+  currentPiNo,
+  openedSupplierCode,
+  currentSupplierCode,
+  requirePi = true,
+}) {
   const opened = String(openedPiNo ?? '').trim()
   const current = String(currentPiNo ?? '').trim()
-  if (!opened || !current) {
+  if (requirePi && (!opened || !current)) {
     return { ok: false, reason: 'missing-pi' }
   }
-  if (opened !== current) {
+  if (requirePi && opened !== current) {
     return { ok: false, reason: ASSIST_BATCH_REJECT_PI_MISMATCH }
+  }
+  const openedSupplier = String(openedSupplierCode ?? '').trim()
+  const currentSupplier = String(currentSupplierCode ?? '').trim()
+  if (openedSupplier || currentSupplier) {
+    if (!openedSupplier || !currentSupplier || openedSupplier !== currentSupplier) {
+      return { ok: false, reason: ASSIST_BATCH_REJECT_SUPPLIER_MISMATCH }
+    }
   }
   return { ok: true }
 }

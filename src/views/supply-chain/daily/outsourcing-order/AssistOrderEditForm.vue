@@ -2,6 +2,7 @@
   <el-form ref="formRef" :model="model" :rules="rules" label-width="110px" class="assist-edit-form">
     <el-tabs :model-value="editTab" @update:model-value="$emit('update:editTab', $event)">
       <el-tab-pane label="外协订单基础资料" name="header">
+        <div class="assist-header-scroll">
         <div class="assist-header-rows">
           <div class="assist-form-row assist-form-row--1">
             <el-form-item label="外协单号" prop="assistOrderNo">
@@ -50,20 +51,13 @@
             </el-form-item>
             <el-form-item label="关联单号" prop="referenceNo">
               <el-autocomplete
-                v-if="isOrderAssistType"
                 v-model="model.referenceNo"
                 :fetch-suggestions="fetchPiSuggestions"
                 value-key="piNo"
                 clearable
-                placeholder="请输入 PI 号"
+                :placeholder="referenceNoPlaceholder"
                 @select="onPickPi"
                 @blur="onReferenceNoBlur"
-              />
-              <el-input
-                v-else
-                v-model="model.referenceNo"
-                clearable
-                placeholder="可空或手动输入"
               />
             </el-form-item>
           </div>
@@ -126,6 +120,7 @@
             </el-form-item>
           </div>
         </div>
+        </div>
       </el-tab-pane>
       <el-tab-pane label="外协订单明细" name="lines">
         <div class="assist-lines-pane">
@@ -134,7 +129,7 @@
             <el-button type="danger" plain @click="$emit('delete-all-lines')">删除全部明细</el-button>
             <el-button type="primary" @click="$emit('open-batch-add')">批量添加</el-button>
           </div>
-          <div class="assist-lines-table-wrap">
+          <div ref="linesWrapRef" class="assist-lines-table-wrap">
             <ErpTableViewportHScroll :bottom-offset="assistLinesHScrollBottom">
               <el-table
                 ref="linesTableRef"
@@ -142,7 +137,7 @@
                 border
                 stripe
                 class="erp-list-table assist-lines-table"
-                :max-height="linesTableMaxHeight"
+                :height="linesTableHeight"
                 empty-text="暂无明细"
                 :row-class-name="lineRowClassName"
               >
@@ -255,7 +250,7 @@
             <el-button size="small" @click="$emit('add-fee-row')">增行</el-button>
             <el-button size="small" @click="$emit('reset-fees')">重置</el-button>
           </div>
-          <div class="assist-fees-table-wrap">
+          <div ref="feesWrapRef" class="assist-fees-table-wrap">
             <el-table
               ref="feesTableRef"
               :data="model.fees"
@@ -320,7 +315,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
@@ -329,6 +324,7 @@ const props = defineProps({
   model: { type: Object, required: true },
   rules: { type: Object, required: true },
   editTab: { type: String, required: true },
+  footerHeight: { type: Number, default: 56 },
   supplierOptions: { type: Array, default: () => [] },
   supplierLoading: { type: Boolean, default: false },
   currencyOptions: { type: Array, default: () => [] },
@@ -410,14 +406,55 @@ function onFeeCodeClear(row) {
   row.feeName = ''
 }
 
-const linesTableMaxHeight = 'calc(100vh - var(--assist-lines-offset, 320px))'
-/** DIY：费用表铺满高度，调小 --assist-fees-offset 则表更高 */
-const feesTableHeight = 'calc(100vh - var(--assist-fees-offset, 268px))'
-const assistLinesHScrollBottom = 64
+const linesTableHeight = ref(320)
+const feesTableHeight = ref(320)
+const assistLinesHScrollBottom = computed(() => {
+  const h = Number(props.footerHeight)
+  return Number.isFinite(h) && h > 0 ? h : 56
+})
 /** DIY：操作列宽，约两钮最小宽之和 + 间距 + 单元格留白（见 .assist-line-action-btn） */
 const assistLineActionsColWidth = 118
 const linesTableRef = ref(null)
 const feesTableRef = ref(null)
+const linesWrapRef = ref(null)
+const feesWrapRef = ref(null)
+let linesWrapRo = null
+let feesWrapRo = null
+
+function syncLinesTableHeight() {
+  const h = linesWrapRef.value?.clientHeight
+  if (h && h > 0) linesTableHeight.value = h
+}
+
+function syncFeesTableHeight() {
+  const h = feesWrapRef.value?.clientHeight
+  if (h && h > 0) feesTableHeight.value = h
+}
+
+function bindTableWrapObservers() {
+  linesWrapRo?.disconnect()
+  feesWrapRo?.disconnect()
+  linesWrapRo = null
+  feesWrapRo = null
+
+  if (linesWrapRef.value) {
+    linesWrapRo = new ResizeObserver(() => {
+      syncLinesTableHeight()
+      if (props.editTab === 'lines') refreshLinesTableLayout()
+    })
+    linesWrapRo.observe(linesWrapRef.value)
+    syncLinesTableHeight()
+  }
+
+  if (feesWrapRef.value) {
+    feesWrapRo = new ResizeObserver(() => {
+      syncFeesTableHeight()
+      if (props.editTab === 'fees') refreshFeesTableLayout()
+    })
+    feesWrapRo.observe(feesWrapRef.value)
+    syncFeesTableHeight()
+  }
+}
 
 async function refreshLinesTableLayout() {
   await nextTick()
@@ -433,12 +470,24 @@ async function refreshFeesTableLayout() {
 
 watch(
   () => props.editTab,
-  (tab) => {
-    if (tab === 'lines') refreshLinesTableLayout()
+  async (tab) => {
+    await nextTick()
+    if (tab === 'lines') {
+      syncLinesTableHeight()
+      refreshLinesTableLayout()
+    }
     if (tab === 'fees') {
+      syncFeesTableHeight()
       refreshFeesTableLayout()
       if (!feeOptions.value.length) loadFeeOptions('')
     }
+  },
+)
+
+watch(
+  () => props.footerHeight,
+  () => {
+    if (props.editTab === 'lines') refreshLinesTableLayout()
   },
 )
 
@@ -450,9 +499,18 @@ watch(
   { deep: true },
 )
 
-onMounted(() => {
+onMounted(async () => {
+  await nextTick()
+  bindTableWrapObservers()
   if (props.editTab === 'lines') refreshLinesTableLayout()
   if (props.editTab === 'fees') refreshFeesTableLayout()
+})
+
+onUnmounted(() => {
+  linesWrapRo?.disconnect()
+  feesWrapRo?.disconnect()
+  linesWrapRo = null
+  feesWrapRo = null
 })
 
 function lineRowClassName({ row }) {
@@ -471,6 +529,10 @@ const isOrderAssistType = computed(() => {
   const t = String(props.model.assistType ?? '')
   return t === '1' || t === '2'
 })
+
+const referenceNoPlaceholder = computed(() =>
+  isOrderAssistType.value ? '请输入 PI 号' : '可空；可手填或搜索 PI',
+)
 
 watch(
   () => props.model.assistType,
@@ -561,11 +623,12 @@ function onPickPi(row) {
   props.model.referenceNo = String(row?.piNo ?? '')
   const id = Number(row?.id ?? 0)
   props.model.referenceOrderId = Number.isFinite(id) && id > 0 ? id : null
-  applyDeliveryFromPiRow(row)
+  if (isOrderAssistType.value) {
+    applyDeliveryFromPiRow(row)
+  }
 }
 
 async function onReferenceNoBlur() {
-  if (!isOrderAssistType.value) return
   const piNo = String(props.model.referenceNo ?? '').trim()
   if (!piNo) {
     props.model.referenceOrderId = null
@@ -575,7 +638,11 @@ async function onReferenceNoBlur() {
   if (row) {
     const id = Number(row.id ?? 0)
     props.model.referenceOrderId = Number.isFinite(id) && id > 0 ? id : null
-    applyDeliveryFromPiRow(row)
+    if (isOrderAssistType.value) {
+      applyDeliveryFromPiRow(row)
+    }
+  } else if (!isOrderAssistType.value) {
+    props.model.referenceOrderId = null
   }
 }
 
@@ -589,6 +656,11 @@ defineExpose({
 <style scoped>
 .assist-edit-form {
   max-width: none;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .assist-header-rows {
@@ -670,26 +742,37 @@ defineExpose({
 }
 
 .assist-edit-form :deep(.el-tabs) {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 200px);
+  overflow: hidden;
+}
+
+.assist-edit-form :deep(.el-tabs__header) {
+  flex-shrink: 0;
 }
 
 .assist-edit-form :deep(.el-tabs__content) {
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
+.assist-edit-form :deep(#pane-header),
 .assist-edit-form :deep(#pane-lines),
 .assist-edit-form :deep(#pane-fees) {
   height: 100%;
+  overflow: hidden;
+}
+
+.assist-header-scroll {
+  height: 100%;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .assist-lines-pane {
-  /* DIY：明细表距视口顶留白，调大则表格变矮 */
-  --assist-lines-offset: 320px;
-  /* DIY：底横条距视口底留白（为「立即提交」栏留空），改 assistLinesHScrollBottom 同步 */
-  --assist-lines-hscroll-bottom: 64px;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -756,8 +839,6 @@ defineExpose({
 }
 
 .assist-fees-pane {
-  /* DIY：费用表距视口顶留白，调大则表格变矮 */
-  --assist-fees-offset: 268px;
   display: flex;
   flex-direction: column;
   height: 100%;

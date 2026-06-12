@@ -80,7 +80,6 @@ export async function rewriteAssistOrderFees({ assistOrderNo, fees, tx = null, r
     req.input('assist_code', sql.NVarChar(200), orderNo)
     req.input('assist_link', sql.NVarChar(200), orderNo)
     req.input('assist_pi', sql.NVarChar(200), orderNo)
-    req.input('seq', sql.Int, fee.seq)
     req.input('kcaa01', sql.NVarChar(200), nullableText(fee.feeCode))
     req.input('kcaa02', sql.NVarChar(500), nullableText(feeName))
     req.input('mtitle', sql.NVarChar(500), nullableText(feeName))
@@ -89,11 +88,11 @@ export async function rewriteAssistOrderFees({ assistOrderNo, fees, tx = null, r
     req.input('remark', sql.NVarChar(1000), nullableText(fee.remark))
     await req.query(`
       INSERT INTO ${FEE_FROM} (
-        [assist_code], [assist_link], [assist_pi], [kid],
+        [assist_code], [assist_link], [assist_pi],
         [kcaa01], [kcaa02], [mtitle], [money], [tax], [remark], [del], [pass], [closed]
       )
       VALUES (
-        @assist_code, @assist_link, @assist_pi, @seq,
+        @assist_code, @assist_link, @assist_pi,
         @kcaa01, @kcaa02, @mtitle, @money, @tax, @remark, N'0', N'0', N'0'
       )
     `)

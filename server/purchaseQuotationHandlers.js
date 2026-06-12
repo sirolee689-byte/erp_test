@@ -1,13 +1,13 @@
 /**
- * 采购报价：Purchase_Quotation + Purchase_Quotation_list
+ * 采购报价：UB_ERP_Buy_offer + UB_ERP_Buy_offer_list
  * 实现见 createQuotationHandlers.js（与外协报价共用工厂）
  */
 import { createQuotationHandlers } from './createQuotationHandlers.js'
 
 const handlers = createQuotationHandlers({
   label: '采购报价',
-  headerTable: 'Purchase_Quotation',
-  lineTable: 'Purchase_Quotation_list',
+  headerTable: 'UB_ERP_Buy_offer',
+  lineTable: 'UB_ERP_Buy_offer_list',
   docNoCol: 'cgaa01',
   quoteDateCol: 'cgaa02',
   expiryDateCol: 'cgaa07',
@@ -23,7 +23,7 @@ const handlers = createQuotationHandlers({
     'sid',
     'master_id',
     'parent_id',
-    'Purchase_Quotation_id',
+    'UB_ERP_Buy_offer_id',
   ],
   apiBase: '/api/supply-chain/purchase-quotations',
   checkDocNoQueryParam: 'cgaa01',

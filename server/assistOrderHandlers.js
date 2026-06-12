@@ -245,9 +245,27 @@ export function registerAssistOrderRoutes(app, deps) {
     try {
       const pool = await getPool()
       const piNo = String(req.query?.piNo ?? req.query?.referenceNo ?? '').trim()
+      const assistType = String(req.query?.assistType ?? '1').trim()
+      const supplierCode = String(req.query?.supplierCode ?? '').trim()
       const excludeOrderNo = String(req.query?.excludeOrderNo ?? '').trim()
       const currentLines = req.query?.currentLines
-      const result = await fetchAssistOrderBatchAddTree(pool, { piNo, excludeOrderNo, currentLines })
+      const lx = String(req.query?.lx ?? '1').trim()
+      const keyword = String(req.query?.keyword ?? '').trim()
+      const bomCodeId = String(req.query?.bomCodeId ?? req.query?.bom_code_id ?? '').trim()
+      const page = String(req.query?.page ?? '').trim()
+      const pageSize = String(req.query?.pageSize ?? '').trim()
+      const result = await fetchAssistOrderBatchAddTree(pool, {
+        piNo,
+        assistType,
+        supplierCode,
+        excludeOrderNo,
+        currentLines,
+        lx,
+        keyword,
+        bomCodeId,
+        page,
+        pageSize,
+      })
       if (!result?.ok) {
         res.status(result?.status ?? 400).json({ code: result?.status ?? 400, msg: result?.msg || '读取批量选材失败', data: null })
         return
@@ -257,8 +275,13 @@ export function registerAssistOrderRoutes(app, deps) {
         msg: 'success',
         data: {
           piNo: result.piNo,
+          assistType: result.assistType || assistType,
           orderId: result.orderId,
           calcStatus: result.calcStatus,
+          lx: result.lx || lx,
+          page: result.page,
+          pageSize: result.pageSize,
+          total: result.total,
           styles: result.styles,
         },
       })
@@ -315,7 +338,7 @@ export function registerAssistOrderRoutes(app, deps) {
               LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(src.[version], N'')))) AS version,
               LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(src.[Customer_supply], N'')))) AS customerSupply,
               CASE WHEN ISNULL(src.[kcaa13], 0) <> 0 THEN 1 ELSE 0 END AS isOutsource,
-              src.[seq]
+              src.[id] AS seq
             FROM dbo.[UB_ERP_Bom_Sales_list] AS src
             INNER JOIN dbo.[UB_ERP_Sales_order] AS so
               ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(so.[xsaj01], N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(src.[sid], N''))))
@@ -523,7 +546,7 @@ export function registerAssistOrderRoutes(app, deps) {
         .input('orderNo', sql.NVarChar(200), orderNo)
         .query(`
           SELECT
-            l.[seq],
+            ROW_NUMBER() OVER (ORDER BY l.[id] ASC) AS seq,
             LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[pi], N'')))) AS piNo,
             LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[Product], N'')))) AS product,
             LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa01], N'')))) AS kcaa01,
@@ -550,7 +573,7 @@ export function registerAssistOrderRoutes(app, deps) {
           FROM ${LINE_FROM} AS l
           WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[wxak01], N'')))) = @orderNo
             AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
-          ORDER BY l.[seq] ASC
+          ORDER BY l.[id] ASC
         `)
 
       const feesResult = await pool

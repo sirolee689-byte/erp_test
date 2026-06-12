@@ -1,4 +1,4 @@
-# 采购报价（Purchase_Quotation + Purchase_Quotation_list）
+# 采购报价（UB_ERP_Buy_offer + UB_ERP_Buy_offer_list）
 
 ## 页面与菜单
 
@@ -7,8 +7,8 @@
 
 ## 物理表
 
-- `dbo.Purchase_Quotation`：主表（须 **单列主键**，一般为 `id`；业务单号 **`cgaa01`**；报价日期 **`cgaa02`**；有效期 **`cgaa07`**；币别码 **`cgaa05`**、币别名 **`rmb`**（前端下拉：001/002/003 与 人民币/美元/港元）；供应商/客户简称字段库中为 **`kehu`**（界面文案「供应商/外协商」）；备注 **`remark`**）
-- `dbo.Purchase_Quotation_list`：明细；关联 **`cgab01` = 主表 `cgaa01`**；汇总金额 **`cgab04`**（不含税）、**`cgab05`**（含税）
+- `dbo.UB_ERP_Buy_offer`：主表（须 **单列主键**，一般为 `id`；业务单号 **`cgaa01`**；报价日期 **`cgaa02`**；有效期 **`cgaa07`**；币别码 **`cgaa05`**、币别名 **`rmb`**（前端下拉：001/002/003 与 人民币/美元/港元）；供应商/客户简称字段库中为 **`kehu`**（界面文案「供应商/外协商」）；备注 **`remark`**）
+- `dbo.UB_ERP_Buy_offer_list`：明细；关联 **`cgab01` = 主表 `cgaa01`**；汇总金额 **`cgab04`**（不含税）、**`cgab05`**（含税）
 
 列表接口在检测到上述列存在时，会 `LEFT JOIN` 明细聚合：行数、`SUM(cgab04)`、`SUM(cgab05)`、税点差额（含税−不含税）；报价日/有效期格式化为 **yyyy-MM-dd**。
 
@@ -39,6 +39,10 @@
 
 角色需在 `Sys_Roles.Permissions` 中包含菜单 path `supply-chain/daily/purchase-quote`（及对应 `view`/`add`/`edit`/`audit`/`delete` 动作），否则接口 403、按钮由 `v-permission` 隐藏。
 
+## 已知问题 / 下一步
+
+- 物理表已由旧名 `Purchase_Quotation` / `Purchase_Quotation_list` 更名为 `UB_ERP_Buy_offer` / `UB_ERP_Buy_offer_list`；字段列名（`cgaa*`/`cgab*`）保持不变。
+
 ## 文档
 
-- 总表映射：`docs/sql/database_map.md` 章节「Purchase_Quotation / Purchase_Quotation_list」
+- 总表映射：`docs/sql/database_map.md` 章节「UB_ERP_Buy_offer / UB_ERP_Buy_offer_list」

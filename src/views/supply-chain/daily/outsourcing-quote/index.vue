@@ -1,10 +1,28 @@
 <template>
-  <div class="erp-module-page">
+  <div class="erp-module-page pq-quote-page">
     <!--
-      外协报价：Outsourcing_Quotation + Outsourcing_Quotation_list
-      主表分页；展开懒加载明细；查看/新增/编辑弹窗（主表表单 + 明细表）
+      外协报价：UB_ERP_assist_offer + UB_ERP_assist_offer_list
+      顶栏「管理 / 添加」；列表分页 + 展开明细；新增/编辑为页内嵌面板（对齐销售订单）
     -->
-    <el-card shadow="never">
+    <div class="pq-mode-bar">
+      <el-button
+        :type="pageMode === 'manage' ? 'primary' : 'default'"
+        plain
+        @click="switchToManage"
+      >
+        管理外协报价
+      </el-button>
+      <el-button
+        v-permission="'add'"
+        :type="pageMode === 'create' || pageMode === 'edit' ? 'primary' : 'default'"
+        plain
+        @click="switchToCreate"
+      >
+        外协报价添加
+      </el-button>
+    </div>
+
+    <el-card v-show="pageMode === 'manage'" shadow="never">
       <template #header>
         <span class="page-title">{{ pageTitle }}</span>
       </template>
@@ -27,9 +45,6 @@
         </div>
         <el-button type="primary" @click="onSearch">查询</el-button>
         <el-button @click="onReset">重置</el-button>
-        <el-button v-if="!showRecycle" v-permission="'add'" type="success" plain @click="openCreate">
-          新增外协报价
-        </el-button>
         <el-button class="btn-view" :loading="loading" @click="loadData">
           <el-icon class="btn-icon"><Refresh /></el-icon>
           刷新
@@ -319,17 +334,13 @@
       </div>
     </el-dialog>
 
-    <!-- 新增/编辑：Tab — 基础资料 / 明细 -->
-    <el-dialog
-      v-model="editVisible"
-      :title="editMode === 'create' ? '新增外协报价' : '编辑外协报价'"
-      width="75%"
-      top="5vh"
-      draggable
-      destroy-on-close
-      :close-on-click-modal="false"
-      class="pq-edit-dialog"
-    >
+    <!-- 新增/编辑：页内嵌面板（基础资料 / 明细 Tab） -->
+    <section v-show="editVisible" v-loading="editLoading" class="pq-edit-panel">
+      <div class="pq-edit-panel__header">
+        <h2 class="pq-edit-panel__title">
+          {{ editMode === 'create' ? '新增外协报价' : '编辑外协报价' }}
+        </h2>
+      </div>
       <div class="edit-wrap">
         <el-tabs v-model="editActiveTab" class="pq-edit-tabs" @tab-change="onEditTabChange">
           <el-tab-pane label="报价单基础资料" name="basic">
@@ -608,13 +619,13 @@
           </el-tab-pane>
         </el-tabs>
       </div>
-      <template #footer>
-        <el-button @click="editVisible = false">取消</el-button>
+      <div class="pq-edit-panel__footer">
+        <el-button @click="switchToManage">取消</el-button>
         <el-button type="primary" :loading="editSaving" :disabled="detailLocked" @click="submitEdit">
           保存
         </el-button>
-      </template>
-    </el-dialog>
+      </div>
+    </section>
 
     <MaterialSelector
       v-model="materialSelectorVisible"
@@ -636,6 +647,11 @@ import axios from 'axios'
 import MaterialSelector from '../purchase-quote/MaterialSelector.vue'
 
 const pageTitle = '外协报价'
+
+/** manage | create | edit — 顶栏模式；表单区用 editVisible 控制显示 */
+const pageMode = ref('manage')
+/** 是否已初始化过添加面板（用于切回「添加」时保留未保存草稿） */
+const createPanelInitialized = ref(false)
 
 const loading = ref(false)
 const errorMessage = ref('')
@@ -661,6 +677,7 @@ const bomDetailLoading = ref(false)
 const bomDetailEntries = ref([])
 
 const editVisible = ref(false)
+const editLoading = ref(false)
 const editMode = ref('create')
 const editId = ref(null)
 /** 编辑时服务端返回的完整主表快照（合并后再提交，保留未出现在表单中的列） */
@@ -1309,17 +1326,38 @@ function buildHeaderForSubmit() {
   return header
 }
 
-async function openCreate() {
-  editMode.value = 'create'
-  editId.value = null
-  loadedEditHeader.value = null
-  dialogHeaderPass.value = '0'
-  editActiveTab.value = 'basic'
-  editSaving.value = false
-  resetBasicForm()
-  lineRows.value = []
+function switchToManage() {
+  editVisible.value = false
+  pageMode.value = 'manage'
+}
+
+async function switchToCreate() {
+  if (pageMode.value === 'create' && editVisible.value) return
+
+  const preserveDraft =
+    createPanelInitialized.value &&
+    editMode.value === 'create' &&
+    pageMode.value !== 'edit'
+
+  pageMode.value = 'create'
   editVisible.value = true
-  await fetchSuggestedDocNo()
+
+  if (!preserveDraft) {
+    editMode.value = 'create'
+    editId.value = null
+    loadedEditHeader.value = null
+    dialogHeaderPass.value = '0'
+    editActiveTab.value = 'basic'
+    editSaving.value = false
+    resetBasicForm()
+    lineRows.value = []
+    await fetchSuggestedDocNo()
+  }
+  createPanelInitialized.value = true
+}
+
+async function openCreate() {
+  await switchToCreate()
 }
 
 async function openView(row) {
@@ -1371,8 +1409,12 @@ async function openEdit(row) {
   }
   editMode.value = 'edit'
   editId.value = row.id
+  pageMode.value = 'edit'
   editSaving.value = false
   editActiveTab.value = 'basic'
+  createPanelInitialized.value = true
+  editVisible.value = true
+  editLoading.value = true
   try {
     const res = await axios.get(`/api/supply-chain/outsourcing-quotations/${row.id}`)
     const header = { ...(res?.data?.data?.header ?? {}) }
@@ -1404,9 +1446,12 @@ async function openEdit(row) {
       else applyInclToEx(x)
       return x
     })
-    editVisible.value = true
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '加载失败'))
+    switchToManage()
+    editId.value = null
+  } finally {
+    editLoading.value = false
   }
 }
 
@@ -1471,7 +1516,7 @@ async function submitEdit() {
       })
       ElMessage.success('保存成功')
     }
-    editVisible.value = false
+    switchToManage()
     loadData()
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '保存失败'))
@@ -1608,8 +1653,21 @@ loadData()
 </script>
 
 <style scoped>
-.erp-module-page {
+.pq-quote-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   min-height: 200px;
+}
+.pq-mode-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  padding: 10px 12px;
+  border-left: 4px solid var(--el-color-primary);
+  background: var(--el-fill-color-lighter);
 }
 .page-title {
   font-size: 18px;
@@ -1685,67 +1743,82 @@ loadData()
   max-height: 280px;
   overflow: auto;
 }
-/* 新增/编辑弹窗：加宽不改占比前提下放大字号与行距，避免「大屏宽、字显小」 */
-.pq-edit-dialog :deep(.el-dialog__header) {
-  padding-bottom: 12px;
-  margin-right: 0;
-}
-.pq-edit-dialog :deep(.el-dialog__title) {
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 1.35;
-  letter-spacing: 0.02em;
-}
-.pq-edit-dialog :deep(.el-dialog__body) {
-  padding-top: 8px;
+/* 新增/编辑页内嵌面板 */
+.pq-edit-panel {
+  box-sizing: border-box;
+  min-height: 360px;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--el-border-color-light);
+  background: var(--el-bg-color);
   font-size: 15px;
   line-height: 1.55;
 }
-.pq-edit-dialog :deep(.el-dialog__footer) {
-  padding-top: 16px;
+.pq-edit-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
 }
-.pq-edit-dialog :deep(.el-dialog__footer .el-button) {
+.pq-edit-panel__title {
+  margin: 0;
+  font-size: var(--pq-edit-title-size, 18px);
+  font-weight: 600;
+}
+.pq-edit-panel__footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px -16px -12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--el-border-color-light);
+  background: var(--el-bg-color);
+}
+.pq-edit-panel__footer :deep(.el-button) {
   font-size: 15px;
   padding: 10px 22px;
 }
 .pq-edit-tabs {
   margin-top: -4px;
 }
-.pq-edit-dialog .pq-edit-tabs :deep(.el-tabs__item) {
+.pq-edit-panel .pq-edit-tabs :deep(.el-tabs__item) {
   font-size: 15px;
   padding: 0 20px;
   height: 42px;
   line-height: 42px;
 }
-.pq-edit-dialog .pq-edit-tabs :deep(.el-tabs__nav-wrap::after) {
+.pq-edit-panel .pq-edit-tabs :deep(.el-tabs__nav-wrap::after) {
   height: 1px;
 }
 .pq-basic-form {
   padding-top: 8px;
+  max-width: 1180px;
 }
-.pq-edit-dialog .pq-basic-form :deep(.el-form-item) {
+.pq-edit-panel .pq-basic-form :deep(.el-form-item) {
   margin-bottom: 18px;
 }
-.pq-edit-dialog .pq-basic-form :deep(.el-form-item__label) {
+.pq-edit-panel .pq-basic-form :deep(.el-form-item__label) {
   font-size: 15px;
   line-height: 36px;
   color: var(--el-text-color-primary);
 }
-.pq-edit-dialog .pq-basic-form :deep(.el-input__inner),
-.pq-edit-dialog .pq-basic-form :deep(.el-textarea__inner) {
+.pq-edit-panel .pq-basic-form :deep(.el-input__inner),
+.pq-edit-panel .pq-basic-form :deep(.el-textarea__inner) {
   font-size: 15px;
 }
-.pq-edit-dialog .pq-basic-form :deep(.el-input__wrapper) {
+.pq-edit-panel .pq-basic-form :deep(.el-input__wrapper) {
   font-size: 15px;
 }
-.pq-edit-dialog .pq-basic-form :deep(.el-select .el-select__wrapper),
-.pq-edit-dialog .pq-basic-form :deep(.el-select__placeholder) {
+.pq-edit-panel .pq-basic-form :deep(.el-select .el-select__wrapper),
+.pq-edit-panel .pq-basic-form :deep(.el-select__placeholder) {
   font-size: 15px;
 }
-.pq-edit-dialog .pq-basic-form :deep(.el-date-editor .el-input__wrapper) {
+.pq-edit-panel .pq-basic-form :deep(.el-date-editor .el-input__wrapper) {
   font-size: 15px;
 }
-.pq-edit-dialog .pq-docno-row :deep(.el-button) {
+.pq-edit-panel .pq-docno-row :deep(.el-button) {
   font-size: 14px;
 }
 .pq-lines-hint {
@@ -1766,12 +1839,12 @@ loadData()
   min-width: 160px;
 }
 /* 明细横向滚动条与编码区留白，避免误点滚动条 */
-.pq-edit-dialog .pq-lines-table :deep(.el-table),
-.pq-edit-dialog .pq-lines-table :deep(.el-table__header .cell),
-.pq-edit-dialog .pq-lines-table :deep(.el-table__body .cell) {
+.pq-edit-panel .pq-lines-table :deep(.el-table),
+.pq-edit-panel .pq-lines-table :deep(.el-table__header .cell),
+.pq-edit-panel .pq-lines-table :deep(.el-table__body .cell) {
   font-size: 14px;
 }
-.pq-edit-dialog .pq-lines-table :deep(.el-input__inner) {
+.pq-edit-panel .pq-lines-table :deep(.el-input__inner) {
   font-size: 14px;
 }
 .pq-lines-table :deep(.el-table__body-wrapper) {

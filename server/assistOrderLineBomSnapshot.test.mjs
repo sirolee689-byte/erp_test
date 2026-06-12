@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { describe, test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 import {
   mapAssistOrderBomSnapshotRow,
   mergeBomSnapshotIntoAssistLine,
@@ -7,6 +9,11 @@ import {
 import { normalizeAssistOrderLine } from './assistOrderLineSave.js'
 
 describe('assistOrderLineBomSnapshot', () => {
+  test('snapshot queries used during save do not depend on seq columns', () => {
+    const src = readFileSync(fileURLToPath(new URL('./assistOrderLineBomSnapshot.js', import.meta.url)), 'utf8')
+    assert.doesNotMatch(src, /src\.\[seq\]/i)
+  })
+
   test('mapAssistOrderBomSnapshotRow maps kcaa01-kcaa35 and extended fields', () => {
     const mapped = mapAssistOrderBomSnapshotRow({
       kcaa01: 'MAT-1',

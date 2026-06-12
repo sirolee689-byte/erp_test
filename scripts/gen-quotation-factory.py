@@ -66,8 +66,8 @@ body = re.sub(
     body,
 )
 body = re.sub(
-    r"const HEADER_TABLE = 'Purchase_Quotation'\n"
-    r"const LINE_TABLE = 'Purchase_Quotation_list'\n"
+    r"const HEADER_TABLE = 'UB_ERP_Buy_offer'\n"
+    r"const LINE_TABLE = 'UB_ERP_Buy_offer_list'\n"
     r"const HEADER_FROM = `dbo\.\[\$\{HEADER_TABLE\}\]`\n"
     r"const LINE_FROM = `dbo\.\[\$\{LINE_TABLE\}\]`\n"
     r"const SYS_SUPPLIER_FROM = 'dbo\.\[System_supplier\]'\n\n",
@@ -141,7 +141,7 @@ body = re.sub(
     r"      'sid',\n"
     r"      'master_id',\n"
     r"      'parent_id',\n"
-    r"      'Purchase_Quotation_id',\n"
+    r"      'UB_ERP_Buy_offer_id',\n"
     r"    \]",
     "    const candidates = lineFkCandidates",
     body,

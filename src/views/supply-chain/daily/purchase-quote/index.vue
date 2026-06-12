@@ -1,7 +1,7 @@
 <template>
   <div class="erp-module-page">
     <!--
-      采购报价：Purchase_Quotation + Purchase_Quotation_list
+      采购报价：UB_ERP_Buy_offer + UB_ERP_Buy_offer_list
       主表分页；展开懒加载明细；查看/新增/编辑弹窗（主表表单 + 明细表）
     -->
     <el-card shadow="never">
@@ -9,7 +9,7 @@
         <span class="page-title">{{ pageTitle }}</span>
       </template>
       <p class="page-desc">
-        主表 <code>Purchase_Quotation</code>（单号 <code>cgaa01</code>）与明细 <code>Purchase_Quotation_list</code>（<code>cgab01</code>）关联；列表汇总明细
+        主表 <code>UB_ERP_Buy_offer</code>（单号 <code>cgaa01</code>）与明细 <code>UB_ERP_Buy_offer_list</code>（<code>cgab01</code>）关联；列表汇总明细
         <code>cgab04</code>/<code>cgab05</code>；供应商字段为 <code>kehu</code>（界面称供应商/外协商）。
       </p>
 
@@ -1649,7 +1649,7 @@ loadData()
 }
 .code-bold {
   font-weight: 600;
-}
+}
 .pq-main-table :deep(.el-table__body-wrapper .el-table__body tr) {
   cursor: pointer;
 }

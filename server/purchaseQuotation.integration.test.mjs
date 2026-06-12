@@ -72,9 +72,9 @@ async function hardDeletePurchaseQuotation(docNo) {
   const pool = await getPool()
   const doc = String(docNo).trim()
   await pool.request().input('doc', sql.NVarChar(200), doc).query(`
-    DELETE FROM dbo.[Purchase_Quotation_list]
+    DELETE FROM dbo.[UB_ERP_Buy_offer_list]
     WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([cgab01], N'')))) = @doc;
-    DELETE FROM dbo.[Purchase_Quotation]
+    DELETE FROM dbo.[UB_ERP_Buy_offer]
     WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([cgaa01], N'')))) = @doc;
   `)
 }

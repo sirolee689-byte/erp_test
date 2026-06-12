@@ -151,7 +151,6 @@ export async function rewriteAssistOrderLines({
     req.input('utruename', sql.NVarChar(50), String(auditActor.utruename ?? ''))
     req.input('addtime', sql.NVarChar(50), addtime)
     req.input('Customer_Name', sql.NVarChar(500), customerName)
-    req.input('seq', sql.Int, enriched.seq)
     req.input('pi', sql.NVarChar(200), nullableText(enriched.piNo))
     req.input('Product', sql.NVarChar(200), nullableText(enriched.product))
     req.input('pq', sql.NVarChar(200), nullableText(enriched.product))
@@ -177,7 +176,7 @@ export async function rewriteAssistOrderLines({
     req.input('cost_price', sql.Decimal(18, 6), enriched.costPrice)
     await req.query(`
       INSERT INTO ${LINE_FROM} (
-        [wxak01], [seq], [pi], [Product], [pq],
+        [wxak01], [pi], [Product], [pq],
         [kcaa01], [kcaa02], [kcaa02_en], [kpname],
         [kcaa03], [kcaa04], [kcaa05], [kcaa06], [kcaa07], [kcaa08], [kcaa09], [kcaa10], [kcaa11],
         [kcaa12], [kcaa13], [kcaa14], [kcaa15], [kcaa16], [kcaa17], [kcaa18], [kcaa19], [kcaa20],
@@ -189,7 +188,7 @@ export async function rewriteAssistOrderLines({
         [Customer_Name], [uid], [uname], [utruename], [addtime], [remark], [pass], [ip], [del]
       )
       VALUES (
-        @wxak01, @seq, @pi, @Product, @pq,
+        @wxak01, @pi, @Product, @pq,
         @kcaa01, @kcaa02, @kcaa02_en, @kpname,
         @kcaa03, @kcaa04, @kcaa05, @kcaa06, @kcaa07, @kcaa08, @kcaa09, @kcaa10, @kcaa11,
         @kcaa12, @kcaa13, @kcaa14, @kcaa15, @kcaa16, @kcaa17, @kcaa18, @kcaa19, @kcaa20,

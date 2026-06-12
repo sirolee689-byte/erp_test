@@ -1,13 +1,13 @@
 /**
- * 外协报价：Outsourcing_Quotation + Outsourcing_Quotation_list
+ * 外协报价：UB_ERP_assist_offer + UB_ERP_assist_offer_list
  * 实现见 createQuotationHandlers.js（与采购报价共用工厂）
  */
 import { createQuotationHandlers } from './createQuotationHandlers.js'
 
 const handlers = createQuotationHandlers({
   label: '外协报价',
-  headerTable: 'Outsourcing_Quotation',
-  lineTable: 'Outsourcing_Quotation_list',
+  headerTable: 'UB_ERP_assist_offer',
+  lineTable: 'UB_ERP_assist_offer_list',
   docNoCol: 'wxaa01',
   quoteDateCol: 'wxaa02',
   expiryDateCol: 'wxaa07',
@@ -18,12 +18,12 @@ const handlers = createQuotationHandlers({
   lineFkCandidates: [
     'wxab01',
     'pid',
+    'UB_ERP_assist_offer_id',
     'outsourcing_quotation_id',
     'quotation_id',
     'sid',
     'master_id',
     'parent_id',
-    'Outsourcing_Quotation_id',
   ],
   apiBase: '/api/supply-chain/outsourcing-quotations',
   checkDocNoQueryParam: 'wxaa01',

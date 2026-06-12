@@ -49,6 +49,8 @@ describe('rewriteAssistOrderFees', () => {
     assert.match(recorder.calls[0].sqlText, /DELETE\s+FROM\s+dbo\.\[UB_ERP_assist_order_money\]/i)
     assert.match(recorder.calls[1].sqlText, /INSERT\s+INTO\s+dbo\.\[UB_ERP_assist_order_money\]/i)
     assert.match(recorder.calls[11].sqlText, /INSERT\s+INTO\s+dbo\.\[UB_ERP_assist_order_money\]/i)
+    assert.doesNotMatch(recorder.calls[1].sqlText, /\[(seq|kid)\]/i)
+    assert.ok(!Object.hasOwn(recorder.calls[1].inputs, 'seq'))
     assert.equal(recorder.calls[1].inputs.assist_code, 'WX26060901')
     assert.equal(recorder.calls[1].inputs.kcaa01, 'FEE-01')
     assert.equal(recorder.calls[1].inputs.kcaa02, 'Fee 1')

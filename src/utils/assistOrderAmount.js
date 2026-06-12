@@ -56,3 +56,21 @@ export function recalcAssistOrderLineFromTaxIncluded(line, options = {}) {
     wxak051: roundTo(qty * taxIncludedPrice, 2),
   }
 }
+
+export function recalcAssistOrderLineFromQuotedPrices(line, options = {}) {
+  const opts = normalizeOptions(options)
+  const qty = roundTo(toNumber(line?.wxak03), 2)
+  const tax = toNumber(line?.tax)
+  const taxExcludedPrice = roundTo(toNumber(line?.wxak04), opts.priceDecimals)
+  const taxIncludedPrice = roundTo(toNumber(line?.wxak041), opts.priceDecimals)
+
+  return {
+    ...line,
+    wxak03: qty,
+    wxak04: taxExcludedPrice,
+    tax,
+    wxak041: taxIncludedPrice,
+    wxak05: roundTo(qty * taxExcludedPrice, 2),
+    wxak051: roundTo(qty * taxIncludedPrice, 2),
+  }
+}

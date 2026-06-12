@@ -2,7 +2,7 @@
  * 外协订单批量选材（订单外协）：PI 销售 BOM 两层树 + 未外协数量计算
  */
 import sql from 'mssql'
-import { INV_BOM_CODE_FROM } from './bomTables.js'
+import { INV_BOM_CODE_FROM, INV_BOM_MASTER_FROM } from './bomTables.js'
 import { normKcaa01 } from './salesOrderSaveLogic.js'
 import {
   buildSalesOrderCalcStatusExpr,
@@ -17,6 +17,14 @@ const PI_COST_FROM = 'dbo.[UB_ERP_Bom_pi_cost]'
 const PI_BOM_LIST_FROM = 'dbo.[UB_ERP_Bom_Sales_list]'
 const ASSIST_LINE_FROM = 'dbo.[UB_ERP_assist_order_list]'
 const ASSIST_HEADER_FROM = 'dbo.[UB_ERP_assist_order]'
+const ASSIST_OFFER_FROM = 'dbo.[UB_ERP_assist_offer]'
+const ASSIST_OFFER_LINE_FROM = 'dbo.[UB_ERP_assist_offer_list]'
+const BUY_OFFER_LINE_FROM = 'dbo.[UB_ERP_Buy_offer_list]'
+
+function parsePositiveInt(value) {
+  const n = Number(value)
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0
+}
 
 /** @type {Promise<string> | null} */
 let CALC_COL_PROMISE = null
@@ -51,6 +59,67 @@ export function roundQty(value, digits = 2) {
   if (!Number.isFinite(n)) return 0
   const factor = 10 ** digits
   return Math.round(n * factor) / factor
+}
+
+export function buildAssistOfferPriceKey(kcaa01) {
+  return normKcaa01(kcaa01).toLowerCase()
+}
+
+export function normalizeAssistOfferPrice(row = {}) {
+  return {
+    wxab04: Number.isFinite(Number(row?.wxab04)) ? Number(row.wxab04) : 0,
+    wxab05: Number.isFinite(Number(row?.wxab05)) ? Number(row.wxab05) : 0,
+    tax: Number.isFinite(Number(row?.tax)) ? Number(row.tax) : 0,
+  }
+}
+
+export function mergeAssistOfferPriceRows(supplierRows, fallbackRows) {
+  const map = new Map()
+  for (const row of Array.isArray(supplierRows) ? supplierRows : []) {
+    const key = buildAssistOfferPriceKey(row?.kcaa01)
+    if (!key || map.has(key)) continue
+    map.set(key, normalizeAssistOfferPrice(row))
+  }
+  for (const row of Array.isArray(fallbackRows) ? fallbackRows : []) {
+    const key = buildAssistOfferPriceKey(row?.kcaa01)
+    if (!key || map.has(key)) continue
+    map.set(key, normalizeAssistOfferPrice(row))
+  }
+  return map
+}
+
+export function getAssistOfferPriceOrZero(priceMap, kcaa01) {
+  const key = buildAssistOfferPriceKey(kcaa01)
+  const value = priceMap instanceof Map ? priceMap.get(key) : null
+  return value ?? { wxab04: 0, wxab05: 0, tax: 0 }
+}
+
+export function buildBuyOfferPriceKey(systemcode) {
+  return String(systemcode ?? '').trim().toLowerCase()
+}
+
+export function normalizeBuyOfferPrice(row = {}) {
+  return {
+    wxab04: Number.isFinite(Number(row?.cgab04)) ? Number(row.cgab04) : 0,
+    wxab05: Number.isFinite(Number(row?.cgab05)) ? Number(row.cgab05) : 0,
+    tax: Number.isFinite(Number(row?.tax)) ? Number(row.tax) : 0,
+  }
+}
+
+export function mergeBuyOfferPriceRows(rows) {
+  const map = new Map()
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const key = buildBuyOfferPriceKey(row?.systemcode ?? row?.cgab02)
+    if (!key || map.has(key)) continue
+    map.set(key, normalizeBuyOfferPrice(row))
+  }
+  return map
+}
+
+export function getBuyOfferPriceOrZero(priceMap, systemcode) {
+  const key = buildBuyOfferPriceKey(systemcode)
+  const value = priceMap instanceof Map ? priceMap.get(key) : null
+  return value ?? { wxab04: 0, wxab05: 0, tax: 0 }
 }
 
 /**
@@ -410,16 +479,484 @@ function serializeRow(row) {
   return o
 }
 
+function uniqueAssistOfferMaterialCodes(rows) {
+  const out = []
+  const seen = new Set()
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (Number(row?.isOutsource) !== 1) continue
+    const code = normKcaa01(row?.kcaa01)
+    const key = code.toLowerCase()
+    if (!code || seen.has(key)) continue
+    seen.add(key)
+    out.push(code)
+  }
+  return out
+}
+
+function uniqueBuyOfferSystemcodes(rows) {
+  const out = []
+  const seen = new Set()
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const code = String(row?.materialSystemcode ?? row?.systemcode ?? '').trim()
+    const key = code.toLowerCase()
+    if (!code || seen.has(key)) continue
+    seen.add(key)
+    out.push(code)
+  }
+  return out
+}
+
+function bindMaterialCodeParams(req, codes, prefix = 'mat') {
+  const names = []
+  codes.forEach((code, i) => {
+    const name = `${prefix}${i}`
+    req.input(name, sql.NVarChar(300), code)
+    names.push(`@${name}`)
+  })
+  return names.join(', ')
+}
+
+function buildOtherBatchKeywordSql(alias = 'src') {
+  return `
+    AND (
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(${alias}.[kcaa01], N'')))) LIKE @keyword
+      OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(${alias}.[kcaa02], N'')))) LIKE @keyword
+      OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(${alias}.[kcaa02En], N'')))) LIKE @keyword
+      OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(${alias}.[invoiceName], N'')))) LIKE @keyword
+      OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(${alias}.[kcaa03], N'')))) LIKE @keyword
+      OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(${alias}.[remark], N'')))) LIKE @keyword
+      OR LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(${alias}.[origin], N'')))) LIKE @keyword
+    )
+  `
+}
+
+function buildOtherBatchBomCodeSql(alias = 'src') {
+  return `
+    AND EXISTS (
+      SELECT 1
+      FROM ${INV_BOM_CODE_FROM} AS bc_f
+      WHERE bc_f.[id] = @bomCodeId
+        AND (
+          (
+            LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc_f.[flag5], N'')))) <> N''
+            AND UPPER(LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(${alias}.[kcaa01], N'')))))
+              LIKE UPPER(LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc_f.[flag5], N''))))) + N'%'
+          )
+          OR (
+            LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc_f.[flag5], N'')))) = N''
+            AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(${alias}.[kcaa05], N''))))
+              = LTRIM(RTRIM(CONVERT(nvarchar(50), bc_f.[id])))
+          )
+        )
+    )
+  `
+}
+
+async function fetchAssistOfferPriceRowsForBatch(pool, materialCodes, supplierCode) {
+  const codes = Array.isArray(materialCodes) ? materialCodes.filter(Boolean) : []
+  if (!codes.length) return new Map()
+
+  const supplierRows = []
+  const fallbackRows = []
+  const supplier = String(supplierCode ?? '').trim()
+
+  for (let i = 0; i < codes.length; i += 200) {
+    const batch = codes.slice(i, i + 200)
+
+    if (supplier) {
+      const supplierReq = pool.request()
+      supplierReq.input('supplierCode', sql.NVarChar(200), supplier)
+      const inSql = bindMaterialCodeParams(supplierReq, batch, 'sm')
+      const supplierR = await supplierReq.query(`
+        SELECT x.[kcaa01], x.[wxab04], x.[wxab05], x.[tax]
+        FROM (
+          SELECT
+            LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N'')))) AS kcaa01,
+            CAST(ISNULL(l.[wxab04], 0) AS decimal(18, 6)) AS wxab04,
+            CAST(ISNULL(l.[wxab05], 0) AS decimal(18, 6)) AS wxab05,
+            CAST(ISNULL(l.[tax], 0) AS decimal(18, 6)) AS tax,
+            ROW_NUMBER() OVER (
+              PARTITION BY LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N''))))
+              ORDER BY h.[id] DESC, l.[id] DESC
+            ) AS rn
+          FROM ${ASSIST_OFFER_FROM} AS h
+          INNER JOIN ${ASSIST_OFFER_LINE_FROM} AS l
+            ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaa01], N'')))) =
+               LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[wxab01], N''))))
+          WHERE ISNULL(CONVERT(nvarchar(50), h.[del]), N'') IN (N'', N'0')
+            AND LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(h.[pass], N'')))) = N'1'
+            AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaa04], N'')))) = @supplierCode
+            AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N'')))) IN (${inSql})
+        ) AS x
+        WHERE x.rn = 1
+      `)
+      supplierRows.push(...(supplierR.recordset ?? []))
+    }
+
+    const fallbackReq = pool.request()
+    const fallbackInSql = bindMaterialCodeParams(fallbackReq, batch, 'fm')
+    const fallbackR = await fallbackReq.query(`
+      SELECT x.[kcaa01], x.[wxab04], x.[wxab05], x.[tax]
+      FROM (
+        SELECT
+          LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N'')))) AS kcaa01,
+          CAST(ISNULL(l.[wxab04], 0) AS decimal(18, 6)) AS wxab04,
+          CAST(ISNULL(l.[wxab05], 0) AS decimal(18, 6)) AS wxab05,
+          CAST(ISNULL(l.[tax], 0) AS decimal(18, 6)) AS tax,
+          ROW_NUMBER() OVER (
+            PARTITION BY LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N''))))
+            ORDER BY l.[id] DESC
+          ) AS rn
+        FROM ${ASSIST_OFFER_LINE_FROM} AS l
+        WHERE ISNULL(CONVERT(nvarchar(50), l.[del]), N'') IN (N'', N'0')
+          AND LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(l.[pass], N'')))) = N'1'
+          AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N'')))) IN (${fallbackInSql})
+      ) AS x
+      WHERE x.rn = 1
+    `)
+    fallbackRows.push(...(fallbackR.recordset ?? []))
+  }
+
+  return mergeAssistOfferPriceRows(supplierRows, fallbackRows)
+}
+
+async function fetchBuyOfferPriceRowsForBatch(pool, systemcodes) {
+  const codes = Array.isArray(systemcodes) ? systemcodes.filter(Boolean) : []
+  if (!codes.length) return new Map()
+
+  const rows = []
+  for (let i = 0; i < codes.length; i += 200) {
+    const batch = codes.slice(i, i + 200)
+    const req = pool.request()
+    const inSql = bindMaterialCodeParams(req, batch, 'bc')
+    const r = await req.query(`
+      SELECT x.[systemcode], x.[cgab04], x.[cgab05], x.[tax]
+      FROM (
+        SELECT
+          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[cgab02], N'')))) AS systemcode,
+          CAST(ISNULL(l.[cgab04], 0) AS decimal(18, 6)) AS cgab04,
+          CAST(ISNULL(l.[cgab05], 0) AS decimal(18, 6)) AS cgab05,
+          CAST(ISNULL(l.[tax], 0) AS decimal(18, 6)) AS tax,
+          ROW_NUMBER() OVER (
+            PARTITION BY LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[cgab02], N''))))
+            ORDER BY l.[id] DESC
+          ) AS rn
+        FROM ${BUY_OFFER_LINE_FROM} AS l
+        WHERE LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[cgab02], N'')))) IN (${inSql})
+          AND ISNULL(CONVERT(nvarchar(50), l.[del]), N'') IN (N'', N'0')
+          AND LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(l.[pass], N'')))) = N'1'
+      ) AS x
+      WHERE x.rn = 1
+    `)
+    rows.push(...(r.recordset ?? []))
+  }
+
+  return mergeBuyOfferPriceRows(rows)
+}
+
+async function fetchAssistOrderOtherBatchAddTree(pool, opts) {
+  const keyword = String(opts?.keyword ?? '').trim()
+  const bomCodeId = parsePositiveInt(opts?.bomCodeId ?? opts?.bom_code_id)
+  const page = Math.max(1, parsePositiveInt(opts?.page) || 1)
+  const pageSizeRaw = parsePositiveInt(opts?.pageSize)
+  const pageSize = Math.min(100, Math.max(1, pageSizeRaw || 10))
+  const startRow = (page - 1) * pageSize + 1
+  const endRow = page * pageSize
+  const req = pool.request()
+  const hasKeyword = keyword.length > 0
+  const hasBomCode = bomCodeId > 0
+  if (hasKeyword) req.input('keyword', sql.NVarChar(500), `%${keyword}%`)
+  if (hasBomCode) req.input('bomCodeId', sql.Int, bomCodeId)
+  req.input('startRow', sql.Int, startRow)
+  req.input('endRow', sql.Int, endRow)
+
+  const keywordSql = hasKeyword ? buildOtherBatchKeywordSql('src') : ''
+  const bomCodeSql = hasBomCode ? buildOtherBatchBomCodeSql('src') : ''
+  const sourceSql = `
+    SELECT
+      b.[id],
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.[kcaa01], N'')))) AS kcaa01,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.[kcaa02], N'')))) AS kcaa02,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.[kcaa02_en], N'')))) AS kcaa02En,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.[kpname], N'')))) AS invoiceName,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.[kcaa03], N'')))) AS kcaa03,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa04], N'')))) AS kcaa04,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa05], N'')))) AS kcaa05,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa09], N'')))) AS origin,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa10], N'')))) AS kcaa10,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[kcaa11], N'')))) AS kcaa11,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[version], N'')))) AS version,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.[Customer_supply], N'')))) AS customerSupply,
+      CAST(0 AS decimal(18, 6)) AS wxab04,
+      CAST(0 AS decimal(18, 6)) AS wxab05,
+      CAST(0 AS decimal(18, 6)) AS tax,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.[remark], N'')))) AS remark
+    FROM ${INV_BOM_MASTER_FROM} AS b
+    WHERE ISNULL(CONVERT(nvarchar(50), b.[del]), N'') IN (N'', N'0')
+      AND LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(b.[pass], N'')))) = N'1'
+  `
+  const r = await req.query(`
+    SELECT *
+    FROM (
+      SELECT
+        src.*,
+        COUNT(1) OVER() AS totalRows,
+        ROW_NUMBER() OVER (ORDER BY src.[id] DESC) AS rn
+      FROM (
+        ${sourceSql}
+      ) AS src
+      WHERE 1 = 1
+        ${keywordSql}
+        ${bomCodeSql}
+    ) AS paged
+    WHERE paged.[rn] BETWEEN @startRow AND @endRow
+    ORDER BY paged.[rn] ASC
+  `)
+
+  const styles = (r.recordset ?? []).map((row, index) => {
+    const code = normKcaa01(row.kcaa01)
+    const lineKey = buildAssistBatchLineKey('', '', code)
+    const wxab04 = Number(row.wxab04 ?? 0)
+    const wxab05 = Number(row.wxab05 ?? 0)
+    const tax = Number(row.tax ?? 0)
+    const material = serializeRow({
+      childSeq: String(index + 1),
+      lineKey,
+      product: '',
+      piNo: '',
+      codeColor: 'other',
+      kcaa01: code,
+      kcaa02: String(row.kcaa02 ?? '').trim(),
+      kcaa02En: String(row.kcaa02En ?? '').trim(),
+      invoiceName: String(row.invoiceName ?? '').trim(),
+      kcaa03: String(row.kcaa03 ?? '').trim(),
+      kcaa04: String(row.kcaa04 ?? '').trim(),
+      kcaa05: String(row.kcaa05 ?? '').trim(),
+      origin: String(row.origin ?? '').trim(),
+      kcaa10: String(row.kcaa10 ?? '').trim(),
+      kcaa11: String(row.kcaa11 ?? '').trim(),
+      version: String(row.version ?? '').trim(),
+      customerSupply: String(row.customerSupply ?? '').trim(),
+      isOutsource: true,
+      bomQty: 0,
+      outsourcedQty: 0,
+      availableQty: 0,
+      wxab04: Number.isFinite(wxab04) && wxab04 > 0 ? wxab04 : 0,
+      wxab05: Number.isFinite(wxab05) && wxab05 > 0 ? wxab05 : 0,
+      tax: Number.isFinite(tax) && tax > 0 ? tax : 0,
+      outboundQtyLabel: '-',
+      remark: String(row.remark ?? '').trim(),
+    })
+    return serializeRow({
+      seq: index + 1,
+      piNo: '',
+      product: code,
+      codeColor: 'other',
+      productName: String(row.kcaa02 ?? '').trim(),
+      orderQty: 0,
+      unitPrice: material.wxab04,
+      unitPriceTax: material.wxab05,
+      amount: 0,
+      amountTax: 0,
+      version: String(row.version ?? '').trim(),
+      nameEn: String(row.kcaa02En ?? '').trim(),
+      invoiceName: String(row.invoiceName ?? '').trim(),
+      spec: String(row.kcaa03 ?? '').trim(),
+      materials: [material],
+    })
+  })
+  const firstTotal = Number(r.recordset?.[0]?.totalRows ?? 0)
+
+  return {
+    ok: true,
+    assistType: '0',
+    lx: '2',
+    piNo: '',
+    orderId: 0,
+    calcStatus: '',
+    page,
+    pageSize,
+    total: Number.isFinite(firstTotal) ? firstTotal : 0,
+    styles,
+  }
+}
+
+async function fetchAssistOrderOutboundBatchAddTree(pool, opts) {
+  const piNo = String(opts?.piNo ?? '').trim()
+  if (!piNo) {
+    return { ok: false, status: 400, msg: 'Please fill PI first' }
+  }
+
+  const excludeOrderNo = String(opts?.excludeOrderNo ?? '').trim()
+  const currentLines = parseCurrentLinesParam(opts?.currentLines)
+  const currentQtyMap = buildCurrentLineQtyMap(currentLines, piNo)
+
+  const headerR = await pool.request().input('pi', sql.NVarChar(200), piNo).query(`
+    SELECT TOP 1
+      h.[id] AS orderId,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj01], N'')))) AS piNo
+    FROM ${SALES_HEADER_FROM} AS h
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj01], N'')))) = @pi
+      AND ISNULL(CONVERT(nvarchar(50), h.[del]), N'') IN (N'', N'0')
+      AND ISNULL(CONVERT(nvarchar(50), h.[closed]), N'') IN (N'', N'0')
+    ORDER BY h.[id] DESC
+  `)
+  const header = headerR.recordset?.[0]
+  if (!header) {
+    return { ok: false, status: 404, msg: `PI ${piNo} has no active unclosed sales order` }
+  }
+
+  const orderId = Number(header.orderId)
+  const styleR = await pool.request().input('pi', sql.NVarChar(200), piNo).query(`
+    SELECT
+      l.[id],
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[xsak01], N'')))) AS piNo,
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N'')))) AS product,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa02], N'')))) AS productName,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa03], N'')))) AS spec,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[kcaa04], N'')))) AS unit,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[kcaa05], N'')))) AS category,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[kcaa09], N'')))) AS origin,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[kcaa10], N'')))) AS groupName,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[kcaa11], N'')))) AS colorCode,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[version], N'')))) AS version,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa02_en], N'')))) AS nameEn,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kpname], N'')))) AS invoiceName,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[Customer_supply], N'')))) AS customerSupply,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[systemcode], N'')))) AS materialSystemcode,
+      CAST(ISNULL(l.[xsak03], l.[plan_quantity]) AS decimal(18, 4)) AS orderQty,
+      CAST(ISNULL(l.[xsak04], 0) AS decimal(18, 6)) AS unitPrice,
+      CAST(ISNULL(l.[xsak05], 0) AS decimal(18, 6)) AS amount
+    FROM ${SALES_LINE_FROM} AS l
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[xsak01], N'')))) = @pi
+      AND ISNULL(CONVERT(nvarchar(50), l.[del]), N'') IN (N'', N'0')
+      AND LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(l.[pass], N'')))) = N'1'
+    ORDER BY l.[id] ASC
+  `)
+  const styleRows = styleR.recordset ?? []
+  const priceMap = await fetchBuyOfferPriceRowsForBatch(pool, uniqueBuyOfferSystemcodes(styleRows))
+
+  const outsourcedReq = pool.request().input('pi', sql.NVarChar(200), piNo)
+  let excludeSql = ''
+  if (excludeOrderNo) {
+    outsourcedReq.input('excludeOrderNo', sql.NVarChar(200), excludeOrderNo)
+    excludeSql = `
+      AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj01], N'')))) <> @excludeOrderNo
+    `
+  }
+  const outsourcedR = await outsourcedReq.query(`
+    SELECT
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[pi], N'')))) AS piNo,
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N'')))) AS kcaa01,
+      SUM(ISNULL(l.[wxak03], 0)) AS outsourcedQty
+    FROM ${ASSIST_LINE_FROM} AS l
+    INNER JOIN ${ASSIST_HEADER_FROM} AS h
+      ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[wxak01], N'')))) =
+         LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj01], N''))))
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[pi], N'')))) = @pi
+      AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
+      AND (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
+      ${excludeSql}
+    GROUP BY
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[pi], N'')))),
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N''))))
+  `)
+
+  const outsourcedDbMap = new Map()
+  for (const row of outsourcedR.recordset ?? []) {
+    const product = normKcaa01(row.kcaa01)
+    outsourcedDbMap.set(
+      buildAssistBatchLineKey(row.piNo, product, product),
+      roundQty(Number(row.outsourcedQty ?? 0), 2),
+    )
+  }
+
+  const styles = styleRows.map((style, styleIndex) => {
+    const product = normKcaa01(style.product)
+    const pi = String(style.piNo ?? piNo).trim()
+    const lineKey = buildAssistBatchLineKey(pi, product, product)
+    const orderQty = Number(style.orderQty ?? 0)
+    const outsourcedDb = outsourcedDbMap.get(lineKey) ?? 0
+    const outsourcedCurrent = currentQtyMap.get(lineKey) ?? 0
+    const availableQty = calcAvailableQty(orderQty, outsourcedDb, outsourcedCurrent)
+    const price = getBuyOfferPriceOrZero(priceMap, style.materialSystemcode)
+    const material = serializeRow({
+      childSeq: String(styleIndex + 1),
+      lineKey,
+      product,
+      piNo: pi,
+      codeColor: 'outbound',
+      kcaa01: product,
+      kcaa02: String(style.productName ?? '').trim(),
+      kcaa02En: String(style.nameEn ?? '').trim(),
+      invoiceName: String(style.invoiceName ?? '').trim(),
+      kcaa03: String(style.spec ?? '').trim(),
+      kcaa04: String(style.unit ?? '').trim(),
+      kcaa05: String(style.category ?? '').trim(),
+      origin: String(style.origin ?? '').trim(),
+      kcaa10: String(style.groupName ?? '').trim(),
+      kcaa11: String(style.colorCode ?? '').trim(),
+      version: String(style.version ?? '').trim(),
+      customerSupply: String(style.customerSupply ?? '').trim(),
+      isOutsource: availableQty > 0,
+      bomQty: roundQty(orderQty, 2),
+      outsourcedQty: roundQty(outsourcedDb + outsourcedCurrent, 2),
+      availableQty,
+      wxab04: price.wxab04,
+      wxab05: price.wxab05,
+      tax: price.tax,
+      outboundQtyLabel: '-',
+    })
+
+    return serializeRow({
+      seq: styleIndex + 1,
+      piNo: pi,
+      product,
+      codeColor: 'outbound',
+      productName: String(style.productName ?? '').trim(),
+      orderQty,
+      unitPrice: price.wxab04,
+      unitPriceTax: price.wxab05,
+      amount: roundQty(orderQty * price.wxab04, 2),
+      amountTax: roundQty(orderQty * price.wxab05, 2),
+      version: String(style.version ?? '').trim(),
+      nameEn: String(style.nameEn ?? '').trim(),
+      invoiceName: String(style.invoiceName ?? '').trim(),
+      spec: String(style.spec ?? '').trim(),
+      materials: [material],
+    })
+  })
+
+  return {
+    ok: true,
+    assistType: '2',
+    piNo,
+    orderId,
+    calcStatus: '',
+    styles,
+  }
+}
+
 /**
  * @param {import('mssql').ConnectionPool} pool
- * @param {{ piNo: string, excludeOrderNo?: string, currentLines?: unknown }} opts
+ * @param {{ piNo: string, supplierCode?: string, excludeOrderNo?: string, currentLines?: unknown }} opts
  */
 export async function fetchAssistOrderBatchAddTree(pool, opts) {
+  const assistType = String(opts?.assistType ?? '1').trim()
+  if (assistType === '0') {
+    return fetchAssistOrderOtherBatchAddTree(pool, opts)
+  }
+
   const piNo = String(opts?.piNo ?? '').trim()
   if (!piNo) {
     return { ok: false, status: 400, msg: '请先填写关联 PI 号' }
   }
 
+  if (assistType === '2') {
+    return fetchAssistOrderOutboundBatchAddTree(pool, opts)
+  }
+
+  const supplierCode = String(opts?.supplierCode ?? '').trim()
   const excludeOrderNo = String(opts?.excludeOrderNo ?? '').trim()
   const currentLines = parseCurrentLinesParam(opts?.currentLines)
   const currentQtyMap = buildCurrentLineQtyMap(currentLines, piNo)
@@ -461,7 +998,6 @@ export async function fetchAssistOrderBatchAddTree(pool, opts) {
   const styleR = await pool.request().input('pi', sql.NVarChar(200), piNo).query(`
     SELECT
       l.[id],
-      l.[seq],
       LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[xsak01], N'')))) AS piNo,
       LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N'')))) AS product,
       LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa02], N'')))) AS productName,
@@ -474,7 +1010,7 @@ export async function fetchAssistOrderBatchAddTree(pool, opts) {
       LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kpname], N'')))) AS invoiceName
     FROM ${SALES_LINE_FROM} AS l
     WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[xsak01], N'')))) = @pi
-    ORDER BY ISNULL(l.[seq], l.[id]) ASC
+    ORDER BY l.[id] ASC
   `)
   const styleRows = styleR.recordset ?? []
 
@@ -527,13 +1063,18 @@ export async function fetchAssistOrderBatchAddTree(pool, opts) {
       LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(src.[version], N'')))) AS version,
       LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(src.[Customer_supply], N'')))) AS customerSupply,
       CASE WHEN ISNULL(src.[kcaa13], 0) <> 0 THEN 1 ELSE 0 END AS isOutsource,
-      src.[seq]
+      src.[id] AS seq
     FROM ${PI_BOM_LIST_FROM} AS src
     WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(src.[sid], N'')))) = @pi
       AND (ISNULL(src.[del], N'') = N'' OR src.[del] = N'0')
-    ORDER BY src.[pkcaa01] ASC, src.[seq] ASC
+    ORDER BY src.[pkcaa01] ASC, src.[id] ASC
   `)
   const bomListRows = bomListR.recordset ?? []
+  const priceMap = await fetchAssistOfferPriceRowsForBatch(
+    pool,
+    uniqueAssistOfferMaterialCodes(bomListRows),
+    supplierCode,
+  )
 
   const outsourcedReq = pool.request().input('pi', sql.NVarChar(200), piNo)
   let excludeSql = ''
@@ -622,6 +1163,7 @@ export async function fetchAssistOrderBatchAddTree(pool, opts) {
         kcaa01: material,
         bomCodePrefixes,
       })
+      const price = getAssistOfferPriceOrZero(priceMap, material)
       return serializeRow({
         childSeq: `${styleIndex + 1}-${matIndex + 1}`,
         lineKey,
@@ -644,6 +1186,9 @@ export async function fetchAssistOrderBatchAddTree(pool, opts) {
         bomQty: roundQty(bomQty, 2),
         outsourcedQty: roundQty(outsourcedDb + outsourcedCurrent, 2),
         availableQty,
+        wxab04: price.wxab04,
+        wxab05: price.wxab05,
+        tax: price.tax,
         outboundQtyLabel: '待开发',
       })
     })

@@ -1,5 +1,5 @@
 <template>
-  <div class="erp-module-page assist-order-page">
+  <div class="erp-module-page assist-order-page" :class="{ 'assist-order-page--form': isFormPanel }">
     <div class="assist-mode-bar">
       <el-button
         :type="pageMode === 'manage' ? 'primary' : 'default'"
@@ -136,6 +136,9 @@
             :data="row.expandedLines || []"
             border
             size="small"
+            class="assist-expand-lines-table"
+            show-summary
+            :summary-method="(param) => expandSummaryMethod(row.expandedLines, param)"
           >
             <el-table-column label="序号" width="70">
               <template #default="{ $index }">{{ $index + 1 }}</template>
@@ -285,6 +288,30 @@
         </el-table>
         </ErpTableViewportHScroll>
 
+        <div v-if="tableList.length" class="assist-page-subtotal">
+          <span class="assist-page-subtotal__label">小计：</span>
+          <span class="assist-page-subtotal__cell assist-page-subtotal__cell--qty">
+            <span class="assist-page-subtotal__head">数量</span>
+            <span class="assist-page-subtotal__val">{{ formatSubtotalQty(pageSubtotal.quantity) }}</span>
+          </span>
+          <span class="assist-page-subtotal__cell">
+            <span class="assist-page-subtotal__head">单价</span>
+            <span class="assist-page-subtotal__val">{{ formatSubtotalUnitPrice(pageSubtotal.unitPriceEx) }}</span>
+          </span>
+          <span class="assist-page-subtotal__cell">
+            <span class="assist-page-subtotal__head">单价（含税）</span>
+            <span class="assist-page-subtotal__val">{{ formatSubtotalUnitPrice(pageSubtotal.unitPriceInc) }}</span>
+          </span>
+          <span class="assist-page-subtotal__cell">
+            <span class="assist-page-subtotal__head">金额</span>
+            <span class="assist-page-subtotal__val">{{ formatMoney(pageSubtotal.amountEx) }}</span>
+          </span>
+          <span class="assist-page-subtotal__cell">
+            <span class="assist-page-subtotal__head">金额（含税）</span>
+            <span class="assist-page-subtotal__val">{{ formatMoney(pageSubtotal.amountInc) }}</span>
+          </span>
+        </div>
+
         <div class="pagination-row pagination-row--bottom">
           <el-pagination
             v-model:current-page="page"
@@ -303,6 +330,7 @@
 
     <div
       v-show="isFormPanel"
+      ref="createPanelRef"
       v-loading="pageMode === 'edit' && detailLoading"
       class="assist-create-panel"
     >
@@ -311,6 +339,7 @@
         :model="editForm"
         :rules="editRules"
         v-model:edit-tab="editTab"
+        :footer-height="formFooterHeight"
         :supplier-options="supplierOptions"
         :supplier-loading="supplierLoading"
         :currency-options="currencyOptions"
@@ -328,7 +357,7 @@
         @add-fee-row="addFeesRow"
         @reset-fees="resetFeesTab"
       />
-      <div class="assist-form-footer">
+      <div ref="formFooterRef" class="assist-form-footer">
         <el-button type="primary" :loading="saveLoading" @click="onSave">立即提交</el-button>
         <el-button @click="onFormReset">重置</el-button>
       </div>
@@ -499,10 +528,15 @@ import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import {
+  recalcAssistOrderLineFromQuotedPrices,
   recalcAssistOrderLineFromTaxExcluded,
   recalcAssistOrderLineFromTaxIncluded,
 } from '@/utils/assistOrderAmount'
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import {
+  calcAssistOrderExpandSubtotal,
+  calcAssistOrderPageSubtotal,
+} from '@/utils/assistOrderPageSubtotal'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
 import AssistOrderEditForm from './AssistOrderEditForm.vue'
 import {
@@ -510,6 +544,7 @@ import {
   ASSIST_BATCH_MSG_APPLY,
   ASSIST_BATCH_MSG_REJECTED,
   ASSIST_BATCH_REJECT_PI_MISMATCH,
+  ASSIST_BATCH_REJECT_SUPPLIER_MISMATCH,
   ASSIST_BATCH_RESULT_PREFIX,
   buildAssistBatchSessionId,
   parseAssistBatchResultPayload,
@@ -581,7 +616,44 @@ const keywordPlaceholder = computed(() => {
 
 const printSelectedCount = computed(() => printSelectedIds.value.size)
 
+const pageSubtotal = computed(() => calcAssistOrderPageSubtotal(tableList.value))
+
 const isFormPanel = computed(() => pageMode.value === 'create' || pageMode.value === 'edit')
+
+const createPanelRef = ref(null)
+const formFooterRef = ref(null)
+const formFooterHeight = ref(56)
+let formFooterRo = null
+
+function syncFormFooterHeight() {
+  const footer = formFooterRef.value
+  const panel = createPanelRef.value
+  if (!footer) return
+  const h = Math.ceil(footer.getBoundingClientRect().height)
+  if (h > 0) {
+    formFooterHeight.value = h
+    panel?.style.setProperty('--assist-form-footer-height', `${h}px`)
+  }
+}
+
+function bindFormFooterObserver() {
+  formFooterRo?.disconnect()
+  formFooterRo = null
+  if (!formFooterRef.value) return
+  syncFormFooterHeight()
+  formFooterRo = new ResizeObserver(() => syncFormFooterHeight())
+  formFooterRo.observe(formFooterRef.value)
+}
+
+watch(isFormPanel, async (on) => {
+  if (!on) {
+    formFooterRo?.disconnect()
+    formFooterRo = null
+    return
+  }
+  await nextTick()
+  bindFormFooterObserver()
+})
 
 watch([tableList, loading, () => filters.recycled], async () => {
   if (loading.value) return
@@ -830,6 +902,34 @@ function formatMoney(n) {
   const num = Number(n)
   if (!Number.isFinite(num)) return '0.00'
   return num.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function formatSubtotalQty(n) {
+  const num = Number(n)
+  if (!Number.isFinite(num)) return '0'
+  if (Number.isInteger(num)) return String(num)
+  return num.toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 4 })
+}
+
+function formatSubtotalUnitPrice(n) {
+  if (n === null || n === undefined) return '-'
+  const num = Number(n)
+  if (!Number.isFinite(num)) return '-'
+  return num.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+}
+
+function expandSummaryMethod(expandedLines, { columns }) {
+  const sub = calcAssistOrderExpandSubtotal(expandedLines)
+  return columns.map((col) => {
+    const prop = col.property
+    if (prop === 'kcaa02') return '小计：'
+    if (prop === 'wxak03') return formatSubtotalQty(sub.quantity)
+    if (prop === 'wxak04') return formatSubtotalUnitPrice(sub.unitPriceEx)
+    if (prop === 'wxak041') return formatSubtotalUnitPrice(sub.unitPriceInc)
+    if (prop === 'wxak05') return formatMoney(sub.amountEx)
+    if (prop === 'wxak051') return formatMoney(sub.amountInc)
+    return ''
+  })
 }
 
 function assistOrderDataLines(row) {
@@ -1231,7 +1331,7 @@ function applyBatchAddLines(lines) {
   if (!list.length) return
   const newLines = list.map((row) => {
     const line = normalizeLine(row, 0)
-    applyLineCalc(line, recalcAssistOrderLineFromTaxExcluded(line, { priceDecimals: editForm.decimalPlaces }))
+    applyLineCalc(line, recalcAssistOrderLineFromQuotedPrices(line, { priceDecimals: editForm.decimalPlaces }))
     return line
   })
   editForm.lines.unshift(...newLines)
@@ -1241,26 +1341,32 @@ function applyBatchAddLines(lines) {
 
 function openBatchAdd() {
   const assistType = String(editForm.assistType ?? '')
-  if (assistType !== '1') {
+  if (assistType !== '0' && assistType !== '1' && assistType !== '2') {
     ElMessage.warning('当前外协类型暂不支持批量添加，后续版本开放')
     return
   }
   const piNo = String(editForm.referenceNo ?? '').trim()
-  if (!piNo) {
+  if (assistType !== '0' && !piNo) {
     ElMessage.warning('订单外协须先填写关联 PI 号')
+    return
+  }
+  const supplierCode = String(editForm.supplierCode ?? '').trim()
+  if (!supplierCode) {
+    ElMessage.warning('\u8bf7\u5148\u9009\u62e9\u5916\u534f\u5546\uff0c\u624d\u80fd\u6279\u91cf\u6dfb\u52a0\u5e76\u81ea\u52a8\u5e26\u51fa\u5355\u4ef7')
     return
   }
   const sessionId = buildAssistBatchSessionId()
   activeBatchSessionId.value = sessionId
   writeAssistBatchContext(sessionId, {
     piNo,
+    supplierCode,
     assistType,
     excludeOrderNo: editMode.value === 'edit' ? String(editForm.assistOrderNo ?? '').trim() : '',
     deliveryDate: editForm.deliveryDate,
     decimalPlaces: editForm.decimalPlaces,
     currentLines: buildBatchCurrentLines(),
   })
-  const url = `/supply-chain/daily/outsourcing-order-batch-window?sessionId=${encodeURIComponent(sessionId)}&piNo=${encodeURIComponent(piNo)}`
+  const url = `/supply-chain/daily/outsourcing-order-batch-window?sessionId=${encodeURIComponent(sessionId)}${piNo ? `&piNo=${encodeURIComponent(piNo)}` : ''}`
   const opened = window.open(url, '_blank')
   if (!opened) {
     ElMessage.error('无法打开新窗口，请检查浏览器是否拦截弹窗')
@@ -1274,6 +1380,22 @@ function handleBatchStorageEvent(event) {
   if (sessionId !== activeBatchSessionId.value) return
   const payload = parseAssistBatchResultPayload(event?.newValue)
   if (!payload?.lines?.length) return
+  const validation = validateBatchApply({
+    openedPiNo: payload.openedPiNo,
+    currentPiNo: editForm.referenceNo,
+    openedSupplierCode: payload.openedSupplierCode,
+    currentSupplierCode: editForm.supplierCode,
+    requirePi: String(editForm.assistType ?? '') !== '0',
+  })
+  if (!validation.ok) {
+    if (validation.reason === ASSIST_BATCH_REJECT_PI_MISMATCH) {
+      ElMessage.warning('\u5173\u8054 PI \u5df2\u53d8\u66f4\uff0c\u6279\u91cf\u9009\u6750\u5df2\u53d6\u6d88')
+    } else if (validation.reason === ASSIST_BATCH_REJECT_SUPPLIER_MISMATCH) {
+      ElMessage.warning('\u5916\u534f\u5546\u5df2\u53d8\u66f4\uff0c\u8bf7\u91cd\u65b0\u6253\u5f00\u6279\u91cf\u9009\u6750')
+    }
+    activeBatchSessionId.value = ''
+    return
+  }
   applyBatchAddLines(payload.lines)
   activeBatchSessionId.value = ''
 }
@@ -1293,10 +1415,15 @@ function handleBatchMessage(event) {
   const validation = validateBatchApply({
     openedPiNo: data.openedPiNo,
     currentPiNo: editForm.referenceNo,
+    openedSupplierCode: data.openedSupplierCode,
+    currentSupplierCode: editForm.supplierCode,
+    requirePi: String(editForm.assistType ?? '') !== '0',
   })
   if (!validation.ok) {
     if (validation.reason === ASSIST_BATCH_REJECT_PI_MISMATCH) {
-      ElMessage.warning('关联 PI 已变更，批量选材已取消')
+      ElMessage.warning('\u5173\u8054 PI \u5df2\u53d8\u66f4\uff0c\u6279\u91cf\u9009\u6750\u5df2\u53d6\u6d88')
+    } else if (validation.reason === ASSIST_BATCH_REJECT_SUPPLIER_MISMATCH) {
+      ElMessage.warning('\u5916\u534f\u5546\u5df2\u53d8\u66f4\uff0c\u8bf7\u91cd\u65b0\u6253\u5f00\u6279\u91cf\u9009\u6750')
     }
     postBatchMessageToSource(event.source, {
       type: ASSIST_BATCH_MSG_REJECTED,
@@ -1575,6 +1702,8 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  formFooterRo?.disconnect()
+  formFooterRo = null
   window.removeEventListener('storage', handleBatchStorageEvent)
   window.removeEventListener('message', handleBatchMessage)
 })
@@ -1585,6 +1714,20 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* DIY：表单模式预留 ERP 顶栏高度，改 --assist-page-chrome */
+.assist-order-page--form {
+  --assist-page-chrome: 200px;
+  --assist-form-footer-height: 56px;
+  height: calc(100vh - var(--assist-page-chrome));
+  overflow: hidden;
+  gap: 8px;
+}
+
+.assist-order-page--form .assist-mode-bar {
+  flex-shrink: 0;
+  margin-bottom: 0;
 }
 
 .assist-mode-bar {
@@ -1611,9 +1754,10 @@ onUnmounted(() => {
 .assist-create-panel {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 0;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 .assist-create-panel :deep(.assist-edit-form) {
@@ -1625,10 +1769,16 @@ onUnmounted(() => {
 
 .assist-form-footer {
   display: flex;
+  flex-shrink: 0;
   justify-content: flex-start;
-  gap: 8px;              /* 两按钮间距，只改这里 */
-  padding-top: 4px;
-  margin-left: 110px;    /* 整组右移，与打印注释输入框对齐 */
+  gap: 5px;              /* 两按钮间距，只改这里 */
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin-left: 0px;    /* 整组右移，与打印注释输入框对齐 */
+  padding: 10px 0 4px;
+  border-top: 1px solid var(--el-border-color-light);
+  background: var(--el-bg-color);
 }
 
 .assist-form-footer :deep(.el-button) {
@@ -1641,7 +1791,7 @@ onUnmounted(() => {
 }
 .assist-alert,
 .audit-alert {
-  margin-bottom: 4px;
+  margin-bottom: 14px;
 }
 
 .assist-filter-bar {
@@ -1686,6 +1836,61 @@ onUnmounted(() => {
 .assist-expand-inner {
   padding: 8px 12px 12px;
   min-height: 48px;
+}
+
+.assist-expand-lines-table :deep(.el-table__footer-wrapper td) {
+  background: var(--el-fill-color-light);
+}
+
+.assist-expand-lines-table :deep(.el-table__footer .cell) {
+  font-weight: 600;
+  text-align: right;
+}
+
+.assist-expand-lines-table :deep(.el-table__footer td.el-table__cell:nth-child(4) .cell) {
+  text-align: left;
+}
+
+.assist-page-subtotal {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 20px;
+  margin: 8px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  background: var(--el-fill-color-light);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.assist-page-subtotal__label {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  padding-bottom: 2px;
+}
+
+.assist-page-subtotal__cell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 88px;
+}
+
+.assist-page-subtotal__cell--qty {
+  min-width: 72px;
+}
+
+.assist-page-subtotal__head {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-bottom: 2px;
+}
+
+.assist-page-subtotal__val {
+  font-variant-numeric: tabular-nums;
+  color: var(--el-text-color-primary);
 }
 
 .assist-order-data {

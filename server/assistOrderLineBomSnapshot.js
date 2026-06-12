@@ -128,7 +128,7 @@ async function fetchFromBomSalesList(db, referenceNo, product, kcaa01) {
       AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(src.[kcaa01], N'')))) = @kcaa01
       AND (ISNULL(src.[del], N'') = N'' OR src.[del] = N'0')
       ${productSql}
-    ORDER BY ISNULL(src.[seq], 0) ASC
+    ORDER BY src.[id] ASC
   `)
   return mapAssistOrderBomSnapshotRow(r.recordset?.[0])
 }
@@ -158,7 +158,7 @@ async function fetchFromBomSales(db, referenceNo, kcaa01) {
       WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(src.[sid], N'')))) = @referenceNo
         AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(src.[kcaa01], N'')))) = @kcaa01
         AND (ISNULL(src.[del], N'') = N'' OR src.[del] = N'0')
-      ORDER BY ISNULL(src.[seq], src.[id]) ASC
+      ORDER BY src.[id] ASC
     `)
   return mapAssistOrderBomSnapshotRow(r.recordset?.[0])
 }

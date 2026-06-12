@@ -234,7 +234,7 @@ export async function fetchAssistOrderPrintDocuments(pool, ids, actor = {}, setu
     const orderNo = text(header.assistOrderNo)
     const linesResult = await pool.request().input('orderNo', sql.NVarChar(200), orderNo).query(`
       SELECT
-        l.[seq],
+        ROW_NUMBER() OVER (ORDER BY l.[id] ASC) AS seq,
         LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[Product], N'')))) AS product,
         LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa01], N'')))) AS kcaa01,
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa02], N'')))) AS kcaa02,
@@ -256,7 +256,7 @@ export async function fetchAssistOrderPrintDocuments(pool, ids, actor = {}, setu
        AND (ISNULL(c.[del], N'') = N'' OR c.[del] = N'0')
       WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[wxak01], N'')))) = @orderNo
         AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
-      ORDER BY l.[seq] ASC
+      ORDER BY l.[id] ASC
     `)
     const feesResult = await pool.request().input('orderNo', sql.NVarChar(200), orderNo).query(`
       SELECT
@@ -267,7 +267,7 @@ export async function fetchAssistOrderPrintDocuments(pool, ids, actor = {}, setu
       FROM ${MONEY_FROM} AS m
       WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(m.[assist_code], N'')))) = @orderNo
         AND ISNULL(m.[del], 0) = 0
-      ORDER BY m.[kid] ASC, m.[id] ASC
+      ORDER BY m.[id] ASC
     `)
 
     docs.push(buildAssistOrderPrintDocument({

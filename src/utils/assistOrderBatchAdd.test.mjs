@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import {
   ASSIST_BATCH_REJECT_PI_MISMATCH,
+  ASSIST_BATCH_REJECT_SUPPLIER_MISMATCH,
   parseAssistBatchResultPayload,
   validateBatchApply,
 } from './assistOrderBatchAdd.js'
@@ -42,6 +43,16 @@ describe('assistOrderBatchAdd', () => {
     assert.deepEqual(result, { ok: false, reason: ASSIST_BATCH_REJECT_PI_MISMATCH })
   })
 
+  test('validateBatchApply rejects supplier mismatch when supplier is locked', () => {
+    const result = validateBatchApply({
+      openedPiNo: 'PI-A',
+      currentPiNo: 'PI-A',
+      openedSupplierCode: 'SUP-1',
+      currentSupplierCode: 'SUP-2',
+    })
+    assert.deepEqual(result, { ok: false, reason: ASSIST_BATCH_REJECT_SUPPLIER_MISMATCH })
+  })
+
   test('validateBatchApply rejects missing PI', () => {
     assert.deepEqual(
       validateBatchApply({ openedPiNo: '', currentPiNo: 'PI-1' }),
@@ -50,6 +61,19 @@ describe('assistOrderBatchAdd', () => {
     assert.deepEqual(
       validateBatchApply({ openedPiNo: 'PI-1', currentPiNo: '' }),
       { ok: false, reason: 'missing-pi' },
+    )
+  })
+
+  test('validateBatchApply can skip PI check for other assist orders', () => {
+    assert.deepEqual(
+      validateBatchApply({
+        openedPiNo: '',
+        currentPiNo: '',
+        openedSupplierCode: 'SUP-1',
+        currentSupplierCode: 'SUP-1',
+        requirePi: false,
+      }),
+      { ok: true },
     )
   })
 })
