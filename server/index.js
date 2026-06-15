@@ -3159,8 +3159,8 @@ const HR_ROOM_IN_FROM = 'dbo.[Hr_room_in]'
 /** 宿舍电费汇总等：room_code 与 Hr_room.s_code / Hr_room_in.room_code 对应 */
 const HR_ROOM_USE_FROM = 'dbo.[Hr_room_use]'
 
-/** 库存基本资料：颜色编码（物理表 Bom_colorcode） */
-const BOM_COLORCODE_FROM = 'dbo.[Bom_colorcode]'
+/** 库存基本资料：颜色编码（物理表 UB_ERP_Stocks_colorcode） */
+const BOM_COLORCODE_FROM = 'dbo.[UB_ERP_Stocks_colorcode]'
 
 /** 供应商资料（销售/采购/外协管理 → 基本资料 → 供应商资料） */
 const SYS_SUPPLIER_FROM = 'dbo.[System_supplier]'
@@ -3172,7 +3172,7 @@ const SYS_SETTLEMENT_METHOD_FROM = 'dbo.[System_settlement_method]'
 const SYS_SALES_CUSTOMER_FROM = 'dbo.[System_sales_customer]'
 
 /**
- * Bom_colorcode 业务时间串：年-月-日 时:分:秒（月、日不补零；时分秒两位），示例 2026-4-23 11:44:51
+ * 颜色编码业务时间串：年-月-日 时:分:秒（月、日不补零；时分秒两位），示例 2026-4-23 11:44:51
  * @param {Date} [date]
  */
 function formatBomColorcodeTimestamp(date = new Date()) {
@@ -3211,8 +3211,8 @@ async function fetchBomColorcodeByCode(pool, codeRaw) {
   return r.recordset?.[0] ?? null
 }
 
-/** 库存基本资料：使用单位（物理表 Bom_unit；主键 id） */
-const BOM_UNIT_FROM = 'dbo.[Bom_unit]'
+/** 库存基本资料：使用单位（物理表 UB_ERP_Stocks_unit；主键 id） */
+const BOM_UNIT_FROM = 'dbo.[UB_ERP_Stocks_unit]'
 
 /**
  * 按主键 id 读取使用单位一行（不区分在册/删除，供审核/删除校验）
@@ -3237,8 +3237,8 @@ async function fetchBomUnitById(pool, idRaw) {
   return r.recordset?.[0] ?? null
 }
 
-/** 库存基本资料：单位转换率（物理表 Bom_unit_change；主键 id） */
-const BOM_UNIT_CHANGE_FROM = 'dbo.[Bom_unit_change]'
+/** 库存基本资料：单位转换率（物理表 UB_ERP_Stocks_unit_change；主键 id） */
+const BOM_UNIT_CHANGE_FROM = 'dbo.[UB_ERP_Stocks_unit_change]'
 
 /**
  * 按主键 id 读取单位转换率一行（不区分在册/删除，供审核/删除校验）
@@ -3264,8 +3264,8 @@ async function fetchBomUnitChangeById(pool, idRaw) {
   return r.recordset?.[0] ?? null
 }
 
-/** 库存基本资料：材料分类（物理表 Bom_material；主键 id） */
-const BOM_MATERIAL_FROM = 'dbo.[Bom_material]'
+/** 库存基本资料：材料分类（物理表 UB_ERP_Stocks_material；主键 id） */
+const BOM_MATERIAL_FROM = 'dbo.[UB_ERP_Stocks_material]'
 
 /**
  * 按主键 id 读取材料分类一行（不区分在册/删除，供审核/删除校验）
@@ -3302,8 +3302,8 @@ async function fetchBomMaterialById(pool, idRaw) {
   return r.recordset?.[0] ?? null
 }
 
-/** 库存基本资料：车间与部门编码（物理表 Bom_Stocks_workshop；主键 id） */
-const BOM_STOCKS_WORKSHOP_FROM = 'dbo.[Bom_Stocks_workshop]'
+/** 库存基本资料：车间与部门编码（物理表 UB_ERP_Stocks_workshop；主键 id） */
+const BOM_STOCKS_WORKSHOP_FROM = 'dbo.[UB_ERP_Stocks_workshop]'
 
 /**
  * 按主键 id 读取车间与部门编码一行（不区分在册/删除，供审核/删除校验）
@@ -6786,7 +6786,7 @@ function escapeSqlLikePattern(s) {
 }
 
 /**
- * BOM 详情：从 Bom_unit_change 解析采购/报价与使用单位的转换方向及转换率（已审、在册）
+ * BOM 详情：从 UB_ERP_Stocks_unit_change 解析采购/报价与使用单位的转换方向及转换率（已审、在册）
  * @returns {{ purchase_direction: string, purchase_rate: string, quote_direction: string, quote_rate: string }}
  */
 
@@ -8587,7 +8587,7 @@ app.delete('/api/supply-chain/settlement-methods/:id/permanent', async (req, res
 })
 
 /**
- * 库存基本资料：颜色编码分页列表（物理表 Bom_colorcode；SQL Server 2008 R2：ROW_NUMBER 分页）
+ * 库存基本资料：颜色编码分页列表（物理表 UB_ERP_Stocks_colorcode；SQL Server 2008 R2：ROW_NUMBER 分页）
  * GET /api/inventory/color-code/list
  * - 默认排序：物理列 `intime` DESC；列表 `in_time` 为 yyyy/M/d（月日不补零，如 2017/9/1）；keyword 对 code/name 参数化模糊（防注入）
  * - 过滤：在册 del + pass（与项目列表约定一致；若旧表无列需在库端补齐）
@@ -9055,7 +9055,7 @@ app.delete('/api/inventory/color-code/:code', async (req, res) => {
 })
 
 /**
- * 库存基本资料：使用单位分页列表（物理表 Bom_unit；SQL Server 2008 R2：ROW_NUMBER）
+ * 库存基本资料：使用单位分页列表（物理表 UB_ERP_Stocks_unit；SQL Server 2008 R2：ROW_NUMBER）
  * GET /api/inventory/units/list
  * - 在册：`del` 在册 + `pass`；回收站 `recycled=1` 仅 `del=1`；keyword 对 name/info 参数化 LIKE
  * - 排序：`id DESC`
@@ -9417,7 +9417,7 @@ app.delete('/api/inventory/units/:id/permanent', async (req, res) => {
 })
 
 /**
- * 库存基本资料：单位转换率分页列表（物理表 Bom_unit_change；SQL Server 2008 R2：ROW_NUMBER）
+ * 库存基本资料：单位转换率分页列表（物理表 UB_ERP_Stocks_unit_change；SQL Server 2008 R2：ROW_NUMBER）
  * GET /api/inventory/unit-conversion/list
  * - 在册：`del` 在册 + `pass`；回收站 `recycled=1` 仅 `del=1`；keyword 对 unit_name/unit_name_tow 参数化 LIKE
  * - 排序：`id DESC`
@@ -9808,7 +9808,7 @@ app.delete('/api/inventory/unit-conversion/:id/permanent', async (req, res) => {
 })
 
 /**
- * 库存基本资料：材料分类分页列表（物理表 Bom_material；SQL Server 2008 R2：ROW_NUMBER）
+ * 库存基本资料：材料分类分页列表（物理表 UB_ERP_Stocks_material；SQL Server 2008 R2：ROW_NUMBER）
  * GET /api/inventory/material-category/list
  * - 在册：`del` 在册 + `pass`；回收站 `recycled=1` 仅 `del=1`；keyword 对 code/name/customs_code 参数化 LIKE
  * - 排序：`id DESC`
@@ -10229,7 +10229,7 @@ app.delete('/api/inventory/material-category/:id/permanent', async (req, res) =>
 })
 
 /**
- * 库存基本资料：车间与部门编码分页列表（物理表 Bom_Stocks_workshop；SQL Server 2008 R2：ROW_NUMBER）
+ * 库存基本资料：车间与部门编码分页列表（物理表 UB_ERP_Stocks_workshop；SQL Server 2008 R2：ROW_NUMBER）
  * GET /api/inventory/workshop-dept/list
  * - 在册：`del` 在册 + `pass`；回收站 `recycled=1` 仅 `del=1`；keyword 对 code/name/info 参数化 LIKE
  * - 排序：`id DESC`

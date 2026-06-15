@@ -1,7 +1,7 @@
 <template>
   <div class="erp-module-page">
     <!--
-      颜色编码（Bom_colorcode）：服务端分页 + 参数化 keyword；未审视图可编辑；审核/反审/软删/恢复标准件。
+      颜色编码（UB_ERP_Stocks_colorcode）：服务端分页 + 参数化 keyword；未审视图可编辑；审核/反审/软删/恢复标准件。
       默认只查已审 pass=1；可切换显示未审核；回收站仅查 del=1。
     -->
     <el-card shadow="never">
@@ -9,7 +9,7 @@
         <span class="page-title">{{ pageTitle }}</span>
       </template>
       <p class="page-desc">
-        数据表 <code>Bom_colorcode</code>；默认按录入时间降序，每页 20 条；已审核行不可软删，需先反审。
+        数据表 <code>UB_ERP_Stocks_colorcode</code>；默认按录入时间降序，每页 20 条；已审核行不可软删，需先反审。
       </p>
 
       <div class="search-row">

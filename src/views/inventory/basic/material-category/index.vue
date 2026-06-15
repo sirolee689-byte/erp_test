@@ -1,7 +1,7 @@
 <template>
   <div class="erp-module-page">
     <!--
-      材料分类（Bom_material）：标准件（列表/新增/审核/反审/软删/恢复）
+      材料分类（UB_ERP_Stocks_material）：标准件（列表/新增/审核/反审/软删/恢复）
       主键为数字 id；默认只查已审 pass=1；可切换显示未审核；回收站仅查 del=1。
     -->
     <el-card shadow="never">
@@ -9,7 +9,7 @@
         <span class="page-title">{{ pageTitle }}</span>
       </template>
       <p class="page-desc">
-        数据表 <code>Bom_material</code>；字段：分类编码、分类名称、海关商品编码、入库浮动率、出库浮动率；默认按 id 降序，每页 20 条；已审核行不可软删，需先反审。
+        数据表 <code>UB_ERP_Stocks_material</code>；字段：分类编码、分类名称、海关商品编码、入库浮动率、出库浮动率；默认按 id 降序，每页 20 条；已审核行不可软删，需先反审。
       </p>
 
       <div class="search-row">

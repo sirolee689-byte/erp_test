@@ -29,7 +29,7 @@ export const INV_BOM_CURRENCY_FROM = tableFrom(INV_BOM_CURRENCY_TABLE)
 export const INV_BOM_CODE_TABLE = resolveSafeTableName('INV_BOM_CODE_TABLE', 'Bom_code')
 export const INV_BOM_CODE_FROM = tableFrom(INV_BOM_CODE_TABLE)
 
-export const BOM_MATERIAL_TABLE = resolveSafeTableName('BOM_MATERIAL_TABLE', 'Bom_material')
+export const BOM_MATERIAL_TABLE = resolveSafeTableName('BOM_MATERIAL_TABLE', 'UB_ERP_Stocks_material')
 export const BOM_MATERIAL_FROM = tableFrom(BOM_MATERIAL_TABLE)
 
 /** 与 index.js / bomPartsLinePersist / bomMasterPropagate 一致 */

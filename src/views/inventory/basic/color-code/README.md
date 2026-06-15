@@ -2,7 +2,7 @@
 
 ## 已完成功能
 
-- 列表：`GET /api/inventory/color-code/list`，物理表 `Bom_colorcode`；`ROW_NUMBER()` 分页（SQL Server 2008 R2）；默认 **每页 20**、按物理列 **`intime` 降序**（接口字段名仍为 `in_time` 供前端展示）；每行返回 **`ename`、`info`**（供未审列表编辑回填）。
+- 列表：`GET /api/inventory/color-code/list`，物理表 `UB_ERP_Stocks_colorcode`；`ROW_NUMBER()` 分页（SQL Server 2008 R2）；默认 **每页 20**、按物理列 **`intime` 降序**（接口字段名仍为 `in_time` 供前端展示）；每行返回 **`ename`、`info`**（供未审列表编辑回填）。
 - 新增：`POST /api/inventory/color-code`，body `{ code, name, ename?, info? }`；**`intime`** 写入**当天本地日历日 00:00:00**（`datetime`）；列表 **`in_time`** 格式为 **`yyyy/M/d`**（月日不补零，如 **`2017/9/1`**）。**`addtime`** 为业务时间串（示例 **`2026-4-23 11:44:51`**）。**`pass='0'`、`del='0'`**；**`uid` / `uname` / `utruename`** 由 **`getActorAuditTripletFromReq(req)`** 从登录态写入（禁止前端传参）。插入前在册 **`code` 唯一**校验。
 - 编辑（仅「显示未审核」视图）：`PUT /api/inventory/color-code`，body `{ code, name, ename?, info? }`；仅 **在册且 `pass=0`** 可保存；写入 **`edittime`**（同上时间格式）。颜色编码只读不可改。
 - 搜索：顶部关键字，对 **`code` / `name`** 参数化 `LIKE`（防注入）；空关键字则只分页列表。
@@ -27,13 +27,13 @@
 
 ```sql
 -- 审计三列（若已执行过可跳过）
-ALTER TABLE dbo.[Bom_colorcode] ADD uid INT NULL;
-ALTER TABLE dbo.[Bom_colorcode] ADD uname NVARCHAR(50) NULL;
-ALTER TABLE dbo.[Bom_colorcode] ADD utruename NVARCHAR(50) NULL;
+ALTER TABLE dbo.[UB_ERP_Stocks_colorcode] ADD uid INT NULL;
+ALTER TABLE dbo.[UB_ERP_Stocks_colorcode] ADD uname NVARCHAR(50) NULL;
+ALTER TABLE dbo.[UB_ERP_Stocks_colorcode] ADD utruename NVARCHAR(50) NULL;
 -- 业务时间串
-ALTER TABLE dbo.[Bom_colorcode] ADD addtime NVARCHAR(50) NULL;
-ALTER TABLE dbo.[Bom_colorcode] ADD edittime NVARCHAR(50) NULL;
-ALTER TABLE dbo.[Bom_colorcode] ADD deltime NVARCHAR(50) NULL;
+ALTER TABLE dbo.[UB_ERP_Stocks_colorcode] ADD addtime NVARCHAR(50) NULL;
+ALTER TABLE dbo.[UB_ERP_Stocks_colorcode] ADD edittime NVARCHAR(50) NULL;
+ALTER TABLE dbo.[UB_ERP_Stocks_colorcode] ADD deltime NVARCHAR(50) NULL;
 ```
 
 ## 权限（按钮级）

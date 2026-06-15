@@ -225,7 +225,7 @@ export async function fetchBom000ForBomCostEnrich(poolOrTx, materialCodes) {
 /**
  * @param {import('mssql').ConnectionPool | import('mssql').Transaction} poolOrTx
  * @param {string[]} categoryCodes bom_000.kcaa05
- * @returns {Promise<Map<string, number>>} key = trimmed Bom_material.code
+ * @returns {Promise<Map<string, number>>} key = trimmed UB_ERP_Stocks_material.code
  */
 export async function fetchBomMaterialPxByCategoryCodes(poolOrTx, categoryCodes) {
   /** @type {Map<string, number>} */
@@ -273,7 +273,7 @@ export async function fetchBomMaterialPxByCategoryCodes(poolOrTx, categoryCodes)
  * PQ 主 BOM 运算时，按行物料分类补 bom_cost.px。
  * @param {Array<Record<string, unknown>>} rows
  * @param {string} pq
- * @param {Map<string, number>} materialPxMap key = Bom_material.code
+ * @param {Map<string, number>} materialPxMap key = UB_ERP_Stocks_material.code
  */
 export function applyBomCostPxForPqRows(rows, pq, materialPxMap) {
   if (!Array.isArray(rows) || !rows.length) return []
@@ -284,7 +284,7 @@ export function applyBomCostPxForPqRows(rows, pq, materialPxMap) {
 /**
  * PI 成本表按行物料分类补 px；销售订单款号不再限定必须 PQ- 开头。
  * @param {Array<Record<string, unknown>>} rows
- * @param {Map<string, number>} materialPxMap key = Bom_material.code
+ * @param {Map<string, number>} materialPxMap key = UB_ERP_Stocks_material.code
  */
 export function applyBomCostPxForRows(rows, materialPxMap) {
   if (!Array.isArray(rows) || !rows.length) return []

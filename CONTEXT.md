@@ -54,7 +54,7 @@
 | 自动审计 | `server/operationAuditMiddleware.js`：POST/PUT/DELETE 成功（HTTP 200）后异步写入；动作名与表名映射见 `server/action_map.js` |
 | 模块手写 | 外协订单等事务内日志见 `server/assistOrderOperationLog.js` |
 | 字段形态 | 旧系统口径：`act_name`（动作中文名）、`act_info`（可读中文详情，最长 500 字） |
-| `code` | 被操作的物理表名（如 `Bom_colorcode`、`UB_Date_ERP_Assist_order`） |
+| `code` | 被操作的物理表名（如 `UB_ERP_Stocks_colorcode`、`UB_Date_ERP_Assist_order`） |
 | `systemcode` | 被操作业务单据的系统编码（无则空） |
 | `uname` / `utruename` | 操作人登录账号 / 真实姓名（从登录态取，禁止前端覆盖） |
 | `ip` | 请求 IP（`getRequestIp`） |
@@ -232,7 +232,7 @@
 > kcaa16 在「BOM基础资料」弹窗中明确不展示。
 
 ### 单位转换
-来源表：Bom_unit_change（字段：unit_name、unit_name_tow、change_bl）
+来源表：UB_ERP_Stocks_unit_change（旧表名 Bom_unit_change；字段：unit_name、unit_name_tow、change_bl）
 - 采购/报价单位 ↔ 使用单位，可选两种转换方向
 - 转换率只读，未匹配时显示「—」
 
@@ -406,7 +406,7 @@
 **pi_cost 落库规则**：与 BOM 资料 **用量运算 → bom_cost** 同链路（`flattenBomPartsCostUsageFlatForBomCost` + 隐藏前缀 + 跳过成品根行，**平铺不合并**）；**不再**按 `UB_ERP_Bom_Sales_list.id` 二次去重。隐藏前缀里普通 `RP-` 材料必须写入，仅 `RP-PQ` 结构行不写入。PI BOM 须先 **同步 BOM**（按旧系统口径重建 list：查到几条写几条，过滤 `Bom_code.flag5 + '-'` 结构行但保留 `CUT-` 和 `RP-`，其中 `RP-PQ` 仍过滤），否则脏数据会导致 `pi_cost` 行数与 `bom_cost` 不一致。实现：`server/salesOrderCalculateService.js`。
 **pi_cost 专用字段**（不改用量行数）：`top_kcaa01/02` = PI BOM **第一层**（成品头直下）且命中 **Bom_code** `flag5`（排除 id=3 OUT、id=12 CUT）的节点作为子树锚点，其下全部子件（含裁片下 `RP-*` 等材料）**继承**该锚点；**深层**命中 `flag5` 不新建锚点（避免 `RP-0030/-` 误写自身）。**散件单**（直接 BOM、非整款 BAG/TAG 子树）第一层即散件本身时，`top_kcaa01` 可为自身。`t_kcaa01/02` = 直接父编码/名称（父即锚点时留空）；`t_kcaa03~11/14/15/25~27` = 直接父行 `UB_ERP_Bom_Sales_list` 同名 `kcaa*`（树父节点复制，与 pi_cost 自身 `kcaa*` 子件字段分开）；`temp` = 该款销售明细 `UB_ERP_Sales_order_list.xsak03`（同 `pq` 下各行相同）；`isok=1`、`pass='1'`、`kcac07=0`、`kcac08=kcac06+kcac07`、`kcaa07/08=0`。`bom_cost.top_kcaa01` 仍为直接父，**勿混用**。
 **入口与审核**：销售订单 **一键运算** 与 **增加散件单用量** 只放在销售订单列表第一列「操作」中；查看弹窗与编辑页不再放运算入口。已审核与未审核订单都可以执行；回收站订单不可操作。
-**PX 规则**：销售订单一键运算写 `UB_ERP_Bom_pi_cost.px`，规则照 BOM 资料：子件 `kcaa01` 精确匹配 `bom_000.kcaa01` 取 `kcaa05`，再匹配 `Bom_material.code` 取 `px`；找不到则 `px` 留空。
+**PX 规则**：销售订单一键运算写 `UB_ERP_Bom_pi_cost.px`，规则照 BOM 资料：子件 `kcaa01` 精确匹配 `bom_000.kcaa01` 取 `kcaa05`，再匹配 `UB_ERP_Stocks_material.code`（旧表名 `Bom_material`）取 `px`；找不到则 `px` 留空。
 
 **物料单查看入口**：销售订单仍负责点击「一键运算」生成物料单；生成后的结果统一在 **生产管理 → 统计分析 → 物料单** 查看，页面分为 **物料单统计表（明细）** 与 **物料单统计表（汇总）**。销售订单详情/编辑页不再内嵌物料单 Tab。
 
@@ -650,7 +650,7 @@
 - 第一版按旧系统外协格式实现一张外协单，固定 `wxgs=0`，不显示外协内容列；表头、明细列、固定合约条款、签字栏照旧系统口径，后续有需要再加 `wxgs` 切换。
 - 打印表头中的加工商、结算方式、地址、联系人、联系电话从供应商表实时查询：加工商取供应商简称 `s_sname`，结算方式取 `s_payfor`，地址取 `s_address`，联系人取 `s_lxr`，联系电话取 `s_tel`。
 - 打印表头订单字段包含：日期 `wxaj02`、PI 号/关联单号 `wxaj04`、币别名称快照、是否含税 `wxaj06`（显示含税/不含税文字）、备注 `remark`。
-- 打印明细列包含：序号、材料编码 `kcaa01`、材料名称/规格（`kcaa02` + `kcaa03` 两行显示）、对应款号 `product`、配件颜色（`kcaa11` 编码 + `Bom_colorcode` 颜色名称）、组别 `kcaa10`、单位 `kcaa04`、数量 `wxak03`、单价、金额、交期 `delivery_date`、税点 `tax`、外协内容 `Describe`。
+- 打印明细列包含：序号、材料编码 `kcaa01`、材料名称/规格（`kcaa02` + `kcaa03` 两行显示）、对应款号 `product`、配件颜色（`kcaa11` 编码 + `UB_ERP_Stocks_colorcode` 颜色名称）、组别 `kcaa10`、单位 `kcaa04`、数量 `wxak03`、单价、金额、交期 `delivery_date`、税点 `tax`、外协内容 `Describe`。
 - 打印单价按 `wxaj06` 判断：含税时显示含税单价 `wxak041`，不含税时显示不含税单价 `wxak04`。
 - 打印金额按 `wxaj06` 判断：含税时显示含税金额 `wxak051`，不含税时显示不含税金额 `wxak05`。
 - 额外费用接在明细后面继续排序号，金额列显示费用金额，其余列空白。

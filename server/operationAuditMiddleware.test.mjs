@@ -61,6 +61,6 @@ describe('operationAuditMiddleware assist order exclusions', () => {
     })
 
     assert.equal(calls.length, 1)
-    assert.equal(calls[0].code, 'Bom_unit')
+    assert.equal(calls[0].code, 'UB_ERP_Stocks_unit')
   })
 })

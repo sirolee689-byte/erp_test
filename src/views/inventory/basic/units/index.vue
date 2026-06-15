@@ -1,14 +1,14 @@
 <template>
   <div class="erp-module-page">
     <!--
-      使用单位（Bom_unit）：与颜色编码同一套列表/审核/软删/恢复标准件；主键为数字 id。
+      使用单位（UB_ERP_Stocks_unit）：与颜色编码同一套列表/审核/软删/恢复标准件；主键为数字 id。
     -->
     <el-card shadow="never">
       <template #header>
         <span class="page-title">{{ pageTitle }}</span>
       </template>
       <p class="page-desc">
-        数据表 <code>Bom_unit</code>；主键 <code>id</code>；默认按 id 降序，每页 20 条；已审核行不可软删，需先反审。
+        数据表 <code>UB_ERP_Stocks_unit</code>；主键 <code>id</code>；默认按 id 降序，每页 20 条；已审核行不可软删，需先反审。
       </p>
 
       <div class="search-row">

@@ -91,7 +91,7 @@
   - **混单**（整款 + 散件）：两个按钮均显示；散件按钮须整款已有 `pi_cost`（`canAddSpareUsage`）才可点，否则置灰并提示「请先一键运算整款」。
 - **增加散件单用量**（`POST /:id/add-spare-usage`）：**仅**对散件明细写 `UB_ERP_Bom_pi_cost` 自用量行（`pq`=散件自身、`kcac04=1`、`kcac06=1`、`top_kcaa01`=自身、`temp`=该款 `xsak03`；其余扩展字段照 `bom_000` enrich）；**不写** `pi_consumption`。混单时只覆盖散件款 `pi_cost`，整款不动；当全部明细款均有 `pi_cost` 时标 **已运算**。
 - **一键运算与散件**：运算范围 **排除散件明细**（只算整款）；混单运算完成后若散件尚未补用量，主表仍为 **未运算**；纯散件单调用一键运算接口会拒绝并提示改用散件按钮。
-- **一键运算 PX**：`UB_ERP_Bom_pi_cost.px` 照 BOM 资料规则补入，子件 `kcaa01` → `bom_000.kcaa05` → `Bom_material.code` → `Bom_material.px`；无匹配则留空。
+- **一键运算 PX**：`UB_ERP_Bom_pi_cost.px` 照 BOM 资料规则补入，子件 `kcaa01` → `bom_000.kcaa05` → `UB_ERP_Stocks_material.code` → `UB_ERP_Stocks_material.px`；无匹配则留空。
 - **已审**（`pass='1'`）：禁止保存订单、PI BOM PUT、同步 BOM、软删、彻底删；但允许在列表执行一键运算
 
 ## 主 BOM 门禁（保存 vs 同步）

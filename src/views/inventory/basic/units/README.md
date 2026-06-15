@@ -2,7 +2,7 @@
 
 ## 已完成功能
 
-- 列表：`GET /api/inventory/units/list`，物理表 **`Bom_unit`**；`ROW_NUMBER()` 分页（SQL Server 2008 R2）；默认 **每页 20**、按 **`id` 降序**。
+- 列表：`GET /api/inventory/units/list`，物理表 **`UB_ERP_Stocks_unit`**；`ROW_NUMBER()` 分页（SQL Server 2008 R2）；默认 **每页 20**、按 **`id` 降序**。
 - 搜索：关键字对 **`name` / `info`** 参数化 `LIKE`（防注入）。
 - 默认视图：**`pass=1`（已审核）**；「显示未审核」查询 **`pass=0`**（与回收站互斥）。
 - 回收站：**`recycled=1`** 仅 **`del=1`**；支持同一关键字搜索；操作 **恢复**。
@@ -24,12 +24,12 @@
 ### Navicat：缺列补齐（列已存在则跳过该句）
 
 ```sql
-ALTER TABLE dbo.[Bom_unit] ADD uid INT NULL;
-ALTER TABLE dbo.[Bom_unit] ADD uname NVARCHAR(50) NULL;
-ALTER TABLE dbo.[Bom_unit] ADD utruename NVARCHAR(50) NULL;
-ALTER TABLE dbo.[Bom_unit] ADD addtime NVARCHAR(50) NULL;
-ALTER TABLE dbo.[Bom_unit] ADD edittime NVARCHAR(50) NULL;
-ALTER TABLE dbo.[Bom_unit] ADD deltime NVARCHAR(50) NULL;
+ALTER TABLE dbo.[UB_ERP_Stocks_unit] ADD uid INT NULL;
+ALTER TABLE dbo.[UB_ERP_Stocks_unit] ADD uname NVARCHAR(50) NULL;
+ALTER TABLE dbo.[UB_ERP_Stocks_unit] ADD utruename NVARCHAR(50) NULL;
+ALTER TABLE dbo.[UB_ERP_Stocks_unit] ADD addtime NVARCHAR(50) NULL;
+ALTER TABLE dbo.[UB_ERP_Stocks_unit] ADD edittime NVARCHAR(50) NULL;
+ALTER TABLE dbo.[UB_ERP_Stocks_unit] ADD deltime NVARCHAR(50) NULL;
 ```
 
 ## 权限（按钮级）

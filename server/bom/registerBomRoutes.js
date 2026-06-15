@@ -37,9 +37,9 @@ import { flattenBomPartsCostUsageFlatForBomCost } from '../bomUsageFlatten.js'
 import { handlePostBomMasterPropagate } from '../bomMasterPropagate.js'
 import { markCurrentBomCostStale } from '../bomCostImpactScope.js'
 
-const BOM_UNIT_CHANGE_FROM = 'dbo.[Bom_unit_change]'
-const BOM_MATERIAL_FROM = 'dbo.[Bom_material]'
-const BOM_STOCKS_WORKSHOP_FROM = 'dbo.[Bom_Stocks_workshop]'
+const BOM_UNIT_CHANGE_FROM = 'dbo.[UB_ERP_Stocks_unit_change]'
+const BOM_MATERIAL_FROM = 'dbo.[UB_ERP_Stocks_material]'
+const BOM_STOCKS_WORKSHOP_FROM = 'dbo.[UB_ERP_Stocks_workshop]'
 const SYS_SUPPLIER_FROM = 'dbo.[System_supplier]'
 
 /** 已审核禁止改删固定文案（与 server/index.js 一致） */
@@ -753,7 +753,7 @@ async function invBomMasterSystemcodeExists(pool, systemcode) {
 }
 
 /**
- * 单位换算建议：使用单位 + 目标单位（采购或报价单位），匹配 Bom_unit_change 已审在册行
+ * 单位换算建议：使用单位 + 目标单位（采购或报价单位），匹配 UB_ERP_Stocks_unit_change 已审在册行
  * @returns {{ direction: 0|1|null, rate: string }}
  */
 /**
@@ -967,13 +967,13 @@ function lookupBomCostAggregateForMasterRow(row, aggMap) {
  * - 过滤：del 在册 + pass（与项目列表页「显示未审核」一致）
  * - 裁片：bom_cut=0 时默认 `kcaa01 NOT LIKE N'CUT-%'`（除非显式 CUT- 搜索）；bom_cut=1 时仅保留 CUT- 前缀行
  * - recycled=1：仅查 del=1（回收站），不按 pass 过滤
- * - bom_code_id：可选；Bom_code.id，按该分类 flag5 前缀匹配 kcaa01（BOM 分类，非 Bom_material）
+ * - bom_code_id：可选；Bom_code.id，按该分类 flag5 前缀匹配 kcaa01（BOM 分类，非材料分类表）
  * - v1.2.8+：每行返回用量运算列 `usageCalcLabel`（不需运算/未运算/已运算）：`Bom_code`（copen=1 且 flag5 非空）为前缀集，
  *   主档 kcaa01 以任一 flag5 开头且 del=0 为需运算；已运算判定为 bom_cost（表名见 BOM_COST_TABLE）存在 pq=kcaa01 且 sid 为主档 [GUID] 或 systemcode（与现行 POST /api/bom/usage-calc 落库 sid 一致并兼容 GUID）
  * - v1.3.0+：用量（成本）列 — 禁止 OUTER APPLY 逐行扫 bom_cost；第二步对「本页需运算行」去重 (sid,pq) 后 **单次** `GROUP BY sid,pq` 聚合，内存 `Map(sid+'\\x1f'+pq)` 回填；若物理表含 `del` 列则附加在册条件（与 INFORMATION_SCHEMA 探测一致）
  */
 /**
- * BOM 列表「BOM 分类」下拉：Bom_code 全表按 id 升序（非 Bom_material）
+ * BOM 列表「BOM 分类」下拉：Bom_code 全表按 id 升序（非材料分类表）
  * GET /api/inv/bom/bom-code-categories
  */
 app.get('/api/inv/bom/bom-code-categories', async (req, res) => {
@@ -3341,8 +3341,8 @@ app.get('/api/inventory/bom/:id/brief', async (req, res) => {
 /**
  * BOM 主档详情（基础资料步骤）：仅选取约定列，不查询 kcaa16
  * GET /api/inventory/bom/:id — :id 为 kcaa01（URL 编码，支持含 / 的编码）
- * - LEFT JOIN Bom_material：kcaa05=code，带出 categoryName；分类展示名称
- * - LEFT JOIN Bom_Stocks_workshop：kcaa15=code，workshopName；workshop_display 为「编码, 名称」
+ * - LEFT JOIN UB_ERP_Stocks_material：kcaa05=code，带出 categoryName；分类展示名称
+ * - LEFT JOIN UB_ERP_Stocks_workshop：kcaa15=code，workshopName；workshop_display 为「编码, 名称」
  * - unit_conversion：采购/报价与使用的转换方向（po_to_use 等）及转换率；sale_price、kcaa34_display；kpname 开票名称
  * - systemcode：主档稳定键，供 Bom_parts.kcac01 关联
  */

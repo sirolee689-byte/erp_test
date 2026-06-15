@@ -44,11 +44,11 @@ const HR_LEGACY_DEPT_TABLE = (() => {
 const HR_LEGACY_DEPT_FROM = `dbo.[${HR_LEGACY_DEPT_TABLE}]`
 
 /** 库存基本资料：颜色编码 / 使用单位（固定物理表名） */
-const BOM_COLORCODE_FROM = 'dbo.[Bom_colorcode]'
-const BOM_UNIT_FROM = 'dbo.[Bom_unit]'
-const BOM_UNIT_CHANGE_FROM = 'dbo.[Bom_unit_change]'
-const BOM_MATERIAL_FROM = 'dbo.[Bom_material]'
-const BOM_STOCKS_WORKSHOP_FROM = 'dbo.[Bom_Stocks_workshop]'
+const BOM_COLORCODE_FROM = 'dbo.[UB_ERP_Stocks_colorcode]'
+const BOM_UNIT_FROM = 'dbo.[UB_ERP_Stocks_unit]'
+const BOM_UNIT_CHANGE_FROM = 'dbo.[UB_ERP_Stocks_unit_change]'
+const BOM_MATERIAL_FROM = 'dbo.[UB_ERP_Stocks_material]'
+const BOM_STOCKS_WORKSHOP_FROM = 'dbo.[UB_ERP_Stocks_workshop]'
 const SYS_ROLES_FROM = 'dbo.[Sys_Roles]'
 const SYS_SUPPLIER_FROM = 'dbo.[System_supplier]'
 const SYS_SETTLEMENT_METHOD_FROM = 'dbo.[System_settlement_method]'
@@ -885,7 +885,7 @@ export function createOperationAuditPrepareMiddleware() {
         }
       }
 
-      // 单位转换率 Bom_unit_change
+      // 单位转换率 UB_ERP_Stocks_unit_change
       if (method === 'DELETE' && /^\/api\/inventory\/unit-conversion\/\d+(\/permanent)?$/.test(path)) {
         const idStr = path.slice('/api/inventory/unit-conversion/'.length).replace(/\/permanent$/, '')
         const id = Number(idStr)
@@ -922,7 +922,7 @@ export function createOperationAuditPrepareMiddleware() {
         }
       }
 
-      // 材料分类 Bom_material
+      // 材料分类 UB_ERP_Stocks_material
       if (method === 'DELETE' && /^\/api\/inventory\/material-category\/\d+(\/permanent)?$/.test(path)) {
         const idStr = path.slice('/api/inventory/material-category/'.length).replace(/\/permanent$/, '')
         const id = Number(idStr)
@@ -949,7 +949,7 @@ export function createOperationAuditPrepareMiddleware() {
         }
       }
 
-      // 车间与部门编码 Bom_Stocks_workshop
+      // 车间与部门编码 UB_ERP_Stocks_workshop
       if (method === 'DELETE' && /^\/api\/inventory\/workshop-dept\/\d+(\/permanent)?$/.test(path)) {
         const idStr = path.slice('/api/inventory/workshop-dept/'.length).replace(/\/permanent$/, '')
         const id = Number(idStr)

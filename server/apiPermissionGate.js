@@ -796,7 +796,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'inventory/basic/color-code', action: 'delete' }
   }
 
-  /* 使用单位 Bom_unit（须先于其它 inventory 泛化规则） */
+  /* 使用单位 UB_ERP_Stocks_unit（须先于其它 inventory 泛化规则） */
   if (m === 'GET' && path === '/api/inventory/units/list') {
     return {
       anyOf: [
@@ -826,7 +826,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'inventory/basic/units', action: 'delete' }
   }
 
-  /* 单位转换率 Bom_unit_change（须先于其它 inventory 泛化规则） */
+  /* 单位转换率 UB_ERP_Stocks_unit_change（须先于其它 inventory 泛化规则） */
   if (m === 'GET' && path === '/api/inventory/unit-conversion/list') {
     return { menuPath: 'inventory/basic/unit-conversion', action: 'view' }
   }
@@ -850,7 +850,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'inventory/basic/unit-conversion', action: 'delete' }
   }
 
-  /* 材料分类 Bom_material（须先于其它 inventory 泛化规则） */
+  /* 材料分类 UB_ERP_Stocks_material（须先于其它 inventory 泛化规则） */
   if (m === 'GET' && path === '/api/inventory/material-category/list') {
     return {
       anyOf: [
@@ -913,7 +913,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'inventory/basic/material-category', action: 'delete' }
   }
 
-  /* 车间与部门编码 Bom_Stocks_workshop（须先于其它 inventory 泛化规则） */
+  /* 车间与部门编码 UB_ERP_Stocks_workshop（须先于其它 inventory 泛化规则） */
   if (m === 'GET' && path === '/api/inventory/workshop-dept/list') {
     return {
       anyOf: [

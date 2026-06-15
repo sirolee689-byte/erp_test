@@ -15,11 +15,11 @@
 - **Sys_Roles**：角色管理（含菜单权限 `Permissions`）
 - **Sys_Users**：用户/操作员（通过 `RoleID` 关联角色）
 - **bom_000**：BOM 主档 / 物料清单头（v1.1.7 列表查询；约 6.8W 行量级，**必须分页**）
-- **Bom_colorcode**：库存基本资料 — 颜色编码（v1.0.0 列表分页）
-- **Bom_unit**：库存基本资料 — 使用单位（列表分页；审核/软删/恢复）
-- **Bom_unit_change**：库存基本资料 — 单位转换率（列表分页；审核/软删/恢复）
-- **Bom_material**：库存基本资料 — 材料分类（列表分页；审核/软删/恢复）
-- **Bom_Stocks_workshop**：库存基本资料 — 车间与部门编码（列表分页；审核/软删/恢复）
+- **UB_ERP_Stocks_colorcode**：库存基本资料 — 颜色编码（v1.0.0 列表分页；旧表名 `Bom_colorcode`）
+- **UB_ERP_Stocks_unit**：库存基本资料 — 使用单位（列表分页；审核/软删/恢复；旧表名 `Bom_unit`）
+- **UB_ERP_Stocks_unit_change**：库存基本资料 — 单位转换率（列表分页；审核/软删/恢复；旧表名 `Bom_unit_change`）
+- **UB_ERP_Stocks_material**：库存基本资料 — 材料分类（列表分页；审核/软删/恢复；旧表名 `Bom_material`）
+- **UB_ERP_Stocks_workshop**（旧名：`Bom_Stocks_workshop`）：库存基本资料 — 车间与部门编码（列表分页；审核/软删/恢复）
 - **System_supplier**：销售/采购/外协管理 — 基本资料 — 供应商资料（列表分页；审核/反审/软删/恢复）
 - **System_sales_customer**：销售/采购/外协管理 — 基本资料 — 销售客户（列表分页；审核/反审/软删/恢复）
 - **UB_ERP_Buy_offer**：销售/采购/外协管理 — 日常工作 — 采购报价主表（列表分页；主从保存；审核/反审/软删/恢复/彻底删；旧表名 `Purchase_Quotation`）
@@ -265,7 +265,7 @@
 - **说明**：部分库中仍存在上述物理表及历史数据。用量表 Tab 已恢复 **只读递归树**（`GET /api/bom/tree`，见 §3.6.1），**仍不读写** `Bom_cost` / `Bom_consumption`。
 - **备注**：若需清理数据或重新规划功能，请在库侧另行评估；旧版算法说明曾归档于 [`docs/bom运算需求文档.md`](../bom运算需求文档.md)（仅供参考，与现行代码可能不一致）。
 
-### 3.7 `Bom_colorcode`（颜色编码，v1.0.0+）
+### 3.7 `UB_ERP_Stocks_colorcode`（颜色编码，v1.0.0+）
 
 - **Schema**：`dbo`
 - **模块/页面**
@@ -287,7 +287,7 @@
 - **权限（按钮级）**
   - 菜单 path：`inventory/basic/color-code`：`view`（列表）、`add`（新增）、`edit`（未审保存、恢复）、`audit`（审核/反审）、`delete`（软删/彻底删）
 
-### 3.8 `Bom_unit`（使用单位）
+### 3.8 `UB_ERP_Stocks_unit`（使用单位）
 
 - **Schema**：`dbo`
 - **模块/页面**
@@ -304,7 +304,7 @@
 - **权限（按钮级）**
   - 菜单 path：`inventory/basic/units`：`view`、`add`、`audit`、`delete`、`edit`（恢复）
 
-### 3.9 `Bom_unit_change`（单位转换率）
+### 3.9 `UB_ERP_Stocks_unit_change`（单位转换率）
 
 - **Schema**：`dbo`
 - **模块/页面**
@@ -315,13 +315,14 @@
   - `PUT /api/inventory/unit-conversion/audit` / `unaudit`：body `{ id }`；更新 `pass` 并写 **`edittime`**
   - `DELETE /api/inventory/unit-conversion/:id`：在册且**未审** → `del='1'` 且 **`deltime`**（已审拒绝）
   - `PUT /api/inventory/unit-conversion/restore`：body `{ id }`；`del='0'` 且 **`edittime`**
+  - `GET /api/inventory/bom/unit-rate-suggest`：BOM 资料单位换算建议（后端：`server/bom/registerBomRoutes.js`），读取已审、在册转换率
 - **关键字段**
   - `id`：主键（整型 `IDENTITY`）；`unit_name`：使用单位；`unit_name_tow`：转换单位；`change_bl`：转换率；`pass`/`del`：项目约定
   - `uid` / `uname` / `utruename`；`addtime` / `edittime` / `deltime`（业务时间串，规则 16）
 - **权限（按钮级）**
   - 菜单 path：`inventory/basic/unit-conversion`：`view`、`add`、`audit`、`delete`、`edit`（恢复）
 
-### 3.10 `Bom_material`（材料分类）
+### 3.10 `UB_ERP_Stocks_material`（材料分类）
 
 - **Schema**：`dbo`
 - **模块/页面**
@@ -338,7 +339,7 @@
 - **权限（按钮级）**
   - 菜单 path：`inventory/basic/material-category`：`view`、`add`、`audit`、`delete`、`edit`（恢复）
 
-### 3.11 `Bom_Stocks_workshop`（车间与部门编码）
+### 3.11 `UB_ERP_Stocks_workshop`（车间与部门编码，旧名：`Bom_Stocks_workshop`）
 
 - **Schema**：`dbo`
 - **模块/页面**
@@ -486,14 +487,14 @@
 - **关键字段**
   - 主表：`pass`（审核）、`del`（软删）、运算列（探测 `isok` 或 `is_pur`）、`kehu`/客户名快照、`xsaj05`（客户代码 = `System_sales_customer.s_code`）、`rmb`/币别名称快照、`xsaj07`（币别 id = `bom_currency.id`）、`xsaj02` 销售日期、`xsaj06` PO 号、`d_code` 保存为空值、`type=1` 等
   - 明细：`kcaa01`（货品编码）、`xsak03`/`plan_quantity`（订货数量，**不参与** 运算写入）、`xsak04`（单价）、`xsak05`（金额 = 数量 × 单价）；展示快照字段来自 `bom_000`，当前明细显示使用 `kcaa06`（客款号）、`kcaa02`（用料名称中文）、`kcaa10`（组别）、`kcaa09`（工厂款号）、`version`（版本）；销售订单主列表展开明细的「用量」不来自明细表物理列，而是按 `xsak01/kcaa01` 对应 `UB_ERP_Bom_pi_cost.sid/pq` 汇总 `kcac04/kcac06`，显示为 `成本：SUM(kcac04),SUM(kcac06)`
-  - `GET /api/inventory/pi-bom-data/list`：PI_BOM资料首页分页接口；按销售订单明细款展示，一行 = 一个 PI 号下的一个成品编码。默认只查销售订单主表 `del` 为空或 `0` 且 `pass=1` 的在册已审核订单；搜索只匹配 PI 号 `UB_ERP_Sales_order_list.xsak01` 或编码 `kcaa01`。列表字段来自 `UB_ERP_Sales_order_list`，状态/录入时间/运算状态补 `UB_ERP_Sales_order`，成本用量按 `UB_ERP_Bom_pi_cost.sid = xsak01` 且 `pq = kcaa01` 汇总 `kcac04/kcac06`，分类中文名用 `UB_ERP_Sales_order_list.kcaa05 = Bom_material.code` 取 `Bom_material.name`。操作列提供查看（只读弹窗）与编辑（2 标签维护弹窗）。
+    - `GET /api/inventory/pi-bom-data/list`：PI_BOM资料首页分页接口；按销售订单明细款展示，一行 = 一个 PI 号下的一个成品编码。默认只查销售订单主表 `del` 为空或 `0` 且 `pass=1` 的在册已审核订单；搜索只匹配 PI 号 `UB_ERP_Sales_order_list.xsak01` 或编码 `kcaa01`。列表字段来自 `UB_ERP_Sales_order_list`，状态/录入时间/运算状态补 `UB_ERP_Sales_order`，成本用量按 `UB_ERP_Bom_pi_cost.sid = xsak01` 且 `pq = kcaa01` 汇总 `kcac04/kcac06`，分类中文名用 `UB_ERP_Sales_order_list.kcaa05 = UB_ERP_Stocks_material.code` 取 `UB_ERP_Stocks_material.name`。操作列提供查看（只读弹窗）与编辑（2 标签维护弹窗）。
   - `GET /api/inventory/pi-bom-data/detail`：PI_BOM资料查看详情接口；入参 `orderId + kcaa01`，先按销售订单主表/明细校验该编码属于该订单且订单未删除，再返回四块数据。`基础资料` 取 `UB_ERP_Bom_Sales`（`sid=PI号`、`kcaa01=编码`）；`配件明细` 取当前层直接子件；`PI_BOM树形` 只按 `UB_ERP_Bom_Sales_list.kcac01 -> systemcode/kcac02` 展开；`成本BOM用量表` 取 `UB_ERP_Bom_pi_cost`（`sid=PI号`、`pq=编码`）。该查看详情不读取 `bom_000`、`Bom_parts`、`bom_cost`，也不触发同步 BOM 或一键运算。
   - `GET /api/inventory/pi-bom-data/parts`：PI_BOM资料配件明细当前层接口；入参 `orderId + kcaa01 + parentSystemcode`，读取 `UB_ERP_Bom_Sales_list` 中 `sid = PI号`、`pkcaa01 = 当前成品编码`、`kcac01 = 当前层父级 systemcode`、`del` 为空或 `0` 的直接子件。
   - `GET /api/inventory/pi-bom-data/node-basic`：PI_BOM下层节点基础资料；入参 `orderId + kcaa01 + nodeSystemcode`。若节点等于成品头 `UB_ERP_Bom_Sales.systemcode` 则返回头表；否则从 `UB_ERP_Bom_Sales_list` 按 `systemcode/kcac02` 匹配返回节点快照（供 `parts-edit` 独立窗口基础资料只读展示）。
   - `PUT /api/inventory/pi-bom-data/basic`：PI_BOM资料主档维护；只更新 `UB_ERP_Bom_Sales`（`sid + kcaa01 + systemcode` 锁定），可改名称/规格/分类/单位/损耗/价格/备注等；不改 PI号、成品编码、systemcode。保存后销售订单主表标为未运算。
   - `PUT /api/inventory/pi-bom-data/parts`：PI_BOM资料配件明细维护接口；写入表只限 `UB_ERP_Bom_Sales_list`。新增行写 `sid = PI号`、`pkcaa01 = 当前成品编码`、`kcac01 = 当前层父级 systemcode`，并生成新的 `systemcode/kcac02` 用于后续下钻；修改可维护用量、损耗、单价、备注；删除为物理删除，并按当前 PI + 当前成品树精确删除该行下级子孙行。保存后销售订单主表标为未运算，不自动重算 `UB_ERP_Bom_pi_cost`。
   - `POST /api/inventory/pi-bom-data/replace-material`：PI-BOM 物料批量替换；只读 `bom_000` 取目标物料档案，更新 `UB_ERP_Bom_Sales_list` 匹配行（`sid`+源 `kcaa01`，可选 `pkcaa01`；`Describe` 始终参与筛选且精确匹配，留空只命中搭配为空的行）；同步 `kcaa01`~`kcaa35` 及 list 与主档同名的物料快照列；不改树键、用量、`Describe`、`UB_ERP_Bom_Sales`、`UB_ERP_Bom_pi_cost`；body 支持 `dryRun:true` 预检命中行数；执行后销售订单标未运算。
-  - 一键运算物料明细：`UB_ERP_Bom_pi_cost` 读取 `UB_ERP_Bom_Sales_list`，运算口径照 BOM 资料一键运算；平铺不合并，不按 `UB_ERP_Bom_Sales_list.id` 二次去重；隐藏前缀里普通 `RP-` 材料必须写入，仅 `RP-PQ` 结构行不写入；`kcac04` 写父级用量一路连乘后的结果；`px` 按子件 `kcaa01` → `bom_000.kcaa05` → `Bom_material.code` → `Bom_material.px` 补入，找不到则留空。
+  - 一键运算物料明细：`UB_ERP_Bom_pi_cost` 读取 `UB_ERP_Bom_Sales_list`，运算口径照 BOM 资料一键运算；平铺不合并，不按 `UB_ERP_Bom_Sales_list.id` 二次去重；隐藏前缀里普通 `RP-` 材料必须写入，仅 `RP-PQ` 结构行不写入；`kcac04` 写父级用量一路连乘后的结果；`px` 按子件 `kcaa01` → `bom_000.kcaa05` → `UB_ERP_Stocks_material.code` → `UB_ERP_Stocks_material.px` 补入，找不到则留空。
   - 审计：`UB_ERP_Sales_order.utruename`、`UB_ERP_Sales_order_list.utruename`、`UB_ERP_Bom_Sales.utruename`、`UB_ERP_Bom_Sales_list.utruename` 写当前操作人真实姓名，必须按登录 `usercode` 查询 `Sys_Users.truename`；禁止写 `Sys_Users.UserNmae` / `UserName` / 登录态显示名。
   - 销售订单明细兼容快照：保存时按明细 `kcaa01` 精确匹配 `bom_000.kcaa01` 最新在册行；`xsak02` 取 `bom_000.GUID`；`kcac01` 取销售订单主表 `GUID/systemcode`；`kcac02`、`GUID`、`systemcode` 同 `xsak02`；`kcac03` 取 `bom_000.kcaa25`（采购单位）；`kcaa07/08/11/12/13/14/15/25/26/16/27/28/29/30/31`、`type`、`location`、`pass`、`remark` 从 `bom_000` 抄快照；保存前校验两表必需列，缺列则提示具体字段。
   - PI BOM list：建款/同步 BOM 时从销售明细 `kcaa01` 对应 `bom_000.GUID` 起递归读取 `Bom_parts`；写入 `UB_ERP_Bom_Sales_list` 时不按 `kcaa01`、`systemcode`、`kcac02` 或 `Describe` 合并，`Bom_parts.id` 不同即不同源行；命中 `Bom_code.copen=1` 且 `flag5 + '-'` 的结构行不写入 list，但继续向下遍历，`CUT-` 和 `RP-` 例外必须写入，`RP-PQ` 仍作为结构前缀过滤不写入；被过滤结构行的子行 `kcac01` 仍保留原始真实父级；`kcac04` 用量、`kcac05` 损耗、`Describe` 备注（维护 UI 可改）；PI BOM 标签页树形展示按 `UB_ERP_Bom_Sales_list.kcac01 -> UB_ERP_Bom_Sales_list.kcac02` 展开，`kcac02` 是下一层子 BOM 头键；前端树行唯一键用物理行 `id`，不使用可能重复的 `systemcode`。
@@ -584,23 +585,23 @@
   - **审计**：若配件编码在 `bom_000` 存在在册子档，保存成功后额外写日志：`[同步]了BOM配件属性，主BOM：[systemcode]，配件：[kcaa01]，已同步kcaa01-kcaa35共35个字段。`（动作名：`同步BOM配件属性`）
 - **`dbo.[Bom_cost]` / `dbo.[Bom_consumption]`**
   - 来源：`server/index.js`（`GET /api/inv/bom/list` 汇总、`GET /api/inventory/bom/usage-result/:systemcode`、`POST /api/inventory/bom/usage-calc/:systemcode`）
-  - `bom_cost.px`：仅库存 BOM 一键运算且主档 `pq` 以 `PQ-` 开头时写入；来源链路为明细 `kcaa01` → `bom_000.kcaa05` → `Bom_material.code` → `Bom_material.px`。非 `PQ-` 主 BOM 不写该排序值，避免影响纸格导入下级 BOM 的排序。
+  - `bom_cost.px`：仅库存 BOM 一键运算且主档 `pq` 以 `PQ-` 开头时写入；来源链路为明细 `kcaa01` → `bom_000.kcaa05` → `UB_ERP_Stocks_material.code` → `UB_ERP_Stocks_material.px`。非 `PQ-` 主 BOM 不写该排序值，避免影响纸格导入下级 BOM 的排序。
 - **`dbo.[Bom_code]`**
   - 来源：`server/index.js`（BOM 用量运算规则：`copen=1`、`flag5` 动态匹配）
-- **`dbo.[Bom_colorcode]`**
+- **`dbo.[UB_ERP_Stocks_colorcode]`**
   - 来源：`server/index.js`（颜色编码列表、新增、审核、反审、软删、回收站彻底删、恢复）
-- **`dbo.[Bom_unit]`**
+- **`dbo.[UB_ERP_Stocks_unit]`**
   - 来源：`server/index.js`（使用单位列表、新增、审核、反审、软删、恢复）
 
-- **`dbo.[Bom_unit_change]`**
-  - 来源：`server/index.js`（单位转换率列表、新增、审核、反审、软删、恢复）
+- **`dbo.[UB_ERP_Stocks_unit_change]`**
+  - 来源：`server/index.js`（单位转换率列表、新增、审核、反审、软删、恢复）；`server/bom/registerBomRoutes.js`（BOM 单位换算建议）
 
-- **`dbo.[Bom_material]`**
-  - 来源：`server/index.js`（材料分类列表、新增、审核、反审、软删、恢复）
+- **`dbo.[UB_ERP_Stocks_material]`**
+  - 来源：`server/index.js`（材料分类列表、新增、审核、反审、软删、恢复）；`server/bom/registerBomRoutes.js`（BOM 列表分类展示）；`server/bomCostEnrichFromBom000.js`（BOM/PI 成本 px 补值）
   - `code` 为材料分类编号；`px` 为分类排序值，供 `PQ-` 主 BOM 成本运算写入 `bom_cost.px`。
 
-- **`dbo.[Bom_Stocks_workshop]`**
-  - 来源：`server/index.js`（车间与部门编码列表、新增、审核、反审、软删、恢复）
+- **`dbo.[UB_ERP_Stocks_workshop]`**
+  - 来源：`server/index.js`（车间与部门编码列表、新增、审核、反审、软删、恢复）；`server/bom/registerBomRoutes.js`（BOM 详情生产车间名称展示）
 
 - **`dbo.[UB_ERP_Buy_offer]` / `dbo.[UB_ERP_Buy_offer_list]`**
   - 来源：`server/purchaseQuotationHandlers.js`（采购报价 REST；旧表名 `Purchase_Quotation` / `Purchase_Quotation_list`）

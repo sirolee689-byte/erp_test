@@ -4,7 +4,7 @@ const HEADER_FROM = 'dbo.[UB_ERP_assist_order]'
 const LINE_FROM = 'dbo.[UB_ERP_assist_order_list]'
 const MONEY_FROM = 'dbo.[UB_ERP_assist_order_money]'
 const SUPPLIER_FROM = 'dbo.[System_supplier]'
-const COLOR_FROM = 'dbo.[Bom_colorcode]'
+const COLOR_FROM = 'dbo.[UB_ERP_Stocks_colorcode]'
 const PRINT_SETUP_FROM = 'dbo.[UB_ERP_User_print_setup]'
 
 export const ASSIST_ORDER_CONTRACT_TERMS = [

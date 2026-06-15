@@ -29,7 +29,7 @@
 - **查看**：打开只读弹窗（4 标签：基础资料、配件明细、PI_BOM树形、成本BOM用量表）；配件明细可下钻查看下级，不可修改。
 - **编辑**：打开 2 标签编辑弹窗（基础资料 + 配件明细）；基础资料点「保存主档」写入 `UB_ERP_Bom_Sales`；配件明细点「保存配件明细」写入 `UB_ERP_Bom_Sales_list`。
 - 编辑弹窗配件行点 **编辑配件**：以浏览器原生新页打开 `/inventory/basic/pi-bom-data-window?mode=parts-edit`（无侧栏）；下层页基础资料只读，配件明细可维护；继续下钻仍用「编辑配件」新页。进入编辑后，单位用量、损耗率、单价、备注默认可直接改，无需逐行点「编辑」。
-- `分类` 显示 `Bom_material.name`，通过销售订单明细快照 `kcaa05` 匹配 `Bom_material.code`。
+- `分类` 显示 `UB_ERP_Stocks_material.name`，通过销售订单明细快照 `kcaa05` 匹配 `UB_ERP_Stocks_material.code`（旧表名 `Bom_material`）。
 
 ## 数据来源
 
@@ -45,7 +45,7 @@
 | 客户款号 | `UB_ERP_Sales_order_list.kcaa06` |
 | 组别 | `UB_ERP_Sales_order_list.kcaa10` |
 | 单位 | `UB_ERP_Sales_order_list.kcaa04` |
-| 分类 | `Bom_material.name` |
+| 分类 | `UB_ERP_Stocks_material.name` |
 | 工厂款号 | `UB_ERP_Sales_order_list.kcaa09` |
 
 ## 查看详情数据来源
