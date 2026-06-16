@@ -1086,6 +1086,20 @@ function isAssistOrderBusinessLoggedWriteRoute(method, path) {
 }
 
 /**
+ * 派工单写接口已在业务代码里写入 UB_Date_ERP_Operation_log。
+ * 全局审计跳过，避免同一个按钮产生两行日志。
+ * @param {string} method
+ * @param {string} path
+ */
+function isDispatchOrderBusinessLoggedWriteRoute(method, path) {
+  if (method === 'POST' && path === '/api/dispatch-order') return true
+  if (method === 'PUT' && /^\/api\/dispatch-order\/\d+$/.test(path)) return true
+  if (method === 'POST' && /^\/api\/dispatch-order\/\d+\/(audit|unaudit|restore)$/.test(path)) return true
+  if (method === 'DELETE' && /^\/api\/dispatch-order\/\d+(\/hard)?$/.test(path)) return true
+  return false
+}
+
+/**
  * @param {{
  *   getCurrentUserFromReq: (req: import('express').Request) => any | null,
  *   writeOperationLogAsync: (payload: {
@@ -1115,6 +1129,7 @@ export function createOperationAuditMiddleware(deps) {
 
         if (path === '/api/login' || path === '/api/health') return
         if (isAssistOrderBusinessLoggedWriteRoute(method, path)) return
+        if (isDispatchOrderBusinessLoggedWriteRoute(method, path)) return
 
         const user = getCurrentUserFromReq(req)
         if (!user) return

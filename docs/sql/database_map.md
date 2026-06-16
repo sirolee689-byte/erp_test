@@ -11,7 +11,7 @@
 - **UB_ERP_Hr_room**：宿舍房间主数据（v1.1.3 起）
 - **UB_ERP_Hr_room_in**：宿舍入住记录（v1.1.3 起）
 - **UB_ERP_Hr_room_use**：宿舍电费/用量等（`room_code` 与 `UB_ERP_Hr_room.s_code` 对应；住宿总览按 `tj_date` 所在月汇总 `c_sum_money`，v1.1.4 起）
-- **UB_Date_ERP_Operation_log**：全系统操作日志（正式表；写入口 `server/operationLogWriter.js`；`Sys_OperationLogs` 为测试遗留，不再写入）
+- **UB_Date_ERP_Operation_log**：全系统操作日志（正式表；写入口 `server/operationLogWriter.js`；`Sys_OperationLogs` 为测试遗留，不再写入；2026-06-16 起停用全局自动审计，各模块自行写操作日志）
 - **UB_ERP_System_role**：角色管理（含菜单权限 `Permissions`）
 - **UB_ERP_User**：用户/操作员（通过 `RoleID` 关联角色）
 - **UB_ERP_Bom_000**：BOM 主档 / 物料清单头（v1.1.7 列表查询；约 6.8W 行量级，**必须分页**）
@@ -33,6 +33,15 @@
 - **UB_ERP_Bom_Sales_list**：PI 销售 BOM 配件行（`sid` = PI 号；结构同 `UB_ERP_Bom_parts`）
 - **UB_ERP_Bom_pi_cost**：销售订单一键运算 — 物料明细（`sid` = PI 号）
 - **UB_ERP_Bom_pi_consumption**：销售订单一键运算 — 子件汇总（`sid` = PI 号；表缺失时 API 内存合并）
+
+## 派工单表补充
+
+- **UB_ERP_Dispatch_order**：派工单主表。`scaj01` 为派工单号，`scaj03` 为派工类型，`scaj04` 本厂/大板保存 PI、委外保存供应商 code，`scaj05` 保存车间 code，`cj` 保存车间名称快照，`kid` 保存委外供应商 code，`pass`/`del` 走项目通用审核和回收站规则。
+- **UB_ERP_Dispatch_order_list**：派工单明细。`scak01` 关联派工单号，`pi` 保存销售订单 PI，`kcaa01` 保存货品编码，`scak03` 为本次派工数量，`scak04` 为已派工快照，`scak05` 为返修数量快照；保存时按页面当前明细整批重写。
+- **真实字段差异（2026-06-16 已查库）**：当前 `UB_ERP_Dispatch_order` 与 `UB_ERP_Dispatch_order_list` 都有 `pass`，但没有 `passuid`/`passuname`；主表也没有 `delid`。审核/反审核只更新真实存在的字段，避免旧库弹出 `Invalid column name`。
+- **操作日志**：派工单新增、修改、审核、反审核、删除、恢复、彻底删除由派工单业务代码写入一条 `UB_Date_ERP_Operation_log`；全局自动审计已停用，避免同一个操作产生两行日志。
+- **派工单与销售订单**：本厂/大板用 `UB_ERP_Dispatch_order.scaj04` 关联 `UB_ERP_Sales_order.xsaj01` / `UB_ERP_Sales_order_list.xsak01`；委外派工主表 `scaj04` 不作 PI，明细 `pi` 才是销售订单 PI。
+- **可派工数量**：`UB_ERP_Sales_order_list.xsak03 - SUM(UB_ERP_Dispatch_order_list.scak03)`，只排除 `UB_ERP_Dispatch_order.del=1`，不排除未审核；编辑时排除当前派工单号。
 
 ## 2. 表关系（ER 摘要）
 
@@ -131,9 +140,9 @@
 - **Schema**：`dbo`
 - **表用途**
   - 记录关键操作：新增、编辑、删除、审核等
-  - **v1.1.1+ 全自动审计**：由 `server/operationAuditMiddleware.js` 两段组成：
-    1. **`createOperationAuditPrepareMiddleware`**（在 `apiPermissionGate` 之后、业务路由之前）：对 `DELETE /api/hr/staff/:code` **删除前**查询 `name/code`；对 `PUT /api/hr/staff` **修改前**读取当前行，与 `req.body` 按字段中文映射比对，生成「修改了[字段]：由[旧]改为[新]」文案（挂到 `req`）。
-    2. **`createOperationAuditMiddleware`**：`res.finish` 且 **HTTP 200** 后异步 `INSERT`（失败只打控制台）。
+  - **v1.1.1+ 全自动审计（2026-06-16 已停用）**：历史上由 `server/operationAuditMiddleware.js` 两段组成；当前项目约定改为各模块自行写入 `UB_Date_ERP_Operation_log`：
+    1. 历史实现包含 **`createOperationAuditPrepareMiddleware`**：在业务路由前预读部分资料，生成可读中文上下文。
+    2. 历史实现包含 **`createOperationAuditMiddleware`**：`res.finish` 且 **HTTP 200** 后异步 `INSERT`。当前 `server/index.js` 不再挂载这两个中间件。
   - **操作人来源**：从登录态 `getCurrentUserFromReq`（Bearer Token → 内存 `tokenStore`）取 `userId` → 写入 `UserId`；`userName`（优先真实姓名，否则工号）→ 写入 `UserName`（列表接口别名 `uname` / `user_id`）。
   - **Action / TargetTable**：按路由映射为可读中文（如 `删除员工档案`、`修改员工档案`、`新增员工档案`）；未命中规则时用「新增/修改/删除 + path」截断，避免把裸 URL 当作业务动作名。
   - **Content（详情）**：
@@ -452,7 +461,7 @@
   - **`cgab04`**：单价（不含税）；**`Tax`**：税点 0–100（接口与库可能为小数税率，前端归一为百分比）
   - **`cgab05`**：单价（含税），只读计算字段
   - **`remark`**：行备注
-- **审计**：`POST`/`PUT` 成功时日志含「明细共 N 项物料」类人话（见 `server/operationAuditMiddleware.js`）。
+- **审计**：`POST`/`PUT` 成功时的操作日志由业务接口自行写入，不再依赖全局自动审计。
 - **元数据探测**：首次请求时读取 `INFORMATION_SCHEMA` 列清单、`PRIMARY KEY`（主表须单列主键）、`IDENTITY` 列、以及 `sys.foreign_keys` 指向主表的明细外键列（无则按候选列名兜底）。
 - **权限（按钮级）**
   - 菜单 path：`supply-chain/daily/purchase-quote`：`view`、`add`、`edit`、`audit`、`delete`
@@ -568,7 +577,7 @@
   - 来源：`server/apiPermissionGate.js`（鉴权 JOIN 读取 `Permissions`）
 - **`Sys_OperationLogs`**
   - 来源：`server/index.js`（列表、清空、底层 `writeOperationLog`）
-  - 来源：`server/operationAuditMiddleware.js`（v1.1.1 起：POST/PUT/DELETE 成功后的自动审计写入）
+  - 来源：全局自动审计已停用；历史实现曾由 `server/operationAuditMiddleware.js` 在 POST/PUT/DELETE 成功后写入
 - **`dbo.[${HR_LEGACY_DEPT_TABLE}]`（默认 `dbo.[UB_ERP_Hr_department]`）**
   - 来源：`server/index.js`
   - 说明：通过 `HR_LEGACY_DEPT_FROM = \`dbo.[${HR_LEGACY_DEPT_TABLE}]\`` 统一引用；同时被部门资料接口与员工档案“部门/岗位下拉”接口使用。
@@ -621,7 +630,7 @@
 
 - **`dbo.[UB_Date_ERP_Operation_log]`**（全系统操作日志）
   - 写入口：`server/operationLogWriter.js`（`writeOperationLog` / `writeLog`）
-  - 自动写入：`server/operationAuditMiddleware.js` + `server/action_map.js`（POST/PUT/DELETE 成功且 HTTP 200）
+  - 自动写入：已停用。`server/action_map.js` 仅保留历史映射参考；新增/修改/删除/审核/反审等操作由对应业务代码自行调用 `server/operationLogWriter.js` 或模块专用日志写入器。
   - 模块手写：`server/assistOrderOperationLog.js`（外协订单事务内）、`server/operatorUsersHandlers.js`（操作员）等
   - 关键字段：`act_name`（动作中文名）、`act_info`（可读详情，≤500 字）、`uname`/`utruename`（操作人）、`code`（被操作物理表）、`systemcode`（业务单号）、`ip`、`addtime`
   - 约定详见：`CONTEXT.md` 第三节「操作日志（全系统，已定）」

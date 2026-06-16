@@ -64,3 +64,22 @@ describe('operationAuditMiddleware assist order exclusions', () => {
     assert.equal(calls[0].code, 'UB_ERP_Stocks_unit')
   })
 })
+
+describe('operationAuditMiddleware dispatch order exclusions', () => {
+  test('skips global audit log for dispatch order write routes', async () => {
+    const routes = [
+      ['POST', '/api/dispatch-order'],
+      ['PUT', '/api/dispatch-order/8'],
+      ['POST', '/api/dispatch-order/8/audit'],
+      ['POST', '/api/dispatch-order/8/unaudit'],
+      ['POST', '/api/dispatch-order/8/restore'],
+      ['DELETE', '/api/dispatch-order/8'],
+      ['DELETE', '/api/dispatch-order/8/hard'],
+    ]
+
+    for (const [method, path] of routes) {
+      const calls = await runAuditMiddleware({ method, path })
+      assert.equal(calls.length, 0, `${method} ${path} should not write a global audit log`)
+    }
+  })
+})

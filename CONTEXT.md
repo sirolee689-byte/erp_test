@@ -51,7 +51,7 @@
 | 正式日志表 | `UB_Date_ERP_Operation_log` |
 | 遗留表 | `Sys_OperationLogs` 为测试遗留，**不再**作为正式来源 |
 | 统一写入口 | `server/operationLogWriter.js`：`writeOperationLog(poolOrTx, payload)` / `writeLog(req, action, details, options)` |
-| 自动审计 | `server/operationAuditMiddleware.js`：POST/PUT/DELETE 成功（HTTP 200）后异步写入；动作名与表名映射见 `server/action_map.js` |
+| 自动审计 | 已停用。2026-06-16 起，新增/修改/删除/审核/反审等操作由各模块业务代码自行写入；历史映射见 `server/action_map.js` |
 | 模块手写 | 外协订单等事务内日志见 `server/assistOrderOperationLog.js` |
 | 字段形态 | 旧系统口径：`act_name`（动作中文名）、`act_info`（可读中文详情，最长 500 字） |
 | `code` | 被操作的物理表名（如 `UB_ERP_Stocks_colorcode`、`UB_Date_ERP_Assist_order`） |
@@ -797,3 +797,17 @@
 - 后端：保存时兜底校验，非法则返回 `交货日期不能早于外协日期`。
 
 <!-- 以下章节由 AI 随开发进度自动补充 -->
+
+## 派工单（dispatch-order）
+
+- 派工单用于 PI 审核后安排生产车间或委外对象生产，主表是 `UB_ERP_Dispatch_order`，明细表是 `UB_ERP_Dispatch_order_list`。
+- 单号规则：`scaj01 = PG + yyMMdd + 当日流水`，日期取派工日期 `scaj02`；同日已删除记录仍占用流水号。
+- 派工类型 `scaj03`：`0` 本厂，`1` 大板，`2` 委外。本厂/大板主表 `scaj04` 保存 PI；委外主表 `scaj04` 和 `kid` 保存供应商 code。
+- 明细 `pi` 字段始终保存销售订单 PI。委外派工时不要把主表 `scaj04` 当 PI 用。
+- 生产车间来自 `UB_ERP_Stocks_workshop`，主表 `scaj05` 保存 code，`cj` 保存名称快照。
+- `scak03` 是本次派工数量，由用户填写；`scak04` 是选货时已派工数量快照，只展示不作为后端校验依据；`scak05` 是返修数量快照。
+- 可派工数量实时计算，不落库：销售数量 `UB_ERP_Sales_order_list.xsak03` 减非删除派工明细 `scak03` 汇总。未审核派工单也计入，已删除派工单不计入；编辑时排除当前派工单。
+- 保存校验：至少一条明细，`scak03 > 0`，同一张派工单不能重复 `kcaa01`，且只能关联一个 PI；后端必须按实时可派工数量拦截超额派工。
+- 审核：主表和明细 `pass` 同步改为 `1`；反审核第一版直接允许，主表和明细 `pass` 同步改回 `0`，不做成品入库等下游限制。
+- 删除：未审核派工单可软删除进入回收站；回收站可恢复，未审核记录可彻底删除主表和明细。已审核记录需先反审核再删除或彻底删除。
+- 第一版不做：打印、作废、审核不通过、关闭、库存占用、生产进度、完工入库、反审核下游限制、多 PI 派工单。

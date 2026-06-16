@@ -22,6 +22,19 @@ export const DEFAULT_UNKNOWN_TARGET_TABLE = 'ERP'
  * @type {OperationAuditRouteRule[]}
  */
 export const OPERATION_AUDIT_ROUTE_RULES = [
+  { method: 'GET', path: '/api/dispatch-order/list', action: '查询派工单列表', targetTable: 'UB_ERP_Dispatch_order' },
+  { method: 'GET', path: '/api/dispatch-order/workshop-options', action: '查询派工车间候选', targetTable: 'UB_ERP_Stocks_workshop' },
+  { method: 'GET', path: '/api/dispatch-order/goods-options', action: '查询派工单可选货品', targetTable: 'UB_ERP_Dispatch_order' },
+  { method: 'GET', path: '/api/dispatch-order/suggest-doc-no', action: '获取派工单建议单号', targetTable: 'UB_ERP_Dispatch_order' },
+  { method: 'GET', path: '/api/dispatch-order/check-doc-no', action: '检测派工单号是否可用', targetTable: 'UB_ERP_Dispatch_order' },
+  { method: 'GET', path: /^\/api\/dispatch-order\/\d+$/, action: '查看派工单', targetTable: 'UB_ERP_Dispatch_order' },
+  { method: 'POST', path: '/api/dispatch-order', action: '新增派工单', targetTable: 'UB_ERP_Dispatch_order' },
+  { method: 'PUT', path: /^\/api\/dispatch-order\/\d+$/, action: '修改派工单', targetTable: 'UB_ERP_Dispatch_order' },
+  { method: 'POST', path: /^\/api\/dispatch-order\/\d+\/audit$/, action: '审核派工单', targetTable: 'UB_ERP_Dispatch_order' },
+  { method: 'POST', path: /^\/api\/dispatch-order\/\d+\/unaudit$/, action: '反审核派工单', targetTable: 'UB_ERP_Dispatch_order' },
+  { method: 'POST', path: /^\/api\/dispatch-order\/\d+\/restore$/, action: '恢复派工单', targetTable: 'UB_ERP_Dispatch_order' },
+  { method: 'DELETE', path: /^\/api\/dispatch-order\/\d+\/hard$/, action: '彻底删除派工单', targetTable: 'UB_ERP_Dispatch_order' },
+  { method: 'DELETE', path: /^\/api\/dispatch-order\/\d+$/, action: '删除派工单', targetTable: 'UB_ERP_Dispatch_order' },
   { method: 'GET', path: '/api/assist-order/list', action: '查询外协订单列表', targetTable: 'UB_ERP_assist_order' },
   { method: 'GET', path: '/api/assist-order/suggest-doc-no', action: '获取外协订单建议单号', targetTable: 'UB_ERP_assist_order' },
   { method: 'GET', path: '/api/assist-order/check-doc-no', action: '检测外协订单单号是否可用', targetTable: 'UB_ERP_assist_order' },

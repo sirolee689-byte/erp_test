@@ -1,0 +1,43 @@
+# 派工单
+
+入口：生产管理 -> 日常工作 -> 派工单，路由 `production/daily/dispatch`。
+
+## 已完成功能
+
+- 列表：`GET /api/dispatch-order/list`，默认显示未删除且已审核的派工单；打开“显示未审核”后显示未审核单据；打开“回收站”后显示 `del=1` 的记录。
+- 查看：`GET /api/dispatch-order/:id`，只读展示主表和明细。
+- 新增/编辑：`POST /api/dispatch-order`、`PUT /api/dispatch-order/:id`，保存主表 `UB_ERP_Dispatch_order` 和明细 `UB_ERP_Dispatch_order_list`。
+- 批量选货：`GET /api/dispatch-order/goods-options`，从已审核、未删除、未关闭的销售订单明细选货。
+- 审核/反审核：`POST /api/dispatch-order/:id/audit`、`POST /api/dispatch-order/:id/unaudit`，主表和明细状态一起更新。
+- 删除/回收站：普通删除只把主表 `del` 改为 `1`；回收站支持恢复和彻底删除，彻底删除会物理删除主表和明细。
+
+## 关键业务规则
+
+- 派工单号为 `PG + yyMMdd + 当日流水`，日期取派工日期；已删除记录仍占用流水号。
+- 新增后固定写入 `pass=0`、`del=0`、`sign=101`、`closed=0`。
+- 本厂/大板派工主表 `scaj04` 保存 PI；委外派工主表 `scaj04` 和 `kid` 保存供应商 code，明细 `pi` 仍保存销售订单 PI。
+- 可派工数量实时计算：销售数量 `xsak03` 减去非删除派工明细 `scak03` 汇总；未审核派工单也计入，编辑当前单时排除当前派工单。
+- `scak03` 是本次派工数量，用户可填；`scak04` 是选货时的已派工快照，不作为后端校验依据。
+- 同一张派工单只能关联一个 PI，且不能重复选择同一 `kcaa01`。
+- 委外派工保留旧系统特殊口径：车间名称包含“生产”时，已派工数量统计所有 `cj like '%生产%'` 的派工单；否则只统计当前车间 code。
+
+## 2026-06-16 修复记录
+
+- 真实库里派工单主表和明细表都有 `pass`，但没有 `passuid` / `passuname`；主表也没有 `delid`。
+- 审核、反审核、删除现在会先看真实字段，字段存在才写入；所以反审核不会再因为 `Invalid column name 'passuname'` 弹错。
+- 删除仍会写当前库存在的 `delname`、`deltruename`、`deltime`。
+- 派工单新增、修改、审核、反审核、删除、恢复、彻底删除都由业务代码写入一条 `UB_Date_ERP_Operation_log`；全局自动审计已停用，避免同一个操作出现两行日志。
+
+## 第一版不做
+
+- 不做打印、作废、审核不通过、关闭流程。
+- 不写库存占用、生产进度、成品入库，也不做基于入库记录的反审核限制。
+- 不支持一张派工单关联多个 PI。
+- 批量选货里的已入库数量和返修数量接口字段已预留；旧库字段口径确认后再接真实统计。
+
+## 数据库
+
+- 主表：`UB_ERP_Dispatch_order`，字段前缀 `scaj`。
+- 明细表：`UB_ERP_Dispatch_order_list`，字段前缀 `scak`。
+- 关联来源：`UB_ERP_Sales_order`、`UB_ERP_Sales_order_list`、`UB_ERP_Stocks_workshop`。
+- 操作日志：`UB_Date_ERP_Operation_log`。

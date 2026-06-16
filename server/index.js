@@ -17,12 +17,10 @@ import * as XLSX from 'xlsx'
 import { createApiPermissionGate } from './apiPermissionGate.js'
 import { serializePermissionsForStore } from './permissions.js'
 import {
-  createOperationAuditMiddleware,
-  createOperationAuditPrepareMiddleware,
   getRequestIp,
 } from './operationAuditMiddleware.js'
 import { getActorAuditFromReq, getActorAuditTripletFromReq } from './businessAuditFields.js'
-import { configureOperationLogWriter, writeLog, writeOperationLog, OPERATION_LOG_FROM } from './operationLogWriter.js'
+import { configureOperationLogWriter, writeLog, OPERATION_LOG_FROM } from './operationLogWriter.js'
 import {
   getSysUsersColumnsMeta,
   getSysUsersColumnSet,
@@ -50,6 +48,7 @@ import { registerSalesOrderRoutes } from './salesOrderHandlers.js'
 import { registerPiBomDataRoutes } from './piBomDataHandlers.js'
 import { registerOutsourcingQuotationRoutes } from './outsourcingQuotationHandlers.js'
 import { registerAssistOrderRoutes } from './assistOrderHandlers.js'
+import { registerDispatchOrderRoutes } from './dispatchOrderHandlers.js'
 import { registerBomRoutes } from './bom/registerBomRoutes.js'
 import {
   BOM_COST_TABLE,
@@ -91,9 +90,8 @@ app.use(express.json({ limit: '20mb' }))
 app.use((req, res, next) => createApiPermissionGate({ getCurrentUserFromReq })(req, res, next))
 
 /**
- * v1.1.1+：操作审计「准备」——在 DELETE/PUT 员工等路由执行前读库，生成中文详情上下文
+ * 2026-06-16：全局自动审计已停用；操作日志由各模块业务代码自行写入。
  */
-app.use(createOperationAuditPrepareMiddleware())
 
 /**
  * 简易登录态（后端内存版）
@@ -237,20 +235,6 @@ function getCurrentUserFromReq(req) {
 }
 
 configureOperationLogWriter({ getCurrentUserFromReq })
-
-/**
- * v1.1.1：全局操作审计（POST/PUT/DELETE 且 HTTP 200 后异步落库）
- */
-app.use(
-  createOperationAuditMiddleware({
-    getCurrentUserFromReq,
-    writeOperationLogAsync: async (payload) => {
-      const pool = await getPool()
-      await writeOperationLog(pool, payload)
-    },
-  }),
-)
-
 
 /**
  * 健康检查
@@ -12048,6 +12032,7 @@ registerPurchaseQuotationRoutes(app, {
 })
 registerSalesOrderRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerAssistOrderRoutes(app, { getPool, getActorAuditTripletFromReq })
+registerDispatchOrderRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerPiBomDataRoutes(app, { getPool })
 registerBomRoutes(app, {
   escapeSqlLikePattern,
@@ -12112,6 +12097,7 @@ app.listen(port, () => {
   console.log(`ColorCode-Add-DirectMode-v1.1.0 ${bootAt}`)
   console.log(`ColorCode-Audit-Fields-Correction-v1.1.1 ${bootAt}`)
   console.log(`WorkshopDept-Module-v1.2.0 ${bootAt}`)
+  console.log(`DispatchOrder-Module-v1.0.0 ${bootAt} GET/POST /api/dispatch-order -> UB_ERP_Dispatch_order`)
   console.log(`Electric-Days-Weight-v1.1.9-Active ${bootAt}`)
   console.log(`Electric-Report-Force-Display-Fixed-v1.1.6 ${bootAt}`)
   console.log(`[启动指纹] v1.1.3-ElectricFee-Fix bootAt=${bootAt}`)

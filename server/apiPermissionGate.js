@@ -620,6 +620,39 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'DELETE' && /^\/api\/assist-order\/\d+(?:\/hard)?$/.test(path)) {
     return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'delete' }
   }
+  if (m === 'GET' && path === '/api/dispatch-order/list') {
+    return { menuPath: 'production/daily/dispatch', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/dispatch-order/workshop-options') {
+    return { menuPath: 'production/daily/dispatch', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/dispatch-order/goods-options') {
+    return { menuPath: 'production/daily/dispatch', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/dispatch-order/suggest-doc-no') {
+    return { menuPath: 'production/daily/dispatch', action: 'add' }
+  }
+  if (m === 'GET' && path === '/api/dispatch-order/check-doc-no') {
+    return { menuPath: 'production/daily/dispatch', action: 'add' }
+  }
+  if (m === 'GET' && /^\/api\/dispatch-order\/\d+$/.test(path)) {
+    return { menuPath: 'production/daily/dispatch', action: 'view' }
+  }
+  if (m === 'POST' && path === '/api/dispatch-order') {
+    return { menuPath: 'production/daily/dispatch', action: 'add' }
+  }
+  if (m === 'PUT' && /^\/api\/dispatch-order\/\d+$/.test(path)) {
+    return { menuPath: 'production/daily/dispatch', action: 'edit' }
+  }
+  if (m === 'POST' && /^\/api\/dispatch-order\/\d+\/(?:audit|unaudit)$/.test(path)) {
+    return { menuPath: 'production/daily/dispatch', action: 'audit' }
+  }
+  if (m === 'POST' && /^\/api\/dispatch-order\/\d+\/restore$/.test(path)) {
+    return { menuPath: 'production/daily/dispatch', action: 'delete' }
+  }
+  if (m === 'DELETE' && /^\/api\/dispatch-order\/\d+(?:\/hard)?$/.test(path)) {
+    return { menuPath: 'production/daily/dispatch', action: 'delete' }
+  }
   if (m === 'POST' && path === '/api/sales-order') {
     return { menuPath: 'supply-chain/daily/sales-order', action: 'add' }
   }
