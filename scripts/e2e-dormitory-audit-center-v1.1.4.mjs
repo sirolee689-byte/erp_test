@@ -1,6 +1,6 @@
 /**
  * E2E / RPA：入住审批 v1.1.4 自检
- * 1) 办理入住后直连库断言 Hr_room_in.pass = '1'
+ * 1) 办理入住后直连库断言 UB_ERP_Hr_room_in.pass = '1'
  * 2) 将同一行临时改为 pass='0'，打开「入住审批管理中心」点【审核】后再断言 pass='1'
  * 3) 输出截图到 e2e-output/
  *
@@ -102,7 +102,7 @@ async function queryPassByStaffRoom(pool, staffCode, roomCode) {
   r.input('rc', sql.NVarChar(50), roomCode)
   const rs = await r.query(`
     SELECT TOP 1 id, LTRIM(RTRIM(ISNULL(pass, N'0'))) AS pass
-    FROM dbo.[Hr_room_in]
+    FROM dbo.[UB_ERP_Hr_room_in]
     WHERE LTRIM(RTRIM(ISNULL(del, N'0'))) = N'0'
       AND LTRIM(RTRIM(ISNULL(out_room, N'0'))) = N'0'
       AND LTRIM(RTRIM(ISNULL(staff_code, N''))) = @sc
@@ -116,7 +116,7 @@ async function setPass(pool, id, passVal) {
   const r = pool.request()
   r.input('id', sql.Int, id)
   r.input('p', sql.NVarChar(10), passVal)
-  await r.query(`UPDATE dbo.[Hr_room_in] SET pass = @p WHERE id = @id`)
+  await r.query(`UPDATE dbo.[UB_ERP_Hr_room_in] SET pass = @p WHERE id = @id`)
 }
 
 async function main() {
@@ -182,7 +182,7 @@ async function main() {
       await page.goto('about:blank')
       await page.evaluate(
         ([id, p]) => {
-          document.body.innerHTML = `<pre style="font-size:16px;padding:16px">Hr_room_in 核验（办理入住后）\nid=${id}\npass=${p}</pre>`
+          document.body.innerHTML = `<pre style="font-size:16px;padding:16px">UB_ERP_Hr_room_in 核验（办理入住后）\nid=${id}\npass=${p}</pre>`
         },
         [rowDb.id, rowDb.pass],
       )
@@ -223,7 +223,7 @@ async function main() {
       await page.goto('about:blank')
       await page.evaluate(
         ([id, p]) => {
-          document.body.innerHTML = `<pre style="font-size:16px;padding:16px">Hr_room_in 核验（点击审核后）\nid=${id}\npass=${p}</pre>`
+          document.body.innerHTML = `<pre style="font-size:16px;padding:16px">UB_ERP_Hr_room_in 核验（点击审核后）\nid=${id}\npass=${p}</pre>`
         },
         [after.id, after.pass],
       )

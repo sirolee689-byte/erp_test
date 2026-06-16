@@ -32,7 +32,7 @@ const PI_BOM_LIST_FROM = 'dbo.[UB_ERP_Bom_Sales_list]'
 /** PI list 所属明细款（与写入 topProductKcaa01 / pkcaa01 一致） */
 export const PI_LIST_PKCAA01_EXPR = `LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[pkcaa01], N''))))`
 
-/** Bom_code.id：不参与 PI「顶级成品」父层（OUT 产品线 / 裁片子档分类） */
+/** UB_ERP_Bom_code.id：不参与 PI「顶级成品」父层（OUT 产品线 / 裁片子档分类） */
 export const PI_BOM_TOP_LEVEL_EXCLUDED_BOM_CODE_IDS = [3, 12]
 export const PI_BOM_LIST_WRITE_THROUGH_PREFIXES = ['CUT-', 'RP-']
 export const PI_BOM_LIST_FORCE_SKIP_PREFIXES = ['RP-PQ']
@@ -48,7 +48,7 @@ export const PI_BOM_VIRTUAL_ROOT_QTY_INFO_MARKER = 'pi_vroot_qty_v1'
  */
 
 /**
- * 读取 Bom_code 顶级成品前缀（copen=1、flag5 非空；排除 CUT/OUT）
+ * 读取 UB_ERP_Bom_code 顶级成品前缀（copen=1、flag5 非空；排除 CUT/OUT）
  * @param {import('mssql').ConnectionPool | import('mssql').Transaction} db
  */
 export async function fetchTopLevelFinishedBomCodeFlag5Prefixes(db) {
@@ -74,7 +74,7 @@ export async function fetchTopLevelFinishedBomCodeFlag5Prefixes(db) {
 }
 
 /**
- * kcaa01 是否命中 Bom_code 顶级成品前缀（与列表 is_need_calc 一致：flag5 + '%'）
+ * kcaa01 是否命中 UB_ERP_Bom_code 顶级成品前缀（与列表 is_need_calc 一致：flag5 + '%'）
  * @param {unknown} kcaa01
  * @param {string[]} flag5Prefixes 建议已按长度降序
  */
@@ -269,9 +269,9 @@ export function parsePiBomVirtualRootQtyInfo(info) {
 }
 
 /**
- * 无 info 快照时，从主 BOM 头下直接子件读取虚拟根用量（Bom_code 顶级成品 flag5）
+ * 无 info 快照时，从主 BOM 头下直接子件读取虚拟根用量（UB_ERP_Bom_code 顶级成品 flag5）
  * @param {import('mssql').ConnectionPool | import('mssql').Transaction} db
- * @param {string} headSc bom_000.GUID / Bom_parts 父 systemcode
+ * @param {string} headSc UB_ERP_Bom_000.GUID / UB_ERP_Bom_parts 父 systemcode
  * @param {string[]} flag5Prefixes fetchTopLevelFinishedBomCodeFlag5Prefixes
  */
 export async function fetchMasterBomVirtualRootQtyUnderHead(db, headSc, flag5Prefixes) {
@@ -284,7 +284,7 @@ export async function fetchMasterBomVirtualRootQtyUnderHead(db, headSc, flag5Pre
       LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p.kcaa01, N'')))) AS kcaa01,
       CAST(ISNULL(p.kcac04, 0) AS decimal(18, 6)) AS kcac04,
       CAST(ISNULL(p.kcac05, 0) AS decimal(18, 6)) AS kcac05
-    FROM dbo.Bom_parts AS p
+    FROM dbo.[UB_ERP_Bom_parts] AS p
     WHERE LTRIM(RTRIM(ISNULL(CAST(p.kcac01 AS nvarchar(500)), N''))) = @p
   `)
   for (const row of r.recordset ?? []) {
@@ -303,7 +303,7 @@ export async function fetchMasterBomVirtualRootQtyUnderHead(db, headSc, flag5Pre
 /**
  * PI list 写入跳过：仅强制过滤结构前缀（RP-PQ）；其余实际子编码均写入 list
  * @param {unknown} kcaa01
- * @param {string[]} [_skipPrefixes] 历史参数，方案 A 后不再按 Bom_code flag5 跳过
+ * @param {string[]} [_skipPrefixes] 历史参数，方案 A 后不再按 UB_ERP_Bom_code flag5 跳过
  */
 export function shouldSkipPiBomListWriteByBomCodePrefix(kcaa01, _skipPrefixes) {
   void _skipPrefixes
@@ -317,7 +317,7 @@ export function shouldSkipPiBomListWriteByBomCodePrefix(kcaa01, _skipPrefixes) {
 }
 
 /**
- * 子树中 kcaa01 命中 Bom_code 顶级成品的节点 → 其展开父键（写入 list 时子行 parentSc）
+ * 子树中 kcaa01 命中 UB_ERP_Bom_code 顶级成品的节点 → 其展开父键（写入 list 时子行 parentSc）
  * @param {any[]} tree
  * @param {string[]} flag5Prefixes
  */
@@ -352,7 +352,7 @@ export function newPiBomSystemcode() {
 }
 
 /**
- * PI list 行展开键：优先 Bom_parts systemcode/kcac02；若已被其它物理行占用则生成新键（多路径共用 systemcode 时各写一行）。
+ * PI list 行展开键：优先 UB_ERP_Bom_parts systemcode/kcac02；若已被其它物理行占用则生成新键（多路径共用 systemcode 时各写一行）。
  * @param {Record<string, unknown> | null | undefined} sourceRow
  * @param {Map<number, string>} expandKeyByPartsId
  * @param {Set<string>} usedExpandKeys
@@ -428,8 +428,8 @@ export function flattenPiBomPartRows(parentSc, nodes, out, level, productKcaa01,
 }
 
 /**
- * Bom_parts 物理行实例键（写入去重）。
- * - 父层为 Bom_code 顶级成品展开键（方案 A）：仅 `Bom_parts.id`
+ * UB_ERP_Bom_parts 物理行实例键（写入去重）。
+ * - 父层为 UB_ERP_Bom_code 顶级成品展开键（方案 A）：仅 `UB_ERP_Bom_parts.id`
  * - 其余父层（方案 B）：`systemcode` → 行 `id` → `kcac02` → `kcaa01`
  * @param {Record<string, unknown> | null | undefined} sourceRow
  * @param {PiBomListDedupeOpts} [opts]
@@ -451,7 +451,7 @@ export function piBomListPhysicalRowKey(sourceRow, opts) {
 /**
  * 建款/同步写入去重键：同一 PI、同一父 `kcac01`、同一物理行只插一行。
  * @param {string} parentSc 写入 UB_ERP_Bom_Sales_list.kcac01
- * @param {Record<string, unknown> | null | undefined} sourceRow Bom_parts 快照行
+ * @param {Record<string, unknown> | null | undefined} sourceRow UB_ERP_Bom_parts 快照行
  * @param {PiBomListDedupeOpts} [opts]
  */
 export function piBomListInsertDedupeKey(parentSc, sourceRow, opts) {
@@ -621,20 +621,20 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
   }
   const bomGuid = normKcaa01(master.bomGuid)
   if (!bomGuid) {
-    const err = new Error(`货品 ${product} 在 bom_000 中缺少 GUID，无法写入 UB_ERP_Bom_Sales`)
+    const err = new Error(`货品 ${product} 在 UB_ERP_Bom_000 中缺少 GUID，无法写入 UB_ERP_Bom_Sales`)
     err.code = 'BOM_NOT_FOUND'
     throw err
   }
   await assertTableColumns(tx, PI_BOM_HEAD_TABLE, PI_BOM_HEAD_BOM000_SNAPSHOT_COLUMNS)
   await assertTableColumns(tx, BOM_MASTER_TABLE, ['kcaa12', ...BOM000_EXTENDED_SNAPSHOT_COLUMNS])
   const copyMeta = await getPiBomListCopyColumnMeta(pool)
-  // PI 头 systemcode/GUID 与 bom_000.GUID 同值，建树父键须与 UB_ERP_Bom_Sales 头一致
+  // PI 头 systemcode/GUID 与 UB_ERP_Bom_000.GUID 同值，建树父键须与 UB_ERP_Bom_Sales 头一致
   const headSc = bomGuid
   const layerCache = await prefetchBomPartsLayersForPiListCopy(pool, headSc, copyMeta)
   const stack = new Set([headSc])
   let tree
   try {
-    // 建树与 BOM 资料用量表/bom_cost 一致（kcac02 展开）；写入 parentSc 用 resolvePiListExpandKeyFromBomPartsRow
+    // 建树与 BOM 资料用量表/UB_ERP_Bom_cost 一致（kcac02 展开）；写入 parentSc 用 resolvePiListExpandKeyFromBomPartsRow
     tree = buildBomPartsUsageTreeNodesFromLayerCache(headSc, 1, stack, layerCache, false)
   } catch (e) {
     if (e?.code === 'BOM_CYCLE') {
@@ -649,7 +649,7 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
   const virtualRootQtyByKcaa01 = collectPiBomVirtualRootQtyFromMasterTree(tree, flag5Prefixes)
   const virtualRootQtyInfo = serializePiBomVirtualRootQtyInfo(virtualRootQtyByKcaa01)
 
-  // PI BOM 头：GUID 与 systemcode 两列写入相同值（均取自 bom_000.GUID）
+  // PI BOM 头：GUID 与 systemcode 两列写入相同值（均取自 UB_ERP_Bom_000.GUID）
   const headGuidAndSystemcode = bomGuid
   const now = formatSalesOrderAuditTime()
   const insHead = new sql.Request(tx)

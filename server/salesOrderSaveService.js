@@ -29,8 +29,8 @@ import {
 const HEADER_FROM = `dbo.[${SALES_ORDER_HEADER_TABLE}]`
 const LINE_TABLE = 'UB_ERP_Sales_order_list'
 const LINE_FROM = `dbo.[${LINE_TABLE}]`
-const CUSTOMER_FROM = 'dbo.[System_sales_customer]'
-const CURRENCY_FROM = 'dbo.[bom_currency]'
+const CUSTOMER_FROM = 'dbo.[UB_ERP_System_sales_customer]'
+const CURRENCY_FROM = 'dbo.[UB_ERP_System_currency]'
 const SALES_ORDER_EMPTY_TEXT = ''
 const SALES_ORDER_LINE_REQUIRED_COLUMNS = [
   'xsak02',
@@ -290,7 +290,7 @@ async function replaceOrderLines(tx, piNo, mergedLines, actor) {
     }
     const bomGuid = normKcaa01(snap.bomGuid)
     if (!bomGuid) {
-      const err = new Error(`货品 ${line.kcaa01} 在 bom_000 中缺少 GUID，无法写入明细 xsak02/kcac02/GUID/systemcode`)
+      const err = new Error(`货品 ${line.kcaa01} 在 UB_ERP_Bom_000 中缺少 GUID，无法写入明细 xsak02/kcac02/GUID/systemcode`)
       err.code = 'PRODUCT_NOT_FOUND'
       throw err
     }

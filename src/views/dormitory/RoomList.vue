@@ -8,7 +8,7 @@
     </div>
 
     <el-dialog v-model="checkInVisible" title="办理入住" width="620px" destroy-on-close>
-      <p class="panel-hint">办理后写入 <code>Hr_room_in</code>；<strong>pass 自动为已审核（'1'）</strong>。</p>
+      <p class="panel-hint">办理后写入 <code>UB_ERP_Hr_room_in</code>；<strong>pass 自动为已审核（'1'）</strong>。</p>
       <div class="audit-switch">
         <span class="switch-label">匹配未审核的房间资料</span>
         <el-switch v-model="useUnauditedRoom" />
@@ -61,7 +61,7 @@
         <el-input-number v-model="ovMonth" :min="1" :max="12" controls-position="right" class="ym-input" />
         <span class="ym-sep">月</span>
         <el-button type="primary" :loading="overviewLoading" @click="loadOverviewByTjDate">立即查询</el-button>
-        <span class="format-hint">（入住人员/人数显示“当前在住”；电费按 Hr_room_use.tj_date 同月汇总）</span>
+        <span class="format-hint">（入住人员/人数显示“当前在住”；电费按 UB_ERP_Hr_room_use.tj_date 同月汇总）</span>
       </div>
       <div class="filter-row">
         <el-input v-model="ovKeyword" clearable placeholder="搜索入住宿舍：房号/楼栋/名称/房型" style="width: 320px" @keyup.enter="loadOverview" />

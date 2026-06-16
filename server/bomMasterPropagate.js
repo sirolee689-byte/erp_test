@@ -1,5 +1,5 @@
 /**
- * BOM 主档「一键更新」：按物料编码将 bom_000 最新基础资料批量写回 Bom_parts / bom_cost 引用行（不改用量）
+ * BOM 主档「一键更新」：按物料编码将 UB_ERP_Bom_000 最新基础资料批量写回 UB_ERP_Bom_parts / UB_ERP_Bom_cost 引用行（不改用量）
  */
 import sql from 'mssql'
 import { getBomCostColumnSet } from './bomCostEnrichFromBom000.js'
@@ -14,7 +14,7 @@ import {
 
 export { BOM_PARTS_KCAA_SYNC_NAMES } from './bomTables.js'
 
-/** bom_cost 一键更新可覆盖列（不含用量、树父级、运算键） */
+/** UB_ERP_Bom_cost 一键更新可覆盖列（不含用量、树父级、运算键） */
 const BOM_COST_PROPAGATE_SPECS = [
   { col: 'kcaa02', expr: (a) => `${a}.[kcaa02]` },
   { col: 'kcaa03', expr: (a) => `${a}.[kcaa03]` },
@@ -308,7 +308,7 @@ export async function handlePostBomMasterPropagate(req, res, deps) {
           req,
           'BOM主档一键更新',
           `[一键更新]物料编码：[${materialCode}]，同步配件明细 ${partsUpdated} 条、成本运算缓存 ${costUpdated} 条（用量未改、未重算）。`,
-          { targetTable: 'Bom_parts' },
+          { targetTable: 'UB_ERP_Bom_parts' },
         )
       } catch (logErr) {
         console.warn('[BOM一键更新] 审计写入失败（不影响结果）：', logErr?.message ?? logErr)

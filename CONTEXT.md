@@ -24,23 +24,23 @@
 
 ## 三、通用字段约定
 
-### 审计字段（业务表：bom_000、Bom_parts、颜色编码等）
+### 审计字段（业务表：UB_ERP_Bom_000、UB_ERP_Bom_parts、颜色编码等）
 
-记录**本条业务数据**的录入/修改人，与 `Sys_Users` 上「创建人」列不是同一套语义。
+记录**本条业务数据**的录入/修改人，与 `UB_ERP_User` 上「创建人」列不是同一套语义。
 
-| 字段 | 说明 | 与 Sys_Users 的对应 |
+| 字段 | 说明 | 与 UB_ERP_User 的对应 |
 |---|---|---|
 | uid | 当前操作人 ID | `UserID` |
-| uname | 当前操作人**登录账号列** | `UserName`（物理列常为 `username`；**不是** `usercode`、**不是** `Sys_Users.uname` 创建人列） |
+| uname | 当前操作人**登录账号列** | `UserName`（物理列常为 `username`；**不是** `usercode`、**不是** `UB_ERP_User.uname` 创建人列） |
 | utruename | 当前操作人**真实姓名** | `truename`（按当前登录 `usercode` 查库；禁止用工牌显示名 / 令牌 `userName`） |
 | addtime | 录入时间（nvarchar 业务时间串） | — |
 | edittime | 修改时间 | — |
 | deltime | 删除时间 | — |
 
-**修改人（仅部分主档 UPDATE）**：`bom_000.uptruename` = 保存时当前操作人的 **`truename`**（同样按登录 **`usercode`** 查库）。
+**修改人（仅部分主档 UPDATE）**：`UB_ERP_Bom_000.uptruename` = 保存时当前操作人的 **`truename`**（同样按登录 **`usercode`** 查库）。
 
 > 实现：`server/businessAuditFields.js` 的 `getActorAuditTripletFromReq`（令牌）与 `resolveActorAuditTripletFromReq`（按 `usercode` 查库覆盖）。登录令牌另存 `auditUserName` / `auditTruename`，界面显示名仍用 `userName`（可含人事 `StaffDisplayName`）。
-> 经典易错点：勿把 **`usercode`** 写入业务表 `uname`；勿把 **`Sys_Users.uname`**（创建人姓名）当成当前操作人；`utruename` 必须落 **`truename`**。
+> 经典易错点：勿把 **`usercode`** 写入业务表 `uname`；勿把 **`UB_ERP_User.uname`**（创建人姓名）当成当前操作人；`utruename` 必须落 **`truename`**。
 
 ### 操作日志（全系统，已定）
 
@@ -62,7 +62,7 @@
 
 各模块 `act_name` / `act_info` 具体文案允许按业务逐条调整；外协订单定稿见下文「操作日志（外协订单文案，已定）」。
 
-### 操作员表 Sys_Users（列名勿与业务表审计列混用）
+### 操作员表 UB_ERP_User（列名勿与业务表审计列混用）
 
 | 列 / 概念 | 说明 |
 |---|---|
@@ -80,19 +80,19 @@
 | pass | '1' | 已审核（锁定，禁止编辑删除）|
 | del | '0' | 正常在册 |
 | del | '1' | 已逻辑删除 |
-| Sys_Users.del | '0'或空 | 账号启用，可登录 |
-| Sys_Users.del | '1' | 账号禁用，不可登录 |
+| UB_ERP_User.del | '0'或空 | 账号启用，可登录 |
+| UB_ERP_User.del | '1' | 账号禁用，不可登录 |
 
 > 前后端传递审核状态统一使用 pass 作为键名，禁止用 status 或 isAudited。
 
-### 操作员（Sys_Users）
+### 操作员（UB_ERP_User）
 
 | 概念 | 说明 |
 |---|---|
 | **新增操作员** | 管理员只填登录账号、姓名、角色；**不在表单录入初始密码** |
 | **初始密码** | 系统固定为 `123`，**一律 bcrypt** 写入 `password`；列宽不足时 API **自动扩列**至 `NVARCHAR(200)`（亦可用 `docs/sql/sys_users_password_widen.sql`）；**不限制**用户设置的多长明文密码；`is_first_login=1` 表示须首次登录改密 |
 | **列表** | 在册默认 `del=0` 且 `pass=1`；可开关查 `pass=0`；禁用为 `del=1`，默认列表不显示 |
-| **登录账号** | 对应 **`Sys_Users.usercode`**，全表唯一；冲突提示「登录账号「xxx」已存在，请更换」；保存时与 `username` 同步 |
+| **登录账号** | 对应 **`UB_ERP_User.usercode`**，全表唯一；冲突提示「登录账号「xxx」已存在，请更换」；保存时与 `username` 同步 |
 | **编辑操作员** | **本模块已审核（pass=1）仍可编辑**（例外于全局已审锁）；密码框留空表示不修改密码 |
 
 ---
@@ -103,20 +103,20 @@
 
 | 概念 | 物理表 | 说明 |
 |---|---|---|
-| **BOM 主档** | bom_000 | 一个成品/半成品物料的主数据与价格等单位信息 |
-| **配件明细** | Bom_parts | 挂在某一 BOM 主档下的子物料行；一行 = 父 BOM 下的一个子件 |
+| **BOM 主档** | UB_ERP_Bom_000 | 一个成品/半成品物料的主数据与价格等单位信息 |
+| **配件明细** | UB_ERP_Bom_parts | 挂在某一 BOM 主档下的子物料行；一行 = 父 BOM 下的一个子件 |
 
 **关联键（配件明细行）**
 
 | 列 | 含义 |
 |---|---|
 | kcac01 | 父 BOM 主档的 **systemcode**（不是父的 kcaa01 编码） |
-| kcaa01 | 子件 **物料编码**（对应 bom_000.kcaa01） |
+| kcaa01 | 子件 **物料编码**（对应 UB_ERP_Bom_000.kcaa01） |
 | kcac02 | 若子件本身也是 BOM，为其子 BOM 主档的 **systemcode**（无子档时可空或保留行内原值） |
 
-### 配件明细（Bom_parts）
+### 配件明细（UB_ERP_Bom_parts）
 
-物理表：Bom_parts（可通过环境变量 `INV_BOM_PARTS_TABLE` 覆盖，默认 Bom_parts）
+物理表：UB_ERP_Bom_parts（可通过环境变量 `INV_BOM_PARTS_TABLE` 覆盖，默认 UB_ERP_Bom_parts）
 
 **审核与删除**
 
@@ -128,7 +128,7 @@
 
 | 界面 Label | 数据库列 | 必填 | 说明 |
 |---|---|---|---|
-| 编码 | kcaa01 | 是 | 子件物料编码；展示优先取在册 `bom_000` 同编码主档 |
+| 编码 | kcaa01 | 是 | 子件物料编码；展示优先取在册 `UB_ERP_Bom_000` 同编码主档 |
 | 名称 | kcaa02 | 否 | 同上关联优先 |
 | 规格 | kcaa03 | 否 | 同上 |
 | 颜色 | kcaa11 | 否 | 同上 |
@@ -149,7 +149,7 @@
 
 **与子件主档同步（GET 展示 + 保存写回）**
 
-- 关联键：明细行 **`kcaa01`** = 子件物料编码 → 匹配 **`bom_000` 在册**行（`del` 空/`0`），取 **`TOP 1 ORDER BY id DESC`**（与 GET 配件列表展示规则一致）。
+- 关联键：明细行 **`kcaa01`** = 子件物料编码 → 匹配 **`UB_ERP_Bom_000` 在册**行（`del` 空/`0`），取 **`TOP 1 ORDER BY id DESC`**（与 GET 配件列表展示规则一致）。
 - **GET**：`kcaa01` / `kcaa02` / `kcaa03` / `kcaa11` 优先展示主档值；无匹配则用明细表原列。
 - **保存（PUT 配件 / 纸格落库）**：在 `id` + `kcac01`（父 `systemcode`）双重锁定下 UPDATE；将表中存在的 **`kcaa01`～`kcaa35`**、**`kcac02`**（及若有 **`systemcode`** 列，同为子 BOM 的 `systemcode`）从子件主档写回明细。
 - **仍以请求为准**（不被主档覆盖）：`kcac04`、`kcac05`、`kcac06`（若落库）、`cost_price`、`remark`、`Seq`。
@@ -159,14 +159,14 @@
 **主档一键更新（列表「一键更新」）**
 
 - 入口：BOM 资料列表行操作；`POST /api/inventory/bom/propagate-master`，body `{ systemcode }`；权限 `inv/bom` **edit**。
-- 按主档 **systemcode** 取在册 `bom_000` 最新行，以其 **kcaa01** 精确匹配（非 `LIKE`）全库 **`Bom_parts`** 与 **`bom_cost`** 中 `kcaa01` 相同的在册行，批量 UPDATE 基础字段（含 `kcaa02`/`kcaa03` 名称规格；`bom_cost` 另含与运算补全一致的扩展列）。
+- 按主档 **systemcode** 取在册 `UB_ERP_Bom_000` 最新行，以其 **kcaa01** 精确匹配（非 `LIKE`）全库 **`UB_ERP_Bom_parts`** 与 **`UB_ERP_Bom_cost`** 中 `kcaa01` 相同的在册行，批量 UPDATE 基础字段（含 `kcaa02`/`kcaa03` 名称规格；`UB_ERP_Bom_cost` 另含与运算补全一致的扩展列）。
 - **不改**：`kcac04`～`kcac06` 等用量、`top_kcaa*`、不触发 `POST /api/bom/usage-calc`。
 - 审计：`[一键更新]物料编码：[…]，同步配件明细 N 条、成本运算缓存 M 条…`。
 
 **列表一键运算**
 
 - 入口：BOM 资料列表「一键运算」；复用 `POST /api/bom/usage-calc`（与详情「BOM用量表运算」相同；`hidePrefixes` 取列表页配置）。
-- **未运算**：首次写入 `bom_cost`；**已运算**：确认后覆盖重算；**不需运算**：按钮禁用。
+- **未运算**：首次写入 `UB_ERP_Bom_cost`；**已运算**：确认后覆盖重算；**不需运算**：按钮禁用。
 - 成功后自动打开详情并切到 **「成本BOM用量表」** Tab，并刷新列表运算/成本列。
 
 **纸格导入扩展列**（库存配件 Tab 不展示；列存在才写入）
@@ -179,8 +179,8 @@
 | `remark` | CUT：`纸格系统导入`；辅料：子件主档 `remark`；物料：Excel 备注 | CUT 固定文案见常量 |
 | `Describe` | Excel「搭配」 | CUT/物料：本行搭配为空时，同步同主段号（如 `4-1`→`4`）下首条非空搭配 |
 | `kcac03` | 子件主档 `kcaa04`（使用单位） | CUT 预览行固定写 `张`；辅料/物料写主档单位 |
-| `sale_price` | 辅料：子件 `bom_000.sale_price` | 无效/空写 **NULL**（不写 0） |
-| `cost_price` | 辅料：子件 `bom_000.cost_price` | 同上；CUT 预览行 **NULL**（`nullPrices`） |
+| `sale_price` | 辅料：子件 `UB_ERP_Bom_000.sale_price` | 无效/空写 **NULL**（不写 0） |
+| `cost_price` | 辅料：子件 `UB_ERP_Bom_000.cost_price` | 同上；CUT 预览行 **NULL**（`nullPrices`） |
 | `kcaa02_en` / `location` | 辅料：从子件主档抄入 | 列存在时 UPDATE |
 
 **纸格落库三类行**（均 `kcac01` = 对应父 BOM 的 `systemcode`）
@@ -191,9 +191,9 @@
 | 辅料 Accessory | 主款 | ERP 辅料编码 | `kcac04`/`kcac05`/`kcac06` 来自 Excel E/H/I；I 空则 `kcac06` 按公式；`Seq` 自 1 递增 |
 | 分组物料 Material | 各 CUT 子 BOM `systemcode` | 物料编码 | `kcac04`=该 CUT「单位用量」；`kcac05`=Excel 损耗或主档 `kcaa33`；`Seq`=**纸格 Material 列表全局序号**（同编码取首次出现，与导入页列表顺序一致；供成本 BOM 用量表排序） |
 
-### BOM 主档（bom_000）
+### BOM 主档（UB_ERP_Bom_000）
 
-物理表：bom_000（可通过环境变量 INV_BOM_MASTER_TABLE 覆盖，代码中不硬编码表名）
+物理表：UB_ERP_Bom_000（可通过环境变量 INV_BOM_MASTER_TABLE 覆盖，代码中不硬编码表名）
 
 ### 主档字段映射
 | 界面Label | 数据库列 | 必填 |
@@ -244,27 +244,27 @@
 
 | 路径 | 页面 |
 |---|---|
-| `paper-pattern/import/manage` | 管理纸格导入资料（`System_uplod_file` 查询） |
+| `paper-pattern/import/manage` | 管理纸格导入资料（`UB_ERP_System_uplod_file` 查询） |
 | `paper-pattern/import` | 纸格资料导入（Excel 解析、智能校验、正式导入） |
 
-- **是否清仓单**（导入页，与导入类型共用）：默认否。选「是」时仅主 BOM / CUT 的 `bom_000.kcaa01` 及主 BOM 下 CUT 子件 `bom_parts.kcaa01` 在颜色段末尾固定加 `-OUT`（例 `BAG-…/R-TEST` → `BAG-…/R-TEST-OUT`；`commit-bom000` 传 `clearanceOrder: true`）。Material/Accessory 物料全码与其余字段不变。
+- **是否清仓单**（导入页，与导入类型共用）：默认否。选「是」时仅主 BOM / CUT 的 `UB_ERP_Bom_000.kcaa01` 及主 BOM 下 CUT 子件 `bom_parts.kcaa01` 在颜色段末尾固定加 `-OUT`（例 `BAG-…/R-TEST` → `BAG-…/R-TEST-OUT`；`commit-bom000` 传 `clearanceOrder: true`）。Material/Accessory 物料全码与其余字段不变。
 
 ### 文件磁盘路径（`.env`）
 
 | 变量 | 说明 | 默认（本地测试） |
 |---|---|---|
 | `PAPER_PATTERN_UPLOAD_DIR` | 导入页 `POST /api/paper-pattern/import/upload` 落盘目录 | `C:\Users\it_manager\Desktop\纸格测试资料\upload` |
-| `PAPER_PATTERN_DOWNLOAD_ROOT` | 管理页下载时与 `System_uplod_file.filepath`/`filename` 拼接的根目录 | 同上 |
-| `SYSTEM_UPLOAD_FILE_TABLE` | 管理列表物理表名 | `System_uplod_file` |
+| `PAPER_PATTERN_DOWNLOAD_ROOT` | 管理页下载时与 `UB_ERP_System_uplod_file.filepath`/`filename` 拼接的根目录 | 同上 |
+| `SYSTEM_UPLOAD_FILE_TABLE` | 管理列表物理表名 | `UB_ERP_System_uplod_file` |
 
 - 下载解析：取 `filepath`/`filename` 的**文件名段**，再与 `PAPER_PATTERN_DOWNLOAD_ROOT` 安全拼接（禁止目录穿越）。
 - 上线：仅需改 `.env` 为服务器共享路径，重启 API。
 
-### `System_uplod_file`（管理列表只读）
+### `UB_ERP_System_uplod_file`（管理列表只读）
 
 | 列 | 用途 |
 |---|---|
-| `truename` | 登记快照；列表「上传者」展示优先 `Sys_Users.truename`（按 `uid` 关联，无匹配时回退本列） |
+| `truename` | 登记快照；列表「上传者」展示优先 `UB_ERP_User.truename`（按 `uid` 关联，无匹配时回退本列） |
 | `addtime` | 上传时间 `nvarchar`（展示/搜索） |
 | `truefilename` | 用户上传原始文件名（展示/搜索） |
 | `filename` | 服务器存储文件名（下载候选） |
@@ -280,7 +280,7 @@
 
 | 决策 | 内容 |
 |---|---|
-| BOM表名可配置 | 主档 `INV_BOM_MASTER_TABLE`、明细 `INV_BOM_PARTS_TABLE`，默认 bom_000 / Bom_parts |
+| BOM表名可配置 | 主档 `INV_BOM_MASTER_TABLE`、明细 `INV_BOM_PARTS_TABLE`，默认 UB_ERP_Bom_000 / UB_ERP_Bom_parts |
 | 纸格解析文件冻结 | server/paperPatternImportParse.js 非明确需求禁止修改 |
 | 库存流水只增不改 | 只允许 INSERT，保证历史可追溯 |
 
@@ -289,9 +289,9 @@
 ## 七、销售订单
 
 **订单**：主表 `UB_ERP_Sales_order`、明细 `UB_ERP_Sales_order_list`。  
-**PI 专用 BOM**（与主 BOM `bom_000` / `Bom_parts` 分离，按单可改）：头 `UB_ERP_Bom_Sales`、配件行 `UB_ERP_Bom_Sales_list`。  
+**PI 专用 BOM**（与主 BOM `UB_ERP_Bom_000` / `UB_ERP_Bom_parts` 分离，按单可改）：头 `UB_ERP_Bom_Sales`、配件行 `UB_ERP_Bom_Sales_list`。  
 **一键运算结果（物料单，全系统订料口径）**：明细 `UB_ERP_Bom_pi_cost`、汇总 `UB_ERP_Bom_pi_consumption`（仅 **已运算** 有效；仓库/采购/出入库依此订料）。  
-主数据：`bom_000`；币别 `bom_currency`（人民币/美元/欧元/港元）。
+主数据：`UB_ERP_Bom_000`；币别 `UB_ERP_System_currency`（人民币/美元/欧元/港元）。
 
 ### 术语
 
@@ -299,10 +299,10 @@
 |---|---|---|
 | **PI 号** | 用户手填业务单号（如 `PI-0001`）；订单主从、PI BOM、物料单结果的关联键；**全表唯一**（含已软删） | 系统单号 |
 | **系统单号** | 首次保存生成 `PI-YYYYMMDD-XXX`；仅展示/检索；`XXX` 为销售日期当日 3 位流水 | 与 PI 号混称「单号」 |
-| **销售订单明细** | 订货行：`kcaa01` + **订货数量**；来自 `bom_000` 展示快照 | 销售 BOM 配件行 |
-| **货品编码** | `bom_000.kcaa01`；明细合并键 | systemcode（合并不用） |
-| **主 BOM** | `bom_000` + `Bom_parts`；库存标准 BOM 资料 | PI 销售 BOM |
-| **销售 BOM（PI BOM）** | `UB_ERP_Bom_Sales`（**一行成品 BOM 头**）+ `UB_ERP_Bom_Sales_list`（**该头下全部子编码/配件**，关联方式同 `Bom_parts`）；**本 PI 可改**，与主 BOM 独立 | 主 BOM、物料单结果表 |
+| **销售订单明细** | 订货行：`kcaa01` + **订货数量**；来自 `UB_ERP_Bom_000` 展示快照 | 销售 BOM 配件行 |
+| **货品编码** | `UB_ERP_Bom_000.kcaa01`；明细合并键 | systemcode（合并不用） |
+| **主 BOM** | `UB_ERP_Bom_000` + `UB_ERP_Bom_parts`；库存标准 BOM 资料 | PI 销售 BOM |
+| **销售 BOM（PI BOM）** | `UB_ERP_Bom_Sales`（**一行成品 BOM 头**）+ `UB_ERP_Bom_Sales_list`（**该头下全部子编码/配件**，关联方式同 `UB_ERP_Bom_parts`）；**本 PI 可改**，与主 BOM 独立 | 主 BOM、物料单结果表 |
 | **同步 BOM** | 销售明细 Tab「操作」**手动**触发：将**指定明细行**对应成品从 **主 BOM** 拉到本 PI 的 `UB_ERP_Bom_Sales*`；**不点则维持 PI 内原样** | 保存、一键运算 |
 | **一键运算** | 在 **PI 销售 BOM**（`UB_ERP_Bom_Sales_list`）上做与 BOM 资料 **成本运算用量表** 同类运算（同隐藏前缀、同平铺乘算规则）；结果写入 `UB_ERP_Bom_pi_cost` / `UB_ERP_Bom_pi_consumption`；**不乘订货数量**；list 无 BAG/TAG/RMP 父行时从 **虚拟根父键** 展开三棵子树 | 保存、同步 BOM |
 | **物料单（运算结果）** | 仅 **一键运算之后** 写入 `UB_ERP_Bom_pi_cost` / `UB_ERP_Bom_pi_consumption`；**仓库、采购、出入库等全系统订料口径** | 销售 BOM 配件表 |
@@ -318,7 +318,7 @@
 
 ### 主 BOM 门禁（已定）
 
-**默认**：凡 **未点「同步 BOM」** 且 **不属于下列例外** 的操作（含保存、一键运算），**禁止** 用 `bom_000` / `Bom_parts` 覆盖该款已有 PI BOM 内容。
+**默认**：凡 **未点「同步 BOM」** 且 **不属于下列例外** 的操作（含保存、一键运算），**禁止** 用 `UB_ERP_Bom_000` / `UB_ERP_Bom_parts` 覆盖该款已有 PI BOM 内容。
 
 | 允许从主 BOM 写入该款 `UB_ERP_Bom_Sales*` | 条件 |
 |---|---|
@@ -363,7 +363,7 @@
 - **销售日期**：必填。
 - **交货日期**：选填；若填写则 **不得早于销售日期**。
 - **明细**：每行 **货品编码**、**订货数量** 必填；数量须为 **> 0** 的数值。
-- 明细其它展示字段（名称、规格、颜色、单位等）**只读**，保存时从 `bom_000` 主档带出，**不在界面录入**。
+- 明细其它展示字段（名称、规格、颜色、单位等）**只读**，保存时从 `UB_ERP_Bom_000` 主档带出，**不在界面录入**。
 
 ### 销售订单明细行（已定）
 
@@ -376,11 +376,11 @@
 | 计划数量 | `plan_quantity` | 与订货数量同步，`plan_quantity = xsak03` |
 | 单价 | `xsak04` | 行单价 |
 | 金额 | `xsak05` | `xsak05 = xsak04 × xsak03` |
-| 明细备注 | `remark` | 从 `bom_000.remark` 抄快照 |
-| 名称/规格/颜色/单位等快照 | `kcaa02`/`kcaa03`/`kcaa11`/`kcaa04` 等 | 保存时从 `bom_000` 抄快照 |
+| 明细备注 | `remark` | 从 `UB_ERP_Bom_000.remark` 抄快照 |
+| 名称/规格/颜色/单位等快照 | `kcaa02`/`kcaa03`/`kcaa11`/`kcaa04` 等 | 保存时从 `UB_ERP_Bom_000` 抄快照 |
 
-- 兼容键与扩展快照：保存时按明细 `kcaa01` 精确匹配 `bom_000.kcaa01` 的最新在册行；`xsak02` 取 `bom_000.GUID`；`kcac01` 取销售订单主表 `GUID/systemcode`；`kcac02`、`GUID`、`systemcode` 同 `xsak02`；`kcac03` 取 `bom_000.kcaa25`，业务含义为采购单位；`kcaa07/08/11/12/13/14/15/25/26/16/27/28/29/30/31`、`kcaa02_en`、`kcaa32`～`kcaa35`、`sale_price`、`cost_price`（空写 NULL）、`type`（`bom_000.type` 有值则抄，空则 `1`）、`location`、`pass`、`remark` 均从 `bom_000` 抄快照。若 `bom_000` 或 `UB_ERP_Sales_order_list` 缺少上述字段，保存前直接提示缺哪个字段。
-- **散件单**（如 `KP-*`，主 BOM 无配件明细）：保存后 `UB_ERP_Bom_Sales_list` 可为空（仅头或无子件），但订单明细仍须完整抄 `bom_000` 快照（含价格与扩展字段）。
+- 兼容键与扩展快照：保存时按明细 `kcaa01` 精确匹配 `UB_ERP_Bom_000.kcaa01` 的最新在册行；`xsak02` 取 `UB_ERP_Bom_000.GUID`；`kcac01` 取销售订单主表 `GUID/systemcode`；`kcac02`、`GUID`、`systemcode` 同 `xsak02`；`kcac03` 取 `UB_ERP_Bom_000.kcaa25`，业务含义为采购单位；`kcaa07/08/11/12/13/14/15/25/26/16/27/28/29/30/31`、`kcaa02_en`、`kcaa32`～`kcaa35`、`sale_price`、`cost_price`（空写 NULL）、`type`（`UB_ERP_Bom_000.type` 有值则抄，空则 `1`）、`location`、`pass`、`remark` 均从 `UB_ERP_Bom_000` 抄快照。若 `UB_ERP_Bom_000` 或 `UB_ERP_Sales_order_list` 缺少上述字段，保存前直接提示缺哪个字段。
+- **散件单**（如 `KP-*`，主 BOM 无配件明细）：保存后 `UB_ERP_Bom_Sales_list` 可为空（仅头或无子件），但订单明细仍须完整抄 `UB_ERP_Bom_000` 快照（含价格与扩展字段）。
 - `xsak06`/`xsak07`/`xsak09` 当前未作为销售订单一期业务主字段使用。
 - 保存采用整单重写：按 PI 删除旧明细后写入新明细。
 - 旧系统保存后在 `UB_ERP_Sales_order_list` 实际会落一批兼容字段（用于历史兼容/快照对账），当前已确认字段清单：
@@ -398,15 +398,15 @@
 |---|---|---|---|
 | **同步 BOM** | 明细 Tab「操作」，**按行** | **主 BOM** | 覆盖该款 `UB_ERP_Bom_Sales*`；订单 → **未运算** |
 | **一键运算** | 用户执行 | **PI BOM**（禁止偷拉主 BOM） | 仅整款明细写入 `UB_ERP_Bom_pi_cost`（排除散件行）；`pi_consumption` 已弃用 | 全部明细均有 `pi_cost` → **已运算**（混单整款算完但散件未补时仍为 **未运算**） |
-| **增加散件单用量** | 列表「操作」（`hasSpareParts`） | 散件明细 + `bom_000` | 仅写散件款 `UB_ERP_Bom_pi_cost` 自用量；**不写** `pi_consumption` | 全部明细均有 `pi_cost` 时 → **已运算** |
+| **增加散件单用量** | 列表「操作」（`hasSpareParts`） | 散件明细 + `UB_ERP_Bom_000` | 仅写散件款 `UB_ERP_Bom_pi_cost` 自用量；**不写** `pi_consumption` | 全部明细均有 `pi_cost` 时 → **已运算** |
 
-**散件判定**：`Bom_code` 全部 `copen=1` 且 `flag5` 非空为排除前缀；明细编码不命中任一排除前缀 → 散件行；订单含散件 → `hasSpareParts=true`，显示散件按钮。**纯散件单**（`isPureSpareOrder`）只显示散件按钮、不显示一键运算；**混单**须先一键运算整款（整款 `pi_cost` 就绪后 `canAddSpareUsage=true`）再补散件。实现：`server/salesOrderSpareParts.js` / `server/salesOrderSpareUsageService.js`。
+**散件判定**：`UB_ERP_Bom_code` 全部 `copen=1` 且 `flag5` 非空为排除前缀；明细编码不命中任一排除前缀 → 散件行；订单含散件 → `hasSpareParts=true`，显示散件按钮。**纯散件单**（`isPureSpareOrder`）只显示散件按钮、不显示一键运算；**混单**须先一键运算整款（整款 `pi_cost` 就绪后 `canAddSpareUsage=true`）再补散件。实现：`server/salesOrderSpareParts.js` / `server/salesOrderSpareUsageService.js`。
 
 **物料单**：`pi_cost` 同 BOM **成本运算用量表**（数据源为 **PI BOM list**，隐藏前缀与 BOM 资料一致）；`pi_consumption` = **`pi_cost` 按子件编码 + `Describe`（搭配）** 合并。**运算不写订货数量**；展示/订料时 **× 该款订货数量**。
-**pi_cost 落库规则**：与 BOM 资料 **用量运算 → bom_cost** 同链路（`flattenBomPartsCostUsageFlatForBomCost` + 隐藏前缀 + 跳过成品根行，**平铺不合并**）；**不再**按 `UB_ERP_Bom_Sales_list.id` 二次去重。隐藏前缀里普通 `RP-` 材料必须写入，仅 `RP-PQ` 结构行不写入。PI BOM 须先 **同步 BOM**（按旧系统口径重建 list：查到几条写几条，过滤 `Bom_code.flag5 + '-'` 结构行但保留 `CUT-` 和 `RP-`，其中 `RP-PQ` 仍过滤），否则脏数据会导致 `pi_cost` 行数与 `bom_cost` 不一致。实现：`server/salesOrderCalculateService.js`。
-**pi_cost 专用字段**（不改用量行数）：`top_kcaa01/02` = PI BOM **第一层**（成品头直下）且命中 **Bom_code** `flag5`（排除 id=3 OUT、id=12 CUT）的节点作为子树锚点，其下全部子件（含裁片下 `RP-*` 等材料）**继承**该锚点；**深层**命中 `flag5` 不新建锚点（避免 `RP-0030/-` 误写自身）。**散件单**（直接 BOM、非整款 BAG/TAG 子树）第一层即散件本身时，`top_kcaa01` 可为自身。`t_kcaa01/02` = 直接父编码/名称（父即锚点时留空）；`t_kcaa03~11/14/15/25~27` = 直接父行 `UB_ERP_Bom_Sales_list` 同名 `kcaa*`（树父节点复制，与 pi_cost 自身 `kcaa*` 子件字段分开）；`temp` = 该款销售明细 `UB_ERP_Sales_order_list.xsak03`（同 `pq` 下各行相同）；`isok=1`、`pass='1'`、`kcac07=0`、`kcac08=kcac06+kcac07`、`kcaa07/08=0`。`bom_cost.top_kcaa01` 仍为直接父，**勿混用**。
+**pi_cost 落库规则**：与 BOM 资料 **用量运算 → UB_ERP_Bom_cost** 同链路（`flattenBomPartsCostUsageFlatForBomCost` + 隐藏前缀 + 跳过成品根行，**平铺不合并**）；**不再**按 `UB_ERP_Bom_Sales_list.id` 二次去重。隐藏前缀里普通 `RP-` 材料必须写入，仅 `RP-PQ` 结构行不写入。PI BOM 须先 **同步 BOM**（按旧系统口径重建 list：查到几条写几条，过滤 `UB_ERP_Bom_code.flag5 + '-'` 结构行但保留 `CUT-` 和 `RP-`，其中 `RP-PQ` 仍过滤），否则脏数据会导致 `pi_cost` 行数与 `UB_ERP_Bom_cost` 不一致。实现：`server/salesOrderCalculateService.js`。
+**pi_cost 专用字段**（不改用量行数）：`top_kcaa01/02` = PI BOM **第一层**（成品头直下）且命中 **UB_ERP_Bom_code** `flag5`（排除 id=3 OUT、id=12 CUT）的节点作为子树锚点，其下全部子件（含裁片下 `RP-*` 等材料）**继承**该锚点；**深层**命中 `flag5` 不新建锚点（避免 `RP-0030/-` 误写自身）。**散件单**（直接 BOM、非整款 BAG/TAG 子树）第一层即散件本身时，`top_kcaa01` 可为自身。`t_kcaa01/02` = 直接父编码/名称（父即锚点时留空）；`t_kcaa03~11/14/15/25~27` = 直接父行 `UB_ERP_Bom_Sales_list` 同名 `kcaa*`（树父节点复制，与 pi_cost 自身 `kcaa*` 子件字段分开）；`temp` = 该款销售明细 `UB_ERP_Sales_order_list.xsak03`（同 `pq` 下各行相同）；`isok=1`、`pass='1'`、`kcac07=0`、`kcac08=kcac06+kcac07`、`kcaa07/08=0`。`UB_ERP_Bom_cost.top_kcaa01` 仍为直接父，**勿混用**。
 **入口与审核**：销售订单 **一键运算** 与 **增加散件单用量** 只放在销售订单列表第一列「操作」中；查看弹窗与编辑页不再放运算入口。已审核与未审核订单都可以执行；回收站订单不可操作。
-**PX 规则**：销售订单一键运算写 `UB_ERP_Bom_pi_cost.px`，规则照 BOM 资料：子件 `kcaa01` 精确匹配 `bom_000.kcaa01` 取 `kcaa05`，再匹配 `UB_ERP_Stocks_material.code`（旧表名 `Bom_material`）取 `px`；找不到则 `px` 留空。
+**PX 规则**：销售订单一键运算写 `UB_ERP_Bom_pi_cost.px`，规则照 BOM 资料：子件 `kcaa01` 精确匹配 `UB_ERP_Bom_000.kcaa01` 取 `kcaa05`，再匹配 `UB_ERP_Stocks_material.code`（旧表名 `Bom_material`）取 `px`；找不到则 `px` 留空。
 
 **物料单查看入口**：销售订单仍负责点击「一键运算」生成物料单；生成后的结果统一在 **生产管理 → 统计分析 → 物料单** 查看，页面分为 **物料单统计表（明细）** 与 **物料单统计表（汇总）**。销售订单详情/编辑页不再内嵌物料单 Tab。
 
@@ -424,24 +424,24 @@
 ### PI 销售 BOM 结构（已定）
 
 - `UB_ERP_Bom_Sales`：**一行 = 一款成品**（`kcaa01`），与订单明细款 **一一对应**（保存对齐）。
-- `UB_ERP_Bom_Sales_list`：该头下 **全部子编码/配件**（`kcac01` 挂父等，同 `Bom_parts`）。
+- `UB_ERP_Bom_Sales_list`：该头下 **全部子编码/配件**（`kcac01` 挂父等，同 `UB_ERP_Bom_parts`）。
 - **禁止** 整 PI 「先 DELETE 全部再 INSERT」；允许 **按款删除**（明细删款）及 **按款 INSERT**（例外 1/2 从主 BOM 建款）。
 - `UB_ERP_Bom_Sales_list` 生成规则（已确认）：
   - 以订单明细成品编码（如 `PQ-3119B1/N`）为起点，围绕该款展开 PI 销售 BOM 子件。
   - 先取该款在 `UB_ERP_Bom_Sales` 的父 GUID（作为首层父键，例如 `PQKCAC01`）。
-  - 递归查询 `Bom_parts`：每次按 `Bom_parts.kcac01 = 当前父键` 取出全部子行。
+  - 递归查询 `UB_ERP_Bom_parts`：每次按 `UB_ERP_Bom_parts.kcac01 = 当前父键` 取出全部子行。
   - 将本轮子行写入 `UB_ERP_Bom_Sales_list` 后，再用这些子行对应子件的 GUID 作为下一轮父键继续查。
   - 直到某一轮查不到子编码（无子行）才停止；最终把整棵子件树全部落入 `UB_ERP_Bom_Sales_list`。
   - `UB_ERP_Bom_Sales_list.sid` 关联 PI 号（=`UB_ERP_Sales_order.xsaj01`）。
   - `UB_ERP_Bom_Sales_list.kcac01` 作为父节点关联键（父节点 `systemcode/GUID`）。
-  - **写入口径（旧系统口径）**：建树按 `Bom_parts.kcac02` 向下展开；写入 `UB_ERP_Bom_Sales_list` 时不按 `kcaa01`、`systemcode`、`kcac02` 或 `Describe` 智能合并，`Bom_parts.id` 不同即视为不同源行。命中 `Bom_code.copen=1` 且 `flag5 + '-'` 前缀的结构行不写入 list，但继续向下遍历；`CUT-` 和 `RP-` 是允许写入例外，裁片行和普通 `RP-` 材料必须写入；但 `RP-PQ` 仍作为结构前缀过滤，不写入 list。被过滤结构行的子行仍保留原始真实父级 `kcac01`（指向该结构行的 `systemcode/kcac02`）。实现：`server/salesOrderPiBom.js`。
+  - **写入口径（旧系统口径）**：建树按 `UB_ERP_Bom_parts.kcac02` 向下展开；写入 `UB_ERP_Bom_Sales_list` 时不按 `kcaa01`、`systemcode`、`kcac02` 或 `Describe` 智能合并，`UB_ERP_Bom_parts.id` 不同即视为不同源行。命中 `UB_ERP_Bom_code.copen=1` 且 `flag5 + '-'` 前缀的结构行不写入 list，但继续向下遍历；`CUT-` 和 `RP-` 是允许写入例外，裁片行和普通 `RP-` 材料必须写入；但 `RP-PQ` 仍作为结构前缀过滤，不写入 list。被过滤结构行的子行仍保留原始真实父级 `kcac01`（指向该结构行的 `systemcode/kcac02`）。实现：`server/salesOrderPiBom.js`。
   - `UB_ERP_Bom_Sales_list.pkcaa01`：该 PI BOM 子树所属的 **订单明细顶级成品** `kcaa01`（一单多款则各款子树各自填对应成品码；子件各层行同值）。
-  - 子件行 `GUID`/`version`/`kcac03`：按子件 `kcaa01` 查 `bom_000` 覆盖（`kcac03`=`bom_000.kcaa25`；无主档保留 `Bom_parts`）；与 `kcaa02_en` 等字段同一套「先 parts 后 000」规则。
+  - 子件行 `GUID`/`version`/`kcac03`：按子件 `kcaa01` 查 `UB_ERP_Bom_000` 覆盖（`kcac03`=`UB_ERP_Bom_000.kcaa25`；无主档保留 `UB_ERP_Bom_parts`）；与 `kcaa02_en` 等字段同一套「先 parts 后 000」规则。
 - `UB_ERP_Bom_Sales` 字段口径（已确认）：
   - `sid` 关联 PI 号（=`UB_ERP_Sales_order.xsaj01`）。
   - `kcaa01` 为成品货号；一条记录就是该 PI 下一款成品的 BOM 头。
-  - `kcaa02`/`kcaa03`/`kcaa11`/`kcaa04` 等基础信息从 `bom_000` 同步快照。
-  - `kcaa02_en`、`kcaa12`、`kcaa32`～`kcaa35`、`sale_price`、`cost_price`（空写 NULL）、`type`（有值抄、空则 `1`）从 `bom_000` 同步快照。
+  - `kcaa02`/`kcaa03`/`kcaa11`/`kcaa04` 等基础信息从 `UB_ERP_Bom_000` 同步快照。
+  - `kcaa02_en`、`kcaa12`、`kcaa32`～`kcaa35`、`sale_price`、`cost_price`（空写 NULL）、`type`（有值抄、空则 `1`）从 `UB_ERP_Bom_000` 同步快照。
   - **写入时机**：明细 **新款** 建 PI BOM 头、或 **同步 BOM**（删款重建）时写入；已在单上的款 **保存不回头**（须同步 BOM 才刷新头扩展字段）。
   - `kcaa07`/`kcaa08`/`kcaa30` 作为 BOM 头价格/损耗快照保存。
   - `sign` 为旧系统状态位，默认 1，当前按兼容字段保留。
@@ -473,21 +473,21 @@
   |---|---|---|
   | PI 号（业务单号） | `xsaj01` | 手填，保存后不可改；全表唯一（含软删） |
   | 销售日期 | `xsaj02` | 主表日期字段 |
-  | 客户编码 | `xsaj05` | 保存 `System_sales_customer.s_code` |
-  | 客户名称 | `kehu` | 保存 `System_sales_customer.s_name` 快照 |
+  | 客户编码 | `xsaj05` | 保存 `UB_ERP_System_sales_customer.s_code` |
+  | 客户名称 | `kehu` | 保存 `UB_ERP_System_sales_customer.s_name` 快照 |
   | PO 号 | `xsaj06` | 销售订单 PO 号 |
-  | 币别代码 | `xsaj07` | 保存 `bom_currency.id` |
-  | 币别名称 | `rmb` | 保存 `bom_currency.cn_name` 快照 |
+  | 币别代码 | `xsaj07` | 保存 `UB_ERP_System_currency.id` |
+  | 币别名称 | `rmb` | 保存 `UB_ERP_System_currency.cn_name` 快照 |
   | 备注 | `remark` | 头部备注 |
   | 小数位配置 | `decimal` / `decimal_view` | 默认 6（整单金额/单价显示精度预留） |
 - **客户规则**：选中客户后同时落两份数据：`xsaj05=s_code`、`kehu=s_name`（例：客户 `7001 PQD` → `xsaj05=7001`，`kehu=PQD`）。保存时客户必须在册（`del` 空/`'0'`）且 **已审核**（`pass='1'`），否则保存失败。
-- **币别规则**：下拉读取 `bom_currency`，保存时同时落 `xsaj07=id` 与 `rmb=cn_name` 快照；之后改币别主数据不回写历史订单。
+- **币别规则**：下拉读取 `UB_ERP_System_currency`，保存时同时落 `xsaj07=id` 与 `rmb=cn_name` 快照；之后改币别主数据不回写历史订单。
 - 另有：销售日期、交货日期、备注。
-- **小数点位数**：整单 **金额/单价** 显示与舍入精度（与 `bom_000` 小数位配置同类语义）；**一期无行金额，不参与任何计算**；默认 **6**，可编辑并入库，供后续金额功能沿用。
+- **小数点位数**：整单 **金额/单价** 显示与舍入精度（与 `UB_ERP_Bom_000` 小数位配置同类语义）；**一期无行金额，不参与任何计算**；默认 **6**，可编辑并入库，供后续金额功能沿用。
 
 ### 操作人与审计（已定）
 
-与第三节「审计字段」及采购报价一致（**禁止**把 `Sys_Users.uname` 当作当前登录账号）：
+与第三节「审计字段」及采购报价一致（**禁止**把 `UB_ERP_User.uname` 当作当前登录账号）：
 
 | 时机 | 写入（列存在则落库） |
 |---|---|
@@ -547,7 +547,7 @@
 - 销售订单 PI BOM 标签页的树形展示必须对标 BOM 资料“BOM用量表运算”的树形展示。
 - 子行 `kcac01` = 父行实例键（写入/同步时父键为 **`systemcode` 优先，否则 `kcac02`**，与 `bomUsageTreeBuild.usageTreeChildParentKey` 一致）；`kcac02` 仍保留 ERP 子件编码（可多条路径相同）。
 - 展示/预取向下展开时 **禁止** 仅用共用 `kcac02` 当父键（否则多条裁片会共用一个子件池）；须用 **`systemcode` 优先** 的实例键（`server/salesOrderPiBomUsageTree.js`）。
-- **一单多明细**（同一 PI 多款 `kcaa01`）：读树、一键运算、删款/同步 BOM 遍历子树时须按 **`pkcaa01` = 当前明细款** 过滤 `UB_ERP_Bom_Sales_list`（多款可能共用 Bom_parts 展开父键如 `637E4014…`，不过滤会串款）。
+- **一单多明细**（同一 PI 多款 `kcaa01`）：读树、一键运算、删款/同步 BOM 遍历子树时须按 **`pkcaa01` = 当前明细款** 过滤 `UB_ERP_Bom_Sales_list`（多款可能共用 UB_ERP_Bom_parts 展开父键如 `637E4014…`，不过滤会串款）。
 - 前端树行唯一键使用 `UB_ERP_Bom_Sales_list.id`，不要使用 `systemcode`。
 - **禁止**整棵树按 `list.id` 去重（会把子件挤到先遍历到的裁片下）。
 - 历史 PI 若同父同码少行（旧去重键按 `systemcode/kcac02` 压掉第二行搭配等），对该款执行 **「同步 BOM」**（先删后建）；**保存订单不会重写已有款 PI BOM**（仅明细**新款**走建款写入）。不在展示层用 id 硬压。
@@ -699,8 +699,8 @@
 - 外协订单明细优先从 **PI 销售 BOM** 中选材，不直接从库存主 BOM 选材；因为外协订单多数关联销售单，明细应贴近该销售单下已经确定的 PI BOM 内容。
 - **订单外协**、**订单外发** 的明细选材必须按关联单号过滤，只显示该关联单号下的 PI 销售 BOM 内容，避免选到其它销售单的物料。
 - 关联销售订单必须已审核，外协订单才能从该销售订单的 PI 销售 BOM 中选材。
-- 旧系统其他外协批量选材存在两个来源：`lx=1` 从采购报价单明细 `UB_ERP_Buy_offer_list` 选，`lx=2` 从 BOM 资料主档 `bom_000` 选；旧触发 `lx=0` 走兜底逻辑。
-- 新系统第一版其他外协只实现 `bom_000` 来源，只允许选择已审核且未删除的 `bom_000` 记录；采购报价单明细来源留到后续版本。
+- 旧系统其他外协批量选材存在两个来源：`lx=1` 从采购报价单明细 `UB_ERP_Buy_offer_list` 选，`lx=2` 从 BOM 资料主档 `UB_ERP_Bom_000` 选；旧触发 `lx=0` 走兜底逻辑。
+- 新系统第一版其他外协只实现 `UB_ERP_Bom_000` 来源，只允许选择已审核且未删除的 `UB_ERP_Bom_000` 记录；采购报价单明细来源留到后续版本。
 - 外协订单选材不按 BOM 层级判断“结构行/材料行”；是否可加入外协订单，由物料档案上的 **外协** 标记决定。
 - 选材列表中，已打外协标记的行显示为可选；未打外协标记的行显示为不可选。整款外发时，只要整款物料档案打上外协标记，就可以被选入外协订单。
 - 不可选行仍保留展示；用户点击不可选行时，提示该物料未勾选外协，不能加入外协订单。
@@ -723,7 +723,7 @@
 - **已外协出库数量**列第一版固定显示「待开发」。
 - 保存已选：默认 `wxak03=可入数量`；物料快照写入明细；单价/金额为 0；允许重复行；经 `sessionStorage` 回传父页后关窗。
 - **订单外发**（`assistType=2`）点「批量添加」：同页路由；须已填关联 PI；一层列表读销售订单明细，不展开 BOM。
-- **其他外协**（`assistType=0`）点「批量添加」：同页路由；不要求关联 PI；从已审核未删除 `bom_000` 分页选材；顶部第一行「分类 + 货品已选数」，第二行「查询条件 + 立即查询」；表格列：操作、编码、名称(中文/英文/开票名)、规格、单位；默认数量 0；选材不按关联 PI 过滤。
+- **其他外协**（`assistType=0`）点「批量添加」：同页路由；不要求关联 PI；从已审核未删除 `UB_ERP_Bom_000` 分页选材；顶部第一行「分类 + 货品已选数」，第二行「查询条件 + 立即查询」；表格列：操作、编码、名称(中文/英文/开票名)、规格、单位；默认数量 0；选材不按关联 PI 过滤。
 
 ### 明细数量（已定）
 
@@ -751,8 +751,8 @@
 
 - 外协订单编辑页包含独立的 **额外费用清单** 标签页，与基础资料、明细标签页并列。
 - 额外费用按行录入，界面字段包含：序号、费用编码及名称、费用、税点、备注。
-- 费用编码及名称从 BOM 资料主档 `bom_000` 选择，筛选条件为 `kcaa05='FEE'`。
-- 费用项目只允许选择已审核且未删除的 `bom_000` 记录。
+- 费用编码及名称从 BOM 资料主档 `UB_ERP_Bom_000` 选择，筛选条件为 `kcaa05='FEE'`。
+- 费用项目只允许选择已审核且未删除的 `UB_ERP_Bom_000` 记录。
 - 新系统额外费用清单不限条数，不沿用旧系统最多 10 条的硬编码上限。
 - 税点可不填；费用清单金额参与外协订单金额汇总。
 - 第一版保存外协订单时，额外费用清单按页面当前内容整批重写：先物理删除该外协订单原费用行，再插入当前页面费用行。

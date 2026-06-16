@@ -197,7 +197,7 @@ export function buildFirstBomQtyMapFromCostLines(costLines) {
  * @param {{ kcaa01?: string, isOutsource?: number }[]} materialRows
  */
 /**
- * 旧系统 s_choose_pi_list.asp bomstr：Bom_code.copen=1，OUT 用后缀，其余用 flag5- 前缀。
+ * 旧系统 s_choose_pi_list.asp bomstr：UB_ERP_Bom_code.copen=1，OUT 用后缀，其余用 flag5- 前缀。
  * @param {import('mssql').ConnectionPool} pool
  * @returns {Promise<string[]>}
  */
@@ -249,7 +249,7 @@ export function kcaa01MatchesAnyBomCodeAssistBatchPrefix(kcaa01, prefixes) {
 }
 
 /**
- * 编码颜色：命中 Bom_code.flag5 前缀（含 OUT 后缀口径）→ 蓝；否则红。
+ * 编码颜色：命中 UB_ERP_Bom_code.flag5 前缀（含 OUT 后缀口径）→ 蓝；否则红。
  * @param {{ kcaa01: string, bomCodePrefixes: string[] }} opts
  * @returns {'pi_cost' | 'sales_list'}
  */

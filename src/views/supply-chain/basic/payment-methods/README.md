@@ -2,7 +2,7 @@
 
 ## 数据表
 
-- 物理表：`System_settlement_method`
+- 物理表：`UB_ERP_System_settlement_method`
 - 主键：`id`
 - 展示列：`code`（编码）、`name`（名称）、`payfor`（天数）
 - 新增/编辑补充：`info`（备注）

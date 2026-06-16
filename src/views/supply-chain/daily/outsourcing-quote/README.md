@@ -21,4 +21,4 @@
 - 总项数：在册明细行数
 - 含税总价 / 不含税总价 / 税点总价：对明细 `wxab05`、`wxab04` 按单号分组 `SUM`（多行时即为各金额之和，与「逐行累加」一致）
 
-角色 `Sys_Roles.Permissions` 中需包含本菜单 path 及 `view` / `add` / `edit` / `audit` / `delete` 动作，否则接口 403、按钮由 `v-permission` 隐藏。
+角色 `UB_ERP_System_role.Permissions` 中需包含本菜单 path 及 `view` / `add` / `edit` / `audit` / `delete` 动作，否则接口 403、按钮由 `v-permission` 隐藏。

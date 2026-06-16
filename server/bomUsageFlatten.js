@@ -1,5 +1,5 @@
 /**
- * BOM 用量平铺与汇总合并（bom_cost / pi_cost 共用）
+ * BOM 用量平铺与汇总合并（UB_ERP_Bom_cost / pi_cost 共用）
  */
 import {
   bomCostMaterialStartsWithCutPrefix,
@@ -105,7 +105,7 @@ export function flattenBomPartsCostUsageFlat(
 }
 
 /**
- * bom_cost 写库专用平铺：CUT 自身用量要继续放大下层材料。
+ * UB_ERP_Bom_cost 写库专用平铺：CUT 自身用量要继续放大下层材料。
  * @param {any[]} treeNodes
  * @param {number|null|undefined} parentYl
  * @param {any[]} [acc]

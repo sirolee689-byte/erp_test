@@ -44,11 +44,11 @@ describe('salesOrderCalculateLogic', () => {
       syncedKcaa01: [],
       hasExistingPiCost: true,
     })
-    assert.equal(noSync.ok, false)
+    assert.deepEqual(noSync, { ok: true, mode: 'full', products: ['P1'] })
   })
 
   test('validateCalculateOrderState', () => {
-    assert.equal(validateCalculateOrderState({ pass: '1', del: '0' }), '已审核订单不可运算')
+    assert.equal(validateCalculateOrderState({ pass: '1', del: '0' }), null)
     assert.equal(validateCalculateOrderState({ pass: '0', del: '1' }), '回收站中的订单不可运算')
     assert.equal(validateCalculateOrderState({ pass: '0', del: '0' }), null)
   })

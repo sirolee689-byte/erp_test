@@ -1,5 +1,5 @@
 /**
- * 外协订单明细保存：按外协类型从 PI BOM / bom_000 回查物料快照（kcaa01～kcaa35）
+ * 外协订单明细保存：按外协类型从 PI BOM / UB_ERP_Bom_000 回查物料快照（kcaa01～kcaa35）
  */
 import { sql } from './db.js'
 import { INV_BOM_MASTER_FROM } from './bomTables.js'
@@ -203,7 +203,7 @@ export async function fetchAssistOrderLineBomSnapshot(db, opts) {
 }
 
 /**
- * 按 kcaa01 查 bom_000 行级 GUID 与 Customer_Name（明细 wxak02/GUID/systemcode 与 Customer_Name 兜底）
+ * 按 kcaa01 查 UB_ERP_Bom_000 行级 GUID 与 Customer_Name（明细 wxak02/GUID/systemcode 与 Customer_Name 兜底）
  * @param {import('mssql').ConnectionPool | import('mssql').Transaction} db
  * @param {string} kcaa01
  * @returns {Promise<{ bomGuid: string, customerName: string } | null>}

@@ -1,5 +1,5 @@
 /**
- * 管理纸格导入资料：按 System_uplod_file.id 下载磁盘 Excel
+ * 管理纸格导入资料：按 UB_ERP_System_uplod_file.id 下载磁盘 Excel
  */
 import fs from 'node:fs'
 import path from 'node:path'

@@ -112,7 +112,7 @@ export function registerSalesOrderRoutes(app, deps) {
   }
 
   /**
-   * GET /api/sales-order/currency-options — 币别下拉（bom_currency 全表在册）
+   * GET /api/sales-order/currency-options — 币别下拉（UB_ERP_System_currency 全表在册）
    */
   app.get('/api/sales-order/currency-options', async (req, res) => {
     try {
@@ -121,7 +121,7 @@ export function registerSalesOrderRoutes(app, deps) {
         SELECT
           CAST([id] AS int) AS id,
           LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL([cn_name], N'')))) AS cn_name
-        FROM dbo.[bom_currency]
+        FROM dbo.[UB_ERP_System_currency]
         WHERE ISNULL([del], N'') = N'' OR [del] = N'0'
         ORDER BY [id] ASC
       `)

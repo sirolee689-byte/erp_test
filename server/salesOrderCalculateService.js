@@ -247,7 +247,7 @@ async function rebuildPiConsumptionFromAllCost(pool, tx, piNo) {
 }
 
 /**
- * 平铺用量 → bom_cost / pi_cost 落库 payload（与 POST /api/bom/usage-calc 一致，平铺不合并）
+ * 平铺用量 → UB_ERP_Bom_cost / pi_cost 落库 payload（与 POST /api/bom/usage-calc 一致，平铺不合并）
  * @param {any[]} flatForCost flattenBomPartsCostUsageFlatForBomCost 结果
  * @param {string} productKcaa01 成品 pq，用于跳过树根行
  */
@@ -260,7 +260,7 @@ export function buildPiCostInsertPayloadFromFlatUsage(flatForCost, productKcaa01
 }
 
 /**
- * 单款用量树 → bom_cost / pi_cost 落库 payload
+ * 单款用量树 → UB_ERP_Bom_cost / pi_cost 落库 payload
  * @param {any[]} tree
  * @param {string} productKcaa01
  */

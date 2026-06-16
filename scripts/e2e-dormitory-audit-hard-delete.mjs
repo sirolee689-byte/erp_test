@@ -2,7 +2,7 @@
  * E2E：审核入住申请 — 未审核行【删除】物理删除（规则 14）
  * 1) 库内选定一条可删的未审核行（优先已有 pass=0；否则取已退宿行临时置 pass=0）
  * 2) 打开 Tab，点【删除】→ 截图二次确认弹窗
- * 3) 确定删除后 SQL 校验该 id 在 Hr_room_in 中已不存在
+ * 3) 确定删除后 SQL 校验该 id 在 UB_ERP_Hr_room_in 中已不存在
  *
  * 前置：.env E2E_USERCODE/E2E_PASSWORD、DB_*；Vite 5173 + API 3001；后端日志含 Dorm-Audit-HardDelete-Logic-v1.1.4-Active
  */
@@ -63,7 +63,7 @@ async function getPoolFromEnv() {
 async function pickRowIdForDeleteTest(pool) {
   const r1 = await pool.request().query(`
     SELECT TOP 1 i.id
-    FROM dbo.[Hr_room_in] AS i
+    FROM dbo.[UB_ERP_Hr_room_in] AS i
     WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
       AND LTRIM(RTRIM(ISNULL(i.pass, N'0'))) = N'0'
     ORDER BY i.id DESC
@@ -73,7 +73,7 @@ async function pickRowIdForDeleteTest(pool) {
 
   const r2 = await pool.request().query(`
     SELECT TOP 1 i.id
-    FROM dbo.[Hr_room_in] AS i
+    FROM dbo.[UB_ERP_Hr_room_in] AS i
     WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
       AND LTRIM(RTRIM(ISNULL(i.out_room, N'0'))) = N'1'
     ORDER BY i.id DESC
@@ -82,7 +82,7 @@ async function pickRowIdForDeleteTest(pool) {
   if (!Number.isFinite(id) || id <= 0) return null
   const u = pool.request()
   u.input('id', sql.Int, id)
-  await u.query(`UPDATE dbo.[Hr_room_in] SET pass = N'0' WHERE id = @id`)
+  await u.query(`UPDATE dbo.[UB_ERP_Hr_room_in] SET pass = N'0' WHERE id = @id`)
   return id
 }
 
@@ -93,7 +93,7 @@ async function getListSearchKeywordById(pool, id) {
     SELECT
       LTRIM(RTRIM(ISNULL(room_code, N''))) AS rc,
       LTRIM(RTRIM(ISNULL(staff_code, N''))) AS sc
-    FROM dbo.[Hr_room_in]
+    FROM dbo.[UB_ERP_Hr_room_in]
     WHERE id = @id
   `)
   const rc = String(rs.recordset?.[0]?.rc ?? '').trim()
@@ -104,7 +104,7 @@ async function getListSearchKeywordById(pool, id) {
 async function countRowById(pool, id) {
   const r = pool.request()
   r.input('id', sql.Int, id)
-  const rs = await r.query(`SELECT COUNT(1) AS c FROM dbo.[Hr_room_in] WHERE id = @id`)
+  const rs = await r.query(`SELECT COUNT(1) AS c FROM dbo.[UB_ERP_Hr_room_in] WHERE id = @id`)
   return Number(rs.recordset?.[0]?.c ?? 0)
 }
 
@@ -173,7 +173,7 @@ async function main() {
 
     await sleep(600)
     const cnt = await countRowById(pool, rowId)
-    assert(cnt === 0, `物理删除后 Hr_room_in 中 id=${rowId} 应不存在，实际 COUNT=${cnt}`)
+    assert(cnt === 0, `物理删除后 UB_ERP_Hr_room_in 中 id=${rowId} 应不存在，实际 COUNT=${cnt}`)
 
     console.log('【彻底删除 RPA】完成')
     console.log(pngConfirm)

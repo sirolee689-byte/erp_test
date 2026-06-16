@@ -1,7 +1,7 @@
 <template>
   <div class="erp-module-page">
     <!--
-      v1.1.3 宿舍房间列表：Hr_room + 在住人数（Hr_room_in 未退房条数）
+      v1.1.3 宿舍房间列表：UB_ERP_Hr_room + 在住人数（UB_ERP_Hr_room_in 未退房条数）
       - 使用状态列：s_code1（使用/闲置）；在住判定：in_room=1 且 out_room=0
     -->
     <el-card shadow="never">
@@ -9,7 +9,7 @@
         <span class="page-title">{{ pageTitle }}</span>
       </template>
       <p class="page-desc">
-        列表数据来自 <code>Hr_room</code>；「在住人数」统计 <code>Hr_room_in</code> 中未退房记录。默认仅显示已审核（pass=1）的房间资料。
+        列表数据来自 <code>UB_ERP_Hr_room</code>；「在住人数」统计 <code>UB_ERP_Hr_room_in</code> 中未退房记录。默认仅显示已审核（pass=1）的房间资料。
       </p>
 
       <div class="operator-toolbar">
@@ -140,7 +140,7 @@
     <el-dialog v-model="addDialogVisible" title="添加房间" width="480px" destroy-on-close @closed="resetAddForm">
       <el-form ref="addFormRef" :model="addForm" :rules="addRules" label-width="110px">
         <el-form-item label="房间号" prop="s_code">
-          <el-input v-model="addForm.s_code" maxlength="50" clearable placeholder="对应 Hr_room.s_code" />
+          <el-input v-model="addForm.s_code" maxlength="50" clearable placeholder="对应 UB_ERP_Hr_room.s_code" />
         </el-form-item>
         <el-form-item label="宿舍状态" prop="s_code1">
           <el-select v-model="addForm.s_code1" placeholder="请选择" style="width: 100%">
@@ -217,7 +217,7 @@ const showUnAudited = ref(false)
 
 /** 宿舍状态下拉 */
 const stateOptions = ['使用', '闲置']
-/** 宿舍类型下拉（写入 Hr_room.code） */
+/** 宿舍类型下拉（写入 UB_ERP_Hr_room.code） */
 const typeOptions = ['普通房', '空调房', '大房']
 
 const addDialogVisible = ref(false)

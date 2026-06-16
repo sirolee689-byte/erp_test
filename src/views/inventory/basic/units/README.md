@@ -15,7 +15,7 @@
 
 - 必备业务列：**`id`**（主键 `IDENTITY`）、**`name`**、**`info`**（可空）、**`pass`**、**`del`**。
 - **业务表审计列**（建议 `NVARCHAR(50)` 存时间串；`uid` 为 `INT`；见 `CONTEXT.md` 第三节）：
-  - **`uid` / `uname` / `utruename`**：录入人（对应 `Sys_Users.UserID`、`UserCode`、`UserName`）；
+  - **`uid` / `uname` / `utruename`**：录入人（对应 `UB_ERP_User.UserID`、`UserCode`、`UserName`）；
   - **`addtime`**：新增时写入；
   - **`edittime`**：审核、反审、恢复时写入；
   - **`deltime`**：逻辑删除时写入；  

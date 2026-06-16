@@ -1,6 +1,6 @@
 /**
 
- * 销售订单 pi_cost 落库专用字段（top/t 层级、默认值；不影响 bom_cost 平铺用量）
+ * 销售订单 pi_cost 落库专用字段（top/t 层级、默认值；不影响 UB_ERP_Bom_cost 平铺用量）
 
  */
 
@@ -126,7 +126,7 @@ export function extractPiCostParentTFieldsFromNode(parentNode) {
 
  * DFS 收集 PI BOM 树每行的 top/t 层级（按 list.id / sourceRowId 关联）
 
- * top 锚点仅在 PI BOM **第一层**（成品头直下、parent 为空）且命中 Bom_code flag5 时重置；
+ * top 锚点仅在 PI BOM **第一层**（成品头直下、parent 为空）且命中 UB_ERP_Bom_code flag5 时重置；
 
  * 深层材料（如裁片下 RP-*）只继承上层锚点。散件单第一层即散件本身时，top 可为自身。
 
@@ -134,7 +134,7 @@ export function extractPiCostParentTFieldsFromNode(parentNode) {
 
  * @param {any[]} treeNodes
 
- * @param {string[]} topLevelFlag5Prefixes Bom_code flag5（排除 OUT/CUT）
+ * @param {string[]} topLevelFlag5Prefixes UB_ERP_Bom_code flag5（排除 OUT/CUT）
 
  */
 
@@ -249,7 +249,7 @@ export function collectPiCostHierarchyMetaFromTree(treeNodes, topLevelFlag5Prefi
 }
 
 /**
- * Sales_list.kcaa13 有值（含 0）时解析为整数；NULL/空则返回 null（不覆盖 bom_000）
+ * Sales_list.kcaa13 有值（含 0）时解析为整数；NULL/空则返回 null（不覆盖 UB_ERP_Bom_000）
  * @param {unknown} raw
  * @returns {number | null}
  */
@@ -288,7 +288,7 @@ export function collectPiCostKcaa13BySourceIdFromTree(treeNodes) {
 }
 
 /**
- * pi_cost 落库：Sales_list 有 kcaa13 时覆盖 enrich 自 bom_000 的值（用量与其它 kcaa 不动）
+ * pi_cost 落库：Sales_list 有 kcaa13 时覆盖 enrich 自 UB_ERP_Bom_000 的值（用量与其它 kcaa 不动）
  * @param {Array<Record<string, unknown>>} rows
  * @param {Map<number, number>} kcaa13BySourceId
  */

@@ -3,9 +3,9 @@
  * 依赖：apiPermissionGate 在校验通过后挂载 req.user（与 token 解析结果一致）
  *
  * 口径（与 CONTEXT.md 第三节一致）：
- * - uid → Sys_Users.UserID
- * - uname → Sys_Users.UserName（登录账号列 username/UserName，非 usercode、非 Sys_Users.uname）
- * - utruename → Sys_Users.truename
+ * - uid → UB_ERP_User.UserID
+ * - uname → UB_ERP_User.UserName（登录账号列 username/UserName，非 usercode、非 UB_ERP_User.uname）
+ * - utruename → UB_ERP_User.truename
  */
 import { resolveSysUsersAuditTripletByUsercode } from './sysUsersDb.js'
 
@@ -49,7 +49,7 @@ export function getActorAuditTripletFromReq(req) {
 }
 
 /**
- * 按当前登录 usercode 查 Sys_Users，返回业务表审计三字段（优先于令牌缓存）。
+ * 按当前登录 usercode 查 UB_ERP_User，返回业务表审计三字段（优先于令牌缓存）。
  * @param {import('mssql').ConnectionPool | null | undefined} pool
  * @param {import('express').Request} req
  * @returns {Promise<{ uidInt: number | null, uname: string | null, utruename: string | null }>}

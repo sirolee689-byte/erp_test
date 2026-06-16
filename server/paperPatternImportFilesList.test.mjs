@@ -32,7 +32,7 @@ describe('paperPatternImportFilesList', () => {
     assert.deepEqual(parseFilesizeKeywordPart('PQ-3672'), { mode: 'none', value: '' })
   })
 
-  test('buildPaperPatternUploaderSql 优先 Sys_Users.truename', () => {
+  test('buildPaperPatternUploaderSql 优先 UB_ERP_User.truename', () => {
     const meta = {
       qb: (low) => {
         const m = { userid: '[UserID]', truename: '[truename]' }
@@ -40,7 +40,7 @@ describe('paperPatternImportFilesList', () => {
       },
     }
     const { joinSql, uploaderSql, uploaderSearchSql } = buildPaperPatternUploaderSql(meta)
-    assert.match(joinSql, /LEFT JOIN Sys_Users AS su/)
+    assert.match(joinSql, /LEFT JOIN dbo\.\[UB_ERP_User\] AS su/)
     assert.match(joinSql, /su\.\[UserID\]/)
     assert.match(uploaderSql, /su\.\[truename\]/)
     assert.match(uploaderSearchSql, /su\.\[truename\]/)

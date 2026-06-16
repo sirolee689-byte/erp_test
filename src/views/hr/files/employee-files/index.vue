@@ -1,7 +1,7 @@
 <template>
   <div class="erp-module-page">
     <!--
-      v1.0.9 人事档案精简管理（Hr_staff）
+      v1.0.9 人事档案精简管理（UB_ERP_Hr_staff）
       - 只加载有效字段：code/name/sex/in_bm/card_number/meal_type/yn_history/intime/pass 等
       - 搜索：name 模糊优先；否则 code 精确；否则 card_number 精确
       - pass='1'：禁用编辑/删除；审核/反审互斥
@@ -13,7 +13,7 @@
       </template>
       <p class="page-desc">
         仅展示必用字段；已审核（pass=1）记录锁定，编辑与删除需先反审。默认仅在职；打开「仅显示离职员工」后列表仅含
-        Hr_staff.status 为离职的档案。
+        UB_ERP_Hr_staff.status 为离职的档案。
       </p>
 
       <div class="operator-toolbar">
@@ -574,7 +574,7 @@ const leaveForm = ref({
   blacklist_reason: '',
 })
 
-/** 部门/岗位下拉（来自 HR_Departments） */
+/** 部门/岗位下拉（来自 UB_ERP_Hr_department） */
 const deptOptions = ref([])
 const postOptions = ref([])
 

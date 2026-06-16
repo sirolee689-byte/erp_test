@@ -37,7 +37,7 @@
 
 ## 权限配置
 
-角色需在 `Sys_Roles.Permissions` 中包含菜单 path `supply-chain/daily/purchase-quote`（及对应 `view`/`add`/`edit`/`audit`/`delete` 动作），否则接口 403、按钮由 `v-permission` 隐藏。
+角色需在 `UB_ERP_System_role.Permissions` 中包含菜单 path `supply-chain/daily/purchase-quote`（及对应 `view`/`add`/`edit`/`audit`/`delete` 动作），否则接口 403、按钮由 `v-permission` 隐藏。
 
 ## 已知问题 / 下一步
 

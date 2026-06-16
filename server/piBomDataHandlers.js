@@ -1149,7 +1149,7 @@ export function registerPiBomDataRoutes(app, { getPool }) {
    * PI-BOM 资料：替换面板联想（只返回编码）
    * - PI 候选：销售订单已审核在册的 PI
    * - PQ 候选：UB_ERP_Bom_Sales_list 下该 PI 的 pkcaa01
-   * - 物料候选：bom_000（只校验存在性/编码相关，不限制是否已出现在该 PI）
+   * - 物料候选：UB_ERP_Bom_000（只校验存在性/编码相关，不限制是否已出现在该 PI）
    * - 搭配候选：UB_ERP_Bom_Sales_list 下 Describe（可选按 PQ 缩小）
    */
   app.get('/api/inventory/pi-bom-data/pi-suggest', async (req, res) => {

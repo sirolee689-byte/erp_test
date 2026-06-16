@@ -1,9 +1,9 @@
 /**
- * 纸格导入：按 ERP 编码批量读取 Bom_000 主档字段（只读，不写库）
+ * 纸格导入：按 ERP 编码批量读取 UB_ERP_Bom_000 主档字段（只读，不写库）
  * kcaa04、kcaa33、kcaa02_en、location、cost_price（采购价）、sale_price（BOM价）、remark
  * 匹配：全码（含 /）精确 kcaa01；基码则 kcaa01 = 基码 OR kcaa01 LIKE「基码/%」
  * 取 id 最大且 kcaa04、kcaa33 同时有效的一条。
- * 注意：本接口为「预览补全」，不按 del 过滤；正式导入 Bom_parts 补全复用 fetchKcaa04Kcaa33ByKcaa01In。
+ * 注意：本接口为「预览补全」，不按 del 过滤；正式导入 UB_ERP_Bom_parts 补全复用 fetchKcaa04Kcaa33ByKcaa01In。
  */
 import sql from 'mssql'
 import { getPool } from './db.js'
@@ -12,7 +12,7 @@ import { INV_BOM_MASTER_FROM } from './bomTables.js'
 /** 每批 OR 条件数上限（精确 + LIKE） */
 const MATERIAL_BOM_FIELDS_BATCH_SIZE = 50
 
-/** SQL Server 2008 R2：Bom_000 数值列安全转 float */
+/** SQL Server 2008 R2：UB_ERP_Bom_000 数值列安全转 float */
 function bom000NumericColSql(colName) {
   const c = String(colName ?? '').trim()
   return `CASE
@@ -36,7 +36,7 @@ const MATERIAL_BOM_FIELDS_SELECT = `
         ${bom000NumericColSql('cost_price')} AS cost_price_f,
         ${bom000NumericColSql('sale_price')} AS sale_price_f`
 
-/** @param {unknown} raw — Bom_000 数值列；有效数保留六位小数 */
+/** @param {unknown} raw — UB_ERP_Bom_000 数值列；有效数保留六位小数 */
 function parseBom000FloatOrNull(raw) {
   if (raw === null || raw === undefined) return null
   const n = Number(raw)
@@ -45,7 +45,7 @@ function parseBom000FloatOrNull(raw) {
 }
 
 /**
- * 单条 bom_000 行是否可作为 Material 单位/损耗来源（kcaa04 非空且 kcaa33 可解析为有限数）
+ * 单条 UB_ERP_Bom_000 行是否可作为 Material 单位/损耗来源（kcaa04 非空且 kcaa33 可解析为有限数）
  * @param {string} kcaa04
  * @param {number | null | undefined} kcaa33
  */
@@ -56,7 +56,7 @@ export function rowQualifiesMaterialBomFields(kcaa04, kcaa33) {
 }
 
 /**
- * 请求编码 → bom_000 查询模式（参数侧已归一化，列侧用 b.kcaa01 直比以走索引）
+ * 请求编码 → UB_ERP_Bom_000 查询模式（参数侧已归一化，列侧用 b.kcaa01 直比以走索引）
  * @param {unknown} baseDisplay
  * @returns {{ base: string, likePrefix: string, mode: 'none' | 'exact' | 'prefix' }}
  */

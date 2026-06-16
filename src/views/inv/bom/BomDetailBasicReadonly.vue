@@ -216,7 +216,7 @@
 import { computed, toRef } from 'vue'
 
 const props = defineProps({
-  /** bom_000 主档只读对象（可与主详情、子窗共用） */
+  /** UB_ERP_Bom_000 主档只读对象（可与主详情、子窗共用） */
   basic: { type: Object, default: null },
 })
 

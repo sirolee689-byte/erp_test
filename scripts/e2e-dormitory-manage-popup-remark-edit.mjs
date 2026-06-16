@@ -2,7 +2,7 @@
  * E2E：入住管理弹窗优化 - 部门中文 + 备注失焦保存
  * 目标：
  * 1) 打开房间列表→任意房间点“入住管理”
- * 2) 断言部门列显示中文（来自 HR_Departments.name）
+ * 2) 断言部门列显示中文（来自 UB_ERP_Hr_department.name）
  * 3) 修改第一行备注并失焦触发保存
  * 4) 点击“刷新”，确认备注仍然存在（持久化）
  * 5) 进入系统日志，确认存在“修改入住备注”的审计内容
@@ -119,7 +119,7 @@ async function verifyLog(page, remarkVal) {
   const r = await pool.request().query(`
     SELECT TOP (1) Content
     FROM dbo.Sys_OperationLogs
-    WHERE TargetTable = N'Hr_room_in'
+    WHERE TargetTable = N'UB_ERP_Hr_room_in'
       AND Action = N'修改入住备注'
     ORDER BY LogID DESC
   `)

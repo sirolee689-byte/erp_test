@@ -1,5 +1,5 @@
 /**
- * v1.1.4：创建 bom_cost（与 dev:server 共用根目录 .env）
+ * v1.1.4：创建 UB_ERP_Bom_cost（与 dev:server 共用根目录 .env）
  * 用法：在项目根目录执行 node scripts/run-migration-sqlserver_v1.1.4_bom_cost.mjs
  */
 import dotenv from 'dotenv'

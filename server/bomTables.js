@@ -11,22 +11,22 @@ function tableFrom(tableName) {
   return `dbo.[${tableName}]`
 }
 
-export const INV_BOM_MASTER_TABLE = resolveSafeTableName('INV_BOM_MASTER_TABLE', 'bom_000')
+export const INV_BOM_MASTER_TABLE = resolveSafeTableName('INV_BOM_MASTER_TABLE', 'UB_ERP_Bom_000')
 export const INV_BOM_MASTER_FROM = tableFrom(INV_BOM_MASTER_TABLE)
 
-export const INV_BOM_PARTS_TABLE = resolveSafeTableName('INV_BOM_PARTS_TABLE', 'Bom_parts')
+export const INV_BOM_PARTS_TABLE = resolveSafeTableName('INV_BOM_PARTS_TABLE', 'UB_ERP_Bom_parts')
 export const INV_BOM_PARTS_FROM = tableFrom(INV_BOM_PARTS_TABLE)
 
-export const BOM_COST_TABLE = resolveSafeTableName('BOM_COST_TABLE', 'bom_cost')
+export const BOM_COST_TABLE = resolveSafeTableName('BOM_COST_TABLE', 'UB_ERP_Bom_cost')
 export const BOM_COST_FROM = tableFrom(BOM_COST_TABLE)
 
 export const BOM_CONSUMPTION_TABLE = resolveSafeTableName('BOM_CONSUMPTION_TABLE', 'Bom_consumption')
 export const BOM_CONSUMPTION_FROM = tableFrom(BOM_CONSUMPTION_TABLE)
 
-export const INV_BOM_CURRENCY_TABLE = resolveSafeTableName('INV_BOM_CURRENCY_TABLE', 'bom_currency')
+export const INV_BOM_CURRENCY_TABLE = resolveSafeTableName('INV_BOM_CURRENCY_TABLE', 'UB_ERP_System_currency')
 export const INV_BOM_CURRENCY_FROM = tableFrom(INV_BOM_CURRENCY_TABLE)
 
-export const INV_BOM_CODE_TABLE = resolveSafeTableName('INV_BOM_CODE_TABLE', 'Bom_code')
+export const INV_BOM_CODE_TABLE = resolveSafeTableName('INV_BOM_CODE_TABLE', 'UB_ERP_Bom_code')
 export const INV_BOM_CODE_FROM = tableFrom(INV_BOM_CODE_TABLE)
 
 export const BOM_MATERIAL_TABLE = resolveSafeTableName('BOM_MATERIAL_TABLE', 'UB_ERP_Stocks_material')
@@ -39,6 +39,6 @@ export const BOM_PARTS_KCAA_SYNC_NAMES = Array.from({ length: 35 }, (_, i) =>
 
 /** 报价 handler 等：每次调用重读 env（与原 invBomMasterFrom 行为一致） */
 export function invBomMasterFrom() {
-  const raw = String(process.env.INV_BOM_MASTER_TABLE ?? 'bom_000').trim()
-  return /^[A-Za-z0-9_]+$/.test(raw) ? `dbo.[${raw}]` : 'dbo.[bom_000]'
+  const raw = String(process.env.INV_BOM_MASTER_TABLE ?? 'UB_ERP_Bom_000').trim()
+  return /^[A-Za-z0-9_]+$/.test(raw) ? `dbo.[${raw}]` : 'dbo.[UB_ERP_Bom_000]'
 }

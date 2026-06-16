@@ -9,7 +9,7 @@
         <span class="page-title">{{ pageTitle }}</span>
       </template>
       <p class="page-desc">
-        数据表由环境变量 <code>HR_LEGACY_DEPT_TABLE</code> 指定（默认 <code>HR_Departments</code>）。列表表头为中文；库内字段名仍为英文（如
+        数据表由环境变量 <code>HR_LEGACY_DEPT_TABLE</code> 指定（默认 <code>UB_ERP_Hr_department</code>）。列表表头为中文；库内字段名仍为英文（如
         <code>pass</code>：值为 <code>1</code> 表示已审核并锁定改删）。删除为逻辑删除。
       </p>
 

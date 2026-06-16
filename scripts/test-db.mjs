@@ -35,9 +35,9 @@ try {
   const result = await pool.request().query('SELECT GETDATE() as currentTime')
   console.log('✅ 连接成功，数据库时间：', result.recordset?.[0]?.currentTime)
 
-  // 顺便验证 Sys_Users 是否存在、是否可查询
-  const users = await pool.request().query('SELECT TOP (5) * FROM Sys_Users')
-  console.log(`✅ Sys_Users 查询成功（前 5 行），行数：${users.recordset?.length ?? 0}`)
+  // 顺便验证 UB_ERP_User 是否存在、是否可查询
+  const users = await pool.request().query('SELECT TOP (5) * FROM dbo.[UB_ERP_User]')
+  console.log(`✅ UB_ERP_User 查询成功（前 5 行），行数：${users.recordset?.length ?? 0}`)
 
   await sql.close()
 } catch (err) {

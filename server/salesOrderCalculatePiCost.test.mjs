@@ -1,5 +1,5 @@
 /**
- * pi_cost 落库 payload 与 bom_cost usage-calc 同链路（方案 A：不按 list.id 二次去重）
+ * pi_cost 落库 payload 与 UB_ERP_Bom_cost usage-calc 同链路（方案 A：不按 list.id 二次去重）
  */
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'

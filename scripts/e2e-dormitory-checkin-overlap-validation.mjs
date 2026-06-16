@@ -89,7 +89,7 @@ async function findStaffCodeWithApril152026InClosedHistory(pool) {
       LTRIM(RTRIM(ISNULL(i.staff_code, N''))) AS sc,
       LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(i.in_time, N'')))) AS it_in,
       LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(i.out_time, ISNULL(i.out_time2, N''))))) AS it_out
-    FROM dbo.[Hr_room_in] AS i
+    FROM dbo.[UB_ERP_Hr_room_in] AS i
     WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
       AND LTRIM(RTRIM(ISNULL(i.out_room, N'0'))) = N'1'
       AND LTRIM(RTRIM(ISNULL(i.staff_code, N''))) <> N''
@@ -108,7 +108,7 @@ async function findStaffCodeWithApril152026InClosedHistory(pool) {
 async function pickUsableRoomCode(pool) {
   const r = await pool.request().query(`
     SELECT TOP 1 LTRIM(RTRIM(ISNULL(r.s_code, N''))) AS rc
-    FROM dbo.[Hr_room] AS r
+    FROM dbo.[UB_ERP_Hr_room] AS r
     WHERE LTRIM(RTRIM(ISNULL(r.del, N'0'))) = N'0'
       AND LTRIM(RTRIM(ISNULL(r.pass, N'0'))) = N'1'
       AND LTRIM(RTRIM(ISNULL(r.s_code1, N''))) = N'使用'
@@ -127,10 +127,10 @@ async function checkoutLatestByStaffAndDate(pool, staffCode, datePrefix) {
     UPDATE i
     SET i.out_room = N'1',
         i.out_time = N'2026-05-03 12:00:00'
-    FROM dbo.[Hr_room_in] AS i
+    FROM dbo.[UB_ERP_Hr_room_in] AS i
     WHERE i.id = (
       SELECT TOP 1 i2.id
-      FROM dbo.[Hr_room_in] AS i2
+      FROM dbo.[UB_ERP_Hr_room_in] AS i2
       WHERE LTRIM(RTRIM(ISNULL(i2.del, N'0'))) = N'0'
         AND LTRIM(RTRIM(ISNULL(i2.out_room, N'0'))) = N'0'
         AND LTRIM(RTRIM(ISNULL(i2.staff_code, N''))) = LTRIM(RTRIM(@sc))

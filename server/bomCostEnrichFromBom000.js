@@ -1,5 +1,5 @@
 /**
- * bom_cost 运算落库：按 kcaa01 从 bom_000 补全主档字段（与纸格导入字段来源一致）
+ * UB_ERP_Bom_cost 运算落库：按 kcaa01 从 UB_ERP_Bom_000 补全主档字段（与纸格导入字段来源一致）
  */
 import sql from 'mssql'
 import { erpCodeLookupKey, normalizeErpCodeDisplay } from './paperPatternErpCodeNormalize.js'
@@ -21,7 +21,7 @@ export function formatBomCostAuditTimestamp(date = new Date()) {
 }
 
 /**
- * bom_000 行级 GUID（与 systemcode 同值落库）；优先 [GUID]，否则 systemcode
+ * UB_ERP_Bom_000 行级 GUID（与 systemcode 同值落库）；优先 [GUID]，否则 systemcode
  * @param {Record<string, unknown>|undefined|null} m
  */
 export function resolveBom000GuidForBomCostRow(m) {
@@ -56,7 +56,7 @@ export function isPqBomCostHead(raw) {
   return String(raw ?? '').trim().toUpperCase().startsWith('PQ-')
 }
 
-/** SQL Server 2008：Bom_000 数值列安全转 float */
+/** SQL Server 2008：UB_ERP_Bom_000 数值列安全转 float */
 function bom000NumericColSql(colName) {
   const c = String(colName ?? '').trim()
   return `CASE
@@ -224,7 +224,7 @@ export async function fetchBom000ForBomCostEnrich(poolOrTx, materialCodes) {
 
 /**
  * @param {import('mssql').ConnectionPool | import('mssql').Transaction} poolOrTx
- * @param {string[]} categoryCodes bom_000.kcaa05
+ * @param {string[]} categoryCodes UB_ERP_Bom_000.kcaa05
  * @returns {Promise<Map<string, number>>} key = trimmed UB_ERP_Stocks_material.code
  */
 export async function fetchBomMaterialPxByCategoryCodes(poolOrTx, categoryCodes) {
@@ -270,7 +270,7 @@ export async function fetchBomMaterialPxByCategoryCodes(poolOrTx, categoryCodes)
 }
 
 /**
- * PQ 主 BOM 运算时，按行物料分类补 bom_cost.px。
+ * PQ 主 BOM 运算时，按行物料分类补 UB_ERP_Bom_cost.px。
  * @param {Array<Record<string, unknown>>} rows
  * @param {string} pq
  * @param {Map<string, number>} materialPxMap key = UB_ERP_Stocks_material.code
@@ -315,7 +315,7 @@ function resolveVersionForBomCost(m) {
 }
 
 /**
- * 在运算 payload 上合并 bom_000（不改 kcaa02/kcaa03/kcac04~06/Describe）
+ * 在运算 payload 上合并 UB_ERP_Bom_000（不改 kcaa02/kcaa03/kcac04~06/Describe）
  * @param {Array<Record<string, unknown>>} rows buildBomCostInsertPayloadFromFlatUsage 结果
  * @param {Map<string, Record<string, unknown>>} bom000Map
  */
@@ -390,7 +390,7 @@ export function applyBomCostAuditToRows(rows, audit) {
   }))
 }
 
-/** 落库列顺序（仅写入 bom_cost 表存在的列） */
+/** 落库列顺序（仅写入 UB_ERP_Bom_cost 表存在的列） */
 const BOM_COST_INSERT_FIELD_SPECS = [
   { key: 'kcaa01', sql: 'kcaa01', kind: 'nv300' },
   { key: 'kcaa02', sql: 'kcaa02', kind: 'nv300' },
@@ -439,7 +439,7 @@ const BOM_COST_INSERT_FIELD_SPECS = [
   { key: 'px', sql: 'px', kind: 'int_null' },
 ]
 
-/** pi_cost 专用落库列（bom_cost 不含） */
+/** pi_cost 专用落库列（UB_ERP_Bom_cost 不含） */
 const PI_COST_INSERT_EXTRA_FIELD_SPECS = [
   { key: 't_kcaa01', sql: 't_kcaa01', kind: 'nv500' },
   { key: 't_kcaa02', sql: 't_kcaa02', kind: 'nv500' },
@@ -510,7 +510,7 @@ function bindBomCostInsertValue(req, param, spec, val) {
 }
 
 /**
- * 批量 INSERT 成本用量表（bom_cost / UB_ERP_Bom_pi_cost 等；isok=0 若列存在）
+ * 批量 INSERT 成本用量表（UB_ERP_Bom_cost / UB_ERP_Bom_pi_cost 等；isok=0 若列存在）
  * @param {import('mssql').ConnectionPool} pool
  * @param {import('mssql').Transaction} tx
  * @param {string} tableName
@@ -585,7 +585,7 @@ export async function insertCostBulkEnriched(pool, tx, tableName, pq, sid, rows)
 }
 
 /**
- * 批量 INSERT bom_cost（按物理列动态拼接；isok=0）
+ * 批量 INSERT UB_ERP_Bom_cost（按物理列动态拼接；isok=0）
  * @param {import('mssql').ConnectionPool} pool
  * @param {import('mssql').Transaction} tx
  * @param {string} pq

@@ -33,7 +33,7 @@ export function ensurePaperPatternUploadDir() {
 }
 
 /**
- * 将 System_uplod_file.filepath / filename 解析为可读绝对路径（防目录穿越）
+ * 将 UB_ERP_System_uplod_file.filepath / filename 解析为可读绝对路径（防目录穿越）
  * @param {string} filepathRaw
  * @param {string} filenameRaw
  * @returns {string|null}

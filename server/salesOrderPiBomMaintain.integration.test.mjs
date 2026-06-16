@@ -17,7 +17,7 @@ dotenv.config({ path: join(root, '.env') })
 const hasE2e =
   Boolean(process.env.DB_SERVER && process.env.E2E_USERCODE && process.env.E2E_PASSWORD)
 
-const e2ePort = Number(process.env.SALES_ORDER_PIBOM_E2E_PORT ?? 3016)
+const e2ePort = Number(process.env.SALES_ORDER_PIBOM_E2E_PORT ?? 3017)
 const e2eAccount = String(process.env.E2E_USERCODE ?? '001').trim()
 const e2ePassword = String(process.env.E2E_PASSWORD ?? '')
 
@@ -29,8 +29,11 @@ const PRODUCT_A = 'BAG-PQ3672A1/G-TEST'
 let serverChild = null
 let apiBase = ''
 let authToken = ''
+let piSeq = 0
 /** @type {string[]} */
 const cleanupPiNos = []
+/** @type {number[]} */
+const cleanupSeedPartIds = []
 
 function waitPort(host, port, timeoutMs) {
   const t0 = Date.now()
@@ -88,7 +91,8 @@ async function loginToken() {
 }
 
 function newTestPi() {
-  const pi = `PI-PIBOM-${Date.now()}`
+  piSeq += 1
+  const pi = `PI-PIBOM-${Date.now()}-${piSeq}`
   cleanupPiNos.push(pi)
   return pi
 }
@@ -154,8 +158,60 @@ async function hardDeleteTestPi(piNo) {
   `)
 }
 
+async function ensureMasterDirectChild(productKcaa01) {
+  const { getPool, sql } = await import('./db.js')
+  const pool = await getPool()
+  const master = await pool.request().input('p', sql.NVarChar(300), productKcaa01).query(`
+    SELECT TOP 1 LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([systemcode], [GUID])))) AS parentSc
+    FROM dbo.[UB_ERP_Bom_000]
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL([kcaa01], N'')))) = @p
+  `)
+  const parentSc = String(master.recordset?.[0]?.parentSc ?? '').trim()
+  assert.ok(parentSc, `测试主 BOM 缺少 systemcode：${productKcaa01}`)
+
+  const existing = await pool.request().input('parent', sql.NVarChar(500), parentSc).query(`
+    SELECT TOP 1 [id]
+    FROM dbo.[UB_ERP_Bom_parts]
+    WHERE LTRIM(RTRIM(ISNULL(CAST([kcac01] AS nvarchar(500)), N''))) = @parent
+  `)
+  if (existing.recordset?.[0]?.id) return
+
+  const childSc = `UT-PIBOM-${Date.now()}`
+  const inserted = await pool
+    .request()
+    .input('parent', sql.NVarChar(500), parentSc)
+    .input('childCode', sql.NVarChar(300), 'UT-PIBOM-CHILD')
+    .input('childSc', sql.NVarChar(500), childSc)
+    .query(`
+      INSERT INTO dbo.[UB_ERP_Bom_parts] (
+        [kcac01], [kcac02], [kcaa01], [kcac04], [kcac05], [kcac06], [Seq],
+        [GUID], [systemcode], [del], [pass], [Describe]
+      )
+      OUTPUT INSERTED.[id]
+      VALUES (
+        @parent, N'', @childCode, 1.5, 0, 1.5, 9201,
+        @childSc, @childSc, N'0', N'1', N'销售订单 PI BOM 维护集成测试种子'
+      )
+    `)
+  const id = Number(inserted.recordset?.[0]?.id ?? 0)
+  if (id) cleanupSeedPartIds.push(id)
+}
+
+async function cleanupSeedBomParts() {
+  if (!cleanupSeedPartIds.length) return
+  const { getPool, sql } = await import('./db.js')
+  const pool = await getPool()
+  for (const id of cleanupSeedPartIds) {
+    await pool.request().input('id', sql.Int, id).query(`
+      DELETE FROM dbo.[UB_ERP_Bom_parts] WHERE [id] = @id
+    `)
+  }
+  cleanupSeedPartIds.length = 0
+}
+
 describe('salesOrderPiBomMaintain integration', { skip: !hasE2e }, () => {
   before(async () => {
+    await ensureMasterDirectChild(PRODUCT_A)
     await startE2eServer()
     await loginToken()
   })
@@ -167,6 +223,11 @@ describe('salesOrderPiBomMaintain integration', { skip: !hasE2e }, () => {
       } catch {
         // ignore
       }
+    }
+    try {
+      await cleanupSeedBomParts()
+    } catch {
+      // ignore
     }
     await stopE2eServer()
   })

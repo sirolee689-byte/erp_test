@@ -4,7 +4,7 @@
 
 ## 1. 表结构
 
-### 1.1 `Sys_Roles`（角色）
+### 1.1 `UB_ERP_System_role`（角色）
 
 | 列名 | 类型 | 说明 |
 |------|------|------|
@@ -18,13 +18,13 @@
 
 **迁移**：执行 `scripts/migrations/sqlserver_v1.0.7_permissions_column.txt`（或 `docs/sql/erp_v1.0.7_permissions_column.txt`）增加 `Permissions` 列。
 
-### 1.2 `Sys_Users`（操作员）扩展
+### 1.2 `UB_ERP_User`（操作员）扩展
 
 | 列名 | 类型 | 说明 |
 |------|------|------|
-| `RoleID` | `INT NOT NULL` | 外键 → `Sys_Roles.RoleID` |
+| `RoleID` | `INT NOT NULL` | 外键 → `UB_ERP_System_role.RoleID` |
 
-约束名：`FK_Sys_Users_Sys_Roles_RoleID`。
+约束名：`FK_UB_ERP_User_UB_ERP_System_role_RoleID`。
 
 ## 2. 预设角色数据
 
@@ -38,13 +38,13 @@
 
 ## 3. 与应用的对应关系
 
-- **列表**：`GET /api/users` 通过 `LEFT JOIN Sys_Roles` 返回 `RoleName`（及 `RoleID`）。
+- **列表**：`GET /api/users` 通过 `LEFT JOIN dbo.[UB_ERP_System_role]` 返回 `RoleName`（及 `RoleID`）。
 - **操作员弹窗角色下拉**：`GET /api/roles?page=1&pageSize=500&status=1`，取分页结果中的 `list`（仅启用角色）。
 - **登录**：`POST /api/login` 在 `data.user` 中返回 `RoleID`、`RoleName`；前端写入 `localStorage` 的 `erp_user`，供路由守卫以外的**前端权限判断**使用（第二阶段可在此字段上扩展菜单显隐等）。
 
 ## 4. 角色管理模块（页面：`src/views/system/role/index.vue`）
 
-面向 `Sys_Roles` 的完整维护能力，与操作员页的交互范式一致（启用/回收站双视图、先禁用再删除）。
+面向 `UB_ERP_System_role` 的完整维护能力，与操作员页的交互范式一致（启用/回收站双视图、先禁用再删除）。
 
 | 接口 | 方法 | 说明 |
 |------|------|------|
@@ -52,7 +52,7 @@
 | `/api/roles` | POST | 新增：`RoleName`、可选 `Description`。 |
 | `/api/roles` | PUT | 禁用：`{ RoleID, Status: 0 }`；编辑：`{ RoleID, RoleName, Description }`。 |
 | `/api/roles/resume` | PUT | 恢复启用：`{ RoleID }`。 |
-| `/api/roles/:id` | DELETE | 物理删除（要求已禁用且无 `Sys_Users` 引用）。 |
+| `/api/roles/:id` | DELETE | 物理删除（要求已禁用且无 `UB_ERP_User` 引用）。 |
 | `/api/roles/permissions` | PUT | 仅更新 `Permissions`：`{ RoleID, Permissions: string[] \| JSON 字符串 }`。 |
 
 **前端权限**：
@@ -70,7 +70,7 @@
 
 ## 6. 扩展模块：人力资源 — 部门资料（v1.0.8+，旧表接管）
 
-部门维护接口已纳入 API 权限闸门，菜单 path 为 **`hr/files/department`**（操作：`view` / `add` / `edit` / `delete` / **`audit`**）。审核、反审走 `PUT /api/hr/departments/audit` 与 `PUT /api/hr/departments/unaudit`。**删除**为 `DELETE /api/hr/departments/:code`（路径参数为旧表主键 **`code`** 字符串）。数据来自环境变量 **`HR_LEGACY_DEPT_TABLE`**（默认 **`HR_Departments`**）指向的部门表，字段名与库内一致。详见 **`hr_department_design.md`**。
+部门维护接口已纳入 API 权限闸门，菜单 path 为 **`hr/files/department`**（操作：`view` / `add` / `edit` / `delete` / **`audit`**）。审核、反审走 `PUT /api/hr/departments/audit` 与 `PUT /api/hr/departments/unaudit`。**删除**为 `DELETE /api/hr/departments/:code`（路径参数为旧表主键 **`code`** 字符串）。数据来自环境变量 **`HR_LEGACY_DEPT_TABLE`**（默认 **`UB_ERP_Hr_department`**）指向的部门表，字段名与库内一致。详见 **`hr_department_design.md`**。
 
 ## 7. 扩展模块：人力资源 — 人事档案精简管理（v1.0.9）
 

@@ -165,7 +165,7 @@ describe('assistOrderBatchAdd', () => {
     assert.equal(kcaa01MatchesBomCodeAssistBatchPrefix('RP-001', 'BAG'), false)
   })
 
-  test('resolveBatchAddCodeColor uses Bom_code flag5 prefix only', () => {
+  test('resolveBatchAddCodeColor uses UB_ERP_Bom_code flag5 prefix only', () => {
     const prefixes = ['PQ', 'BAG', 'OUT']
     assert.equal(
       resolveBatchAddCodeColor({ kcaa01: 'RP-001', bomCodePrefixes: prefixes }),
@@ -311,7 +311,7 @@ describe('assistOrderBatchAdd', () => {
     assert.equal(calcAvailableQty(bomQty, 0, 0), 121)
   })
 
-  test('other assist batch add reads paged bom_000 rows and defaults prices to zero', async () => {
+  test('other assist batch add reads paged UB_ERP_Bom_000 rows and defaults prices to zero', async () => {
     const queries = []
     const pool = {
       request() {
@@ -364,7 +364,7 @@ describe('assistOrderBatchAdd', () => {
     assert.equal(result.assistType, '0')
     assert.equal(result.lx, '2')
     assert.equal(result.piNo, '')
-    assert.match(queries[0].sql, /FROM\s+dbo\.\[bom_000\]\s+AS\s+b/i)
+    assert.match(queries[0].sql, /FROM\s+dbo\.\[UB_ERP_Bom_000\]\s+AS\s+b/i)
     assert.match(queries[0].sql, /ROW_NUMBER\(\) OVER/i)
     assert.match(queries[0].sql, /BETWEEN\s+@startRow\s+AND\s+@endRow/i)
     assert.doesNotMatch(queries[0].sql, /UB_ERP_Buy_offer_list/i)
@@ -382,7 +382,7 @@ describe('assistOrderBatchAdd', () => {
     assert.equal(result.styles[0].materials[0].availableQty, 0)
   })
 
-  test('other assist batch add defaults to first 10 bom_000 rows', async () => {
+  test('other assist batch add defaults to first 10 UB_ERP_Bom_000 rows', async () => {
     const queries = []
     const pool = {
       request() {
@@ -413,7 +413,7 @@ describe('assistOrderBatchAdd', () => {
 
     assert.equal(result.ok, true)
     assert.equal(result.lx, '2')
-    assert.match(queries[0], /FROM\s+dbo\.\[bom_000\]\s+AS\s+b/i)
+    assert.match(queries[0], /FROM\s+dbo\.\[UB_ERP_Bom_000\]\s+AS\s+b/i)
     assert.doesNotMatch(queries[0], /UB_ERP_assist_offer/i)
     assert.equal(result.styles[0].unitPrice, 0)
     assert.equal(result.styles[0].unitPriceTax, 0)

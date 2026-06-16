@@ -1,6 +1,6 @@
 /**
  * BOM 用量运算 characterization（阶段 0 行为锁）
- * POST /api/bom/usage-calc → bom_cost 写入与响应结构
+ * POST /api/bom/usage-calc → UB_ERP_Bom_cost 写入与响应结构
  *
  * 需 .env：DB_*、E2E_USERCODE、E2E_PASSWORD
  * 可选：E2E_BOM_SYSTEMCODE 或 E2E_BOM_KCAA01（默认 BAG-PQ2803H1/R-TEST）
@@ -55,7 +55,7 @@ async function resolveTestSystemcode() {
 
   const { getPool, sql } = await import('./db.js')
   const pool = await getPool()
-  const masterTable = String(process.env.INV_BOM_MASTER_TABLE ?? 'bom_000').trim()
+  const masterTable = String(process.env.INV_BOM_MASTER_TABLE ?? 'UB_ERP_Bom_000').trim()
   const r = await pool
     .request()
     .input('kcaa01', sql.NVarChar(300), defaultKcaa01)
@@ -122,7 +122,7 @@ describe('BOM usage-calc API characterization', { skip: !hasE2eDb }, () => {
     assert.equal(json.success, false)
   })
 
-  test('成功运算：响应结构与 bom_cost 行 isok=1', async () => {
+  test('成功运算：响应结构与 UB_ERP_Bom_cost 行 isok=1', async () => {
     const { res, json } = await postUsageCalc(testSystemcode)
     assert.equal(res.status, 200, json.msg ?? res.status)
     assert.equal(json.success, true)
@@ -139,7 +139,7 @@ describe('BOM usage-calc API characterization', { skip: !hasE2eDb }, () => {
     }
   })
 
-  test('连续两次运算：bom_cost 指纹一致（幂等覆盖）', async () => {
+  test('连续两次运算：UB_ERP_Bom_cost 指纹一致（幂等覆盖）', async () => {
     const first = await postUsageCalc(testSystemcode)
     assert.equal(first.res.status, 200, first.json.msg ?? first.res.status)
     const fp1 = bomCostFingerprint(first.json.bomCost)
@@ -148,7 +148,7 @@ describe('BOM usage-calc API characterization', { skip: !hasE2eDb }, () => {
     assert.equal(second.res.status, 200, second.json.msg ?? second.res.status)
     const fp2 = bomCostFingerprint(second.json.bomCost)
 
-    assert.equal(fp1, fp2, '两次运算 bom_cost 内容指纹应一致')
+    assert.equal(fp1, fp2, '两次运算 UB_ERP_Bom_cost 内容指纹应一致')
     assert.equal(first.json.total, second.json.total)
   })
 })

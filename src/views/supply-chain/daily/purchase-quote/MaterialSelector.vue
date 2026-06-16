@@ -148,12 +148,12 @@ const tableMaxHeight = computed(() =>
 
 /** 单一关键词：后端 OR 匹配 kcaa01 / kcaa02 */
 const keywordKw = ref('')
-/** 与 BOM 主列表一致：Bom_code 分类 + 裁片过滤 */
+/** 与 BOM 主列表一致：UB_ERP_Bom_code 分类 + 裁片过滤 */
 const searchQuery = reactive({
   bom_code_id: '',
   bom_cut: 0,
 })
-/** Bom_code 分类下拉（按 id 升序） */
+/** UB_ERP_Bom_code 分类下拉（按 id 升序） */
 const bomCodeCategoryOptions = ref([])
 const loading = ref(false)
 const rows = ref([])

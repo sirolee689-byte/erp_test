@@ -122,7 +122,7 @@ async function main() {
     await page.screenshot({ path: outAfter, fullPage: true })
     console.log('已截图（离职后）：', outAfter)
 
-    // SQL 证明截图：查询 Hr_staff 与 Sys_Users
+    // SQL 证明截图：查询 UB_ERP_Hr_staff 与 UB_ERP_User
     const cfg = {
       server: process.env.DB_SERVER,
       database: process.env.DB_DATABASE,
@@ -139,16 +139,16 @@ async function main() {
       const req = new sql.Request()
       req.input('c', sql.NVarChar(50), leaveStaffCode)
       const staff = await req.query(
-        "SELECT TOP(1) id,code,UserCode,name,status,leave_date,leave_reason,is_blacklist,blacklist_reason,pass,del FROM dbo.Hr_staff WHERE code=@c OR UserCode=@c ORDER BY id DESC",
+        "SELECT TOP(1) id,code,UserCode,name,status,leave_date,leave_reason,is_blacklist,blacklist_reason,pass,del FROM dbo.[UB_ERP_Hr_staff] WHERE code=@c OR UserCode=@c ORDER BY id DESC",
       )
       let user = { recordset: [] }
       try {
         user = await req.query(
-          'SELECT TOP (3) * FROM dbo.Sys_Users WHERE UserCode = @c OR UserName = @c ORDER BY UserID DESC',
+          'SELECT TOP (3) * FROM dbo.UB_ERP_User WHERE UserCode = @c OR UserName = @c ORDER BY UserID DESC',
         )
       } catch {
         user = await req.query(
-          'SELECT TOP (3) * FROM dbo.Sys_Users WHERE usercode = @c OR username = @c ORDER BY uid DESC',
+          'SELECT TOP (3) * FROM dbo.UB_ERP_User WHERE usercode = @c OR username = @c ORDER BY uid DESC',
         )
       }
       const html = `
@@ -158,8 +158,8 @@ async function main() {
           pre{white-space:pre-wrap;word-break:break-word;border:1px solid #ddd;padding:12px;border-radius:8px;}
         </style></head><body>
           <h2>SQL 验证结果（工号=${leaveStaffCode}）</h2>
-          <pre>Hr_staff: ${JSON.stringify(staff.recordset?.[0] ?? null, null, 2)}</pre>
-          <pre>Sys_Users: ${JSON.stringify(user.recordset?.[0] ?? null, null, 2)}</pre>
+          <pre>UB_ERP_Hr_staff: ${JSON.stringify(staff.recordset?.[0] ?? null, null, 2)}</pre>
+          <pre>UB_ERP_User: ${JSON.stringify(user.recordset?.[0] ?? null, null, 2)}</pre>
         </body></html>
       `
       const proofPage = await browser.newPage()

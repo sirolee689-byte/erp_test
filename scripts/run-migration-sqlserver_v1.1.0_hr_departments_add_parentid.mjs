@@ -1,5 +1,5 @@
 /**
- * v1.1.0：为 HR_Departments 补齐 ParentID（与 dev:server 共用根目录 .env）
+ * v1.1.0：为 UB_ERP_Hr_department 补齐 ParentID（与 dev:server 共用根目录 .env）
  * 用法：在项目根目录执行 node scripts/run-migration-sqlserver_v1.1.0_hr_departments_add_parentid.mjs
  */
 import dotenv from 'dotenv'

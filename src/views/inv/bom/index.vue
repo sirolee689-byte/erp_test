@@ -1,7 +1,7 @@
 <template>
   <div class="erp-module-page" :class="{ 'bom-standalone-window': isBomStandaloneWindow }">
     <!--
-      v1.1.8：BOM 主档列表（bom_000），严格服务端分页；合并关键词搜索（kcaa01/kcaa02 全模糊 OR）。
+      v1.1.8：BOM 主档列表（UB_ERP_Bom_000），严格服务端分页；合并关键词搜索（kcaa01/kcaa02 全模糊 OR）。
       性能约定：关键词仅在后端「满 3 字」时生效（参数化 LIKE），降低大表扫描风险。
     -->
     <el-card v-if="!isBomStandaloneWindow" shadow="never">
@@ -575,7 +575,7 @@
                         </ErpTableActions>
                       </template>
                     </el-table-column>
-                    <!-- 编码/名称/规格/颜色：GET 已按 bom_000.kcaa01 关联优先取主档 -->
+                    <!-- 编码/名称/规格/颜色：GET 已按 UB_ERP_Bom_000.kcaa01 关联优先取主档 -->
                     <el-table-column
                       prop="kcaa01"
                       label="编码"
@@ -745,8 +745,8 @@
                     v-else-if="!bomUsageTreeLoading && !bomUsageTreeError"
                     :description="
                       bomUsageHasCache
-                        ? '当前为缓存模式：未加载 Bom_parts 树形表；需要树形请点「重新运算」'
-                        : '已加载 DFS 树形（无 bom_cost 缓存）；点「运算」写入库后可改为缓存直读'
+                        ? '当前为缓存模式：未加载 UB_ERP_Bom_parts 树形表；需要树形请点「重新运算」'
+                        : '已加载 DFS 树形（无 UB_ERP_Bom_cost 缓存）；点「运算」写入库后可改为缓存直读'
                     "
                     :image-size="72"
                   />
@@ -764,7 +764,7 @@
                     </p>
                   </template>
                   <span v-else class="bom-usage-calc-toolbar__hint bom-cost-usage-toolbar__hint">
-                    请切换到「BOM用量表运算」或本 Tab，将自动从服务器加载（有缓存则直读 bom_cost，无缓存则 DFS 预览）
+                    请切换到「BOM用量表运算」或本 Tab，将自动从服务器加载（有缓存则直读 UB_ERP_Bom_cost，无缓存则 DFS 预览）
                   </span>
                 </div>
                 <div v-loading="bomUsageTreeLoading" class="bom-cost-usage-wrap">
@@ -919,7 +919,7 @@
       @closed="removeLinkedDetailLayer(layer.id)"
     />
 
-    <!-- BOM 主档新增/编辑（bom_000） -->
+    <!-- BOM 主档新增/编辑（UB_ERP_Bom_000） -->
     <el-dialog
       v-model="editVisible"
       :title="editDialogTitle"
@@ -1522,11 +1522,11 @@ const pageSize = ref(10)
 const keyword = ref('')
 /** 裁片过滤：0 排除 CUT- 开头料号；1 仅查询 CUT- 开头裁片主档（后端强制前缀） */
 const searchQuery = reactive({
-  /** Bom_code.id；空=全部分类 */
+  /** UB_ERP_Bom_code.id；空=全部分类 */
   bom_code_id: '',
   bom_cut: 0,
 })
-/** 列表「BOM分类」筛选项（Bom_code，按 id 升序） */
+/** 列表「BOM分类」筛选项（UB_ERP_Bom_code，按 id 升序） */
 const bomCodeCategoryOptions = ref([])
 const showUnAudited = ref(false)
 /** 回收站视图（与「显示未审核」互斥） */
@@ -1625,9 +1625,9 @@ const bomUsageTableRef = ref(null)
 const bomCostUsageTableRef = ref(null)
 /** 成本 BOM 用量表展示行（本地：前缀筛选 + 按编码+备注合并） */
 const bomCostUsageFlatRows = ref([])
-/** 成本平铺源行：bom_cost 映射或 DFS flatCostUsageRaw（与写库同源算法，供合并用） */
+/** 成本平铺源行：UB_ERP_Bom_cost 映射或 DFS flatCostUsageRaw（与写库同源算法，供合并用） */
 const bomCostUsageRawRows = ref([])
-/** GET/POST：当前 pq+sid 是否已有 bom_cost 缓存（仅控制按钮与提示，不区分展示算法） */
+/** GET/POST：当前 pq+sid 是否已有 UB_ERP_Bom_cost 缓存（仅控制按钮与提示，不区分展示算法） */
 const bomUsageHasCache = ref(false)
 /** 避免同单重复 GET /api/bom/tree */
 const lastBomUsageFetchSystemcode = ref('')
@@ -2177,7 +2177,7 @@ function applyBomUsageCalcResult(body, systemcode) {
   lastBomUsageFetchSystemcode.value = String(systemcode ?? '').trim()
   bomUsageHasCache.value = true
   bomUsageTreeError.value = ''
-  // 展示与 bom_cost 落库同源：优先用刚写入的 bomCost，避免 flatCostUsageRaw 展示算法与写库不一致
+  // 展示与 UB_ERP_Bom_cost 落库同源：优先用刚写入的 bomCost，避免 flatCostUsageRaw 展示算法与写库不一致
   const bomCostRows = Array.isArray(body?.bomCost) ? body.bomCost : []
   bomCostUsageRawRows.value =
     bomCostRows.length > 0 ? mapBomCostApiRowsToCostUsageRawRows(bomCostRows) : []
@@ -2206,7 +2206,7 @@ async function onBomUsageTableCalc(opts = {}) {
     return
   }
   if (recalc && !bomUsageHasCache.value) {
-    ElMessage.warning('当前无 bom_cost 缓存，请先点击「运算」写入')
+    ElMessage.warning('当前无 UB_ERP_Bom_cost 缓存，请先点击「运算」写入')
     return
   }
   if (!recalc && bomUsageHasCache.value) {
@@ -2219,7 +2219,7 @@ async function onBomUsageTableCalc(opts = {}) {
     const hidePrefixes = normalizeBomCostHidePrefixes(BOM_COST_BUILTIN_HIDE_PREFIXES)
     const body = await postBomUsageCalcApi(bomSystemcode.value, hidePrefixes)
     if (!body?.success) {
-      const msg = String(body?.msg ?? 'bom_cost写入失败')
+      const msg = String(body?.msg ?? 'UB_ERP_Bom_cost写入失败')
       bomUsageTreeError.value = msg
       clearBomUsageCalcResultOnError()
       ElMessage.error(msg)
@@ -2228,7 +2228,7 @@ async function onBomUsageTableCalc(opts = {}) {
     applyBomUsageCalcResult(body, bomSystemcode.value)
     const total = Number(body.total ?? 0)
     ElMessage.success(
-      `${recalc ? '重新运算' : '运算'}完成；bom_cost ${Number.isFinite(total) ? total : 0} 条`,
+      `${recalc ? '重新运算' : '运算'}完成；UB_ERP_Bom_cost ${Number.isFinite(total) ? total : 0} 条`,
     )
     detailActiveTab.value = 'costBomUsage'
   } catch (e) {
@@ -2397,7 +2397,7 @@ const editPartsSumCost = computed(() => {
   return s
 })
 
-/** bom_currency.cn_name 列表（下拉）；编辑时合并当前 kcaa34/kcaa35 防旧值不在表内无法展示 */
+/** UB_ERP_System_currency.cn_name 列表（下拉）；编辑时合并当前 kcaa34/kcaa35 防旧值不在表内无法展示 */
 const bomCurrencyNames = ref([])
 
 const currencyDropdownOptions = computed(() => {
@@ -2952,7 +2952,7 @@ function partsRowIndex(i) {
   return i + 1
 }
 
-/** 编辑配件行 Bom_parts.[Seq]（正整数） */
+/** 编辑配件行 UB_ERP_Bom_parts.[Seq]（正整数） */
 function partSeqForSave(row) {
   const n = Number(row?.seq)
   if (Number.isFinite(n) && n > 0) return Math.floor(n)
@@ -3217,7 +3217,7 @@ async function loadBomParts(opts = {}) {
   const force = !!opts?.force
   const sc = bomSystemcode.value
   if (!sc) {
-    partsError.value = '主档缺少 systemcode，无法加载配件明细（请确认库内 bom_000.systemcode）。'
+    partsError.value = '主档缺少 systemcode，无法加载配件明细（请确认库内 UB_ERP_Bom_000.systemcode）。'
     partsList.value = []
     lastPartsLoadedSystemcode.value = ''
     return
@@ -3533,7 +3533,7 @@ async function loadBomUsageTreeOrCache(force = false) {
     bomUsageTreeError.value = ''
     if (body.hasCache) {
       bomUsageHasCache.value = true
-      bomCostUsageRawRows.value = mapBomCostApiRowsToCostUsageRawRows(body.bom_cost)
+      bomCostUsageRawRows.value = mapBomCostApiRowsToCostUsageRawRows(body.UB_ERP_Bom_cost)
       bomUsageTreeData.value = []
     } else {
       bomUsageHasCache.value = false
@@ -3709,7 +3709,7 @@ function withRowKey(list) {
   }))
 }
 
-/** 加载 Bom_code 分类下拉（BOM 分类表，按 id 升序） */
+/** 加载 UB_ERP_Bom_code 分类下拉（BOM 分类表，按 id 升序） */
 async function loadBomCodeCategoryOptions() {
   try {
     const res = await axios.get('/api/inv/bom/bom-code-categories')
@@ -3906,7 +3906,7 @@ function openLinkedBomDetailFromPart(partRow) {
   openBomStandaloneWindow('detail', { code })
 }
 
-/** 主档基础资料变更后：全库同步 Bom_parts / bom_cost 引用行的描述字段（不改用量、不重算） */
+/** 主档基础资料变更后：全库同步 UB_ERP_Bom_parts / UB_ERP_Bom_cost 引用行的描述字段（不改用量、不重算） */
 async function onPropagateMaster(row) {
   const sc = String(row?.systemcode ?? '').trim()
   const code = String(row?.code ?? row?.kcaa01 ?? '').trim()
@@ -3973,8 +3973,8 @@ async function onOneClickUsageCalc(row) {
   try {
     await ElMessageBox.confirm(
       isRecalc
-        ? `【物料编码 ${code}】已有运算结果，将删除旧 bom_cost 数据后重新运算并覆盖。是否继续？`
-        : `将对【物料编码 ${code}】按配件明细递归运算并写入 bom_cost（隐藏前缀与当前页配置一致）。是否继续？`,
+        ? `【物料编码 ${code}】已有运算结果，将删除旧 UB_ERP_Bom_cost 数据后重新运算并覆盖。是否继续？`
+        : `将对【物料编码 ${code}】按配件明细递归运算并写入 UB_ERP_Bom_cost（隐藏前缀与当前页配置一致）。是否继续？`,
       isRecalc ? '确认重新运算' : '确认运算',
       {
         type: 'warning',
@@ -3992,7 +3992,7 @@ async function onOneClickUsageCalc(row) {
     const hidePrefixes = normalizeBomCostHidePrefixes(BOM_COST_BUILTIN_HIDE_PREFIXES)
     const body = await postBomUsageCalcApi(sc, hidePrefixes)
     if (!body?.success) {
-      const msg = String(body?.msg ?? 'bom_cost写入失败')
+      const msg = String(body?.msg ?? 'UB_ERP_Bom_cost写入失败')
       ElMessage.error(msg)
       return
     }
@@ -4004,7 +4004,7 @@ async function onOneClickUsageCalc(row) {
     applyBomUsageCalcResult(body, sc)
     detailActiveTab.value = 'costBomUsage'
     const total = Number(body.total ?? 0)
-    ElMessage.success(`运算完成；bom_cost ${Number.isFinite(total) ? total : 0} 条`)
+    ElMessage.success(`运算完成；UB_ERP_Bom_cost ${Number.isFinite(total) ? total : 0} 条`)
     await loadData()
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '运算失败'))
@@ -4028,7 +4028,7 @@ async function doBatchUsageCalcCurrentPage() {
   }
   try {
     await ElMessageBox.confirm(
-      `确定批量运算当前页 ${n} 条未运算 BOM 吗？已运算的数据会跳过，不会覆盖旧 bom_cost。`,
+      `确定批量运算当前页 ${n} 条未运算 BOM 吗？已运算的数据会跳过，不会覆盖旧 UB_ERP_Bom_cost。`,
       '确认批量运算',
       {
         type: 'warning',

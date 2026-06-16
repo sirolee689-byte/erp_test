@@ -8,8 +8,8 @@ import { FILE_ID_RE, resolveUploadedPaperPatternFile } from './paperPatternImpor
 import { parsePaperPatternImportTreeFromBuffer } from './paperPatternImportParse.js'
 
 const INV_BOM_CODE_FROM = (() => {
-  const raw = String(process.env.INV_BOM_CODE_TABLE ?? 'Bom_code').trim()
-  return /^[A-Za-z0-9_]+$/.test(raw) ? `dbo.[${raw}]` : 'dbo.[Bom_code]'
+  const raw = String(process.env.INV_BOM_CODE_TABLE ?? 'UB_ERP_Bom_code').trim()
+  return /^[A-Za-z0-9_]+$/.test(raw) ? `dbo.[${raw}]` : 'dbo.[UB_ERP_Bom_code]'
 })()
 
 /**

@@ -1,5 +1,5 @@
 /**
- * 纸格导入：正式写入 Bom_000（主 BOM + 各 CUT）与 Bom_parts，单事务
+ * 纸格导入：正式写入 UB_ERP_Bom_000（主 BOM + 各 CUT）与 UB_ERP_Bom_parts，单事务
  */
 import crypto from 'node:crypto'
 import path from 'node:path'
@@ -83,7 +83,7 @@ export function normalizeFactoryStyleForBomPathDisplay(s) {
 }
 
 /**
- * 按 Bom_code.flag5 取 flag1（导入类型中文名，写入主 BOM kcaa02）
+ * 按 UB_ERP_Bom_code.flag5 取 flag1（导入类型中文名，写入主 BOM kcaa02）
  * @param {import('mssql').ConnectionPool} pool
  * @param {string} flag5
  */
@@ -115,7 +115,7 @@ async function getInvBomMasterColumnSetForCommit(pool) {
 }
 
 /**
- * 生成 Bom_000 三连键用 systemcode（与 GUID、dr_systemcode 同值）。
+ * 生成 UB_ERP_Bom_000 三连键用 systemcode（与 GUID、dr_systemcode 同值）。
  * 不再对每条 CUT 查库验重：MD5+时间+随机+序号碰撞概率可忽略，且避免 CUT 多时触发 requestTimeout。
  * @param {string|number|null|undefined} actorUidPart
  * @param {number} seq 本次导入内递增序号（主 BOM=1，CUT 自 2 起）
@@ -129,7 +129,7 @@ function allocatePaperPatternBomSystemcode(actorUidPart, seq) {
 /** 在册：del 为空或 0 */
 const ACTIVE_DEL_WHERE = `(ISNULL(b.del, N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.del), N''))) = N'0')`
 
-/** 纸格导入 Bom_000：CUT 等子档 pass 默认已审核 */
+/** 纸格导入 UB_ERP_Bom_000：CUT 等子档 pass 默认已审核 */
 export const PAPER_PATTERN_BOM000_PASS_DEFAULT = '1'
 /** 纸格导入主 BOM：未审核 */
 export const PAPER_PATTERN_BOM000_PASS_MAIN = '0'
@@ -169,7 +169,7 @@ export function resolvePaperPatternMainBomBasicForColor(basics, colorNo, fallbac
 }
 
 /**
- * Bom_000 审计列：列存在则写入（uid 无有效登录时为 NULL；uname/utruename 允许空串）
+ * UB_ERP_Bom_000 审计列：列存在则写入（uid 无有效登录时为 NULL；uname/utruename 允许空串）
  * @param {Set<string>} colset
  * @param {import('mssql').Request} ins
  * @param {string[]} cols
@@ -318,7 +318,7 @@ async function insertBom000PaperPatternRow(tx, colset, row) {
     cols.push('[version]')
     vals.push('@bom_version_ins')
   }
-  // 纸格导入：Bom_000.[type] 显式写入 NULL，不使用默认 1
+  // 纸格导入：UB_ERP_Bom_000.[type] 显式写入 NULL，不使用默认 1
   if (colset.has('type')) {
     ins.input('bom_type_ins', sql.Int, null)
     cols.push('[type]')
@@ -419,7 +419,7 @@ async function insertBom000PaperPatternRow(tx, colset, row) {
   })
 
   if (!cols.length) {
-    throw new Error('bom_000 无可用插入列')
+    throw new Error('UB_ERP_Bom_000 无可用插入列')
   }
 
   const qr = await ins.query(`
@@ -427,7 +427,7 @@ async function insertBom000PaperPatternRow(tx, colset, row) {
     VALUES (${vals.join(', ')})
   `)
   if ((qr.rowsAffected?.[0] ?? 0) <= 0) {
-    throw new Error('INSERT bom_000 未写入行')
+    throw new Error('INSERT UB_ERP_Bom_000 未写入行')
   }
 }
 
@@ -464,7 +464,7 @@ export function resolveCutsResolvedForColor(cutsIn, ctx) {
 /**
  * POST /api/paper-pattern/import/commit-bom000
  * body: { fileId, truefilename?, importTypeFlag5, colorNos[]|colorNo, factoryStyleNo, cuts[], materials[]（含 codesByColor）, accessories?, overwrite? }
- * 多色：单事务依次写入各主 BOM / CUT / Bom_parts（Material 子件按列全码；Accessory 按 colorNo 写入对应主 BOM）。
+ * 多色：单事务依次写入各主 BOM / CUT / UB_ERP_Bom_parts（Material 子件按列全码；Accessory 按 colorNo 写入对应主 BOM）。
  */
 export async function handlePostPaperPatternImportCommitBom000(req, res) {
   try {
@@ -565,7 +565,7 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
     if (!importTypeFlag1) {
       res.status(400).json({
         success: false,
-        message: '无法读取导入类型名称（Bom_code.flag1），请检查导入类型是否有效',
+        message: '无法读取导入类型名称（UB_ERP_Bom_code.flag1），请检查导入类型是否有效',
       })
       return
     }
@@ -596,7 +596,7 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
       const failedNonEmpty = matCheck.failed.filter((x) => String(x ?? '').trim())
       const msg =
         failedNonEmpty.length > 0
-          ? `以下 ERP 编码在 Bom_000 中不存在：${failedNonEmpty.join('、')}`
+          ? `以下 ERP 编码在 UB_ERP_Bom_000 中不存在：${failedNonEmpty.join('、')}`
           : '存在无效的物料或 Accessory 编码'
       res.status(400).json({
         success: false,
@@ -613,7 +613,7 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
     if (miss.length) {
       res.status(500).json({
         success: false,
-        message: `bom_000 缺少必需列：${miss.join(', ')}，无法写入`,
+        message: `UB_ERP_Bom_000 缺少必需列：${miss.join(', ')}，无法写入`,
       })
       return
     }
@@ -664,7 +664,7 @@ export async function handlePostPaperPatternImportCommitBom000(req, res) {
         res.status(400).json({
           success: false,
           code: 'MAIN_BOM_EXISTS',
-          message: `主 BOM 已存在：${existingMains.join('、')}。如需覆盖请先确认（将删除各主 BOM、相关 CUT 及 Bom_parts 后重新导入）。`,
+          message: `主 BOM 已存在：${existingMains.join('、')}。如需覆盖请先确认（将删除各主 BOM、相关 CUT 及 UB_ERP_Bom_parts 后重新导入）。`,
           data: { mainBomCodes: existingMains, mainBomCode: existingMains[0] },
         })
         return

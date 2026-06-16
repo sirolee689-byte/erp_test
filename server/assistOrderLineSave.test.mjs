@@ -130,7 +130,7 @@ describe('rewriteAssistOrderLines', () => {
     assert.equal(recorder.calls[1].inputs.Customer_Name, 'PI-SUP-001')
   })
 
-  test('throws when bom_000 GUID is missing', async () => {
+  test('throws when UB_ERP_Bom_000 GUID is missing', async () => {
     const recorder = createRequestRecorder()
 
     await assert.rejects(

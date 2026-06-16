@@ -29,16 +29,16 @@ export function getRequestIp(req) {
 }
 
 const HR_STAFF_TABLE = (() => {
-  const t = String(process.env.HR_STAFF_TABLE ?? 'Hr_staff').trim()
-  if (!/^[A-Za-z0-9_]+$/.test(t)) return 'Hr_staff'
+  const t = String(process.env.HR_STAFF_TABLE ?? 'UB_ERP_Hr_staff').trim()
+  if (!/^[A-Za-z0-9_]+$/.test(t)) return 'UB_ERP_Hr_staff'
   return t
 })()
 const HR_STAFF_FROM = `dbo.[${HR_STAFF_TABLE}]`
 
 /** 与 server/index.js 一致：部门/岗位旧表 */
 const HR_LEGACY_DEPT_TABLE = (() => {
-  const t = String(process.env.HR_LEGACY_DEPT_TABLE ?? 'HR_Departments').trim()
-  if (!/^[A-Za-z0-9_]+$/.test(t)) return 'HR_Departments'
+  const t = String(process.env.HR_LEGACY_DEPT_TABLE ?? 'UB_ERP_Hr_department').trim()
+  if (!/^[A-Za-z0-9_]+$/.test(t)) return 'UB_ERP_Hr_department'
   return t
 })()
 const HR_LEGACY_DEPT_FROM = `dbo.[${HR_LEGACY_DEPT_TABLE}]`
@@ -49,10 +49,10 @@ const BOM_UNIT_FROM = 'dbo.[UB_ERP_Stocks_unit]'
 const BOM_UNIT_CHANGE_FROM = 'dbo.[UB_ERP_Stocks_unit_change]'
 const BOM_MATERIAL_FROM = 'dbo.[UB_ERP_Stocks_material]'
 const BOM_STOCKS_WORKSHOP_FROM = 'dbo.[UB_ERP_Stocks_workshop]'
-const SYS_ROLES_FROM = 'dbo.[Sys_Roles]'
+const SYS_ROLES_FROM = 'dbo.[UB_ERP_System_role]'
 const SYS_SUPPLIER_FROM = 'dbo.[System_supplier]'
-const SYS_SETTLEMENT_METHOD_FROM = 'dbo.[System_settlement_method]'
-const SYS_SALES_CUSTOMER_FROM = 'dbo.[System_sales_customer]'
+const SYS_SETTLEMENT_METHOD_FROM = 'dbo.[UB_ERP_System_settlement_method]'
+const SYS_SALES_CUSTOMER_FROM = 'dbo.[UB_ERP_System_sales_customer]'
 
 const SENSITIVE_KEY_HINTS = ['password', 'token', 'authorization', 'secret', 'credential']
 

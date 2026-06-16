@@ -1,5 +1,5 @@
 /**
- * 纸格正式导入成功：登记 System_uplod_file（仅 commit-bom000 成功路径）
+ * 纸格正式导入成功：登记 UB_ERP_System_uplod_file（仅 commit-bom000 成功路径）
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -7,8 +7,8 @@ import sql from 'mssql'
 import { getPaperPatternUploadDir } from './paperPatternFilePaths.js'
 
 export const SYSTEM_UPLOAD_FILE_TABLE =
-  String(process.env.SYSTEM_UPLOAD_FILE_TABLE ?? 'System_uplod_file').trim() ||
-  'System_uplod_file'
+  String(process.env.SYSTEM_UPLOAD_FILE_TABLE ?? 'UB_ERP_System_uplod_file').trim() ||
+  'UB_ERP_System_uplod_file'
 
 /** 与旧系统 filepath 约定一致 */
 export const PAPER_PATTERN_UPLOAD_FILEPATH_PREFIX = '\\ub_bom\\upload\\'

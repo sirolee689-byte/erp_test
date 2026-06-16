@@ -27,7 +27,7 @@ export function formatFractionAsPercentText(fraction) {
 }
 
 /**
- * 小数（与 Bom_000.kcaa33 一致）→ 纯小数点展示，不带 %（如 0.06 表示 6%）
+ * 小数（与 UB_ERP_Bom_000.kcaa33 一致）→ 纯小数点展示，不带 %（如 0.06 表示 6%）
  * @param {number | null | undefined} fraction
  * @returns {string}
  */

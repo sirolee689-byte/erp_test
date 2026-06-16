@@ -330,7 +330,7 @@ describe('assistOrderHandlers', () => {
     assert.equal(res.body.code, 400)
     assert.match(res.body.msg, /已审核|已结案/)
   })
-  test('GET /api/assist-order/material-options reads audited active bom_000 rows for other assist orders', async () => {
+  test('GET /api/assist-order/material-options reads audited active UB_ERP_Bom_000 rows for other assist orders', async () => {
     const routes = {}
     const app = {
       get(path, handler) {
@@ -351,7 +351,7 @@ describe('assistOrderHandlers', () => {
             return {
               recordset: [
                 {
-                  source: 'bom_000',
+                  source: 'UB_ERP_Bom_000',
                   piNo: '',
                   product: '',
                   orderQty: null,
@@ -381,12 +381,12 @@ describe('assistOrderHandlers', () => {
     assert.equal(res.body.code, 200)
     assert.equal(res.body.data.list[0].kcaa01, 'MAT-001')
     assert.equal(res.body.data.list[0].isSelectable, true)
-    assert.match(capturedSql, /FROM\s+dbo\.\[bom_000\]\s+AS\s+src/i)
+    assert.match(capturedSql, /FROM\s+dbo\.\[UB_ERP_Bom_000\]\s+AS\s+src/i)
     assert.match(capturedSql, /src\.\[pass\]/i)
     assert.match(capturedSql, /src\.\[del\]/i)
   })
 
-  test('GET /api/assist-order/fee-options reads audited active bom_000 fee rows', async () => {
+  test('GET /api/assist-order/fee-options reads audited active UB_ERP_Bom_000 fee rows', async () => {
     const routes = {}
     const app = {
       get(path, handler) {
@@ -496,7 +496,7 @@ describe('assistOrderHandlers', () => {
                 ],
               }
             }
-            if (/FROM\s+Sys_Users\s+AS\s+u/i.test(sqlText)) {
+            if (/FROM\s+dbo\.\[UB_ERP_User\]\s+AS\s+u/i.test(sqlText)) {
               return { recordset: [{ userId: 42, userName: 'u01', truename: 'operator01' }] }
             }
             return { recordset: [] }

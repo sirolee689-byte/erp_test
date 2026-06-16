@@ -18,7 +18,7 @@ import {
 } from './paperPatternImportCommitBomParts.js'
 import { erpCodeLookupKey } from './paperPatternErpCodeNormalize.js'
 
-test('纸格 Bom_parts 常量', () => {
+test('纸格 UB_ERP_Bom_parts 常量', () => {
   assert.equal(PAPER_PATTERN_CUT_BOM_PARTS_REMARK, '纸格系统导入')
   assert.equal(PAPER_PATTERN_BOM_PARTS_VERSION, 100)
   assert.equal(PAPER_PATTERN_BOM_PARTS_PASS_DEFAULT, '1')

@@ -1,5 +1,5 @@
 /**
- * 纸格导入：按主 BOM 的 kcaa01 物理清理 Bom_000 + Bom_parts（含各 CUT 子档下明细）
+ * 纸格导入：按主 BOM 的 kcaa01 物理清理 UB_ERP_Bom_000 + UB_ERP_Bom_parts（含各 CUT 子档下明细）
  * 规则与 buildMainBomCode / buildCutCode 一致：CUT 的 kcaa01 形如 CUT-{类型}{厂款号}/颜色<序号>
  */
 import sql from 'mssql'
@@ -116,7 +116,7 @@ export function normalizeMainKcaa01ListForDelete(raw) {
 }
 
 /**
- * 单事务内：按主 BOM kcaa01 物理删除 Bom_parts + Bom_000（主档 + 纸格 CUT 及下属明细）
+ * 单事务内：按主 BOM kcaa01 物理删除 UB_ERP_Bom_parts + UB_ERP_Bom_000（主档 + 纸格 CUT 及下属明细）
  * @param {import('mssql').Transaction} tx
  * @param {string} mainKcaa01Raw 须与 buildMainBomCode 结果一致（如 BAG-PQ2803H1/R-TEST）
  * @returns {Promise<{ mainKcaa01: string, cutKcaa01Like: string, bomPartsDeleted: number, bom000Deleted: number }>}
@@ -193,7 +193,7 @@ export async function deletePaperPatternBomTreesByMainKcaa01ListInTx(tx, mainKca
 }
 
 /**
- * 由 bom_000.systemcode（或 Bom_parts.kcac01）解析出待删的「单色」主 BOM kcaa01
+ * 由 UB_ERP_Bom_000.systemcode（或 UB_ERP_Bom_parts.kcac01）解析出待删的「单色」主 BOM kcaa01
  * @param {import('mssql').ConnectionPool | import('mssql').Transaction} db
  * @param {string} systemcodeRaw
  */
@@ -239,7 +239,7 @@ export async function handlePostPaperPatternImportDeleteBomTree(req, res) {
         res.status(400).json({
           success: false,
           message:
-            '未找到对应 Bom_000 主档，或 kcaa01 无法解析为主 BOM（请确认 systemcode / Bom_parts.kcac01 有效）',
+            '未找到对应 UB_ERP_Bom_000 主档，或 kcaa01 无法解析为主 BOM（请确认 systemcode / UB_ERP_Bom_parts.kcac01 有效）',
         })
         return
       }
@@ -287,7 +287,7 @@ export async function handlePostPaperPatternImportDeleteBomTree(req, res) {
         message:
           deletePlan.kind === 'list'
             ? `已按 ${stats.mainKcaa01s.length} 个主 BOM 物理删除（不含其它颜色）`
-            : '已按主 BOM 物理删除关联的 Bom_parts 与 Bom_000 行（仅该颜色）',
+            : '已按主 BOM 物理删除关联的 UB_ERP_Bom_parts 与 UB_ERP_Bom_000 行（仅该颜色）',
         data: stats,
       })
     } catch (e) {

@@ -2,7 +2,7 @@
 
 ## 物理表
 
-- 表：`System_sales_customer`
+- 表：`UB_ERP_System_sales_customer`
 - 主键：`id`
 - 状态位：`pass`（审核）、`del`（逻辑删除）
 
@@ -35,7 +35,7 @@
 - `s_lxr`
 - `s_tel`
 - `s_mobile`
-- `s_payfor`（下拉选择：关联 `System_settlement_method.name`；默认 COD；可不填）
+- `s_payfor`（下拉选择：关联 `UB_ERP_System_settlement_method.name`；默认 COD；可不填）
 - `lxr`
 - `s_info`
 - `s_business`

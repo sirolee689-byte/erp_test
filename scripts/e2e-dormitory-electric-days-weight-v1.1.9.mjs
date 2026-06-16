@@ -55,7 +55,7 @@ async function main() {
     SELECT TOP (1)
       LTRIM(RTRIM(ISNULL(i.room_code, N''))) AS room_code,
       LTRIM(RTRIM(ISNULL(i.staff_code, N''))) AS staff_code
-    FROM dbo.Hr_room_in AS i
+    FROM dbo.[UB_ERP_Hr_room_in] AS i
     CROSS APPLY (
       SELECT LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(i.in_time, N'')))) AS in_raw
     ) AS a

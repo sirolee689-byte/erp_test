@@ -93,7 +93,7 @@ function bomPartComputeKcac06(qtyRaw, lossRaw) {
 }
 
 /**
- * Bom_parts：`kcac04`/`kcac05`/`cost_price` 库类型为 numeric/decimal（见 docs/bom_parts.txt）。
+ * UB_ERP_Bom_parts：`kcac04`/`kcac05`/`cost_price` 库类型为 numeric/decimal（见 docs/bom_parts.txt）。
  * 禁止使用 bomKcacAsDecimalSql（内部 ISNULL(列, N'')），numeric 列与 nvarchar 字面量混用会触发转换异常。
  * @param {string} colExpr 列引用，如 p.kcac04
  */
@@ -104,7 +104,7 @@ function bomPartsNumericColAsDecimalSql(colExpr) {
 }
 
 /**
- * Bom_parts.id 为 int（docs/bom_parts.txt）
+ * UB_ERP_Bom_parts.id 为 int（docs/bom_parts.txt）
  * @param {import('mssql').Request} request
  * @param {unknown} rawId
  */
@@ -131,7 +131,7 @@ function bomPartLineHasDbId(raw) {
   return /^[1-9]\d*$/.test(s)
 }
 
-/** Bom_parts.[Seq]：排序序号（int） */
+/** UB_ERP_Bom_parts.[Seq]：排序序号（int） */
 function bomPartParseSeq(raw) {
   const n = Number(raw)
   if (!Number.isFinite(n) || n < 0) return 0
@@ -172,7 +172,7 @@ async function bomPartsFindRowsByScAndPartCode(tx, systemcode, kcaa01) {
 }
 
 /**
- * 根据配件物料编码（bom_000.kcaa01）解析对应 BOM 主档 systemcode，写入 Bom_parts.kcac02（跨主表关联）
+ * 根据配件物料编码（UB_ERP_Bom_000.kcaa01）解析对应 BOM 主档 systemcode，写入 UB_ERP_Bom_parts.kcac02（跨主表关联）
  * @param {import('mssql').Transaction|import('mssql').ConnectionPool} poolOrTx
  */
 async function bomPartsLookupSubBomSystemcode(poolOrTx, partMaterialCode) {
@@ -191,7 +191,7 @@ async function bomPartsLookupSubBomSystemcode(poolOrTx, partMaterialCode) {
   return String(r.recordset?.[0]?.sub_sc ?? '').trim()
 }
 
-/** 保存明细时从 bom_000 同步至 Bom_parts 的 kcaa 列（kcaa01～kcaa35，以库内实际存在列为准） */
+/** 保存明细时从 UB_ERP_Bom_000 同步至 UB_ERP_Bom_parts 的 kcaa 列（kcaa01～kcaa35，以库内实际存在列为准） */
 /** 物理列名为 kcaa01～kcaa35（不足两位须补零，禁止生成 kcaa1/kcaa9） */
 
 /**
@@ -201,7 +201,7 @@ async function bomPartsLookupSubBomSystemcode(poolOrTx, partMaterialCode) {
 const BOM_PARTS_KCAA_PAYLOAD_FALLBACK = new Set(['kcaa02', 'kcaa03', 'kcaa04', 'kcaa11'])
 
 /**
- * 按配件行 p.kcaa01 匹配 bom_000 在册最新行（TOP 1 ORDER BY b.id DESC，与 GET 配件明细一致）
+ * 按配件行 p.kcaa01 匹配 UB_ERP_Bom_000 在册最新行（TOP 1 ORDER BY b.id DESC，与 GET 配件明细一致）
  * @param {string} alias
  */
 function bomPartsSqlOuterApplyLatestBom000ByPartKcaa01(alias = 'b0') {
@@ -278,7 +278,7 @@ async function bomPartsAssertSubmittedCodesPersisted(tx, systemcode, submittedCo
   }
 }
 
-/** 子 BOM 在 bom_000 的 systemcode（与 kcac02 同源） */
+/** 子 BOM 在 UB_ERP_Bom_000 的 systemcode（与 kcac02 同源） */
 function bomPartsSqlSubSystemcodeIsnullPreserve(partsCol, alias = 'b0') {
   return `p.[${partsCol}] = ISNULL(NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(${alias}.sub_systemcode, N'')))), N''), p.[${partsCol}])`
 }
@@ -296,7 +296,7 @@ function bomPartsBuildPartsSystemcodeAssignment(partColset, alias = 'b0') {
 }
 
 /**
- * 单行保存 UPDATE：WHERE id + kcac01（主档 systemcode）双重锁定；kcaa01～35、kcac02、systemcode（若存在列）从 bom_000 同步；kcac04/05/06、cost_price、remark、Seq 来自请求体
+ * 单行保存 UPDATE：WHERE id + kcac01（主档 systemcode）双重锁定；kcaa01～35、kcac02、systemcode（若存在列）从 UB_ERP_Bom_000 同步；kcac04/05/06、cost_price、remark、Seq 来自请求体
  * @param {import('mssql').Transaction} tx
  * @param {Set<string>} partColset
  * @param {string} systemcode 主档 systemcode（即明细 kcac01）
@@ -376,14 +376,14 @@ async function getInvBomMasterColumnSet(pool) {
       }
       return set
     } catch (err) {
-      console.warn('[BOM主档] 读取 bom_000 列清单失败，已降级：', err?.message ?? err)
+      console.warn('[BOM主档] 读取 UB_ERP_Bom_000 列清单失败，已降级：', err?.message ?? err)
       return new Set()
     }
   })()
   return INV_BOM_MASTER_COLSET_PROMISE
 }
 
-/** Bom_parts 列清单（缓存），用于软删写 del/deltime 等兼容 */
+/** UB_ERP_Bom_parts 列清单（缓存），用于软删写 del/deltime 等兼容 */
 let INV_BOM_PARTS_COLSET_PROMISE = null
 async function getInvBomPartsColumnSet(pool) {
   if (INV_BOM_PARTS_COLSET_PROMISE) return INV_BOM_PARTS_COLSET_PROMISE
@@ -410,7 +410,7 @@ async function getInvBomPartsColumnSet(pool) {
 }
 
 /**
- * Bom_parts.del 物理类型：少数旧库为 int/bit，多数为 nvarchar；错误类型会导致「软删」未命中或表现异常
+ * UB_ERP_Bom_parts.del 物理类型：少数旧库为 int/bit，多数为 nvarchar；错误类型会导致「软删」未命中或表现异常
  * @param {import('mssql').ConnectionPool} pool
  */
 async function getInvBomPartsDelColumnKind(pool) {
@@ -578,7 +578,7 @@ function bomListCustomerSupplyLabel(v) {
 }
 
 /**
- * bom_000 列表 SELECT 片段：列不存在时 SELECT 空串占位，避免旧库报错
+ * UB_ERP_Bom_000 列表 SELECT 片段：列不存在时 SELECT 空串占位，避免旧库报错
  * @param {Set<string>} colset
  */
 function buildInvBomListMasterSelectLines(colset) {
@@ -628,7 +628,7 @@ function buildInvBomListMasterSelectLines(colset) {
 }
 
 /**
- * BOM 审计姓名：优先 Sys_Users.truename，无列或无值时回退登录态姓名
+ * BOM 审计姓名：优先 UB_ERP_User.truename，无列或无值时回退登录态姓名
  * @param {import('mssql').ConnectionPool} pool
  * @param {{ uidInt: number | null, utruename: string | null }} actor
  */
@@ -642,7 +642,7 @@ async function resolveSysUsersTruenameForBomAudit(pool, actor) {
   if (!qTruename || !qPk) return fallback
   const r = await pool.request().input('bomAuditUid', sql.Int, uidInt).query(`
     SELECT TOP (1) LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(u.${qTruename}, N'')))) AS truename
-    FROM Sys_Users AS u
+    FROM dbo.[UB_ERP_User] AS u
     WHERE u.${qPk} = @bomAuditUid
   `)
   const tn = String(r.recordset?.[0]?.truename ?? '').trim()
@@ -663,7 +663,7 @@ function mapInvBomListRowExtraFields(row) {
   const addtime = str(row.addtime).trim()
   const edittime = str(row.edittime).trim()
   const hasEdit = Boolean(edittime && edittime !== addtime)
-  /** 列表「录入人/修改人」列：仅展示 bom_000.utruename / uptruename（时间见「输入/修改时间」列） */
+  /** 列表「录入人/修改人」列：仅展示 UB_ERP_Bom_000.utruename / uptruename（时间见「输入/修改时间」列） */
   return {
     kcaa02_en: str(row.kcaa02_en),
     kpname: str(row.kpname),
@@ -737,7 +737,7 @@ async function countInvBomDuplicateKcaa01(pool, kcaa01, excludeSystemcode) {
 }
 
 /**
- * bom_000 是否已存在指定 systemcode（任意 del，避免主键/唯一冲突）
+ * UB_ERP_Bom_000 是否已存在指定 systemcode（任意 del，避免主键/唯一冲突）
  * @param {import('mssql').ConnectionPool} pool
  * @param {string} systemcode
  */
@@ -757,7 +757,7 @@ async function invBomMasterSystemcodeExists(pool, systemcode) {
  * @returns {{ direction: 0|1|null, rate: string }}
  */
 /**
- * 按 systemcode 读取 bom_000 一行（不区分在册/删除，供审核/删除审计）
+ * 按 systemcode 读取 UB_ERP_Bom_000 一行（不区分在册/删除，供审核/删除审计）
  * @param {import('mssql').ConnectionPool} pool
  * @param {string} systemcodeRaw
  */
@@ -840,7 +840,7 @@ async function lookupBomUnitChangeDirectionRate(pool, useName, otherName) {
   return { direction, rate }
 }
 
-/** bom_cost 是否含 del 列（进程内缓存；列表用量聚合可选过滤） */
+/** UB_ERP_Bom_cost 是否含 del 列（进程内缓存；列表用量聚合可选过滤） */
 let BOM_COST_DEL_COLUMN_PROMISE = null
 async function getBomCostHasDelColumn(pool) {
   if (BOM_COST_DEL_COLUMN_PROMISE) return BOM_COST_DEL_COLUMN_PROMISE
@@ -865,7 +865,7 @@ function bomCostSidPqMapKey(sid, pq) {
 }
 
 /**
- * 本页「需运算」行去重后的 (sid,pq)，供单次 GROUP BY 聚合（禁止逐行查 bom_cost）
+ * 本页「需运算」行去重后的 (sid,pq)，供单次 GROUP BY 聚合（禁止逐行查 UB_ERP_Bom_cost）
  * @param {{ is_need_calc?: any, code?: any, systemcode?: any, master_guid?: any }[]} rows
  */
 function collectDistinctBomCostSidPqPairsFromListRows(rows) {
@@ -891,7 +891,7 @@ function collectDistinctBomCostSidPqPairsFromListRows(rows) {
 }
 
 /**
- * 单次 GROUP BY 聚合 bom_cost（第二步；禁止对 pairs 循环 await query）
+ * 单次 GROUP BY 聚合 UB_ERP_Bom_cost（第二步；禁止对 pairs 循环 await query）
  * @param {import('mssql').ConnectionPool} pool
  * @param {{ sid: string, pq: string }[]} pairs
  * @returns {Promise<Map<string, { cnt: number, total4: number, total6: number }>>}
@@ -967,13 +967,13 @@ function lookupBomCostAggregateForMasterRow(row, aggMap) {
  * - 过滤：del 在册 + pass（与项目列表页「显示未审核」一致）
  * - 裁片：bom_cut=0 时默认 `kcaa01 NOT LIKE N'CUT-%'`（除非显式 CUT- 搜索）；bom_cut=1 时仅保留 CUT- 前缀行
  * - recycled=1：仅查 del=1（回收站），不按 pass 过滤
- * - bom_code_id：可选；Bom_code.id，按该分类 flag5 前缀匹配 kcaa01（BOM 分类，非材料分类表）
- * - v1.2.8+：每行返回用量运算列 `usageCalcLabel`（不需运算/未运算/已运算）：`Bom_code`（copen=1 且 flag5 非空）为前缀集，
- *   主档 kcaa01 以任一 flag5 开头且 del=0 为需运算；已运算判定为 bom_cost（表名见 BOM_COST_TABLE）存在 pq=kcaa01 且 sid 为主档 [GUID] 或 systemcode（与现行 POST /api/bom/usage-calc 落库 sid 一致并兼容 GUID）
- * - v1.3.0+：用量（成本）列 — 禁止 OUTER APPLY 逐行扫 bom_cost；第二步对「本页需运算行」去重 (sid,pq) 后 **单次** `GROUP BY sid,pq` 聚合，内存 `Map(sid+'\\x1f'+pq)` 回填；若物理表含 `del` 列则附加在册条件（与 INFORMATION_SCHEMA 探测一致）
+ * - bom_code_id：可选；UB_ERP_Bom_code.id，按该分类 flag5 前缀匹配 kcaa01（BOM 分类，非材料分类表）
+ * - v1.2.8+：每行返回用量运算列 `usageCalcLabel`（不需运算/未运算/已运算）：`UB_ERP_Bom_code`（copen=1 且 flag5 非空）为前缀集，
+ *   主档 kcaa01 以任一 flag5 开头且 del=0 为需运算；已运算判定为 UB_ERP_Bom_cost（表名见 BOM_COST_TABLE）存在 pq=kcaa01 且 sid 为主档 [GUID] 或 systemcode（与现行 POST /api/bom/usage-calc 落库 sid 一致并兼容 GUID）
+ * - v1.3.0+：用量（成本）列 — 禁止 OUTER APPLY 逐行扫 UB_ERP_Bom_cost；第二步对「本页需运算行」去重 (sid,pq) 后 **单次** `GROUP BY sid,pq` 聚合，内存 `Map(sid+'\\x1f'+pq)` 回填；若物理表含 `del` 列则附加在册条件（与 INFORMATION_SCHEMA 探测一致）
  */
 /**
- * BOM 列表「BOM 分类」下拉：Bom_code 全表按 id 升序（非材料分类表）
+ * BOM 列表「BOM 分类」下拉：UB_ERP_Bom_code 全表按 id 升序（非材料分类表）
  * GET /api/inv/bom/bom-code-categories
  */
 app.get('/api/inv/bom/bom-code-categories', async (req, res) => {
@@ -1077,7 +1077,7 @@ app.get('/api/inv/bom/list', async (req, res) => {
     } else if (!isExplicitCutCodeSearch && !isExplicitCutKeywordSearch) {
       whereCutSql = ` AND b.kcaa01 NOT LIKE N'CUT-%' `
     }
-    /** Bom_code：flag5 非空时按 kcaa01 前缀；否则 kcaa05 与 id 字符串精确匹配 */
+    /** UB_ERP_Bom_code：flag5 非空时按 kcaa01 前缀；否则 kcaa05 与 id 字符串精确匹配 */
     const whereBomCodeSql = hasBomCodeFilter
       ? ` AND EXISTS (
           SELECT 1
@@ -1203,7 +1203,7 @@ app.get('/api/inv/bom/list', async (req, res) => {
                 )
             ) THEN 1
             ELSE 0
-          END AS has_bom_cost_cached,
+          END AS has_UB_ERP_Bom_cost_cached,
           ${bomListExtraSelect},
           ROW_NUMBER() OVER (
             ORDER BY
@@ -1238,7 +1238,7 @@ app.get('/api/inv/bom/list', async (req, res) => {
         p.version,
         p.pass,
         p.is_need_calc,
-        p.has_bom_cost_cached,
+        p.has_UB_ERP_Bom_cost_cached,
         p.kcaa02_en,
         p.kpname,
         p.kcaa05,
@@ -1283,7 +1283,7 @@ app.get('/api/inv/bom/list', async (req, res) => {
 
     const list = rawRows.map((row) => {
       const isNeedCalc = Number(row.is_need_calc ?? 0) === 1
-      const hasBomCostCached = Number(row.has_bom_cost_cached ?? 0) === 1
+      const hasBomCostCached = Number(row.has_UB_ERP_Bom_cost_cached ?? 0) === 1
       let usageCalcLabel = '不需运算'
       let usageCalcStatus = 'none'
       if (isNeedCalc) {
@@ -1313,7 +1313,7 @@ app.get('/api/inv/bom/list', async (req, res) => {
       return {
         systemcode: row.systemcode != null ? String(row.systemcode) : '',
         code: row.code != null ? String(row.code) : '',
-        /** bom_000.kcaa02 名称(中文) */
+        /** UB_ERP_Bom_000.kcaa02 名称(中文) */
         kcaa02: row.product_name != null ? String(row.product_name) : '',
         name: row.product_name != null ? String(row.product_name) : '',
         spec: row.spec != null ? String(row.spec) : '',
@@ -1409,7 +1409,7 @@ async function insertBomConsumptionBulk(tx, pq, sid, rows) {
   }
 }
 
-/** 按主档 systemcode 解析 pq（成品编码）、sid（主档 systemcode），供 bom_cost / Bom_consumption */
+/** 按主档 systemcode 解析 pq（成品编码）、sid（主档 systemcode），供 UB_ERP_Bom_cost / Bom_consumption */
 async function fetchBomUsageHeadBySystemcode(pool, systemcode) {
   const sc = String(systemcode ?? '').trim()
   if (!sc) return null
@@ -1466,7 +1466,7 @@ async function fetchBomUsageCalcEligibility(pool, systemcode) {
               )
           ) THEN 1
           ELSE 0
-        END AS has_bom_cost_cached
+        END AS has_UB_ERP_Bom_cost_cached
       FROM ${INV_BOM_MASTER_FROM} AS b
       WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) = @sc
         AND (ISNULL(b.del, N'') = N'' OR b.del = N'0')
@@ -1482,7 +1482,7 @@ async function fetchBomUsageCalcEligibility(pool, systemcode) {
     systemcode: sid,
     code: pq,
     isNeedCalc: Number(row.is_need_calc ?? 0) === 1,
-    hasBomCostCached: Number(row.has_bom_cost_cached ?? 0) === 1,
+    hasBomCostCached: Number(row.has_UB_ERP_Bom_cost_cached ?? 0) === 1,
   }
 }
 
@@ -1549,7 +1549,7 @@ async function runBomUsageCalcForHead(pool, head, hidePrefixes, actor) {
       // ignore
     }
     console.error('POST /api/bom/usage-calc 事务失败：', innerErr)
-    throw new Error('bom_cost写入失败')
+    throw new Error('UB_ERP_Bom_cost写入失败')
   }
 
   const selBc = await pool
@@ -1596,7 +1596,7 @@ async function invalidateBomCostCacheForPartsChange(executor, systemcode) {
   return markCurrentBomCostStale(executor, systemcode)
 }
 
-/** 查询行 → 前端 bom_cost DTO */
+/** 查询行 → 前端 UB_ERP_Bom_cost DTO */
 function mapBomCostRecordToDto(r) {
   return {
     id: r.id,
@@ -1616,7 +1616,7 @@ function mapBomCostRecordToDto(r) {
   }
 }
 
-/** PQ 主 BOM 成本用量表按 bom_cost.px 排序；其它主 BOM 保持旧的落库顺序。 */
+/** PQ 主 BOM 成本用量表按 UB_ERP_Bom_cost.px 排序；其它主 BOM 保持旧的落库顺序。 */
 function buildBomCostReadOrderBy(pq) {
   if (isPqBomCostHead(pq)) {
     return 'CASE WHEN px IS NULL THEN 1 ELSE 0 END ASC, px ASC, id ASC'
@@ -1641,10 +1641,10 @@ function mapBomConsumptionRecordToDto(r) {
 }
 
 /**
- * BOM 用量运算：递归 Bom_parts + 成本平铺 + 单事务覆盖写入 bom_cost（hidePrefixes 剔除 + 跳过主 BOM 根行，平铺不合并）
+ * BOM 用量运算：递归 UB_ERP_Bom_parts + 成本平铺 + 单事务覆盖写入 UB_ERP_Bom_cost（hidePrefixes 剔除 + 跳过主 BOM 根行，平铺不合并）
  * POST /api/bom/usage-calc
  * body: { systemcode, hidePrefixes?: string[] }
- * 成功：{ success:true, total(bom_cost 行数), data, flatCostUsageRaw, bomCost }（树 data 供「BOM用量表运算」不变）
+ * 成功：{ success:true, total(UB_ERP_Bom_cost 行数), data, flatCostUsageRaw, bomCost }（树 data 供「BOM用量表运算」不变）
  */
 app.post('/api/bom/usage-calc', async (req, res) => {
   try {
@@ -1673,7 +1673,7 @@ app.post('/api/bom/usage-calc', async (req, res) => {
     const tFlat0 = Date.now()
     const flatCostUsageRaw = flattenBomPartsCostUsageFlatForBomCost(data, null, [])
     const flatMs = Date.now() - tFlat0
-    /** bom_cost：剔除隐藏前缀 + 跳过主档 pq 根行，平铺不合并（Bom_consumption 已停用，历史数据不维护） */
+    /** UB_ERP_Bom_cost：剔除隐藏前缀 + 跳过主档 pq 根行，平铺不合并（Bom_consumption 已停用，历史数据不维护） */
     const bomCostInsertPayload = buildBomCostInsertPayloadFromFlatUsage(
       flatCostUsageRaw,
       hidePrefixes,
@@ -1725,7 +1725,7 @@ app.post('/api/bom/usage-calc', async (req, res) => {
         // ignore
       }
       console.error('POST /api/bom/usage-calc 事务失败：', innerErr)
-      res.status(500).json({ success: false, msg: 'bom_cost写入失败', total: 0 })
+      res.status(500).json({ success: false, msg: 'UB_ERP_Bom_cost写入失败', total: 0 })
       return
     }
 
@@ -1772,7 +1772,7 @@ app.post('/api/bom/usage-calc', async (req, res) => {
       return
     }
     console.error('POST /api/bom/usage-calc 失败：', err)
-    res.status(500).json({ success: false, msg: 'bom_cost写入失败', total: 0 })
+    res.status(500).json({ success: false, msg: 'UB_ERP_Bom_cost写入失败', total: 0 })
   }
 })
 
@@ -1853,7 +1853,7 @@ app.post('/api/bom/usage-calc-batch', async (req, res) => {
 
 /**
  * BOM 用量表：GET /api/bom/tree?systemcode=xxx
- * - 若 bom_cost 已有 pq+sid 缓存：hasCache=true，直接返回 bom_cost，不递归 Bom_parts、不平铺 flatCostUsageRaw
+ * - 若 UB_ERP_Bom_cost 已有 pq+sid 缓存：hasCache=true，直接返回 UB_ERP_Bom_cost，不递归 UB_ERP_Bom_parts、不平铺 flatCostUsageRaw
  * - 否则：hasCache=false，递归树 data + flatCostUsageRaw（前端本地筛选合并预览；首次落库用 POST /api/bom/usage-calc）
  */
 app.get('/api/bom/tree', async (req, res) => {
@@ -1864,7 +1864,7 @@ app.get('/api/bom/tree', async (req, res) => {
       msg: '',
       data: null,
       hasCache: false,
-      bom_cost: [],
+      UB_ERP_Bom_cost: [],
       flatCostUsageRaw: [],
     }
     if (!systemcode) {
@@ -1906,7 +1906,7 @@ app.get('/api/bom/tree', async (req, res) => {
         hasCache: true,
         data: [],
         flatCostUsageRaw: [],
-        bom_cost: bomCost,
+        UB_ERP_Bom_cost: bomCost,
       })
       return
     }
@@ -1919,7 +1919,7 @@ app.get('/api/bom/tree', async (req, res) => {
       hasCache: false,
       data,
       flatCostUsageRaw,
-      bom_cost: [],
+      UB_ERP_Bom_cost: [],
     })
   } catch (err) {
     if (err?.code === 'BOM_CYCLE') {
@@ -1928,7 +1928,7 @@ app.get('/api/bom/tree', async (req, res) => {
         msg: String(err.message ?? '检测到BOM循环引用'),
         data: null,
         hasCache: false,
-        bom_cost: [],
+        UB_ERP_Bom_cost: [],
         flatCostUsageRaw: [],
       })
       return
@@ -1940,7 +1940,7 @@ app.get('/api/bom/tree', async (req, res) => {
       msg: `读取 BOM 树失败：${detail}`,
       data: null,
       hasCache: false,
-      bom_cost: [],
+      UB_ERP_Bom_cost: [],
       flatCostUsageRaw: [],
     })
   }
@@ -1950,7 +1950,7 @@ app.get('/api/bom/tree', async (req, res) => {
  * BOM 配件明细列表（Tab 配件明细）
  * GET /api/inventory/bom/parts/:systemcode — :systemcode 为主档 systemcode（URL 编码）
  * - 单次往返：EXISTS 与旧版「先 TOP 1 主档」等价（无主档则 0 行 → 空列表）；含 del=1 等配件行
- * - bom_000 展示列：原逐行 OUTER APPLY 改为「本单 distinct kcaa01 + ROW_NUMBER」再 LEFT JOIN，语义同 TOP 1 ORDER BY id DESC
+ * - UB_ERP_Bom_000 展示列：原逐行 OUTER APPLY 改为「本单 distinct kcaa01 + ROW_NUMBER」再 LEFT JOIN，语义同 TOP 1 ORDER BY id DESC
  */
 app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
   try {
@@ -2045,7 +2045,7 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
       id: row.id != null ? Number(row.id) : null,
       kcac01: row.kcac01 != null ? String(row.kcac01) : '',
       kcac02: row.kcac02 != null ? String(row.kcac02) : '',
-      /** 子件编码对应 bom_000.systemcode，供配件「查看」钻取免二次查主档 */
+      /** 子件编码对应 UB_ERP_Bom_000.systemcode，供配件「查看」钻取免二次查主档 */
       childSystemcode:
         row.child_systemcode != null ? String(row.child_systemcode).trim() : '',
       childPass: row.child_pass != null ? String(row.child_pass) : '',
@@ -2077,7 +2077,7 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
  * PUT /api/inventory/bom/parts/:systemcode
  * POST /api/inventory/bom/save-parts（body.systemcode + 与 PUT 相同 lines）
  * body: { lines: [{ id?, pendingDelete?, kcac01?, kcaa01, kcaa02, kcaa03, kcaa04, kcaa11, kcac04, kcac05, kcac06?, cost_price, remark, seq }] }
- * 保存逻辑：`UPDATE` 双重锁定 `id` + `kcac01`；`kcaa01`～`kcaa35`/`kcac02` 由 `bom_000` OUTER APPLY 同步（见 bomPartsApplyFullLineUpdate）。
+ * 保存逻辑：`UPDATE` 双重锁定 `id` + `kcac01`；`kcaa01`～`kcaa35`/`kcac02` 由 `UB_ERP_Bom_000` OUTER APPLY 同步（见 bomPartsApplyFullLineUpdate）。
  */
 async function handleInventoryBomPartsPut(req, res) {
   /** @type {{ systemcode: string, kcaa01: string }[]} */
@@ -2363,7 +2363,7 @@ async function handleInventoryBomPartsPut(req, res) {
           if (!Number.isFinite(newId) || newId < 1) {
             throw new Error('新增配件明细失败：未取得有效的 INSERTED.id')
           }
-          /** 插入后再 UPDATE：与编辑行一致，按 bom_000 同步 kcaa01～35 及 kcac02 */
+          /** 插入后再 UPDATE：与编辑行一致，按 UB_ERP_Bom_000 同步 kcaa01～35 及 kcac02 */
           const insUp = await bomPartsApplyFullLineUpdate(tx, partColset, systemcode, newId, {
             ...raw,
             kcaa01,
@@ -2401,7 +2401,7 @@ async function handleInventoryBomPartsPut(req, res) {
             req,
             '彻底删除BOM配件',
             `[彻底删除]了BOM配件，BOM系统编码：[${row.systemcode}]，移除配件编码：[${row.kcaa01}]`,
-            { targetTable: 'Bom_parts' },
+            { targetTable: 'UB_ERP_Bom_parts' },
           )
         } catch (logErr) {
           console.warn('[BOM配件明细] 审计日志写入失败（不影响保存）：', logErr?.message ?? logErr)
@@ -2414,7 +2414,7 @@ async function handleInventoryBomPartsPut(req, res) {
             req,
             '更新BOM配件用量',
             `[更新]了配件用量，BOM：[${bomHeadKcaa01}]，配件：[${u.part}]，用量：[${u.qty}]，损耗：[${u.loss}]`,
-            { targetTable: 'Bom_parts' },
+            { targetTable: 'UB_ERP_Bom_parts' },
           )
         } catch (logErr) {
           console.warn('[BOM配件明细] 用量审计写入失败（不影响保存）：', logErr?.message ?? logErr)
@@ -2427,7 +2427,7 @@ async function handleInventoryBomPartsPut(req, res) {
             req,
             '同步BOM配件属性',
             `[同步]了BOM配件属性，主BOM：[${s.master}]，配件：[${s.part}]，已同步kcaa01-kcaa35共35个字段。`,
-            { targetTable: 'Bom_parts' },
+            { targetTable: 'UB_ERP_Bom_parts' },
           )
         } catch (logErr) {
           console.warn('[BOM配件明细] 同步属性审计写入失败（不影响保存）：', logErr?.message ?? logErr)
@@ -2476,7 +2476,7 @@ app.post('/api/inventory/bom/save-parts', async (req, res) => {
   return handleInventoryBomPartsPut(req, res)
 })
 
-/** BOM 主档一键更新：按物料编码将 bom_000 基础资料写回全库 Bom_parts / bom_cost 引用（不改用量、不重算） */
+/** BOM 主档一键更新：按物料编码将 UB_ERP_Bom_000 基础资料写回全库 UB_ERP_Bom_parts / UB_ERP_Bom_cost 引用（不改用量、不重算） */
 app.post('/api/inventory/bom/propagate-master', (req, res) =>
   handlePostBomMasterPropagate(req, res, { getPool, writeLog }),
 )
@@ -2563,7 +2563,7 @@ app.get('/api/inventory/bom/unit-rate-suggest', async (req, res) => {
 })
 
 /**
- * BOM 币别下拉：读 bom_currency.cn_name（表名见 INV_BOM_CURRENCY_TABLE）
+ * BOM 币别下拉：读 UB_ERP_System_currency.cn_name（表名见 INV_BOM_CURRENCY_TABLE）
  * GET /api/inventory/bom/currency-options
  */
 app.get('/api/inventory/bom/currency-options', async (req, res) => {
@@ -2587,7 +2587,7 @@ app.get('/api/inventory/bom/currency-options', async (req, res) => {
 })
 
 /**
- * BOM 主档新增：INSERT bom_000（SQL Server 2008 R2 兼容写法）。
+ * BOM 主档新增：INSERT UB_ERP_Bom_000（SQL Server 2008 R2 兼容写法）。
  * save-main：字段列表须含 systemcode、[GUID]、dr_systemcode，VALUES 三连同为最终 systemcode；[version] 固定 N'100'。
  * 逻辑位于 server/index.js（本项目无 server/controllers）。
  * systemcode 可由客户端传入（须库内不存在）；否则服务端生成并重试避免冲突。
@@ -2620,7 +2620,7 @@ async function handleInvBomMasterSaveMain(req, res) {
       return
     }
 
-    // 刷新 bom_000 列缓存，避免库内新加列后仍按旧清单 INSERT
+    // 刷新 UB_ERP_Bom_000 列缓存，避免库内新加列后仍按旧清单 INSERT
     INV_BOM_MASTER_COLSET_PROMISE = null
     const colset = await getInvBomMasterColumnSet(pool)
     const actor = await resolveActorAuditTripletFromReq(pool, req)
@@ -2631,7 +2631,7 @@ async function handleInvBomMasterSaveMain(req, res) {
     if (saveMainMissing.length) {
       res.status(500).json({
         code: 500,
-        msg: `bom_000 缺少 save-main 必需列（${saveMainMissing.join(', ')}），无法写入三连键与版本`,
+        msg: `UB_ERP_Bom_000 缺少 save-main 必需列（${saveMainMissing.join(', ')}），无法写入三连键与版本`,
         data: null,
       })
       return
@@ -2705,7 +2705,7 @@ async function handleInvBomMasterSaveMain(req, res) {
     ins.input('bom_version_ins', sql.Int, 100)
     cols.push('[version]')
     vals.push('@bom_version_ins')
-    // 新增主档默认类型：bom_000.type = 1（列存在时写入；保留字列名须加方括号）
+    // 新增主档默认类型：UB_ERP_Bom_000.type = 1（列存在时写入；保留字列名须加方括号）
     if (colset.has('type')) {
       ins.input('bom_type_default', sql.Int, 1)
       cols.push('[type]')
@@ -3344,7 +3344,7 @@ app.get('/api/inventory/bom/:id/brief', async (req, res) => {
  * - LEFT JOIN UB_ERP_Stocks_material：kcaa05=code，带出 categoryName；分类展示名称
  * - LEFT JOIN UB_ERP_Stocks_workshop：kcaa15=code，workshopName；workshop_display 为「编码, 名称」
  * - unit_conversion：采购/报价与使用的转换方向（po_to_use 等）及转换率；sale_price、kcaa34_display；kpname 开票名称
- * - systemcode：主档稳定键，供 Bom_parts.kcac01 关联
+ * - systemcode：主档稳定键，供 UB_ERP_Bom_parts.kcac01 关联
  */
 app.get('/api/inventory/bom/:id', async (req, res) => {
   try {

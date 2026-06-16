@@ -1,5 +1,5 @@
 /**
- * BOM 用量表运算：Bom_parts 树构建（批量预取层数据，避免逐父节点 N+1 查询）
+ * BOM 用量表运算：UB_ERP_Bom_parts 树构建（批量预取层数据，避免逐父节点 N+1 查询）
  */
 import sql from 'mssql'
 import { INV_BOM_PARTS_FROM, INV_BOM_PARTS_TABLE } from './bomTables.js'
@@ -165,7 +165,7 @@ export function mapBomPartsRowToUsageTreeNode(row, level, children) {
     level,
     systemcode: row.systemcode != null ? String(row.systemcode) : '',
     children,
-    /** 原始 Bom_parts 行（PI BOM 写入 UB_ERP_Bom_Sales_list 时按列快照） */
+    /** 原始 UB_ERP_Bom_parts 行（PI BOM 写入 UB_ERP_Bom_Sales_list 时按列快照） */
     _sourceRow: row,
   }
 }
@@ -217,7 +217,7 @@ export function buildBomPartsUsageTreeNodesFromLayerCache(
 }
 
 /**
- * 递归构建 Bom_parts 树（先 BFS 批量预取，再内存 DFS）
+ * 递归构建 UB_ERP_Bom_parts 树（先 BFS 批量预取，再内存 DFS）
  * @param {import('mssql').ConnectionPool} pool
  * @param {string} kcac01Parent
  * @param {number} level 根层为 1

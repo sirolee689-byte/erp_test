@@ -2,7 +2,7 @@
 
 ## 1. 物理表
 
-- 物理表名由环境变量 **`HR_LEGACY_DEPT_TABLE`** 指定，**默认 `HR_Departments`**（仅字母数字下划线，防 SQL 拼接注入）。
+- 物理表名由环境变量 **`HR_LEGACY_DEPT_TABLE`** 指定，**默认 `UB_ERP_Hr_department`**（仅字母数字下划线，防 SQL 拼接注入）。
 - **严禁**在应用层改名：接口 JSON 与下列列名一致（小写键）。
 
 | 列名 | 说明 |
@@ -41,6 +41,6 @@
 
 `src/views/hr/files/department/index.vue`：`row-key="code"`；`pass === '1'` 时禁用编辑/删除；审核/反审带确认框。
 
-## 5. 与 `HR_Departments` 迁移脚本
+## 5. 与 `UB_ERP_Hr_department` 迁移脚本
 
-`docs/sql/sqlserver_v1.0.8_hr_departments.txt` 可为空库建 **`HR_Departments`**；若表已存在且列结构为旧系统（`code`/`name`/`pass` 等），直接设默认表名即可。其它表名用 **`HR_LEGACY_DEPT_TABLE`** 覆盖。备注列见 **`docs/sql/sqlserver_v1.1.0_hr_departments_add_remark.txt`**（`npm run migrate:hr-departments-remark`）。
+`docs/sql/sqlserver_v1.0.8_hr_departments.txt` 可为空库建 **`UB_ERP_Hr_department`**；若表已存在且列结构为旧系统（`code`/`name`/`pass` 等），直接设默认表名即可。其它表名用 **`HR_LEGACY_DEPT_TABLE`** 覆盖。备注列见 **`docs/sql/sqlserver_v1.1.0_hr_departments_add_remark.txt`**（`npm run migrate:hr-departments-remark`）。

@@ -23,7 +23,7 @@ export function computeBomUsageYlFromParent(kcac04, parentYl, parentIsCut) {
 }
 
 /**
- * bom_cost.top_kcaa01 / top_kcaa02：直接父行编码与名称；成品根下第一层为自身。
+ * UB_ERP_Bom_cost.top_kcaa01 / top_kcaa02：直接父行编码与名称；成品根下第一层为自身。
  * @param {boolean} isRootLevel 是否为成品下第一层（无用量父级）
  * @param {string} selfKcaa01
  * @param {string} selfKcaa02
@@ -59,10 +59,10 @@ export function bomCostUsageMatchesHidePrefix(kcaa01, hidePrefixes) {
 }
 
 /**
- * bom_cost 落库：DFS 平铺明细，不做编码+备注合并；剔除与成本用量表展示相同的隐藏前缀（CUT-/BAG- 等）
+ * UB_ERP_Bom_cost 落库：DFS 平铺明细，不做编码+备注合并；剔除与成本用量表展示相同的隐藏前缀（CUT-/BAG- 等）
  * @param {Array<{ kcaa01?: string, kcaa02?: string, top_kcaa01?: string, top_kcaa02?: string, kcaa03?: string, kcaa04?: string, Describe?: string, yl?: number, loss_rate?: number, total_qty?: number }>} flatRows flattenBomPartsCostUsageFlat 结果
  * @param {string[]} hidePrefixes 展示隐藏前缀（CUT-/BAG- 等父编码不写库）
- * @param {string} [excludeRootKcaa01] 主 BOM 成品编码（pq），树根行不落 bom_cost
+ * @param {string} [excludeRootKcaa01] 主 BOM 成品编码（pq），树根行不落 UB_ERP_Bom_cost
  */
 export function buildBomCostInsertPayloadFromFlatUsage(
   flatRows,

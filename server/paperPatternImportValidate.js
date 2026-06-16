@@ -1,5 +1,5 @@
 /**
- * 纸格资料导入：导入前校验（读 Excel + 映射；不写 bom_000）
+ * 纸格资料导入：导入前校验（读 Excel + 映射；不写 UB_ERP_Bom_000）
  */
 import sql from 'mssql'
 import { getPool } from './db.js'

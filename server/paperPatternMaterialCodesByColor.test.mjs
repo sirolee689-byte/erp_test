@@ -4,6 +4,8 @@ import { excelColumnIndexFromLetters } from './paperPatternImportPreview.js'
 import {
   buildMaterialCodesByColor,
   excelColumnLettersFromIndex,
+  findMaterialColorCell,
+  materialCodeFromColorCell,
   materialErpPrefix,
   resolveCommitColorNos,
   resolveMaterialsForCommitColor,
@@ -139,6 +141,57 @@ describe('resolveMaterialsForCommitColor', () => {
     assert.equal(g[0].materialCode, 'LA-0368/G3')
     const v = resolveMaterialsForCommitColor(materials, 'VE-TEST')
     assert.equal(v[0].materialCode, 'LA-0368/VE12')
+  })
+
+  test('accepts erpCode alias in codesByColor', () => {
+    const materials = [
+      {
+        groupNo: '1',
+        materialCode: 'LA-0368',
+        codesByColor: [
+          { colorNo: 'N', erpCode: 'LA-0368/N' },
+          { colorNo: 'BLU2', erpCode: 'LA-0368/BLU2' },
+        ],
+      },
+    ]
+    assert.deepEqual(validateMaterialCodesByColorForCommit(materials, ['N', 'BLU2']), {
+      ok: true,
+    })
+    assert.equal(resolveMaterialsForCommitColor(materials, 'BLU2')[0].materialCode, 'LA-0368/BLU2')
+  })
+
+  test('accepts committed color suffix when Excel color cell keeps base color', () => {
+    const materials = [
+      {
+        groupNo: '1',
+        materialCode: 'LA-0368',
+        codesByColor: [{ colorNo: 'N', materialCode: 'LA-0368/N' }],
+      },
+    ]
+    assert.deepEqual(validateMaterialCodesByColorForCommit(materials, ['N-TEST']), {
+      ok: true,
+    })
+    assert.equal(resolveMaterialsForCommitColor(materials, 'N-TEST')[0].materialCode, 'LA-0368/N')
+  })
+})
+
+describe('materialCodeFromColorCell', () => {
+  test('normalizes supported field names', () => {
+    assert.equal(materialCodeFromColorCell({ materialCode: ' A/N ', erpCode: 'B/N' }), 'A/N')
+    assert.equal(materialCodeFromColorCell({ erpCode: ' B/N ' }), 'B/N')
+    assert.equal(materialCodeFromColorCell({ code: ' C/N ' }), 'C/N')
+    assert.equal(materialCodeFromColorCell({ value: ' D/N ' }), 'D/N')
+  })
+})
+
+describe('findMaterialColorCell', () => {
+  test('matches exact color, base color alias, then material code color segment', () => {
+    const rows = [
+      { colorNo: 'N', materialCode: 'LA-0368/N' },
+      { colorNo: 'other', materialCode: 'LA-0368/BLU2' },
+    ]
+    assert.equal(findMaterialColorCell(rows, 'N-TEST')?.materialCode, 'LA-0368/N')
+    assert.equal(findMaterialColorCell(rows, 'BLU2-TEST')?.materialCode, 'LA-0368/BLU2')
   })
 })
 

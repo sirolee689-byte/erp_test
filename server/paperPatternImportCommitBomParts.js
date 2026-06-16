@@ -1,5 +1,5 @@
 /**
- * 纸格正式导入：Bom_parts 写入编排（主 BOM：CUT 预览 + Accessory；各 CUT：同分组 Material）
+ * 纸格正式导入：UB_ERP_Bom_parts 写入编排（主 BOM：CUT 预览 + Accessory；各 CUT：同分组 Material）
  */
 import { erpCodeLookupKey, normalizeErpCodeDisplay } from './paperPatternErpCodeNormalize.js'
 import { fetchKcaa04Kcaa33ByKcaa01In } from './paperPatternMaterialBomFields.js'
@@ -15,13 +15,13 @@ import {
 
 import { cutSeqMajorForMaterialGroup } from './paperPatternMaterialGroupMatching.js'
 
-/** CUT 预览行写入 Bom_parts.remark（纸格导入裁片） */
+/** CUT 预览行写入 UB_ERP_Bom_parts.remark（纸格导入裁片） */
 export const PAPER_PATTERN_CUT_BOM_PARTS_REMARK = '纸格系统导入'
 
-/** 纸格 Bom_parts 默认版本号 */
+/** 纸格 UB_ERP_Bom_parts 默认版本号 */
 export const PAPER_PATTERN_BOM_PARTS_VERSION = 100
 
-/** 与 bomPartsLinePersist 一致：纸格写入 Bom_parts.pass 默认已审核 */
+/** 与 bomPartsLinePersist 一致：纸格写入 UB_ERP_Bom_parts.pass 默认已审核 */
 export { PAPER_PATTERN_BOM_PARTS_PASS_DEFAULT }
 
 /**
@@ -51,7 +51,7 @@ export function buildCutMatchingByMajorFirstNonEmpty(cuts) {
 }
 
 /**
- * CUT 行写入 Bom_parts.Describe：优先本行搭配；空则同步同主段号下父级（首条非空搭配）
+ * CUT 行写入 UB_ERP_Bom_parts.Describe：优先本行搭配；空则同步同主段号下父级（首条非空搭配）
  * @param {string} cutSeq
  * @param {unknown} directMatching
  * @param {Map<string, string>} matchingByMajor
@@ -100,7 +100,7 @@ export function parsePaperPatternQty(raw) {
 }
 
 /**
- * CUT 下子件 Bom_parts.kcac04：取 CUT 列表「单位用量」（非 CUT 预览行的数量，亦非物料表用量）
+ * CUT 下子件 UB_ERP_Bom_parts.kcac04：取 CUT 列表「单位用量」（非 CUT 预览行的数量，亦非物料表用量）
  * @param {unknown} unitConsumptionRaw CUT 行 unitConsumption
  */
 export function cutChildKcac04FromUnitConsumption(unitConsumptionRaw) {
@@ -135,7 +135,7 @@ function bomPartRound6(n) {
 }
 
 /**
- * Bom_000 采购价/BOM价 → Bom_parts：六位小数；库内空/无效为 null（不写 0）
+ * UB_ERP_Bom_000 采购价/BOM价 → UB_ERP_Bom_parts：六位小数；库内空/无效为 null（不写 0）
  * @param {number|null|undefined} raw
  * @returns {number|null}
  */
@@ -168,7 +168,7 @@ export function parseAccessoryWastageFraction(raw) {
 }
 
 /**
- * 辅料 E/H/I 与 Bom_000.kcaa33 得到 kcac04/kcac05/kcac06FromExcel（六位小数）
+ * 辅料 E/H/I 与 UB_ERP_Bom_000.kcaa33 得到 kcac04/kcac05/kcac06FromExcel（六位小数）
  * 损耗与合计皆空时：kcac05=库内 kcaa33（缺省 0），kcac06 由插入层按 kcac04*(1+kcac05) 计算
  * @param {unknown} usageRaw
  * @param {unknown} wastageRaw
@@ -251,7 +251,7 @@ export function resolveMaterialWastageFraction(wastageFraction, dbKcaa33) {
 export async function writePaperPatternBomPartsInTx(tx, pool, p) {
   const partColset = await getBomPartsColumnSetForPaperPattern(pool)
   if (!partColset.has('kcac01') || !partColset.has('kcaa01')) {
-    throw new Error('Bom_parts 表缺少必需列 kcac01/kcaa01，无法写入纸格配件')
+    throw new Error('UB_ERP_Bom_parts 表缺少必需列 kcac01/kcaa01，无法写入纸格配件')
   }
   const delColKind = await getBomPartsDelColumnKindForPaperPattern(pool)
   const passColKind = await getBomPartsColumnDataKindForPaperPattern(pool, 'pass')

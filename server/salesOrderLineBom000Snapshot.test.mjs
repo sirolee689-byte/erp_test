@@ -7,7 +7,7 @@ import {
 } from './salesOrderLineBom000Snapshot.js'
 
 describe('salesOrderLineBom000Snapshot', () => {
-  test('resolveSalesOrderLineTypeFromBom000：有值抄 bom_000，空则 1', () => {
+  test('resolveSalesOrderLineTypeFromBom000：有值抄 UB_ERP_Bom_000，空则 1', () => {
     assert.equal(resolveSalesOrderLineTypeFromBom000(2), 2)
     assert.equal(resolveSalesOrderLineTypeFromBom000('3'), 3)
     assert.equal(resolveSalesOrderLineTypeFromBom000(null), 1)

@@ -241,8 +241,8 @@
         <div class="material-top-block">
           <h3 class="sub-title material-top-title">Material 列表</h3>
           <div v-show="!hideMaterialTable">
-            <p class="hint material-top-hint">材料单位与损耗来自 Bom_000；ERP 是否可导入请在顶部「智能校验」中确认。</p>
-            <p v-if="materialBomFieldsLoading" class="hint">正在加载材料单位与默认损耗（Bom_000）…</p>
+            <p class="hint material-top-hint">材料单位与损耗来自 UB_ERP_Bom_000；ERP 是否可导入请在顶部「智能校验」中确认。</p>
+            <p v-if="materialBomFieldsLoading" class="hint">正在加载材料单位与默认损耗（UB_ERP_Bom_000）…</p>
             <el-table :data="materialPreviewRows" border size="small" class="preview-table" empty-text="无">
               <el-table-column prop="groupNo" label="分组" width="88" />
               <el-table-column prop="materialName" label="Material 名称" min-width="140" show-overflow-tooltip />
@@ -458,7 +458,7 @@ function formatDeleteBomTreeSuccessMessage(d) {
       ? d.mainKcaa01s.join('、')
       : String(d?.mainKcaa01 ?? '')
   const cutHint = d?.cutKcaa01Like ? `（CUT 匹配示例：${d.cutKcaa01Like}）` : ''
-  return `已删除 ${nColor} 色：${mains}；Bom_parts ${d?.bomPartsDeleted ?? 0} 行，Bom_000 ${d?.bom000Deleted ?? 0} 行${cutHint}`
+  return `已删除 ${nColor} 色：${mains}；UB_ERP_Bom_parts ${d?.bomPartsDeleted ?? 0} 行，UB_ERP_Bom_000 ${d?.bom000Deleted ?? 0} 行${cutHint}`
 }
 
 /** 删除本次解析对应的全部主 BOM 树（精确主 BOM 列表，不按整款 LIKE） */
@@ -640,7 +640,7 @@ function mainBomCodeForBlock(block) {
   })
 }
 
-/** 配件名称：导入类型中文名（Bom_code.flag1） */
+/** 配件名称：导入类型中文名（UB_ERP_Bom_code.flag1） */
 function importTypeFlag1ForBlock(block) {
   return resolveImportTypeFlag1FromFlag5(block?.importTypeFlag5 ?? sharedImportTypeFlag5.value)
 }
@@ -745,7 +745,7 @@ const liveCutsPreview = computed(() => {
   }))
 })
 
-/** Bom_000：按 ERP 编码拉取 kcaa04 / kcaa33（仅预览） */
+/** UB_ERP_Bom_000：按 ERP 编码拉取 kcaa04 / kcaa33（仅预览） */
 const materialBomFieldByKey = ref(
   /** @type {Record<string, { kcaa04?: string, kcaa33?: number | null }>} */ ({}),
 )
@@ -784,7 +784,7 @@ const canFormalImport = computed(
 const formalImportDisabledTitle = computed(() => {
   if (!parseResult.value) return '请先上传并解析 Excel'
   if (!allBlocksReadyForCommit.value) return '请补全各颜色导入类型、厂款号、颜色编码'
-  if (!smartCheckPassed.value) return '请先完成智能校验（Material 分色全码与 Accessory 全码须在 Bom_000 存在）'
+  if (!smartCheckPassed.value) return '请先完成智能校验（Material 分色全码与 Accessory 全码须在 UB_ERP_Bom_000 存在）'
   if (!editableMaterialWastageFilled.value) {
     return '请为 LA-/LB-/LC- 物料填写损耗比例（Material 列表，可填 0）'
   }
@@ -823,7 +823,7 @@ function rebuildMaterialPreviewRows() {
       materialUnit: unit,
       remarkDisplay,
       wastageEditable,
-      /** 损耗小数（如 0.06），与 Bom_000.kcaa33 一致 */
+      /** 损耗小数（如 0.06），与 UB_ERP_Bom_000.kcaa33 一致 */
       wastageFraction: dbFrac,
       dbWastageFraction: dbFrac,
       wastageReadonlyText,
@@ -890,7 +890,7 @@ async function loadMaterialBomFieldsForPreview() {
       ElMessage.warning(`材料主档字段：${m}`)
     } else if (codeList.length > 0 && Object.keys(rawByKey).length === 0) {
       ElMessage.warning(
-        'Bom_000 未命中任何 ERP 编码（材料单位/损耗为空）。请在后端控制台查看 [paper-pattern-material-bom-fields] 库命中= 与请求示例编码是否一致。',
+        'UB_ERP_Bom_000 未命中任何 ERP 编码（材料单位/损耗为空）。请在后端控制台查看 [paper-pattern-material-bom-fields] 库命中= 与请求示例编码是否一致。',
       )
     }
 
@@ -1241,6 +1241,18 @@ function resolveImportTypeFlag1ForCommit(block) {
   return String(hit?.flag1 ?? '').trim()
 }
 
+function normalizeMaterialCodesByColorForCommit(raw) {
+  return (Array.isArray(raw) ? raw : [])
+    .map((item) => ({
+      colorNo: String(item?.colorNo ?? '').trim(),
+      colIndex: item?.colIndex,
+      materialCode: normalizeErpCodeDisplay(
+        item?.materialCode ?? item?.erpCode ?? item?.code ?? item?.value ?? '',
+      ),
+    }))
+    .filter((item) => item.colorNo)
+}
+
 function buildMaterialsPayloadForCommit() {
   const base = parseResult.value?.materials
   const preview = materialPreviewRows.value
@@ -1251,7 +1263,7 @@ function buildMaterialsPayloadForCommit() {
         groupNo: row.groupNo,
         materialName: row.materialName,
         materialCode: row.materialCode,
-        codesByColor: Array.isArray(b.codesByColor) ? b.codesByColor : [],
+        codesByColor: normalizeMaterialCodesByColorForCommit(b.codesByColor),
         remark: b.remark ?? '',
         usageQty: b.usageQty ?? '',
         wastageFraction: row.wastageFraction,
@@ -1261,7 +1273,7 @@ function buildMaterialsPayloadForCommit() {
   return Array.isArray(base)
     ? base.map((m) => ({
         ...m,
-        codesByColor: Array.isArray(m.codesByColor) ? m.codesByColor : [],
+        codesByColor: normalizeMaterialCodesByColorForCommit(m.codesByColor),
       }))
     : []
 }
@@ -1319,10 +1331,10 @@ function formatCommitSuccessAlertMessage(data) {
     const bom000Del = repList.reduce((s, r) => s + (Number(r?.bom000Deleted) || 0), 0)
     const partsDel = repList.reduce((s, r) => s + (Number(r?.bomPartsDeleted) || 0), 0)
     if (bom000Del > 0 || partsDel > 0) {
-      extra = `\n（已覆盖旧数据：删除 Bom_000 ${bom000Del} 条、Bom_parts ${partsDel} 行）`
+      extra = `\n（已覆盖旧数据：删除 UB_ERP_Bom_000 ${bom000Del} 条、UB_ERP_Bom_parts ${partsDel} 行）`
     }
   }
-  return `数据已全部写入。\n\n主 BOM：${code}（${nColor} 色）\nCUT 合计：${nCut}\nBom_parts：${nPart} 行${extra}\n\n点击「确定」后将回到初始状态，请重新选择 Excel 文件。`
+  return `数据已全部写入。\n\n主 BOM：${code}（${nColor} 色）\nCUT 合计：${nCut}\nUB_ERP_Bom_parts：${nPart} 行${extra}\n\n点击「确定」后将回到初始状态，请重新选择 Excel 文件。`
 }
 
 /** 正式导入成功后居中提示，确定后复位到未选文件、未解析状态 */
@@ -1354,7 +1366,7 @@ async function onCommitBom000() {
     return
   }
   if (!smartCheckPassed.value) {
-    ElMessage.warning('请先完成智能校验，全部 Material / Accessory ERP 编码须在 Bom_000 中存在')
+    ElMessage.warning('请先完成智能校验，全部 Material / Accessory ERP 编码须在 UB_ERP_Bom_000 中存在')
     return
   }
   if (!editableMaterialWastageFilled.value) {
@@ -1364,7 +1376,7 @@ async function onCommitBom000() {
   const nColor = basicFormList.value.length
   try {
     await ElMessageBox.confirm(
-      `将把 ${nColor} 个主 BOM、各色全套 CUT 写入 Bom_000，并写入 Bom_parts（Material 子件按颜色列全码；单事务，失败全部回滚）。是否继续？`,
+      `将把 ${nColor} 个主 BOM、各色全套 CUT 写入 UB_ERP_Bom_000，并写入 UB_ERP_Bom_parts（Material 子件按颜色列全码；单事务，失败全部回滚）。是否继续？`,
       '正式导入',
       { type: 'warning', confirmButtonText: '确定导入', cancelButtonText: '取消' },
     )
@@ -1400,7 +1412,7 @@ async function onCommitBom000() {
         const hint =
           codes.length > 1 ? `${codes.join('、')}` : codeHint
         await ElMessageBox.confirm(
-          `Bom_000 在册记录中已存在主 BOM：${hint}。是否覆盖？\n将先物理删除对应主 BOM、CUT 及 Bom_parts，再重新导入（单事务，失败全部回滚）。`,
+          `UB_ERP_Bom_000 在册记录中已存在主 BOM：${hint}。是否覆盖？\n将先物理删除对应主 BOM、CUT 及 UB_ERP_Bom_parts，再重新导入（单事务，失败全部回滚）。`,
           '主 BOM 已存在',
           { type: 'warning', confirmButtonText: '覆盖并导入', cancelButtonText: '取消' },
         )

@@ -18,7 +18,7 @@ export function normalizeErpCodeDisplay(raw) {
 }
 
 /**
- * 与 Bom_000.kcaa01 比对用键（小写，基于 normalizeErpCodeDisplay 结果）
+ * 与 UB_ERP_Bom_000.kcaa01 比对用键（小写，基于 normalizeErpCodeDisplay 结果）
  * @param {string} display
  * @returns {string}
  */

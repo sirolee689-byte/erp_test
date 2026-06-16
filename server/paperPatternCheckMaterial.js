@@ -1,5 +1,5 @@
 /**
- * 纸格导入：ERP 物料编码是否在 Bom_000.kcaa01 存在（只读校验，不写库）
+ * 纸格导入：ERP 物料编码是否在 UB_ERP_Bom_000.kcaa01 存在（只读校验，不写库）
  */
 import sql from 'mssql'
 import { getPool } from './db.js'
@@ -44,7 +44,7 @@ async function fetchExistingErpLookupKeySet(pool, keys) {
 /**
  * 输入编码列表 → 存在 / 不存在（空编码进 failed），与库键集合比对
  * @param {string[]} codes
- * @param {Set<string>} existingLowerKeys Bom_000 在册行的 kcaa01 经 LOWER+LTRIM+RTRIM 后的集合
+ * @param {Set<string>} existingLowerKeys UB_ERP_Bom_000 在册行的 kcaa01 经 LOWER+LTRIM+RTRIM 后的集合
  * @returns {{ success: string[], failed: string[] }}
  */
 export function classifyErpCodesAgainstKeySet(codes, existingLowerKeys) {

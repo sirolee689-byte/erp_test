@@ -6,41 +6,41 @@
 
 ## 1. 全局概览（当前确认：25 张表）
 
-- **HR_Departments**：部门 / 岗位（旧系统表接管）
-- **Hr_staff**：人事档案资料（精简字段查询）
-- **Hr_room**：宿舍房间主数据（v1.1.3 起）
-- **Hr_room_in**：宿舍入住记录（v1.1.3 起）
-- **Hr_room_use**：宿舍电费/用量等（`room_code` 与 `Hr_room.s_code` 对应；住宿总览按 `tj_date` 所在月汇总 `c_sum_money`，v1.1.4 起）
+- **UB_ERP_Hr_department**：部门 / 岗位（旧系统表接管）
+- **UB_ERP_Hr_staff**：人事档案资料（精简字段查询）
+- **UB_ERP_Hr_room**：宿舍房间主数据（v1.1.3 起）
+- **UB_ERP_Hr_room_in**：宿舍入住记录（v1.1.3 起）
+- **UB_ERP_Hr_room_use**：宿舍电费/用量等（`room_code` 与 `UB_ERP_Hr_room.s_code` 对应；住宿总览按 `tj_date` 所在月汇总 `c_sum_money`，v1.1.4 起）
 - **UB_Date_ERP_Operation_log**：全系统操作日志（正式表；写入口 `server/operationLogWriter.js`；`Sys_OperationLogs` 为测试遗留，不再写入）
-- **Sys_Roles**：角色管理（含菜单权限 `Permissions`）
-- **Sys_Users**：用户/操作员（通过 `RoleID` 关联角色）
-- **bom_000**：BOM 主档 / 物料清单头（v1.1.7 列表查询；约 6.8W 行量级，**必须分页**）
+- **UB_ERP_System_role**：角色管理（含菜单权限 `Permissions`）
+- **UB_ERP_User**：用户/操作员（通过 `RoleID` 关联角色）
+- **UB_ERP_Bom_000**：BOM 主档 / 物料清单头（v1.1.7 列表查询；约 6.8W 行量级，**必须分页**）
 - **UB_ERP_Stocks_colorcode**：库存基本资料 — 颜色编码（v1.0.0 列表分页；旧表名 `Bom_colorcode`）
 - **UB_ERP_Stocks_unit**：库存基本资料 — 使用单位（列表分页；审核/软删/恢复；旧表名 `Bom_unit`）
 - **UB_ERP_Stocks_unit_change**：库存基本资料 — 单位转换率（列表分页；审核/软删/恢复；旧表名 `Bom_unit_change`）
 - **UB_ERP_Stocks_material**：库存基本资料 — 材料分类（列表分页；审核/软删/恢复；旧表名 `Bom_material`）
 - **UB_ERP_Stocks_workshop**（旧名：`Bom_Stocks_workshop`）：库存基本资料 — 车间与部门编码（列表分页；审核/软删/恢复）
 - **System_supplier**：销售/采购/外协管理 — 基本资料 — 供应商资料（列表分页；审核/反审/软删/恢复）
-- **System_sales_customer**：销售/采购/外协管理 — 基本资料 — 销售客户（列表分页；审核/反审/软删/恢复）
+- **UB_ERP_System_sales_customer**：销售/采购/外协管理 — 基本资料 — 销售客户（列表分页；审核/反审/软删/恢复）
 - **UB_ERP_Buy_offer**：销售/采购/外协管理 — 日常工作 — 采购报价主表（列表分页；主从保存；审核/反审/软删/恢复/彻底删；旧表名 `Purchase_Quotation`）
 - **UB_ERP_Buy_offer_list**：采购报价明细表（通过外键或 `pid` 等列关联主表；保存时先删后插整批替换；旧表名 `Purchase_Quotation_list`）
 - **UB_ERP_assist_offer**：销售/采购/外协管理 — 日常工作 — 外协报价主表（与采购报价同一套主从/审核/回收站接口形态；字段列名 `wxaa*`；主键 `id`）
 - **UB_ERP_assist_offer_list**：外协报价明细表（与主表 `wxaa01` = 明细 `wxab01` 业务关联；汇总 `wxab04`/`wxab05`；主键 `id`）
-- **System_uplod_file**：纸格资料上传记录（旧系统表；管理页只读列表，见 `docs/System_uplod_file.txt`）
+- **UB_ERP_System_uplod_file**：纸格资料上传记录（旧系统表；管理页只读列表，见 `docs/System_uplod_file.txt`）
 - **UB_ERP_Sales_order**：销售订单主表（PI 号 `xsaj01`、PO 号 `xsaj06`、系统单号、客户/币别快照、审核/软删、运算状态）
-- **UB_ERP_Sales_order_list**：销售订单明细（`xsak01` = PI 号；`kcaa01` + 订货数量 `plan_quantity`；`xsak04` 单价；`xsak05` 金额；保存时 `xsak02` 取 `bom_000.GUID`，`kcac01` 取销售订单主表 `GUID/systemcode`，`kcac02` / `GUID` / `systemcode` 同 `xsak02`，`kcac03` 取 `bom_000.kcaa25` 作为采购单位快照，`pass` / `kcaa26` / `remark` 同样从 `bom_000` 抄快照）
+- **UB_ERP_Sales_order_list**：销售订单明细（`xsak01` = PI 号；`kcaa01` + 订货数量 `plan_quantity`；`xsak04` 单价；`xsak05` 金额；保存时 `xsak02` 取 `UB_ERP_Bom_000.GUID`，`kcac01` 取销售订单主表 `GUID/systemcode`，`kcac02` / `GUID` / `systemcode` 同 `xsak02`，`kcac03` 取 `UB_ERP_Bom_000.kcaa25` 作为采购单位快照，`pass` / `kcaa26` / `remark` 同样从 `UB_ERP_Bom_000` 抄快照）
 - **UB_ERP_Bom_Sales**：PI 销售 BOM 头（`sid` = PI 号；每款成品 `kcaa01` 一行）
-- **UB_ERP_Bom_Sales_list**：PI 销售 BOM 配件行（`sid` = PI 号；结构同 `Bom_parts`）
+- **UB_ERP_Bom_Sales_list**：PI 销售 BOM 配件行（`sid` = PI 号；结构同 `UB_ERP_Bom_parts`）
 - **UB_ERP_Bom_pi_cost**：销售订单一键运算 — 物料明细（`sid` = PI 号）
 - **UB_ERP_Bom_pi_consumption**：销售订单一键运算 — 子件汇总（`sid` = PI 号；表缺失时 API 内存合并）
 
 ## 2. 表关系（ER 摘要）
 
-- **`Sys_Users.RoleID` → `Sys_Roles.RoleID`**
+- **`UB_ERP_User.RoleID` → `UB_ERP_System_role.RoleID`**
   - 说明：用户属于某个角色；列表接口会 `LEFT JOIN` 返回 `RoleName`。
   - 设计文档：`src/views/system/rbac_design.md`
 
-> 备注：`HR_Departments` 与 `Hr_staff` 在当前版本 **没有数据库级外键** 约束（至少在仓库脚本/设计文档中未定义）。`Hr_staff.in_bm` 与部门关系属于“业务字段”层面的关联。
+> 备注：`UB_ERP_Hr_department` 与 `UB_ERP_Hr_staff` 在当前版本 **没有数据库级外键** 约束（至少在仓库脚本/设计文档中未定义）。`UB_ERP_Hr_staff.in_bm` 与部门关系属于“业务字段”层面的关联。
 
 - **`UB_ERP_Buy_offer_list` → `UB_ERP_Buy_offer`**
   - 业务关联：**`UB_ERP_Buy_offer.cgaa01` = `UB_ERP_Buy_offer_list.cgab01`**
@@ -56,17 +56,17 @@
 
 - **PI 号 `sid` 串联 PI BOM 与物料单（同一 PI 业务键）**
   - **`UB_ERP_Sales_order.xsaj01` = `UB_ERP_Bom_Sales.sid` = `UB_ERP_Bom_Sales_list.sid` = `UB_ERP_Bom_pi_cost.sid` = `UB_ERP_Bom_pi_consumption.sid`**
-  - **`UB_ERP_Bom_Sales`（成品头）↔ `UB_ERP_Bom_Sales_list`（配件）**：按款 `kcaa01` 对应一头；子件挂接规则同主 BOM `Bom_parts`（`kcac01` 父 `systemcode` 等）。
+  - **`UB_ERP_Bom_Sales`（成品头）↔ `UB_ERP_Bom_Sales_list`（配件）**：按款 `kcaa01` 对应一头；子件挂接规则同主 BOM `UB_ERP_Bom_parts`（`kcac01` 父 `systemcode` 等）。
   - **订单明细款集合** 须与 **`UB_ERP_Bom_Sales.kcaa01` 集合一致**（保存流水线「PI BOM 对齐」）；删明细款 → 物理删该款 PI 头及全部 list 行。
-  - **主 BOM**：`bom_000` + `Bom_parts`（环境变量 `INV_BOM_MASTER_TABLE` / `INV_BOM_PARTS_TABLE`）；仅 **同步 BOM**、保存时 **新款/删款再加** 从主 BOM 写入 PI 表。
+  - **主 BOM**：`UB_ERP_Bom_000` + `UB_ERP_Bom_parts`（环境变量 `INV_BOM_MASTER_TABLE` / `INV_BOM_PARTS_TABLE`）；仅 **同步 BOM**、保存时 **新款/删款再加** 从主 BOM 写入 PI 表。
   - **物料单** 仅 **一键运算** 写入 `pi_*`；**已运算** 下游方可订料；改明细货品行/数量、同步 BOM、保存 PI BOM → 主表 **未运算**。
 
 ## 3. 表明细
 
-### 3.1 `HR_Departments`（部门 / 岗位，旧系统表接管）
+### 3.1 `UB_ERP_Hr_department`（部门 / 岗位，旧系统表接管）
 
 - **Schema**：通常为 `dbo`（实际由数据库决定）
-- **表名来源**：环境变量 `HR_LEGACY_DEPT_TABLE`，默认 `HR_Departments`
+- **表名来源**：环境变量 `HR_LEGACY_DEPT_TABLE`，默认 `UB_ERP_Hr_department`
 - **模块/页面**
   - 前端：`src/views/hr/files/department/index.vue`
   - 设计：`src/views/system/hr_department_design.md`
@@ -92,10 +92,10 @@
   - 菜单 path：`hr/files/department`
   - 操作：`view` / `add` / `edit` / `delete` / `audit`
 
-### 3.2 `Hr_staff`（人事档案资料，精简管理 v1.0.9）
+### 3.2 `UB_ERP_Hr_staff`（人事档案资料，精简管理 v1.0.9）
 
 - **Schema**：`dbo`
-- **表名来源**：环境变量 `HR_STAFF_TABLE`，默认 `Hr_staff`
+- **表名来源**：环境变量 `HR_STAFF_TABLE`，默认 `UB_ERP_Hr_staff`
 - **模块/页面**
   - 前端：`src/views/hr/files/employee-files/index.vue`
   - 设计：`src/views/system/hr_staff_design.md`
@@ -106,7 +106,7 @@
   - `DELETE /api/hr/staff/:code`：逻辑删除（写 `del='1'`；`pass='1'` 禁止）
   - `PUT /api/hr/staff/restore`：恢复（写 `del='0'`；`pass='1'` 禁止）
   - `PUT /api/hr/staff/audit`、`PUT /api/hr/staff/unaudit`
-  - `PUT /api/hr/staff/leave/:id`：办理离职（事务：写 `status='离职'` + `leave_date`，并封禁账号 `Sys_Users.is_active=0`）
+  - `PUT /api/hr/staff/leave/:id`：办理离职（事务：写 `status='离职'` + `leave_date`，并封禁账号 `UB_ERP_User.is_active=0`）
   - 下拉辅助：`GET /api/hr/staff/department-options`、`GET /api/hr/staff/department-posts`
 - **本模块“允许使用的字段”**（性能约束，见 `hr_staff_design.md`）
   - `code`（工号，业务主键）
@@ -158,7 +158,7 @@
 - **迁移脚本**
   - 建表：`docs/sql/sqlserver_v1.1.0_create_sys_operationlogs.txt`
 
-### 3.4 `Sys_Roles`（角色管理，RBAC Phase 1）
+### 3.4 `UB_ERP_System_role`（角色管理，RBAC Phase 1）
 
 - **Schema**：通常为 `dbo`（实际由数据库决定）
 - **模块/页面**
@@ -169,7 +169,7 @@
   - `POST /api/roles`：新增
   - `PUT /api/roles`：编辑/禁用（`Status=0`）
   - `PUT /api/roles/resume`：恢复启用
-  - `DELETE /api/roles/:id`：物理删除（需已禁用且无 `Sys_Users` 引用）
+  - `DELETE /api/roles/:id`：物理删除（需已禁用且无 `UB_ERP_User` 引用）
   - `PUT /api/roles/permissions`：仅更新 `Permissions`
 - **关键字段**（见 `rbac_design.md`）
   - `RoleID`（INT IDENTITY，主键）
@@ -183,57 +183,57 @@
 - **迁移脚本**
   - 增加 `Permissions` 列：`docs/sql/erp_v1.0.7_permissions_column.txt`（或 `scripts/migrations/sqlserver_v1.0.7_permissions_column.txt`）
 
-### 3.5 `Hr_room` / `Hr_room_in`（宿舍：房间与入住，v1.1.3）
+### 3.5 `UB_ERP_Hr_room` / `UB_ERP_Hr_room_in`（宿舍：房间与入住，v1.1.3）
 
 - **Schema**：`dbo`
 - **模块/页面**
   - 前端：`src/views/hr/dormitory/room-management/index.vue`、`src/views/hr/dormitory/lodging-records/index.vue`（封装 `src/views/dormitory/index.vue` + `RoomList.vue` / `AuditList.vue` / `HistoryList.vue`）
   - 说明：`src/views/hr/dormitory/README.md`、`src/views/dormitory/README.md`
 - **接口（后端：`server/index.js`）**
-  - `GET /api/hr/dormitory/rooms`：房间分页列表；`WHERE del='0' AND pass=@pass`；在住人数子查询统计 `Hr_room_in` 中 `del=0` 且 `in_room='1'` 且 `out_room='0'`（按 `room_systemcode` 汇总）
+  - `GET /api/hr/dormitory/rooms`：房间分页列表；`WHERE del='0' AND pass=@pass`；在住人数子查询统计 `UB_ERP_Hr_room_in` 中 `del=0` 且 `in_room='1'` 且 `out_room='0'`（按 `room_systemcode` 汇总）
   - `GET /api/hr/dormitory/rooms/:id`：单条详情（`del=0`，不按 `pass` 限制）；含在住人数与创建/审核辅助字段
   - `POST /api/hr/dormitory/rooms`：新增房间（在册 `s_code` 不可重复）；写入 `s_code`、`s_code1`（使用/闲置）、`code`（普通房/空调房/大房）、`in_bad`、`info`，`name` 固定「宿舍」，默认 `pass='0'`
   - `PUT /api/hr/dormitory/rooms/audit`：按 `id` 审核房间（`pass='1'`，写入 `passuid`/`passuname`/`passutruename`/`passip`/`edittime` 等）
   - `PUT /api/hr/dormitory/rooms/unaudit`：按 `id` 反审（`pass='0'`，清空 `pass*` 审核人字段）
-  - `POST /api/hr/dormitory/check-in`（v1.1.4+ 重叠校验）：办理入住（写入旧表 `Hr_room_in`）
-    - **入参**：`staff_code`（员工工号）、`room_code`（房号= `Hr_room.s_code`）、`in_time`（入住日期，建议 `YYYY-MM-DD`）、`electric`（优惠电量，数字）、`room_info`（备注）、`pass`（匹配已审/未审房间资料）
-    - **在住拦截（INSERT 前）**：解析出与写入一致的 `staff_link_code` 后，查 `Hr_room_in` 中 `del='0' AND out_room='0' AND staff_code` 匹配 → 返回「该员工当前处于在住状态，请先办理退宿后再重新申请」
+  - `POST /api/hr/dormitory/check-in`（v1.1.4+ 重叠校验）：办理入住（写入旧表 `UB_ERP_Hr_room_in`）
+    - **入参**：`staff_code`（员工工号）、`room_code`（房号= `UB_ERP_Hr_room.s_code`）、`in_time`（入住日期，建议 `YYYY-MM-DD`）、`electric`（优惠电量，数字）、`room_info`（备注）、`pass`（匹配已审/未审房间资料）
+    - **在住拦截（INSERT 前）**：解析出与写入一致的 `staff_link_code` 后，查 `UB_ERP_Hr_room_in` 中 `del='0' AND out_room='0' AND staff_code` 匹配 → 返回「该员工当前处于在住状态，请先办理退宿后再重新申请」
     - **历史时间重叠（INSERT 前）**：对已退宿行 `out_room='1'`，用 `hrRoomDateTimeExprNullableSql` 将 `in_time` 与 `COALESCE(out_time, out_time2)` 转为 `datetime`，若 `@newInDt` 落在闭区间 `[in, out]` 内则 400，文案含「时间冲突…[disp_in] 至 [disp_out]…」
-    - **满员拦截**：按 `Hr_room.BedCount`（若存在）或 `Hr_room.in_bad` 作为床位数，与当前在宿人数对比；满员提示固定为「该房间已满员，无法办理入住」
+    - **满员拦截**：按 `UB_ERP_Hr_room.BedCount`（若存在）或 `UB_ERP_Hr_room.in_bad` 作为床位数，与当前在宿人数对比；满员提示固定为「该房间已满员，无法办理入住」
     - **写入字段**（v1.1.4+）：入住行 **`pass='1'`**（办理即自动过审）、`del='0'`、`in_room='1'`、`out_room='0'`；若旧库存在 `status` 列则同时写入 `status=1`；若存在 `electric/room_info` 列则写入对应值；**若表缺少 `pass` 列则接口会报错提示在 Navicat 补列**
     - **审计日志**：`Sys_OperationLogs.Content` 记录「管理员[uname]办理入住：房间[room_code], 员工[姓名], 优惠电量[electric]」
-  - `GET /api/hr/dormitory/check-in/staff-options`（v1.1.3+）：办理入住员工下拉；只返回 `Hr_staff` 中 `del=0 AND status='在职' AND is_blacklist=0` 且当前不在住（`Hr_room_in` 里 `in_room=1 AND out_room=0`）的员工
-  - `GET /api/hr/dormitory/room-occupants`（v1.1.3+）：入住管理-当前在住人员（`del=0 AND out_room=0`），按 `room_code` 查询；部门取 `Hr_staff.join_department`（`Hr_staff.new_code = Hr_room_in.staff_code`）
-    - v1.1.3+：部门中文名：`HR_Departments.code = Hr_staff.join_department`，展示 `HR_Departments.name`
+  - `GET /api/hr/dormitory/check-in/staff-options`（v1.1.3+）：办理入住员工下拉；只返回 `UB_ERP_Hr_staff` 中 `del=0 AND status='在职' AND is_blacklist=0` 且当前不在住（`UB_ERP_Hr_room_in` 里 `in_room=1 AND out_room=0`）的员工
+  - `GET /api/hr/dormitory/room-occupants`（v1.1.3+）：入住管理-当前在住人员（`del=0 AND out_room=0`），按 `room_code` 查询；部门取 `UB_ERP_Hr_staff.join_department`（`UB_ERP_Hr_staff.new_code = UB_ERP_Hr_room_in.staff_code`）
+    - v1.1.3+：部门中文名：`UB_ERP_Hr_department.code = UB_ERP_Hr_staff.join_department`，展示 `UB_ERP_Hr_department.name`
   - `PUT /api/hr/dormitory/check-out`（v1.1.3+）：办理退宿：仅更新当前行 `id`，设置 `out_room='1'` + `out_time='YYYY-MM-DD HH:mm'`，并写入操作审计（Action：办理了退宿）
-  - `PUT /api/hr/dormitory/room-in/room-info`（v1.1.3+）：入住管理-备注编辑：仅更新 `Hr_room_in.room_info`，并写入操作审计（Action：修改入住备注）
-  - `GET /api/hr/dormitory/lodging-overview`（v1.1.10+）：房间总览分页；**入住人数/名单**显示“当前在住”（不按月份，按 `del=0`、`in_room=1`、`out_room=0` 汇总）；**电费**按参数 `tj_date`（格式 `YYYY-M`，如 `2026-3`）精确匹配 `Hr_room_use.tj_date`（该列为 `nvarchar(50)`）；同房同月取 **`MAX(c_sum_money)`** 防止重复累加（并过滤 `del=0`）；`c_sum_money` 为 nvarchar 时先清洗再转 decimal；入住名单优先 `staff_truename`，空则回退 `staff_code`
-  - `GET /api/dorm/electric-report-data`（**v1.1.6**）：宿舍电费情况统计报表；`Hr_room`（`pass=1`）为主表；`OUTER APPLY` 取当月 `Hr_room_use`（`tj_date` 主/备选格式，同房同月多条取 `id` 最大）；`Hr_room_in` 子查询按与总览一致的月窗口（`in_time < mEnd` 且退宿时间空或 `>= mStart`）统计**入住人数**与**优惠电量合计**（`electric` 数值化后仅累计 >0）；用电量/单价/电费取自 `Hr_room_use` 落库字段（与 `POST /api/hr/dormitory/electric/settle` 一致）
-  - `GET /api/dorm/electric-allocation-report`（**v1.1.7**）：宿舍费用分摊（人员维度）；以当月 `Hr_room_use`（每房 `ROW_NUMBER` 取最新一条）为入口，联查 `Hr_room_in` **`LEFT JOIN Hr_staff`**（`new_code`=`staff_code` 且 `del=0`；**不在 WHERE 中按 pass 剔除**，保证在住行「一个都不能少」）；`staff_pass` 回传后由 Node 计算：仅 **pass=1 且已匹配档案** 的人员参与用电量分母与金额，其余行 **分摊电量/金额为 0**（规则 18，防误扣款）；姓名展示带 **`(档案未审)`** / **`(住宿天数异常)`**；**部门/职务**：`LEFT JOIN HR_Departments`（`s` 无匹配时部门职务为 **`未设定`**）；**住宿天数**与 v1.1.7 在住窗一致；接口另返回 **`allocation_anomaly_hint`**（入住表人数对账、未参与摊费人数说明）
+  - `PUT /api/hr/dormitory/room-in/room-info`（v1.1.3+）：入住管理-备注编辑：仅更新 `UB_ERP_Hr_room_in.room_info`，并写入操作审计（Action：修改入住备注）
+  - `GET /api/hr/dormitory/lodging-overview`（v1.1.10+）：房间总览分页；**入住人数/名单**显示“当前在住”（不按月份，按 `del=0`、`in_room=1`、`out_room=0` 汇总）；**电费**按参数 `tj_date`（格式 `YYYY-M`，如 `2026-3`）精确匹配 `UB_ERP_Hr_room_use.tj_date`（该列为 `nvarchar(50)`）；同房同月取 **`MAX(c_sum_money)`** 防止重复累加（并过滤 `del=0`）；`c_sum_money` 为 nvarchar 时先清洗再转 decimal；入住名单优先 `staff_truename`，空则回退 `staff_code`
+  - `GET /api/dorm/electric-report-data`（**v1.1.6**）：宿舍电费情况统计报表；`UB_ERP_Hr_room`（`pass=1`）为主表；`OUTER APPLY` 取当月 `UB_ERP_Hr_room_use`（`tj_date` 主/备选格式，同房同月多条取 `id` 最大）；`UB_ERP_Hr_room_in` 子查询按与总览一致的月窗口（`in_time < mEnd` 且退宿时间空或 `>= mStart`）统计**入住人数**与**优惠电量合计**（`electric` 数值化后仅累计 >0）；用电量/单价/电费取自 `UB_ERP_Hr_room_use` 落库字段（与 `POST /api/hr/dormitory/electric/settle` 一致）
+  - `GET /api/dorm/electric-allocation-report`（**v1.1.7**）：宿舍费用分摊（人员维度）；以当月 `UB_ERP_Hr_room_use`（每房 `ROW_NUMBER` 取最新一条）为入口，联查 `UB_ERP_Hr_room_in` **`LEFT JOIN UB_ERP_Hr_staff`**（`new_code`=`staff_code` 且 `del=0`；**不在 WHERE 中按 pass 剔除**，保证在住行「一个都不能少」）；`staff_pass` 回传后由 Node 计算：仅 **pass=1 且已匹配档案** 的人员参与用电量分母与金额，其余行 **分摊电量/金额为 0**（规则 18，防误扣款）；姓名展示带 **`(档案未审)`** / **`(住宿天数异常)`**；**部门/职务**：`LEFT JOIN UB_ERP_Hr_department`（`s` 无匹配时部门职务为 **`未设定`**）；**住宿天数**与 v1.1.7 在住窗一致；接口另返回 **`allocation_anomaly_hint`**（入住表人数对账、未参与摊费人数说明）
   - `GET /api/hr/dormitory/lodging-history`（**v1.1.4**）：住宿历史**全量**（`WHERE del='0'`，不再按 year/month 过滤 `in_time`）；`ROW_NUMBER() OVER (ORDER BY i.in_time DESC, i.id DESC)` 分页；`PUT /api/hr/dormitory/lodging-in/audit*`：入住单审核
   - `GET /api/hr/dormitory/lodging-in/audit-center-list`（**v1.1.4**）：审核入住申请分页列表；`WHERE del='0' AND pass=@pass`；三表联查同上；分页 **`ROW_NUMBER()`**；入参 `page`、`pageSize`、`pass`（0/1）、可选 `keyword`
   - `PUT /api/hr/dormitory/lodging-in/reject`（**v1.1.4**）：驳回入住申请（**逻辑删除** `del='1'`）；仅允许 `pass='0'` 且 `del='0'`；可选更新 `edittime`（列存在时）；操作审计见 `req.__auditDormLodgingInRejectContent`
   - `PUT /api/dorm/un-audit`（**v1.1.4**）：入住单反审核（`pass` 从 `'1'` 改回 `'0'`）；仅 `del='0'` 且 `pass='1'`；`Sys_OperationLogs` 可读文案见 `req.__auditDormUnAuditContent`（含管理员与员工展示名）
-  - `DELETE /api/dorm/delete-checkin`（**v1.1.4**）：**物理删除**未审核入住行；SQL 为 `DELETE FROM dbo.[Hr_room_in] WHERE id=@id AND … pass … = N'0'`（与代码一致，禁止删已审）；成功时 `Sys_OperationLogs.Content` 见 `req.__auditDormDeleteCheckinContent`（「管理员 [uname] 彻底删除了员工 [姓名] 的未审核入住申请」）
+  - `DELETE /api/dorm/delete-checkin`（**v1.1.4**）：**物理删除**未审核入住行；SQL 为 `DELETE FROM dbo.[UB_ERP_Hr_room_in] WHERE id=@id AND … pass … = N'0'`（与代码一致，禁止删已审）；成功时 `Sys_OperationLogs.Content` 见 `req.__auditDormDeleteCheckinContent`（「管理员 [uname] 彻底删除了员工 [姓名] 的未审核入住申请」）
 - **关键字段（与当前代码一致）**
   - **房间**：`s_code`（房号，与办理入住时 `room_code` 一致）、`s_code1`（使用/闲置）、`in_bad`（床位数）、`systemcode`（房间稳定关联键，写入入住行的 `room_systemcode`）
   - **入住行**：`staff_code`、`staff_truename`、`room_code`、`room_systemcode`、`in_room` / `out_room`（在住：`1`/`0`）、`in_time`、`pass` / `del`（沿用项目审核与逻辑删除约定）
   - **入住扩展**：`room_info`（备注）、`electric`（优惠电量）；部分旧库可能存在 `status`（1=在宿）用于在宿判定
-  - **员工**：`Hr_staff.code`（工号）、`Hr_staff.name`（姓名）、`status`（在职/离职）、`is_blacklist`（黑名单 0/1）
-  - **电费表 `Hr_room_use`**：`room_code`、`tj_date`（与总览「设定日期」年月对齐）、`c_sum_money`（同月多条则后端 `SUM`）
+  - **员工**：`UB_ERP_Hr_staff.code`（工号）、`UB_ERP_Hr_staff.name`（姓名）、`status`（在职/离职）、`is_blacklist`（黑名单 0/1）
+  - **电费表 `UB_ERP_Hr_room_use`**：`room_code`、`tj_date`（与总览「设定日期」年月对齐）、`c_sum_money`（同月多条则后端 `SUM`）
 - **权限（按钮级）**
   - 菜单 path：`hr/dormitory/room-management`（`view` / `add` / **`audit` 审核房间**）、`hr/dormitory/lodging-records`（**Tab**：房间总览 + **审核入住申请** + 住宿历史；`view`/`add`/`audit`/`edit` 见 `apiPermissionGate.js`）
 
-### 3.6 `bom_000`（BOM 主档，v1.1.7）
+### 3.6 `UB_ERP_Bom_000`（BOM 主档，v1.1.7）
 
 - **Schema**：`dbo`（实际由数据库决定）
-- **表名来源**：环境变量 `INV_BOM_MASTER_TABLE`，默认 `bom_000`
-- **币别下拉**：物理表 **`bom_currency`**（环境变量 **`INV_BOM_CURRENCY_TABLE`** 可覆盖），展示列 **`cn_name`**；接口 **`GET /api/inventory/bom/currency-options`** 返回 `{ rows: [{ cn_name }] }`；主档 **`kcaa34` / `kcaa35`** 存所选中文名称（与新增模块文档一致）
+- **表名来源**：环境变量 `INV_BOM_MASTER_TABLE`，默认 `UB_ERP_Bom_000`
+- **币别下拉**：物理表 **`UB_ERP_System_currency`**（环境变量 **`INV_BOM_CURRENCY_TABLE`** 可覆盖），展示列 **`cn_name`**；接口 **`GET /api/inventory/bom/currency-options`** 返回 `{ rows: [{ cn_name }] }`；主档 **`kcaa34` / `kcaa35`** 存所选中文名称（与新增模块文档一致）
 - **模块/页面**
   - 前端：`src/views/inv/bom/index.vue`（菜单 path：`inv/bom`）；**同一列表**亦由 `src/views/inventory/basic/bom-data/index.vue`（菜单 path：`inventory/basic/bom-data`，侧栏「BOM资料」）内嵌复用
 - **接口（后端：`server/index.js`）**
-  - `GET /api/inv/bom/list`：分页列表；**`recycled=1`** 时仅 `del=1`（回收站，不按 `pass` 过滤）；否则 `WHERE` 含在册 `del` 与 `pass=@pass`；返回 **`systemcode`**（主档键）；默认排序 **edittime DESC**，`edittime` 空则 **addtime DESC**，次级 `kcaa01 ASC`；分页 **仅** `ROW_NUMBER()`（SQL Server 2008 R2）；名称搜索为参数化 `LIKE`，且 **输入满 3 字符** 才生效；**物料编码 `code`（kcaa01）**：若以 **`CUT-`** 开头且不含 `<`，用右模糊 `LIKE '关键词%'`；若含 `<` 用 `%关键词%`；其它情况先按 `Bom_code.flag5` 剥离前缀得核心款号，核心长度≥3 时用 `LIKE '%核心'`，否则 `%关键字%`；入参 **`bom_cut`**：默认 `0` 时强制执行 `kcaa01 NOT LIKE N'CUT-%'`，`bom_cut=1` 时取消；**显式以 `CUT-` 搜索时临时取消该排除**以便命中裁片
-  - 主档 CRUD（标准件）：**`POST /api/inventory/bom/save-main`** 新增主档（`INSERT` 字段列表含 **systemcode、[GUID]、dr_systemcode**，`VALUES` 三连同一绑定参数；**[version]** 写入 **100**（**sql.Int**）；若存在 **`type`** 列则 **`[type] = 1`**（新增默认）；若 `bom_000` 缺少 **systemcode / guid（物理列名 GUID）/ dr_systemcode / version** 任一列则返回 500）；**systemcode** 已存在于库则拒绝；**`POST /api/inventory/bom`** 与前者共用处理函数；`PUT /api/inventory/bom` 保存时同步 **[GUID]、dr_systemcode** 与 **systemcode**；其余同前（审核/删除/校验等）
+  - `GET /api/inv/bom/list`：分页列表；**`recycled=1`** 时仅 `del=1`（回收站，不按 `pass` 过滤）；否则 `WHERE` 含在册 `del` 与 `pass=@pass`；返回 **`systemcode`**（主档键）；默认排序 **edittime DESC**，`edittime` 空则 **addtime DESC**，次级 `kcaa01 ASC`；分页 **仅** `ROW_NUMBER()`（SQL Server 2008 R2）；名称搜索为参数化 `LIKE`，且 **输入满 3 字符** 才生效；**物料编码 `code`（kcaa01）**：若以 **`CUT-`** 开头且不含 `<`，用右模糊 `LIKE '关键词%'`；若含 `<` 用 `%关键词%`；其它情况先按 `UB_ERP_Bom_code.flag5` 剥离前缀得核心款号，核心长度≥3 时用 `LIKE '%核心'`，否则 `%关键字%`；入参 **`bom_cut`**：默认 `0` 时强制执行 `kcaa01 NOT LIKE N'CUT-%'`，`bom_cut=1` 时取消；**显式以 `CUT-` 搜索时临时取消该排除**以便命中裁片
+  - 主档 CRUD（标准件）：**`POST /api/inventory/bom/save-main`** 新增主档（`INSERT` 字段列表含 **systemcode、[GUID]、dr_systemcode**，`VALUES` 三连同一绑定参数；**[version]** 写入 **100**（**sql.Int**）；若存在 **`type`** 列则 **`[type] = 1`**（新增默认）；若 `UB_ERP_Bom_000` 缺少 **systemcode / guid（物理列名 GUID）/ dr_systemcode / version** 任一列则返回 500）；**systemcode** 已存在于库则拒绝；**`POST /api/inventory/bom`** 与前者共用处理函数；`PUT /api/inventory/bom` 保存时同步 **[GUID]、dr_systemcode** 与 **systemcode**；其余同前（审核/删除/校验等）
 - **关键字段（接口 JSON 映射）**
   - `kcaa01` → `code`，`kcaa02` → `name`，`kcaa03` → `spec`，`kcaa04` → `unit`
   - `kcaa12` → `isPurchase`，`kcaa13` → `isSubcontract`，`kcaa14` → `isSelfProduced`
@@ -242,27 +242,27 @@
 - **权限（按钮级）**
   - 菜单 path：`inv/bom` 或 `inventory/basic/bom-data`：`view`（列表/详情/校验/换算建议）、`add`（新增）、`edit`（保存主档、恢复）、`audit`（审核/反审）、`delete`（软删/彻底删）；见 `apiPermissionGate.js`
 - **主档稳定键 `systemcode`（与配件子表关联）**
-  - `GET /api/inventory/bom/:id` 的 `data.basic.systemcode` 来自 `bom_000.systemcode`，**`data.basic.pass`** 来自主档；配件子表 **`Bom_parts.kcac01`** 存父级 `systemcode`（与物料编码 `kcaa01` 不是同一列）；表名可由 `INV_BOM_PARTS_TABLE` 覆盖
+  - `GET /api/inventory/bom/:id` 的 `data.basic.systemcode` 来自 `UB_ERP_Bom_000.systemcode`，**`data.basic.pass`** 来自主档；配件子表 **`UB_ERP_Bom_parts.kcac01`** 存父级 `systemcode`（与物料编码 `kcaa01` 不是同一列）；表名可由 `INV_BOM_PARTS_TABLE` 覆盖
   - 若历史行 `systemcode` 为空，则「配件明细」Tab 无法加载/保存，需在库内补齐主档或按实际库结构再调整
 
-### 3.6.1 `Bom_parts`（BOM 配件明细，v1.1.8+）
+### 3.6.1 `UB_ERP_Bom_parts`（BOM 配件明细，v1.1.8+）
 
-- **Schema**：`dbo`；**表名来源**：环境变量 `INV_BOM_PARTS_TABLE`，默认 `Bom_parts`（仅字母数字下划线）；**列类型权威清单**：[`docs/bom_parts.txt`](../bom_parts.txt)（内网导出）；关联主档：**`kcac01` = `bom_000.systemcode`**（两表 `systemcode` 均为 **nvarchar**，主档来源见 [`docs/bom_000.txt`](../bom_000.txt)）
+- **Schema**：`dbo`；**表名来源**：环境变量 `INV_BOM_PARTS_TABLE`，默认 `UB_ERP_Bom_parts`（仅字母数字下划线）；**列类型权威清单**：[`docs/bom_parts.txt`](../bom_parts.txt)（内网导出）；关联主档：**`kcac01` = `UB_ERP_Bom_000.systemcode`**（两表 `systemcode` 均为 **nvarchar**，主档来源见 [`docs/bom_000.txt`](../bom_000.txt)）
 - **模块/页面**
   - 前端：`src/views/inv/bom/index.vue` 详情弹窗 **Tab「配件明细」**（与 `inventory/basic/bom-data` 内嵌复用同一页）
 - **接口（后端：`server/index.js`）**
-  - **`GET /api/bom/tree?systemcode=...`**（**v1.2.7+**，用量表运算 Tab）：按 **`kcac01` → `kcac02`** 递归读 **`Bom_parts`**；**`WHERE` 仅按 `kcac01` 匹配**（与 **`GET /api/inventory/bom/parts`** 一致，**不在 SQL 中按 `del` 剔除**，避免旧库 `del` 为 NULL/空时子层查成 0 行）；**`kcac01`/`kcac02` 比较用 `CAST(… nvarchar(500))`**，避免 `CONVERT(100)` 截断长 `systemcode`；每层 **`ORDER BY Seq`**；返回 **嵌套 `children`** 树；**不写入** `bom_cost` / `Bom_consumption`；循环引用 **409**「检测到BOM循环引用」；权限同配件 **`view`**
-  - `GET /api/inventory/bom/parts/:systemcode`：先 **TOP 1** 判断主档 `bom_000.systemcode` 存在且在册，再查 `Bom_parts`（`WHERE kcac01=@systemcode`，子行在册 `del`）；列表字段 **`kcaa01`/`kcaa02`/`kcaa03`/`kcaa11`** 优先通过 **`OUTER APPLY`**（按 `Bom_parts.kcaa01` = `bom_000.kcaa01` 匹配在册主档，`ORDER BY b.id DESC` **TOP 1**）取自 **`bom_000`**，无匹配时回退配件表同行；**不**对整表 `bom_000` 做大 JOIN；返回 **`kcac06`**（用量合计）
+  - **`GET /api/bom/tree?systemcode=...`**（**v1.2.7+**，用量表运算 Tab）：按 **`kcac01` → `kcac02`** 递归读 **`UB_ERP_Bom_parts`**；**`WHERE` 仅按 `kcac01` 匹配**（与 **`GET /api/inventory/bom/parts`** 一致，**不在 SQL 中按 `del` 剔除**，避免旧库 `del` 为 NULL/空时子层查成 0 行）；**`kcac01`/`kcac02` 比较用 `CAST(… nvarchar(500))`**，避免 `CONVERT(100)` 截断长 `systemcode`；每层 **`ORDER BY Seq`**；返回 **嵌套 `children`** 树；**不写入** `UB_ERP_Bom_cost` / `Bom_consumption`；循环引用 **409**「检测到BOM循环引用」；权限同配件 **`view`**
+  - `GET /api/inventory/bom/parts/:systemcode`：先 **TOP 1** 判断主档 `UB_ERP_Bom_000.systemcode` 存在且在册，再查 `UB_ERP_Bom_parts`（`WHERE kcac01=@systemcode`，子行在册 `del`）；列表字段 **`kcaa01`/`kcaa02`/`kcaa03`/`kcaa11`** 优先通过 **`OUTER APPLY`**（按 `UB_ERP_Bom_parts.kcaa01` = `UB_ERP_Bom_000.kcaa01` 匹配在册主档，`ORDER BY b.id DESC` **TOP 1**）取自 **`UB_ERP_Bom_000`**，无匹配时回退配件表同行；**不**对整表 `UB_ERP_Bom_000` 做大 JOIN；返回 **`kcac06`**（用量合计）
   - `PUT /api/inventory/bom/parts/:systemcode`：body `{ lines: [...] }` 批量处理；`id`+`pendingDelete=true` → 满足 **`id` + `kcac01`=主档 `systemcode`** 时物理删行；有 `id` 且未标记删除 → **`UPDATE … WHERE p.id=@id AND kcac01 匹配`**，写入 **`kcac04`/`kcac05`/`kcac06`**（若物理表存在 **`kcac06`** 列）及单价/备注等；无 `id` → `INSERT`。写入前 Node 侧对 **`kcac04`/`kcac05`/`kcac06`** 做 **6 位小数规整**（与 **decimal(18,6)** 对齐，§2）。成功更新用量类字段后写审计：`[更新]了配件用量，BOM：[主档 kcaa01]，配件：[kcaa01]，用量：[kcac04]，损耗：[kcac05]`
 - **关键字段（与当前接口一致）**
-  - `kcac01`：父级主档 `systemcode`；**`kcac02`**：子件关联编码（匹配下层 BOM 时优先用于关联 `bom_000.kcaa01`，空则回退 `kcaa01`）；`kcaa01`～`kcaa04`/`kcaa11`：配件编码、名称、规格、单位、颜色（GET 展示优先 **bom_000**）；`kcac04` 单位用量；`kcac05` 损耗率（**小数**，如 5% 存 `0.05`）；**`kcac06`** 用量合计（**kcac04 × (1 + kcac05)**，与前端一致）；`cost_price` 单价；`[Describe]` 行备注；`Seq` 排序；`del` 逻辑删除
+  - `kcac01`：父级主档 `systemcode`；**`kcac02`**：子件关联编码（匹配下层 BOM 时优先用于关联 `UB_ERP_Bom_000.kcaa01`，空则回退 `kcaa01`）；`kcaa01`～`kcaa04`/`kcaa11`：配件编码、名称、规格、单位、颜色（GET 展示优先 **UB_ERP_Bom_000**）；`kcac04` 单位用量；`kcac05` 损耗率（**小数**，如 5% 存 `0.05`）；**`kcac06`** 用量合计（**kcac04 × (1 + kcac05)**，与前端一致）；`cost_price` 单价；`[Describe]` 行备注；`Seq` 排序；`del` 逻辑删除
 - **权限（按钮级）**
   - `GET`：与 `GET /api/inventory/bom/:id` 相同（`view`）
   - `PUT`：菜单 `inv/bom` 或 `inventory/basic/bom-data` 的 `edit`
 
-### 3.6.2 `Bom_cost` / `Bom_consumption`（历史表：曾用于用量运算）
+### 3.6.2 `UB_ERP_Bom_cost` / `Bom_consumption`（历史表：曾用于用量运算）
 
-- **说明**：部分库中仍存在上述物理表及历史数据。用量表 Tab 已恢复 **只读递归树**（`GET /api/bom/tree`，见 §3.6.1），**仍不读写** `Bom_cost` / `Bom_consumption`。
+- **说明**：部分库中仍存在上述物理表及历史数据。用量表 Tab 已恢复 **只读递归树**（`GET /api/bom/tree`，见 §3.6.1），**仍不读写** `UB_ERP_Bom_cost` / `Bom_consumption`。
 - **备注**：若需清理数据或重新规划功能，请在库侧另行评估；旧版算法说明曾归档于 [`docs/bom运算需求文档.md`](../bom运算需求文档.md)（仅供参考，与现行代码可能不一致）。
 
 ### 3.7 `UB_ERP_Stocks_colorcode`（颜色编码，v1.0.0+）
@@ -281,7 +281,7 @@
   - `PUT /api/inventory/color-code/restore`：body `{ code }`，`del='1'` → `del='0'` 且 **`edittime`**
 - **关键字段**
   - `code`：颜色编码；`name`：名称(中文)；`ename`：名称(英文，可空)；`info`：备注（可空）；`pass`：审核（`'1'` 已审 / `'0'` 未审）；`intime`：**datetime**（新增为当天零点）；接口 **`in_time`** 为 **`yyyy/M/d`**（如 `2017/9/1`）
-  - `uid` / `uname` / `utruename`：录入人审计（分别对应 `Sys_Users.UserID`(int)、`UserCode`、`UserName`；新增接口自动填充）
+  - `uid` / `uname` / `utruename`：录入人审计（分别对应 `UB_ERP_User.UserID`(int)、`UserCode`、`UserName`；新增接口自动填充）
   - `addtime` / `edittime` / `deltime`：业务时间串（`NVARCHAR` 建议 50；格式示例 `2026-4-23 11:44:51`）
   - `del`：逻辑删除（与项目约定一致）
 - **权限（按钮级）**
@@ -381,7 +381,7 @@
 - **权限（按钮级）**
   - 菜单 path：`supply-chain/basic/suppliers`：`view`（列表）、`audit`（审核/反审）、`delete`（软删）、`edit`（恢复）
 
-### 3.13 `System_sales_customer`（销售客户）
+### 3.13 `UB_ERP_System_sales_customer`（销售客户）
 
 - **Schema**：`dbo`
 - **模块/页面**
@@ -405,7 +405,7 @@
 - **权限（按钮级）**
   - 菜单 path：`supply-chain/basic/customers`：`view`、`add`、`audit`、`delete`、`edit`（含恢复）
 
-### 3.14 `System_settlement_method`（结算方式）
+### 3.14 `UB_ERP_System_settlement_method`（结算方式）
 
 - **Schema**：`dbo`
 - **模块/页面**
@@ -440,7 +440,7 @@
   - `GET /api/supply-chain/purchase-quotations/list`：主表分页；`keyword` 对主表文本列 OR `LIKE`；`pass` / `recycled` 与标准件一致；`ROW_NUMBER()` 分页
   - `GET /api/supply-chain/purchase-quotations/:id`：主表一行 + 明细列表（排序优先 `xh`/行号类列）
   - `GET /api/supply-chain/purchase-quotations/:id/lines`：仅明细（展开行懒加载）
-  - `GET /api/supply-chain/purchase-quotations/bom-detail`：按物料编码 `kcaa01` 读 `bom_000`（明细选材弹窗补全名称/规格/颜色/单位）
+  - `GET /api/supply-chain/purchase-quotations/bom-detail`：按物料编码 `kcaa01` 读 `UB_ERP_Bom_000`（明细选材弹窗补全名称/规格/颜色/单位）
   - `POST /api/supply-chain/purchase-quotations`：body `{ header, lines[] }`；事务：`OUTPUT INSERTED` 取主键后批量插入明细；若存在 `systemcode`/`code`/`quotation_code`/`dh`/`djbh`/`bill_no` 之一则在册单号唯一校验
   - `PUT /api/supply-chain/purchase-quotations`：body `{ id, header, lines[] }`；**已审主表 `pass=1` 禁止保存**（400）；在册且未审；事务内 `DELETE` 旧明细再整批 `INSERT`；允许仅改明细（主表 `SET` 可为 PK 自赋值占位）
   - `PUT /api/supply-chain/purchase-quotations/audit` / `unaudit` / `restore`：body `{ id }`（与供应商等模块一致）
@@ -448,7 +448,7 @@
   - `DELETE /api/supply-chain/purchase-quotations/:id/permanent`：事务内先删明细再删主表（仅回收站且未审）
 - **前端明细（v1.2.1）**：页内 `MaterialSelector` 调 `GET /api/inv/bom/list`（采购报价菜单 `view` 已放行）选编码，含税单价 **`cgab05` = `cgab04` × (1 + `Tax`/100)**，按主表小数位四舍五入；备注列 **`remark`**；删除行前二次确认；主表已审时明细区域禁用并与后端一致拦截。
 - **明细关键字段（`UB_ERP_Buy_offer_list`）**
-  - **`kcaa01`–`kcaa05`**：材料编码/名称/规格/颜色/单位（选材自 `bom_000`）
+  - **`kcaa01`–`kcaa05`**：材料编码/名称/规格/颜色/单位（选材自 `UB_ERP_Bom_000`）
   - **`cgab04`**：单价（不含税）；**`Tax`**：税点 0–100（接口与库可能为小数税率，前端归一为百分比）
   - **`cgab05`**：单价（含税），只读计算字段
   - **`remark`**：行备注
@@ -485,19 +485,19 @@
   - `GET .../material-bill` 仍读取 `UB_ERP_Bom_pi_cost` / `UB_ERP_Bom_pi_consumption`；前端统一在 `production/analysis/material-sheet` 展示为「物料单统计表（明细）」和「物料单统计表（汇总）」。明细按成品款 `pq` 分段，汇总按整张 PI 合并；销售订单详情/编辑页不再内嵌物料单 Tab。
   - 明细分段抬头由 `UB_ERP_Sales_order.xsaj01 = UB_ERP_Sales_order_list.xsak01` 关联取得：PI号=`xsak01`、PO号=`xsaj06`、日期=`xsaj02`、厂款号=`kcaa09`、名称=`kcaa02`、客款号=`kcaa06`、组别=`kcaa10`、订单量=`xsak03`（空则 `plan_quantity`）；`UB_ERP_Sales_order_list` 无 `yl` 列，单品用量本期留空。汇总页抬头本期不处理。
 - **关键字段**
-  - 主表：`pass`（审核）、`del`（软删）、运算列（探测 `isok` 或 `is_pur`）、`kehu`/客户名快照、`xsaj05`（客户代码 = `System_sales_customer.s_code`）、`rmb`/币别名称快照、`xsaj07`（币别 id = `bom_currency.id`）、`xsaj02` 销售日期、`xsaj06` PO 号、`d_code` 保存为空值、`type=1` 等
-  - 明细：`kcaa01`（货品编码）、`xsak03`/`plan_quantity`（订货数量，**不参与** 运算写入）、`xsak04`（单价）、`xsak05`（金额 = 数量 × 单价）；展示快照字段来自 `bom_000`，当前明细显示使用 `kcaa06`（客款号）、`kcaa02`（用料名称中文）、`kcaa10`（组别）、`kcaa09`（工厂款号）、`version`（版本）；销售订单主列表展开明细的「用量」不来自明细表物理列，而是按 `xsak01/kcaa01` 对应 `UB_ERP_Bom_pi_cost.sid/pq` 汇总 `kcac04/kcac06`，显示为 `成本：SUM(kcac04),SUM(kcac06)`
+  - 主表：`pass`（审核）、`del`（软删）、运算列（探测 `isok` 或 `is_pur`）、`kehu`/客户名快照、`xsaj05`（客户代码 = `UB_ERP_System_sales_customer.s_code`）、`rmb`/币别名称快照、`xsaj07`（币别 id = `UB_ERP_System_currency.id`）、`xsaj02` 销售日期、`xsaj06` PO 号、`d_code` 保存为空值、`type=1` 等
+  - 明细：`kcaa01`（货品编码）、`xsak03`/`plan_quantity`（订货数量，**不参与** 运算写入）、`xsak04`（单价）、`xsak05`（金额 = 数量 × 单价）；展示快照字段来自 `UB_ERP_Bom_000`，当前明细显示使用 `kcaa06`（客款号）、`kcaa02`（用料名称中文）、`kcaa10`（组别）、`kcaa09`（工厂款号）、`version`（版本）；销售订单主列表展开明细的「用量」不来自明细表物理列，而是按 `xsak01/kcaa01` 对应 `UB_ERP_Bom_pi_cost.sid/pq` 汇总 `kcac04/kcac06`，显示为 `成本：SUM(kcac04),SUM(kcac06)`
     - `GET /api/inventory/pi-bom-data/list`：PI_BOM资料首页分页接口；按销售订单明细款展示，一行 = 一个 PI 号下的一个成品编码。默认只查销售订单主表 `del` 为空或 `0` 且 `pass=1` 的在册已审核订单；搜索只匹配 PI 号 `UB_ERP_Sales_order_list.xsak01` 或编码 `kcaa01`。列表字段来自 `UB_ERP_Sales_order_list`，状态/录入时间/运算状态补 `UB_ERP_Sales_order`，成本用量按 `UB_ERP_Bom_pi_cost.sid = xsak01` 且 `pq = kcaa01` 汇总 `kcac04/kcac06`，分类中文名用 `UB_ERP_Sales_order_list.kcaa05 = UB_ERP_Stocks_material.code` 取 `UB_ERP_Stocks_material.name`。操作列提供查看（只读弹窗）与编辑（2 标签维护弹窗）。
-  - `GET /api/inventory/pi-bom-data/detail`：PI_BOM资料查看详情接口；入参 `orderId + kcaa01`，先按销售订单主表/明细校验该编码属于该订单且订单未删除，再返回四块数据。`基础资料` 取 `UB_ERP_Bom_Sales`（`sid=PI号`、`kcaa01=编码`）；`配件明细` 取当前层直接子件；`PI_BOM树形` 只按 `UB_ERP_Bom_Sales_list.kcac01 -> systemcode/kcac02` 展开；`成本BOM用量表` 取 `UB_ERP_Bom_pi_cost`（`sid=PI号`、`pq=编码`）。该查看详情不读取 `bom_000`、`Bom_parts`、`bom_cost`，也不触发同步 BOM 或一键运算。
+  - `GET /api/inventory/pi-bom-data/detail`：PI_BOM资料查看详情接口；入参 `orderId + kcaa01`，先按销售订单主表/明细校验该编码属于该订单且订单未删除，再返回四块数据。`基础资料` 取 `UB_ERP_Bom_Sales`（`sid=PI号`、`kcaa01=编码`）；`配件明细` 取当前层直接子件；`PI_BOM树形` 只按 `UB_ERP_Bom_Sales_list.kcac01 -> systemcode/kcac02` 展开；`成本BOM用量表` 取 `UB_ERP_Bom_pi_cost`（`sid=PI号`、`pq=编码`）。该查看详情不读取 `UB_ERP_Bom_000`、`UB_ERP_Bom_parts`、`UB_ERP_Bom_cost`，也不触发同步 BOM 或一键运算。
   - `GET /api/inventory/pi-bom-data/parts`：PI_BOM资料配件明细当前层接口；入参 `orderId + kcaa01 + parentSystemcode`，读取 `UB_ERP_Bom_Sales_list` 中 `sid = PI号`、`pkcaa01 = 当前成品编码`、`kcac01 = 当前层父级 systemcode`、`del` 为空或 `0` 的直接子件。
   - `GET /api/inventory/pi-bom-data/node-basic`：PI_BOM下层节点基础资料；入参 `orderId + kcaa01 + nodeSystemcode`。若节点等于成品头 `UB_ERP_Bom_Sales.systemcode` 则返回头表；否则从 `UB_ERP_Bom_Sales_list` 按 `systemcode/kcac02` 匹配返回节点快照（供 `parts-edit` 独立窗口基础资料只读展示）。
   - `PUT /api/inventory/pi-bom-data/basic`：PI_BOM资料主档维护；只更新 `UB_ERP_Bom_Sales`（`sid + kcaa01 + systemcode` 锁定），可改名称/规格/分类/单位/损耗/价格/备注等；不改 PI号、成品编码、systemcode。保存后销售订单主表标为未运算。
   - `PUT /api/inventory/pi-bom-data/parts`：PI_BOM资料配件明细维护接口；写入表只限 `UB_ERP_Bom_Sales_list`。新增行写 `sid = PI号`、`pkcaa01 = 当前成品编码`、`kcac01 = 当前层父级 systemcode`，并生成新的 `systemcode/kcac02` 用于后续下钻；修改可维护用量、损耗、单价、备注；删除为物理删除，并按当前 PI + 当前成品树精确删除该行下级子孙行。保存后销售订单主表标为未运算，不自动重算 `UB_ERP_Bom_pi_cost`。
-  - `POST /api/inventory/pi-bom-data/replace-material`：PI-BOM 物料批量替换；只读 `bom_000` 取目标物料档案，更新 `UB_ERP_Bom_Sales_list` 匹配行（`sid`+源 `kcaa01`，可选 `pkcaa01`；`Describe` 始终参与筛选且精确匹配，留空只命中搭配为空的行）；同步 `kcaa01`~`kcaa35` 及 list 与主档同名的物料快照列；不改树键、用量、`Describe`、`UB_ERP_Bom_Sales`、`UB_ERP_Bom_pi_cost`；body 支持 `dryRun:true` 预检命中行数；执行后销售订单标未运算。
-  - 一键运算物料明细：`UB_ERP_Bom_pi_cost` 读取 `UB_ERP_Bom_Sales_list`，运算口径照 BOM 资料一键运算；平铺不合并，不按 `UB_ERP_Bom_Sales_list.id` 二次去重；隐藏前缀里普通 `RP-` 材料必须写入，仅 `RP-PQ` 结构行不写入；`kcac04` 写父级用量一路连乘后的结果；`px` 按子件 `kcaa01` → `bom_000.kcaa05` → `UB_ERP_Stocks_material.code` → `UB_ERP_Stocks_material.px` 补入，找不到则留空。
-  - 审计：`UB_ERP_Sales_order.utruename`、`UB_ERP_Sales_order_list.utruename`、`UB_ERP_Bom_Sales.utruename`、`UB_ERP_Bom_Sales_list.utruename` 写当前操作人真实姓名，必须按登录 `usercode` 查询 `Sys_Users.truename`；禁止写 `Sys_Users.UserNmae` / `UserName` / 登录态显示名。
-  - 销售订单明细兼容快照：保存时按明细 `kcaa01` 精确匹配 `bom_000.kcaa01` 最新在册行；`xsak02` 取 `bom_000.GUID`；`kcac01` 取销售订单主表 `GUID/systemcode`；`kcac02`、`GUID`、`systemcode` 同 `xsak02`；`kcac03` 取 `bom_000.kcaa25`（采购单位）；`kcaa07/08/11/12/13/14/15/25/26/16/27/28/29/30/31`、`type`、`location`、`pass`、`remark` 从 `bom_000` 抄快照；保存前校验两表必需列，缺列则提示具体字段。
-  - PI BOM list：建款/同步 BOM 时从销售明细 `kcaa01` 对应 `bom_000.GUID` 起递归读取 `Bom_parts`；写入 `UB_ERP_Bom_Sales_list` 时不按 `kcaa01`、`systemcode`、`kcac02` 或 `Describe` 合并，`Bom_parts.id` 不同即不同源行；命中 `Bom_code.copen=1` 且 `flag5 + '-'` 的结构行不写入 list，但继续向下遍历，`CUT-` 和 `RP-` 例外必须写入，`RP-PQ` 仍作为结构前缀过滤不写入；被过滤结构行的子行 `kcac01` 仍保留原始真实父级；`kcac04` 用量、`kcac05` 损耗、`Describe` 备注（维护 UI 可改）；PI BOM 标签页树形展示按 `UB_ERP_Bom_Sales_list.kcac01 -> UB_ERP_Bom_Sales_list.kcac02` 展开，`kcac02` 是下一层子 BOM 头键；前端树行唯一键用物理行 `id`，不使用可能重复的 `systemcode`。
+  - `POST /api/inventory/pi-bom-data/replace-material`：PI-BOM 物料批量替换；只读 `UB_ERP_Bom_000` 取目标物料档案，更新 `UB_ERP_Bom_Sales_list` 匹配行（`sid`+源 `kcaa01`，可选 `pkcaa01`；`Describe` 始终参与筛选且精确匹配，留空只命中搭配为空的行）；同步 `kcaa01`~`kcaa35` 及 list 与主档同名的物料快照列；不改树键、用量、`Describe`、`UB_ERP_Bom_Sales`、`UB_ERP_Bom_pi_cost`；body 支持 `dryRun:true` 预检命中行数；执行后销售订单标未运算。
+  - 一键运算物料明细：`UB_ERP_Bom_pi_cost` 读取 `UB_ERP_Bom_Sales_list`，运算口径照 BOM 资料一键运算；平铺不合并，不按 `UB_ERP_Bom_Sales_list.id` 二次去重；隐藏前缀里普通 `RP-` 材料必须写入，仅 `RP-PQ` 结构行不写入；`kcac04` 写父级用量一路连乘后的结果；`px` 按子件 `kcaa01` → `UB_ERP_Bom_000.kcaa05` → `UB_ERP_Stocks_material.code` → `UB_ERP_Stocks_material.px` 补入，找不到则留空。
+  - 审计：`UB_ERP_Sales_order.utruename`、`UB_ERP_Sales_order_list.utruename`、`UB_ERP_Bom_Sales.utruename`、`UB_ERP_Bom_Sales_list.utruename` 写当前操作人真实姓名，必须按登录 `usercode` 查询 `UB_ERP_User.truename`；禁止写 `UB_ERP_User.UserNmae` / `UserName` / 登录态显示名。
+  - 销售订单明细兼容快照：保存时按明细 `kcaa01` 精确匹配 `UB_ERP_Bom_000.kcaa01` 最新在册行；`xsak02` 取 `UB_ERP_Bom_000.GUID`；`kcac01` 取销售订单主表 `GUID/systemcode`；`kcac02`、`GUID`、`systemcode` 同 `xsak02`；`kcac03` 取 `UB_ERP_Bom_000.kcaa25`（采购单位）；`kcaa07/08/11/12/13/14/15/25/26/16/27/28/29/30/31`、`type`、`location`、`pass`、`remark` 从 `UB_ERP_Bom_000` 抄快照；保存前校验两表必需列，缺列则提示具体字段。
+  - PI BOM list：建款/同步 BOM 时从销售明细 `kcaa01` 对应 `UB_ERP_Bom_000.GUID` 起递归读取 `UB_ERP_Bom_parts`；写入 `UB_ERP_Bom_Sales_list` 时不按 `kcaa01`、`systemcode`、`kcac02` 或 `Describe` 合并，`UB_ERP_Bom_parts.id` 不同即不同源行；命中 `UB_ERP_Bom_code.copen=1` 且 `flag5 + '-'` 的结构行不写入 list，但继续向下遍历，`CUT-` 和 `RP-` 例外必须写入，`RP-PQ` 仍作为结构前缀过滤不写入；被过滤结构行的子行 `kcac01` 仍保留原始真实父级；`kcac04` 用量、`kcac05` 损耗、`Describe` 备注（维护 UI 可改）；PI BOM 标签页树形展示按 `UB_ERP_Bom_Sales_list.kcac01 -> UB_ERP_Bom_Sales_list.kcac02` 展开，`kcac02` 是下一层子 BOM 头键；前端树行唯一键用物理行 `id`，不使用可能重复的 `systemcode`。
 - **权限（按钮级）**
   - 菜单 path：`supply-chain/daily/sales-order`：`view`、`add`、`edit`、`audit`、`delete`
 
@@ -517,7 +517,7 @@
 - **权限（按钮级）**
   - 菜单 path：`supply-chain/daily/outsourcing-quote`：`view`、`add`、`edit`、`audit`、`delete`
 
-### 3.13 `Sys_Users`（用户 / 操作员）
+### 3.13 `UB_ERP_User`（用户 / 操作员）
 
 - **Schema**：通常为 `dbo`（实际由数据库决定）
 - **模块/页面**
@@ -525,7 +525,7 @@
   - 设计：`src/views/system/rbac_design.md`（含与角色表关系说明）
 - **接口（后端：`server/index.js` + `server/operatorUsersHandlers.js`）**
   - **旧版表结构**（`INFORMATION_SCHEMA` 判定为 legacy：`uid` + `username` + `usercode`，且存在 `del`、`pass`）时由 **操作员管理**（`server/operatorUsersHandlers.js`）接管：
-    - `GET /api/users`：默认 `del=0`（`status=1`）或回收站 `del=1`（`status=0`）；**姓名列直接取 `Sys_Users.truename`**（不再 JOIN `Hr_staff`）；`LEFT JOIN Sys_Roles` 取 `RoleName`；`keyword` 可对 `usercode` / `username` / `truename` 模糊匹配；列表含 `Pass`；分页仅 `ROW_NUMBER()`（SQL Server 2008 R2）。
+    - `GET /api/users`：默认 `del=0`（`status=1`）或回收站 `del=1`（`status=0`）；**姓名列直接取 `UB_ERP_User.truename`**（不再 JOIN `UB_ERP_Hr_staff`）；`LEFT JOIN UB_ERP_System_role` 取 `RoleName`；`keyword` 可对 `usercode` / `username` / `truename` 模糊匹配；列表含 `Pass`；分页仅 `ROW_NUMBER()`（SQL Server 2008 R2）。
     - `GET /api/users/:id`：单条只读详情（同上 JOIN）。
     - `PUT /api/users`：`op=unpass` 将 `pass` 置 `0`（反审核）；`op=soft_delete` 将 `del` 置 `1` 并写 `deltime`；普通 body 为编辑（写 `edittime` 及存在的 `uid`/`uname`/`utruename` 审计列）；日志 Content 按规则 16 / 产品模版拼接。
     - `PUT /api/users/resume`：回收站恢复为 `del=0`（并清 `deltime` 若存在列）。
@@ -538,16 +538,16 @@
   - **`UserID`**：业务主键（自增）；列表/编辑/反审/软删的 `WHERE` 均以 **`UserID=@UserID`** 为准（`server/getSysUsersEntityPkQb`：有 `UserID` 列优先，否则退回仅 `uid` 的极旧库）。
   - **`uid`**：与 `UserID` 并存时作**审计/人事关联**（`getSysUsersAuditUidQb`）；**禁止**再当作列表主键或 `WHERE` 定位行。
   - `usercode` / `username` / **`truename`**：旧版中 `username` 为登录账号展示列；**`truename` 为姓名**；编辑/新增时由后端按列元数据拼 SQL。
-  - `RoleID`：外键指向 `Sys_Roles.RoleID`（约束名：`FK_Sys_Users_Sys_Roles_RoleID`）
+  - `RoleID`：外键指向 `UB_ERP_System_role.RoleID`（约束名：`FK_UB_ERP_User_UB_ERP_System_role_RoleID`）
   - `is_active`：账号可登录（1/0）；员工离职后置 0（用于封禁登录；与 `del` 并存时两者均会校验）
 
 ## 4. 环境变量清单（与表名相关）
 
-- `HR_LEGACY_DEPT_TABLE`：部门/岗位表名，默认 `HR_Departments`
-- `HR_STAFF_TABLE`：员工档案表名，默认 `Hr_staff`
-- `INV_BOM_MASTER_TABLE`：BOM 主档表名，默认 `bom_000`（仅字母数字下划线）
-- `INV_BOM_CURRENCY_TABLE`：BOM 币别表名，默认 `bom_currency`（仅字母数字下划线）
-- `INV_BOM_PARTS_TABLE`：BOM 配件明细表名，默认 `Bom_parts`（仅字母数字下划线）
+- `HR_LEGACY_DEPT_TABLE`：部门/岗位表名，默认 `UB_ERP_Hr_department`
+- `HR_STAFF_TABLE`：员工档案表名，默认 `UB_ERP_Hr_staff`
+- `INV_BOM_MASTER_TABLE`：BOM 主档表名，默认 `UB_ERP_Bom_000`（仅字母数字下划线）
+- `INV_BOM_CURRENCY_TABLE`：BOM 币别表名，默认 `UB_ERP_System_currency`（仅字母数字下划线）
+- `INV_BOM_PARTS_TABLE`：BOM 配件明细表名，默认 `UB_ERP_Bom_parts`（仅字母数字下划线）
 - `DB_REQUEST_TIMEOUT_MS`：SQL 请求超时（mssql/tedious），默认 `60000`；旧默认 15000ms 易在大查询时报「Timeout: Request failed to complete」
 
 ## 5. 维护指引（建议）
@@ -560,33 +560,33 @@
 
 以下清单来自对 `server/` 目录内 SQL 语句（`FROM/JOIN/INSERT/UPDATE/DELETE`）的扫描，用于“反向校验：后端实际用到了哪些表”。
 
-- **`Sys_Users`**
+- **`UB_ERP_User`**
   - 来源：`server/index.js`（登录、用户列表/增删改等）
   - 来源：`server/apiPermissionGate.js`（鉴权时读取当前用户角色权限）
-- **`Sys_Roles`**
+- **`UB_ERP_System_role`**
   - 来源：`server/index.js`（角色管理、用户列表 JOIN 角色名、登录返回权限）
   - 来源：`server/apiPermissionGate.js`（鉴权 JOIN 读取 `Permissions`）
 - **`Sys_OperationLogs`**
   - 来源：`server/index.js`（列表、清空、底层 `writeOperationLog`）
   - 来源：`server/operationAuditMiddleware.js`（v1.1.1 起：POST/PUT/DELETE 成功后的自动审计写入）
-- **`dbo.[${HR_LEGACY_DEPT_TABLE}]`（默认 `dbo.[HR_Departments]`）**
+- **`dbo.[${HR_LEGACY_DEPT_TABLE}]`（默认 `dbo.[UB_ERP_Hr_department]`）**
   - 来源：`server/index.js`
   - 说明：通过 `HR_LEGACY_DEPT_FROM = \`dbo.[${HR_LEGACY_DEPT_TABLE}]\`` 统一引用；同时被部门资料接口与员工档案“部门/岗位下拉”接口使用。
-- **`dbo.[${HR_STAFF_TABLE}]`（默认 `dbo.[Hr_staff]`）**
+- **`dbo.[${HR_STAFF_TABLE}]`（默认 `dbo.[UB_ERP_Hr_staff]`）**
   - 来源：`server/index.js`
   - 说明：通过 `HR_STAFF_FROM = \`dbo.[${HR_STAFF_TABLE}]\`` 统一引用；员工档案 CRUD/审核均走该表。
-- **`dbo.[Hr_room]` / `dbo.[Hr_room_in]` / `dbo.[Hr_room_use]`**
+- **`dbo.[UB_ERP_Hr_room]` / `dbo.[UB_ERP_Hr_room_in]` / `dbo.[UB_ERP_Hr_room_use]`**
   - 来源：`server/index.js`（宿舍列表、办理入住、住宿总览/历史/入住单审核）
-- **`dbo.[bom_000]`（表名可由环境变量 `INV_BOM_MASTER_TABLE` 覆盖）**
+- **`dbo.[UB_ERP_Bom_000]`（表名可由环境变量 `INV_BOM_MASTER_TABLE` 覆盖）**
   - 来源：`server/index.js`（`GET /api/inv/bom/list`、`GET /api/inventory/bom/:id`、`POST /api/inventory/bom/usage-calc/:systemcode`）
-- **`dbo.[Bom_parts]`（表名可由 `INV_BOM_PARTS_TABLE` 覆盖）**
+- **`dbo.[UB_ERP_Bom_parts]`（表名可由 `INV_BOM_PARTS_TABLE` 覆盖）**
   - 来源：`server/index.js`（`GET`/`PUT /api/inventory/bom/parts/:systemcode`、`POST /api/inventory/bom/save-parts`、`POST /api/inventory/bom/usage-calc/:systemcode`）
-  - **保存配件明细（PUT/POST）**：对每一行在事务内执行统一 **UPDATE**——**双重锁定** `p.id` + `p.kcac01`（当前主 BOM 的 `systemcode`）；通过 **`OUTER APPLY`** 按 `p.kcaa01` 关联 **`bom_000`** 在册最新一行（`ORDER BY b.id DESC`，与 GET 明细一致），将 **`kcaa01`～`kcaa35`**（仅写入表中存在的列）、**`kcac02`** 及 **`systemcode`**（若明细表存在该列，值同子 BOM `bom_000.systemcode`）从主档同步；**`kcac04`/`kcac05`/`kcac06`、`cost_price`、`remark`、`Seq`** 仍以请求体为准。无匹配子 BOM 时：`kcaa02`/`kcaa03`/`kcaa04`/`kcaa11` 回落到请求体，其余 `kcaa` 保留行内原值。新增行：`INSERT … OUTPUT INSERTED.id` 后立即同上 UPDATE。物理删除逻辑未改。
-  - **审计**：若配件编码在 `bom_000` 存在在册子档，保存成功后额外写日志：`[同步]了BOM配件属性，主BOM：[systemcode]，配件：[kcaa01]，已同步kcaa01-kcaa35共35个字段。`（动作名：`同步BOM配件属性`）
-- **`dbo.[Bom_cost]` / `dbo.[Bom_consumption]`**
+  - **保存配件明细（PUT/POST）**：对每一行在事务内执行统一 **UPDATE**——**双重锁定** `p.id` + `p.kcac01`（当前主 BOM 的 `systemcode`）；通过 **`OUTER APPLY`** 按 `p.kcaa01` 关联 **`UB_ERP_Bom_000`** 在册最新一行（`ORDER BY b.id DESC`，与 GET 明细一致），将 **`kcaa01`～`kcaa35`**（仅写入表中存在的列）、**`kcac02`** 及 **`systemcode`**（若明细表存在该列，值同子 BOM `UB_ERP_Bom_000.systemcode`）从主档同步；**`kcac04`/`kcac05`/`kcac06`、`cost_price`、`remark`、`Seq`** 仍以请求体为准。无匹配子 BOM 时：`kcaa02`/`kcaa03`/`kcaa04`/`kcaa11` 回落到请求体，其余 `kcaa` 保留行内原值。新增行：`INSERT … OUTPUT INSERTED.id` 后立即同上 UPDATE。物理删除逻辑未改。
+  - **审计**：若配件编码在 `UB_ERP_Bom_000` 存在在册子档，保存成功后额外写日志：`[同步]了BOM配件属性，主BOM：[systemcode]，配件：[kcaa01]，已同步kcaa01-kcaa35共35个字段。`（动作名：`同步BOM配件属性`）
+- **`dbo.[UB_ERP_Bom_cost]` / `dbo.[Bom_consumption]`**
   - 来源：`server/index.js`（`GET /api/inv/bom/list` 汇总、`GET /api/inventory/bom/usage-result/:systemcode`、`POST /api/inventory/bom/usage-calc/:systemcode`）
-  - `bom_cost.px`：仅库存 BOM 一键运算且主档 `pq` 以 `PQ-` 开头时写入；来源链路为明细 `kcaa01` → `bom_000.kcaa05` → `UB_ERP_Stocks_material.code` → `UB_ERP_Stocks_material.px`。非 `PQ-` 主 BOM 不写该排序值，避免影响纸格导入下级 BOM 的排序。
-- **`dbo.[Bom_code]`**
+  - `UB_ERP_Bom_cost.px`：仅库存 BOM 一键运算且主档 `pq` 以 `PQ-` 开头时写入；来源链路为明细 `kcaa01` → `UB_ERP_Bom_000.kcaa05` → `UB_ERP_Stocks_material.code` → `UB_ERP_Stocks_material.px`。非 `PQ-` 主 BOM 不写该排序值，避免影响纸格导入下级 BOM 的排序。
+- **`dbo.[UB_ERP_Bom_code]`**
   - 来源：`server/index.js`（BOM 用量运算规则：`copen=1`、`flag5` 动态匹配）
 - **`dbo.[UB_ERP_Stocks_colorcode]`**
   - 来源：`server/index.js`（颜色编码列表、新增、审核、反审、软删、回收站彻底删、恢复）
@@ -598,7 +598,7 @@
 
 - **`dbo.[UB_ERP_Stocks_material]`**
   - 来源：`server/index.js`（材料分类列表、新增、审核、反审、软删、恢复）；`server/bom/registerBomRoutes.js`（BOM 列表分类展示）；`server/bomCostEnrichFromBom000.js`（BOM/PI 成本 px 补值）
-  - `code` 为材料分类编号；`px` 为分类排序值，供 `PQ-` 主 BOM 成本运算写入 `bom_cost.px`。
+  - `code` 为材料分类编号；`px` 为分类排序值，供 `PQ-` 主 BOM 成本运算写入 `UB_ERP_Bom_cost.px`。
 
 - **`dbo.[UB_ERP_Stocks_workshop]`**
   - 来源：`server/index.js`（车间与部门编码列表、新增、审核、反审、软删、恢复）；`server/bom/registerBomRoutes.js`（BOM 详情生产车间名称展示）
@@ -611,7 +611,7 @@
   - 来源：`server/outsourcingQuotationHandlers.js`（外协报价 REST）
   - 来源：`server/assistOrderBatchAdd.js`（外协订单批量选材带价）
 
-- **`dbo.[System_uplod_file]`**
+- **`dbo.[UB_ERP_System_uplod_file]`**
   - 来源：`server/paperPatternImportFilesList.js`（`GET /api/paper-pattern/import/files/list`）；列表范围 `filepath` 含 `ub_bom`；环境变量 `SYSTEM_UPLOAD_FILE_TABLE`
   - 磁盘：`PAPER_PATTERN_UPLOAD_DIR` / `PAPER_PATTERN_DOWNLOAD_ROOT`（`server/paperPatternFilePaths.js`）
 

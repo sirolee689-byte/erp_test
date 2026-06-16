@@ -12,7 +12,7 @@ describe('piBomDataHandlers', () => {
     assert.match(sqlWithPq, /@pq/)
   })
 
-  test('PI-BOM material replace maps list kcac03 from bom_000 kcaa25', () => {
+  test('PI-BOM material replace maps list kcac03 from UB_ERP_Bom_000 kcaa25', () => {
     const selectList = buildPiBomReplaceBomSelectList(['kcaa01', 'kcac03', 'cost_price'])
 
     assert.match(selectList, /b\.\[kcaa01\] AS \[kcaa01\]/)

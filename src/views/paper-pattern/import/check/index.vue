@@ -42,7 +42,7 @@
 
           <p class="hint">
             第 1 行视为表头不参与校验；必填：kcaa01、kcaa02；校验项含 Excel 内编号重复、库内编号已存在（表
-            <code>Bom_000</code>，在册 del 为空或 0）。
+            <code>UB_ERP_Bom_000</code>，在册 del 为空或 0）。
           </p>
 
           <div v-if="tableFlatRows.length === 0" class="empty-hint">无数据行可校验</div>

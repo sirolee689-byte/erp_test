@@ -57,13 +57,13 @@
 | PI_BOM树形 | `UB_ERP_Bom_Sales_list`，按 `kcac01` 父级键与 `systemcode/kcac02` 子级键展开 |
 | 成本BOM用量表 | `UB_ERP_Bom_pi_cost`，按 `sid = PI号`、`pq = 编码` 查询已运算行 |
 
-详情弹窗不读取 `bom_000`、`Bom_parts`、`bom_cost`，也不触发同步 BOM 或一键运算。
+详情弹窗不读取 `UB_ERP_Bom_000`、`UB_ERP_Bom_parts`、`UB_ERP_Bom_cost`，也不触发同步 BOM 或一键运算。
 
 ## 编辑与维护口径
 
 - 主档保存只更新 `UB_ERP_Bom_Sales`；**PI号、系统编码、成品编码** 只读（销售订单明细键）。
 - 配件明细当前层读取条件为：`UB_ERP_Bom_Sales_list.sid = PI号`、`pkcaa01 = 当前成品编码`、`kcac01 = 当前层父级 systemcode`。
-- 新增配件使用现有物料选择器，只在 PI 自己的 `UB_ERP_Bom_Sales_list` 建立层级关系，不读取也不写入库存 BOM 的 `bom_000`、`Bom_parts`。
+- 新增配件使用现有物料选择器，只在 PI 自己的 `UB_ERP_Bom_Sales_list` 建立层级关系，不读取也不写入库存 BOM 的 `UB_ERP_Bom_000`、`UB_ERP_Bom_parts`。
 - 可修改字段：单位用量、损耗率、单价、备注；保存时重算当前行 `kcac06 = kcac04 * (1 + kcac05)`。
 - 删除为页面先移除、保存后物理删除；已保存行删除时，后端会在当前 PI + 当前成品的树内找到该行下级子孙行并一并物理删除。
 - 保存主档或配件明细后只把销售订单标为未运算，不自动重算 `UB_ERP_Bom_pi_cost`；成本BOM用量表需要重新一键运算后才更新。
@@ -73,7 +73,7 @@
 
 - 入口：首页顶部 `PI-BOM物料批量替换`；表单字段（每行一个）：PI号、PQ编码（留空则全部款）、物料源编码、目标物料编码、搭配（留空则仅匹配 `Describe` 为空的行；有搭配如「叻色」须填写后才能替换）。
 - 体验优化：PI/PQ/物料源/目标/搭配输入框均支持“输入触发下拉联想”；下拉仅显示编码，降低误输风险。
-- 立即执行：先预检命中行数并二次确认，再从 `bom_000`（旧系统称 UB_ERP_Bom_000）读取目标物料档案，批量更新 `UB_ERP_Bom_Sales_list` 中匹配行的物料属性（`kcaa01`~`kcaa35` 及同名快照列）。
+- 立即执行：先预检命中行数并二次确认，再从 `UB_ERP_Bom_000`（旧系统称 UB_ERP_Bom_000）读取目标物料档案，批量更新 `UB_ERP_Bom_Sales_list` 中匹配行的物料属性（`kcaa01`~`kcaa35` 及同名快照列）。
 - 筛选：`sid`=PI号；`kcaa01`=源编码；`pkcaa01`=PQ（可选）；`Describe`=搭配（精确匹配，留空只命中搭配为空的行；同款同码多行靠搭配区分）。
 - 不修改：`kcac01`/`kcac02`/`systemcode`（树键）、`kcac04`/`kcac05`/`kcac06`（用量损耗）、`Describe`（搭配）、`UB_ERP_Bom_Sales` 主档、`UB_ERP_Bom_pi_cost` 成本表。
 - 副作用：对应销售订单标为 **未运算**；须到销售订单对该 PI 执行 **一键运算** 后物料单才更新。

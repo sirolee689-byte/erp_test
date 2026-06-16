@@ -1,5 +1,5 @@
 /**
- * Bom_parts 单行插入 + 与库存 BOM 保存一致的「子件主档同步」UPDATE（从 index.js 抽取，供纸格导入等复用）
+ * UB_ERP_Bom_parts 单行插入 + 与库存 BOM 保存一致的「子件主档同步」UPDATE（从 index.js 抽取，供纸格导入等复用）
  */
 import sql from 'mssql'
 import { erpCodeLookupKey, normalizeErpCodeDisplay } from './paperPatternErpCodeNormalize.js'
@@ -10,7 +10,7 @@ import {
   INV_BOM_PARTS_TABLE,
 } from './bomTables.js'
 
-/** 纸格正式导入：批量预取 bom_000 时每批 IN 条件数 */
+/** 纸格正式导入：批量预取 UB_ERP_Bom_000 时每批 IN 条件数 */
 const PAPER_PATTERN_BOM_PARTS_PREFETCH_BATCH = 80
 
 /** 纸格专用列缓存，避免与 index.js 内 INV_BOM_PARTS_COLSET_PROMISE 混用 */
@@ -36,7 +36,7 @@ export async function getBomPartsColumnSetForPaperPattern(pool) {
       }
       return set
     } catch (err) {
-      console.warn('[Bom_parts 纸格] 读取列清单失败：', err?.message ?? err)
+      console.warn('[UB_ERP_Bom_parts 纸格] 读取列清单失败：', err?.message ?? err)
       return new Set()
     }
   })()
@@ -51,7 +51,7 @@ export async function getBomPartsDelColumnKindForPaperPattern(pool) {
 }
 
 /**
- * Bom_parts 列物理类型：数值型或 nvarchar（与 del 探测规则一致，供 pass 等状态位写入）
+ * UB_ERP_Bom_parts 列物理类型：数值型或 nvarchar（与 del 探测规则一致，供 pass 等状态位写入）
  * @param {import('mssql').ConnectionPool} pool
  * @param {string} columnName
  * @returns {Promise<'numeric'|'nvarchar'>}
@@ -76,7 +76,7 @@ export async function getBomPartsColumnDataKindForPaperPattern(pool, columnName)
   }
 }
 
-/** 纸格导入 Bom_parts：pass 默认已审核 */
+/** 纸格导入 UB_ERP_Bom_parts：pass 默认已审核 */
 export const PAPER_PATTERN_BOM_PARTS_PASS_DEFAULT = '1'
 
 const BOM_PARTS_NUMERIC_DATA_TYPES = new Set([
@@ -98,7 +98,7 @@ function bomPartsSqlDataTypeIsNumeric(dt) {
   return BOM_PARTS_NUMERIC_DATA_TYPES.has(String(dt ?? '').toLowerCase())
 }
 
-/** 纸格专用：Bom_parts 全表列物理类型缓存 */
+/** 纸格专用：UB_ERP_Bom_parts 全表列物理类型缓存 */
 let PP_BOM_PARTS_COL_KINDS_PROMISE = null
 
 /**
@@ -123,7 +123,7 @@ export async function getBomPartsColumnKindsForPaperPattern(pool) {
       }
       const numericCount = [...map.values()].filter((v) => v === 'numeric').length
       console.log(
-        '[Bom_parts 纸格] 列类型缓存',
+        '[UB_ERP_Bom_parts 纸格] 列类型缓存',
         map.size,
         '列，数值型',
         numericCount,
@@ -134,7 +134,7 @@ export async function getBomPartsColumnKindsForPaperPattern(pool) {
         PP_BOM_PARTS_COL_KINDS_PROMISE = null
       }
     } catch (err) {
-      console.warn('[Bom_parts 纸格] 读取列类型失败：', err?.message ?? err)
+      console.warn('[UB_ERP_Bom_parts 纸格] 读取列类型失败：', err?.message ?? err)
       PP_BOM_PARTS_COL_KINDS_PROMISE = null
     }
     return map
@@ -169,7 +169,7 @@ export function bomPartStrictNumericFromText(raw) {
 }
 
 /**
- * 预取 UPDATE：按 Bom_parts 列类型绑定 kcaa（数值列仅写可解析数字，避免 nvarchar→numeric 8114）
+ * 预取 UPDATE：按 UB_ERP_Bom_parts 列类型绑定 kcaa（数值列仅写可解析数字，避免 nvarchar→numeric 8114）
  * @param {import('mssql').Request} q
  * @param {string[]} setParts
  * @param {string} col
@@ -199,7 +199,7 @@ function bomPartParseDecimal(raw) {
   return Number.isFinite(n) ? n : 0
 }
 
-/** 纸格/辅料：空或无效为 null；有效数保留六位小数（与 Bom_000 一致） */
+/** 纸格/辅料：空或无效为 null；有效数保留六位小数（与 UB_ERP_Bom_000 一致） */
 function bomPartParseDecimalOrNull(raw) {
   if (raw === null || raw === undefined) return null
   const s = String(raw).replace(/,/g, '').trim()
@@ -232,7 +232,7 @@ function bomPartParseSeq(raw) {
 }
 
 /**
- * 纸格导入 Bom_parts 审计列：列存在则写入（值来自 req.user，非 Bom_000）
+ * 纸格导入 UB_ERP_Bom_parts 审计列：列存在则写入（值来自 req.user，非 UB_ERP_Bom_000）
  * @param {Set<string>} partColset
  * @param {import('mssql').Request} q
  * @param {string} insCols
@@ -307,7 +307,7 @@ function bom000ActiveDelFilterSql(alias = 'b') {
 }
 
 /**
- * bom_000 任意列 → nvarchar 表达式（SELECT/WHERE 通用）
+ * UB_ERP_Bom_000 任意列 → nvarchar 表达式（SELECT/WHERE 通用）
  * 必须先 CONVERT 再 ISNULL：ISNULL(数值列, N'') 在列为 NULL 时会触发 8114（SQL Server 2008 R2）
  * @param {string} tableAlias 表别名，如 b
  * @param {string} columnName 列名（不含括号），如 kcaa12
@@ -320,7 +320,7 @@ export function bom000SqlColumnToNvarchar(tableAlias, columnName, len = 500) {
 }
 
 /**
- * 批量预取子件 bom_000.systemcode（与单行 lookup 规则一致：未删、id 最大）
+ * 批量预取子件 UB_ERP_Bom_000.systemcode（与单行 lookup 规则一致：未删、id 最大）
  * @param {import('mssql').Transaction|import('mssql').ConnectionPool} poolOrTx
  * @param {string[]} kcaa01List
  * @returns {Promise<Map<string, string>>} key = erpCodeLookupKey(kcaa01)
@@ -381,7 +381,7 @@ async function bomPartsLookupSubBomSystemcode(poolOrTx, partMaterialCode) {
 const BOM_PARTS_KCAA_PAYLOAD_FALLBACK = new Set(['kcaa02', 'kcaa03', 'kcaa04', 'kcaa11'])
 
 /**
- * 批量预取 bom_000 最新行（供纸格 Bom_parts 同步 UPDATE，避免每行 OUTER APPLY）
+ * 批量预取 UB_ERP_Bom_000 最新行（供纸格 UB_ERP_Bom_parts 同步 UPDATE，避免每行 OUTER APPLY）
  * @param {import('mssql').Transaction|import('mssql').ConnectionPool} poolOrTx
  * @param {string[]} kcaa01List
  * @returns {Promise<Map<string, Record<string, string>>>} key = erpCodeLookupKey；含 systemcode、kcaa01～kcaa35
@@ -638,7 +638,7 @@ async function bomPartsApplyFullLineUpdate(tx, partColset, systemcode, rawId, ra
 }
 
 /**
- * 纸格导入：用预取 bom_000 行做单次 UPDATE（无 OUTER APPLY），并合并 kcac03/Describe/辅料扩展列
+ * 纸格导入：用预取 UB_ERP_Bom_000 行做单次 UPDATE（无 OUTER APPLY），并合并 kcac03/Describe/辅料扩展列
  * @param {import('mssql').Transaction} tx
  * @param {Set<string>} partColset
  * @param {string} parentSystemcode
@@ -762,7 +762,7 @@ async function bomPartsApplyPaperPatternPrefetchedUpdate(
 }
 
 /**
- * 插入一行 Bom_parts 并执行全字段同步 UPDATE
+ * 插入一行 UB_ERP_Bom_parts 并执行全字段同步 UPDATE
  * @param {import('mssql').Transaction} tx
  * @param {Set<string>} partColset
  * @param {'numeric'|'nvarchar'} delColKind
@@ -793,8 +793,8 @@ async function bomPartsApplyPaperPatternPrefetchedUpdate(
  * @param {{ subSystemcodeMap: Map<string, string>, bom000SyncMap: Map<string, Record<string, string>> }} [paperPatternPrefetch] 纸格批量预取（P0：避免每行 lookup + OUTER APPLY）
  * kcac06FromExcel：非空可解析时写入 kcac06（如纸格 I 列合计），否则按 kcac04*(1+kcac05) 计算；
  * useNullKcac05AndKcac06：裁片 CUT 子档行，kcac05/kcac06 写库 NULL；type：库内有列时写入，缺省为 1；
- * version：库内有 [version] 列时写入，缺省 100；sale_price：辅料行从 Bom_000 抄 BOM 价；
- * kcaa02EnFromBom000/locationFromBom000：仅辅料行从 Bom_000 抄入 Bom_parts（列存在时 UPDATE）
+ * version：库内有 [version] 列时写入，缺省 100；sale_price：辅料行从 UB_ERP_Bom_000 抄 BOM 价；
+ * kcaa02EnFromBom000/locationFromBom000：仅辅料行从 UB_ERP_Bom_000 抄入 UB_ERP_Bom_parts（列存在时 UPDATE）
  * @returns {Promise<number>} inserted id
  */
 export async function insertBomPartsLinePaperPattern(
@@ -808,7 +808,7 @@ export async function insertBomPartsLinePaperPattern(
   paperPatternPrefetch,
 ) {
   const kcaa01 = String(line.kcaa01 ?? '').trim()
-  if (!kcaa01) throw new Error('Bom_parts 新增缺少 kcaa01')
+  if (!kcaa01) throw new Error('UB_ERP_Bom_parts 新增缺少 kcaa01')
 
   const useNullLossAndTotal = line.useNullKcac05AndKcac06 === true
   const kcac04 = bomPartRoundDecimal6(line.kcac04)
@@ -936,7 +936,7 @@ export async function insertBomPartsLinePaperPattern(
   `)
   const newId = Number(ir.recordset?.[0]?.inserted_id)
   if (!Number.isFinite(newId) || newId < 1) {
-    throw new Error('Bom_parts 新增失败：未取得 INSERTED.id')
+    throw new Error('UB_ERP_Bom_parts 新增失败：未取得 INSERTED.id')
   }
 
   const rawForSync = {

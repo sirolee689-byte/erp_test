@@ -1,6 +1,6 @@
 /**
  * 菜单与按钮级权限（v1.0.7+）
- * Sys_Roles.Permissions：
+ * UB_ERP_System_role.Permissions：
  * - 旧版 JSON 数组：["*"] 或 ["system/operator"]（仅菜单，等价该页全部操作）
  * - 新版 JSON 对象：{ "system/operator": ["view","add"], "system/role": ["all"] }
  * - 全局：{"*":["all"]} 或 ["*"]

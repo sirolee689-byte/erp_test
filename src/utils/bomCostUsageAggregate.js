@@ -14,7 +14,7 @@ export function bomCostUsageMatchesHidePrefix(kcaa01, hidePrefixes) {
   return false
 }
 
-/** 成本表排序键：优先 Bom_parts.Seq（纸格 Material 全局序），否则摊平下标 */
+/** 成本表排序键：优先 UB_ERP_Bom_parts.Seq（纸格 Material 全局序），否则摊平下标 */
 export function bomCostFlatRowSortKey(r, flatIndex) {
   const seqRaw = r?.Seq != null ? r.Seq : r?.seq
   if (seqRaw != null && seqRaw !== '' && Number.isFinite(Number(seqRaw))) {

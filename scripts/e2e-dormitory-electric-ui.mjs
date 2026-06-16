@@ -5,7 +5,7 @@
  * 2) 找到“入住人数>0”的房间，点击“电费管理”打开弹窗
  * 3) 输入“本期读数”，断言“合计金额”自动变化（无需点保存）
  * 4) 截图：展示整个弹窗，确保【保存】按钮清晰可见且不需要滚动
- * 5) 点击保存，落库 Hr_room_use，并验证 Sys_OperationLogs 存在“电费核算”审计
+ * 5) 点击保存，落库 UB_ERP_Hr_room_use，并验证 Sys_OperationLogs 存在“电费核算”审计
  *
  * 前置：.env 中 E2E_USERCODE、E2E_PASSWORD；本地 Vite(5173) + API(3001)。
  */
@@ -76,7 +76,7 @@ async function openElectricDialog(page) {
   const pickRs = await pool.request().query(`
     SELECT TOP (1)
       LTRIM(RTRIM(ISNULL(room_code, N''))) AS room_code
-    FROM dbo.Hr_room_use
+    FROM dbo.[UB_ERP_Hr_room_use]
     WHERE LTRIM(RTRIM(ISNULL(del, N'0'))) = N'0'
       AND LTRIM(RTRIM(ISNULL(room_code, N''))) <> N''
       AND LTRIM(RTRIM(ISNULL(tj_date, N''))) IN (N'2026-03', N'2026-02', N'2026-3', N'2026-2')
@@ -151,26 +151,26 @@ async function saveAndVerifyDb(page, dlg, roomCode) {
   await sleep(800)
   await page.screenshot({ path: outPngAfterSave, fullPage: true })
 
-  // 数据库核验：Hr_room_use 写入 + Sys_OperationLogs 审计
+  // 数据库核验：UB_ERP_Hr_room_use 写入 + Sys_OperationLogs 审计
   const { getPool } = await import('../server/db.js')
   const pool = await getPool()
 
   const useRs = await pool.request().input('room_code', roomCode).query(`
     SELECT TOP (1)
       id, room_code, tj_date, c_sum_money, c_old_end, c_this, c_electric, c_money, c_yh_electric
-    FROM dbo.Hr_room_use
+    FROM dbo.[UB_ERP_Hr_room_use]
     WHERE LTRIM(RTRIM(ISNULL(del, N'0'))) = N'0'
       AND LTRIM(RTRIM(ISNULL(room_code, N''))) = @room_code
     ORDER BY id DESC
   `)
   const useRow = useRs.recordset?.[0]
-  assert(useRow && String(useRow.room_code ?? '').trim() === roomCode, 'Hr_room_use 未找到最新写入记录')
-  assert(String(useRow.c_sum_money ?? '').trim() !== '', `Hr_room_use.c_sum_money 为空：${JSON.stringify(useRow)}`)
+  assert(useRow && String(useRow.room_code ?? '').trim() === roomCode, 'UB_ERP_Hr_room_use 未找到最新写入记录')
+  assert(String(useRow.c_sum_money ?? '').trim() !== '', `UB_ERP_Hr_room_use.c_sum_money 为空：${JSON.stringify(useRow)}`)
 
   const logRs = await pool.request().query(`
     SELECT TOP (1) Action, TargetTable, Content
     FROM dbo.Sys_OperationLogs
-    WHERE TargetTable = N'Hr_room_use'
+    WHERE TargetTable = N'UB_ERP_Hr_room_use'
       AND Action = N'电费核算'
     ORDER BY LogID DESC
   `)
@@ -265,7 +265,7 @@ async function verifySplitLogicExample(page, dlg) {
   const pickRs = await pool.request().query(`
     SELECT TOP (1)
       LTRIM(RTRIM(ISNULL(room_code, N''))) AS room_code
-    FROM dbo.Hr_room_in
+    FROM dbo.[UB_ERP_Hr_room_in]
     WHERE LTRIM(RTRIM(ISNULL(del, N'0'))) = N'0'
       AND LTRIM(RTRIM(ISNULL(out_room, N'0'))) = N'0'
       AND LTRIM(RTRIM(ISNULL(room_code, N''))) <> N''

@@ -3,11 +3,11 @@
 ### 1. 业务逻辑（白话版）
 - **这个功能是干嘛的？**：管理系统的“操作员账号”，可列表、查看、新增、编辑；**禁用**表示**反审核**（把 `pass` 写成 0）；**软删除**表示逻辑删除（把 `del` 写成 1 并记 `deltime`）；回收站里可**恢复**（`del` 回到 0）。
 - **谁会用？**：一般是管理员或人事/IT 人员（看你们公司权限怎么分）。
-- **旧版库（`uid+usercode+username` 且带 `del+pass`）**：列表「姓名」来自 **`Sys_Users.truename`**（不再关联 `Hr_staff`）；角色名来自 **`Sys_Roles.RoleName`**；默认只查 **`del=0`**；`status=0` 表示回收站 **`del=1`**。
+- **旧版库（`uid+usercode+username` 且带 `del+pass`）**：列表「姓名」来自 **`UB_ERP_User.truename`**（不再关联 `UB_ERP_Hr_staff`）；角色名来自 **`UB_ERP_System_role.RoleName`**；默认只查 **`del=0`**；`status=0` 表示回收站 **`del=1`**。
 
 ### 2. 数据库关联
-- **主表**：`Sys_Users`
-- **角色**：`Sys_Roles`（`Sys_Users.RoleID` → `RoleName`）
+- **主表**：`UB_ERP_User`
+- **角色**：`UB_ERP_System_role`（`UB_ERP_User.RoleID` → `RoleName`）
 - **关键字段（旧版+v1.1.9）**
   - **`UserID`**：业务主键（列表 `row-key`、编辑/禁用/软删请求体均用此字段；表格不展示该列）。
   - **`uid`**：审计/人事关联列；与 `UserID` 并存时由后端写入**当前操作者**，不作行定位主键。
@@ -90,7 +90,7 @@
 - **页面怎么用的（数据从数据库到网页）**
   - 页面加载 → `axios.get('/api/users', { params: { page, pageSize, keyword } })`
   - Vite 把 `/api` 代理到后端（见 `vite.config.js`）
-  - 后端查询 `Sys_Users` → 把 `list/total` 返回给前端
+  - 后端查询 `UB_ERP_User` → 把 `list/total` 返回给前端
   - 前端把 `list` 放进 `users` → `el-table` 自动渲染
   - **分页怎么工作的（超小白解释）**
     - 你点分页器 → 前端改 `page/pageSize`

@@ -137,7 +137,7 @@ export async function rewriteAssistOrderLines({
     const bomGuid = text(bomKeys?.bomGuid)
     if (!bomGuid) {
       throw new Error(
-        `货品 ${enriched.kcaa01} 在 bom_000 中缺少 GUID，无法写入明细 wxak02/GUID/systemcode`,
+        `货品 ${enriched.kcaa01} 在 UB_ERP_Bom_000 中缺少 GUID，无法写入明细 wxak02/GUID/systemcode`,
       )
     }
     const customerName = text(enriched.customerName) || text(bomKeys?.customerName) || null

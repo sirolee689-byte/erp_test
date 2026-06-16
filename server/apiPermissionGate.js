@@ -257,7 +257,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'hr/dormitory/lodging-records', action: 'audit' }
   }
 
-  /* BOM 用量运算：写 bom_cost（须先于 GET /api/bom/tree） */
+  /* BOM 用量运算：写 UB_ERP_Bom_cost（须先于 GET /api/bom/tree） */
   if (m === 'POST' && (path === '/api/bom/usage-calc' || path === '/api/bom/usage-calc-batch')) {
     return {
       anyOf: [
@@ -266,7 +266,7 @@ export function matchApiPermissionRule(method, path, body, params) {
       ],
     }
   }
-  /* BOM 用量树：无 bom_cost 缓存时递归 Bom_parts；有缓存时直读 bom_cost（只读） */
+  /* BOM 用量树：无 UB_ERP_Bom_cost 缓存时递归 UB_ERP_Bom_parts；有缓存时直读 UB_ERP_Bom_cost（只读） */
   if (m === 'GET' && path === '/api/bom/tree') {
     return {
       anyOf: [
@@ -410,7 +410,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     }
   }
 
-  /* v1.3.0+：BOM 列表（bom_cost 用量聚合改为单次 GROUP BY，非逐行 SQL） */
+  /* v1.3.0+：BOM 列表（UB_ERP_Bom_cost 用量聚合改为单次 GROUP BY，非逐行 SQL） */
   if (m === 'GET' && path === '/api/inv/bom/list') {
     return {
       anyOf: [

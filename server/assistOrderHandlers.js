@@ -361,7 +361,7 @@ export function registerAssistOrderRoutes(app, deps) {
         SELECT TOP 200 *
         FROM (
           SELECT
-            N'bom_000' AS source,
+            N'UB_ERP_Bom_000' AS source,
             N'' AS piNo,
             N'' AS product,
             CAST(NULL AS decimal(18, 2)) AS orderQty,
@@ -379,7 +379,7 @@ export function registerAssistOrderRoutes(app, deps) {
             LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(src.[Customer_supply], N'')))) AS customerSupply,
             CASE WHEN ISNULL(src.[kcaa13], 0) <> 0 THEN 1 ELSE 0 END AS isOutsource,
             src.[id] AS seq
-          FROM dbo.[bom_000] AS src
+          FROM dbo.[UB_ERP_Bom_000] AS src
           WHERE LTRIM(RTRIM(ISNULL(src.[pass], N''))) = N'1'
             AND (ISNULL(src.[del], N'') = N'' OR src.[del] = N'0')
             ${keywordSql}
@@ -414,7 +414,7 @@ export function registerAssistOrderRoutes(app, deps) {
           LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(src.[kcaa01], N'')))) AS feeCode,
           LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(src.[kcaa02], N'')))) AS feeName,
           LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(src.[kcaa05], N'')))) AS kcaa05
-        FROM dbo.[bom_000] AS src
+        FROM dbo.[UB_ERP_Bom_000] AS src
         WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(src.[kcaa05], N'')))) = N'FEE'
           AND LTRIM(RTRIM(ISNULL(src.[pass], N''))) = N'1'
           AND (ISNULL(src.[del], N'') = N'' OR src.[del] = N'0')

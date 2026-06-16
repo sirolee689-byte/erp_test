@@ -1,13 +1,13 @@
 /**
- * 管理纸格导入资料：System_uplod_file 分页列表（只读）
+ * 管理纸格导入资料：UB_ERP_System_uplod_file 分页列表（只读）
  */
 import sql from 'mssql'
 import { getPool } from './db.js'
 import { getSysUsersColumnsMeta, getSysUsersEntityPkQb } from './sysUsersDb.js'
 
 const SYSTEM_UPLOAD_FILE_TABLE =
-  String(process.env.SYSTEM_UPLOAD_FILE_TABLE ?? 'System_uplod_file').trim() ||
-  'System_uplod_file'
+  String(process.env.SYSTEM_UPLOAD_FILE_TABLE ?? 'UB_ERP_System_uplod_file').trim() ||
+  'UB_ERP_System_uplod_file'
 
 /** 仅纸格相关上传（与旧系统 filepath 约定一致） */
 const FILEPATH_SCOPE_LIKE = '%ub_bom%'
@@ -99,14 +99,14 @@ export function buildFilesizeSearchSqlFragment(keyword) {
 }
 
 /**
- * 上传者展示：优先 Sys_Users.truename（按 f.uid 关联），无匹配时回退 f.truename
+ * 上传者展示：优先 UB_ERP_User.truename（按 f.uid 关联），无匹配时回退 f.truename
  * @param {import('./sysUsersDb.js').SysUsersColumnsMeta} userMeta
  */
 export function buildPaperPatternUploaderSql(userMeta) {
   const qPk = getSysUsersEntityPkQb(userMeta)
   const qTruename = userMeta.qb('truename')
   const joinSql = qPk
-    ? `LEFT JOIN Sys_Users AS su ON LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(f.uid, N'')))) <> N''
+    ? `LEFT JOIN dbo.[UB_ERP_User] AS su ON LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(f.uid, N'')))) <> N''
         AND LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(f.uid, N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(su.${qPk}, N''))))`
     : ''
   const suTruenameExpr = qTruename

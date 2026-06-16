@@ -204,7 +204,7 @@ describe('salesOrderPiCostFields', () => {
     assert.equal(parsePiCostSalesListKcaa13(''), null)
   })
 
-  test('applyPiCostKcaa13FromSalesList：list 有值（含 0）覆盖 bom_000', () => {
+  test('applyPiCostKcaa13FromSalesList：list 有值（含 0）覆盖 UB_ERP_Bom_000', () => {
     const tree = [
       {
         id: 201,
@@ -242,7 +242,7 @@ describe('salesOrderPiCostFields', () => {
     assert.equal(merged[1].kcac06, 2)
   })
 
-  test('用量 kcac04/06 与 bom_cost payload 一致', () => {
+  test('用量 kcac04/06 与 UB_ERP_Bom_cost payload 一致', () => {
     const tree = buildBagHierarchyTree()
     const flat = flattenBomPartsCostUsageFlatForBomCost(tree, null, [])
     const bomPayload = buildBomCostInsertPayloadFromFlatUsage(

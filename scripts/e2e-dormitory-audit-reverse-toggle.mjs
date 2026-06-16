@@ -64,7 +64,7 @@ async function getPoolFromEnv() {
 async function pickOneActiveRoomInId(pool) {
   const r = await pool.request().query(`
     SELECT TOP 1 i.id
-    FROM dbo.[Hr_room_in] AS i
+    FROM dbo.[UB_ERP_Hr_room_in] AS i
     WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
       AND LTRIM(RTRIM(ISNULL(i.out_room, N'0'))) = N'0'
     ORDER BY
@@ -80,7 +80,7 @@ async function setPass(pool, id, p) {
   const r = pool.request()
   r.input('id', sql.Int, id)
   r.input('p', sql.NVarChar(10), p)
-  await r.query(`UPDATE dbo.[Hr_room_in] SET pass = @p WHERE id = @id`)
+  await r.query(`UPDATE dbo.[UB_ERP_Hr_room_in] SET pass = @p WHERE id = @id`)
 }
 
 /** 列表 keyword 模糊匹配：优先用房号缩小命中，避免短工号（如 00000）多行歧义 */
@@ -91,7 +91,7 @@ async function getListSearchKeywordById(pool, id) {
     SELECT
       LTRIM(RTRIM(ISNULL(room_code, N''))) AS rc,
       LTRIM(RTRIM(ISNULL(staff_code, N''))) AS sc
-    FROM dbo.[Hr_room_in]
+    FROM dbo.[UB_ERP_Hr_room_in]
     WHERE id = @id
   `)
   const rc = String(rs.recordset?.[0]?.rc ?? '').trim()
@@ -105,7 +105,7 @@ async function main() {
 
   const pool = await getPoolFromEnv()
   const rowId = await pickOneActiveRoomInId(pool)
-  assert(rowId, '库中无在住 Hr_room_in 记录，无法测试')
+  assert(rowId, '库中无在住 UB_ERP_Hr_room_in 记录，无法测试')
 
   await setPass(pool, rowId, '0')
   const listKw = await getListSearchKeywordById(pool, rowId)

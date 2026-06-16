@@ -1,5 +1,5 @@
 /**
- * 纸格 Material：按第 4 行 colorSources 列对齐，读取各行 N→右全码 ERP（正式导入 Bom_parts）
+ * 纸格 Material：按第 4 行 colorSources 列对齐，读取各行 N→右全码 ERP（正式导入 UB_ERP_Bom_parts）
  */
 import { normalizeErpCodeDisplay } from './paperPatternErpCodeNormalize.js'
 import { readExcelColNorm } from './paperPatternImportCutRow.js'
@@ -22,6 +22,48 @@ export function materialErpPrefix(code) {
   if (!d) return ''
   const slash = d.indexOf('/')
   return (slash >= 0 ? d.slice(0, slash) : d).trim()
+}
+
+export function materialCodeFromColorCell(cell) {
+  if (!cell || typeof cell !== 'object') return ''
+  return normalizeErpCodeDisplay(
+    cell.materialCode ?? cell.erpCode ?? cell.code ?? cell.value ?? '',
+  )
+}
+
+function colorNoBaseAlias(colorNo) {
+  const c = String(colorNo ?? '').trim()
+  if (!c) return ''
+  const hyphen = c.indexOf('-')
+  return hyphen > 0 ? c.slice(0, hyphen).trim() : c
+}
+
+function materialCodeColorSegment(code) {
+  const d = normalizeErpCodeDisplay(code)
+  const slash = d.lastIndexOf('/')
+  return slash >= 0 ? d.slice(slash + 1).trim() : ''
+}
+
+export function findMaterialColorCell(byColor, colorNo) {
+  const items = Array.isArray(byColor) ? byColor : []
+  const wanted = String(colorNo ?? '').trim()
+  if (!wanted) return null
+
+  const exact = items.find((x) => String(x?.colorNo ?? '').trim() === wanted)
+  if (exact) return exact
+
+  const alias = colorNoBaseAlias(wanted)
+  if (alias && alias !== wanted) {
+    const byAlias = items.find((x) => String(x?.colorNo ?? '').trim() === alias)
+    if (byAlias) return byAlias
+  }
+
+  if (alias) {
+    const byCodeSegment = items.find((x) => materialCodeColorSegment(materialCodeFromColorCell(x)) === alias)
+    if (byCodeSegment) return byCodeSegment
+  }
+
+  return null
 }
 
 /**
@@ -79,8 +121,8 @@ export function validateMaterialCodesByColorForCommit(materials, colorNos) {
     if (!groupNo) continue
     const byColor = Array.isArray(m.codesByColor) ? m.codesByColor : []
     for (const colorNo of colors) {
-      const hit = byColor.find((x) => String(x?.colorNo ?? '').trim() === colorNo)
-      const code = String(hit?.materialCode ?? '').trim()
+      const hit = findMaterialColorCell(byColor, colorNo)
+      const code = materialCodeFromColorCell(hit)
       if (!code) {
         missing.push({
           groupNo,
@@ -133,8 +175,8 @@ export function validateMaterialPrefixConsistency(materials, colorNos) {
     const entries = []
 
     for (const colorNo of sourceColors) {
-      const hit = byColor.find((x) => String(x?.colorNo ?? '').trim() === colorNo)
-      const materialCode = normalizeErpCodeDisplay(hit?.materialCode ?? '')
+      const hit = findMaterialColorCell(byColor, colorNo)
+      const materialCode = materialCodeFromColorCell(hit)
       const prefix = materialErpPrefix(materialCode)
       if (!materialCode || !prefix) continue
       entries.push({
@@ -189,8 +231,8 @@ export function resolveMaterialsForCommitColor(materials, colorNo) {
   const col = String(colorNo ?? '').trim()
   return (Array.isArray(materials) ? materials : []).map((m) => {
     const byColor = Array.isArray(m.codesByColor) ? m.codesByColor : []
-    const hit = byColor.find((x) => String(x?.colorNo ?? '').trim() === col)
-    const fullCode = String(hit?.materialCode ?? m?.materialCode ?? '').trim()
+    const hit = findMaterialColorCell(byColor, col)
+    const fullCode = materialCodeFromColorCell(hit) || normalizeErpCodeDisplay(m?.materialCode ?? '')
     return {
       ...m,
       materialCode: fullCode,

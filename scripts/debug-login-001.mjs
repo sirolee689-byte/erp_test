@@ -1,5 +1,5 @@
 /**
- * 诊断 001 登录：打印 Sys_Users 列元数据、模拟登录行、isSysUserRowLoginDisabled、POST /api/login
+ * 诊断 001 登录：打印 UB_ERP_User 列元数据、模拟登录行、isSysUserRowLoginDisabled、POST /api/login
  * 用法：node scripts/debug-login-001.mjs
  */
 import dotenv from 'dotenv'
@@ -46,7 +46,7 @@ async function main() {
         CAST(NULL AS INT) AS RoleID,
         CAST(${roleNameSql} AS NVARCHAR(50)) AS RoleName,
         CAST(${permSql} AS NVARCHAR(MAX)) AS Permissions
-      FROM Sys_Users AS u
+      FROM dbo.[UB_ERP_User] AS u
       LEFT JOIN ${meta.hrStaffFrom} AS s ON s.[id] = u.${qUid}
       WHERE u.${qUsername} = @LoginId OR u.${qUsercode} = @LoginId
     `)
@@ -61,7 +61,7 @@ async function main() {
         u.Status,
         ${meta.set.has('is_active') ? 'u.is_active AS is_active,' : ''}
         u.RoleID
-      FROM Sys_Users AS u
+      FROM dbo.[UB_ERP_User] AS u
       WHERE u.UserName = @LoginId
     `)
   }

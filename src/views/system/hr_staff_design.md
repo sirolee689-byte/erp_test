@@ -2,7 +2,7 @@
 
 ## 1. 物理表
 
-- 表名：`dbo.Hr_staff`（可用 `.env` 覆盖：`HR_STAFF_TABLE`）。
+- 表名：`dbo.[UB_ERP_Hr_staff]`（可用 `.env` 覆盖：`HR_STAFF_TABLE`）。
 - 由于字段很多，本模块 **严禁** 查询无用字段，仅使用下列字段，提升几十万数据量下的查询性能。
 
 | 字段 | 说明 |

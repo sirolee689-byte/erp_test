@@ -34,7 +34,7 @@ export function normalizeFactoryStyleForBomPathDisplay(s) {
 }
 
 /**
- * bom_000.kcaa03 款色路径：规范化厂款号/颜色编码（颜色段不加 -OUT）
+ * UB_ERP_Bom_000.kcaa03 款色路径：规范化厂款号/颜色编码（颜色段不加 -OUT）
  * @param {string|number|null|undefined} factoryStyleNo
  * @param {string|number|null|undefined} colorNo
  */

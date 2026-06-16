@@ -71,7 +71,7 @@ describe('salesOrderPiBom', () => {
     assert.notEqual(kA, kB)
   })
 
-  test('piBomListInsertDedupeKey 无 systemcode 时按 Bom_parts.id 区分同父同 kcac02', () => {
+  test('piBomListInsertDedupeKey 无 systemcode 时按 UB_ERP_Bom_parts.id 区分同父同 kcac02', () => {
     const parent = 'PARENT-TC-NOSC'
     const sharedKcac02 = 'BOM000-GUID-SAME'
     const rowA = { id: 1001, kcaa01: 'TC-0001/580', kcac02: sharedKcac02, Describe: '橡根/克' }
@@ -94,7 +94,7 @@ describe('salesOrderPiBom', () => {
     assert.equal(piBomListPhysicalRowKey(row), 'id:9001')
   })
 
-  test('kcaa01MatchesTopLevelFinishedBomCodePrefix 与 Bom_code flag5 一致', () => {
+  test('kcaa01MatchesTopLevelFinishedBomCodePrefix 与 UB_ERP_Bom_code flag5 一致', () => {
     const prefixes = ['BAG', 'TAG', 'PQ']
     assert.equal(kcaa01MatchesTopLevelFinishedBomCodePrefix('BAG-PQ3272A1/N', prefixes), true)
     assert.equal(kcaa01MatchesTopLevelFinishedBomCodePrefix('CUT-BAGPQ3633A1/BLU4<1-1>', prefixes), false)
@@ -152,7 +152,7 @@ describe('salesOrderPiBom', () => {
     )
   })
 
-  test('piBomListInsertDedupeKey CUT parent keeps separate Bom_parts ids', () => {
+  test('piBomListInsertDedupeKey CUT parent keeps separate UB_ERP_Bom_parts ids', () => {
     const cutParent = 'SC-CUT-PARENT'
     const topLevelParentKeys = new Set(['2541983F-ONLY-BAG'])
     const rowA = {
@@ -177,7 +177,7 @@ describe('salesOrderPiBom', () => {
     assert.equal(shouldSkipPiBomListWriteByBomCodePrefix('TT-0018/BLACK'), false)
   })
 
-  test('PI BOM list raw parent key keeps original Bom_parts systemcode', () => {
+  test('PI BOM list raw parent key keeps original UB_ERP_Bom_parts systemcode', () => {
     const row = {
       id: 2192457,
       kcaa01: 'TT-0018/BLACK',

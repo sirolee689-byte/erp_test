@@ -153,7 +153,7 @@ router.beforeEach((to) => {
     return { path: '/login', query: { redirect: to.fullPath } }
   }
 
-  // v1.0.7：已登录访问具体页时，用 Sys_Roles.Permissions 与目标 path 比对
+  // v1.0.7：已登录访问具体页时，用 UB_ERP_System_role.Permissions 与目标 path 比对
   const model = getPermissionModelFromStorage()
   const permissionPath = to.meta?.permissionPath || to.path
   if (!isRouteAllowed(permissionPath, model)) {

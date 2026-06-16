@@ -70,7 +70,7 @@ async function getPoolFromEnv() {
 async function countDistinctYmInDb(pool) {
   const r = await pool.request().query(`
     SELECT TOP 400 LTRIM(RTRIM(ISNULL(in_time, N''))) AS it
-    FROM dbo.[Hr_room_in]
+    FROM dbo.[UB_ERP_Hr_room_in]
     WHERE LTRIM(RTRIM(ISNULL(del, N'0'))) = N'0'
     ORDER BY id DESC
   `)

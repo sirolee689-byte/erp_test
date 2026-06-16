@@ -2,7 +2,7 @@
  * 后端 API 服务入口
  * 目标：
  * - 连接 SQL Server
- * - 提供 Sys_Users 查询接口给前端页面使用
+ * - 提供 UB_ERP_User 查询接口给前端页面使用
  */
 import express from 'express'
 import cors from 'cors'
@@ -175,7 +175,7 @@ async function assertWritableRoleId(pool, roleIdRaw) {
   }
   const chk = await pool.request().input('RoleID', sql.Int, roleId).query(`
     SELECT TOP (1) RoleID
-    FROM Sys_Roles
+    FROM dbo.[UB_ERP_System_role]
     WHERE RoleID = @RoleID AND Status = 1
   `)
   if (!chk.recordset?.[0]) {
@@ -343,7 +343,7 @@ app.get('/api/sys/logs', async (req, res) => {
 })
 
 /**
- * 角色分页列表（Sys_Roles）
+ * 角色分页列表（UB_ERP_System_role）
  * v1.0.7：角色管理页 + 操作员下拉框共用本接口
  * - 查询参数：page、pageSize、pass（1=启用视图 / 0=回收站）、keyword（模糊匹配 RoleName、Description）
  *   - 兼容旧前端：仍接受 status 参数，并映射到 pass
@@ -383,7 +383,7 @@ app.get('/api/roles', async (req, res) => {
 
     const totalResult = await totalRequest.query(`
       SELECT COUNT(1) AS total
-      FROM Sys_Roles AS r
+      FROM dbo.[UB_ERP_System_role] AS r
       ${whereSql}
     `)
     const total = Number(totalResult.recordset?.[0]?.total ?? 0)
@@ -406,7 +406,7 @@ app.get('/api/roles', async (req, res) => {
           r.pass,
           r.Status,
           r.Permissions
-        FROM Sys_Roles AS r
+        FROM dbo.[UB_ERP_System_role] AS r
         ${whereSql}
         ORDER BY r.RoleID ASC
         OFFSET @offset ROWS
@@ -448,7 +448,7 @@ app.get('/api/roles', async (req, res) => {
             r.Status,
             r.Permissions,
             ROW_NUMBER() OVER (ORDER BY r.RoleID ASC) AS rn
-          FROM Sys_Roles AS r
+          FROM dbo.[UB_ERP_System_role] AS r
           ${whereSql}
         ) t
         WHERE t.rn BETWEEN @startRow AND @endRow
@@ -464,7 +464,7 @@ app.get('/api/roles', async (req, res) => {
 })
 
 /**
- * 新增角色（写入 Sys_Roles，默认启用）
+ * 新增角色（写入 UB_ERP_System_role，默认启用）
  */
 app.post('/api/roles', async (req, res) => {
   try {
@@ -498,7 +498,7 @@ app.post('/api/roles', async (req, res) => {
     let result
     try {
       result = await request.query(`
-        INSERT INTO Sys_Roles (RoleName, Description, pass, Status, Permissions, uid, uname, utruename, addtime)
+        INSERT INTO dbo.[UB_ERP_System_role] (RoleName, Description, pass, Status, Permissions, uid, uname, utruename, addtime)
         OUTPUT
           INSERTED.RoleID,
           INSERTED.RoleName,
@@ -525,7 +525,7 @@ app.post('/api/roles', async (req, res) => {
         res.status(400).json({ code: 400, msg: '角色名称已存在，请勿重复添加', data: null })
         return
       }
-      console.error('写入 Sys_Roles 失败（POST /api/roles）：', dbErr)
+      console.error('写入 UB_ERP_System_role 失败（POST /api/roles）：', dbErr)
       res.status(500).json({ code: 500, msg: '数据库写入失败，请联系管理员', data: null })
       return
     }
@@ -579,7 +579,7 @@ app.put('/api/roles', async (req, res) => {
       request.input('pass', sql.NVarChar(1), '0')
       request.input('Status', sql.Int, 0)
       const result = await request.query(`
-        UPDATE Sys_Roles
+        UPDATE dbo.[UB_ERP_System_role]
         SET
           pass = @pass,
           Status = @Status,
@@ -628,7 +628,7 @@ app.put('/api/roles', async (req, res) => {
     let result
     try {
       result = await request.query(`
-        UPDATE Sys_Roles
+        UPDATE dbo.[UB_ERP_System_role]
         SET
           RoleName = @RoleName,
           Description = @Description,
@@ -662,7 +662,7 @@ app.put('/api/roles', async (req, res) => {
         res.status(400).json({ code: 400, msg: '角色名称已存在，请更换名称', data: null })
         return
       }
-      console.error('更新 Sys_Roles 失败（PUT /api/roles）：', dbErr)
+      console.error('更新 UB_ERP_System_role 失败（PUT /api/roles）：', dbErr)
       res.status(500).json({ code: 500, msg: '数据库写入失败，请联系管理员', data: null })
       return
     }
@@ -709,7 +709,7 @@ app.put('/api/roles/resume', async (req, res) => {
     request.input('now', sql.NVarChar(50), nowStr)
 
     const result = await request.query(`
-      UPDATE Sys_Roles
+      UPDATE dbo.[UB_ERP_System_role]
       SET
         pass = @pass,
         Status = @Status,
@@ -748,7 +748,7 @@ app.put('/api/roles/resume', async (req, res) => {
 })
 
 /**
- * 仅更新角色的菜单权限（Sys_Roles.Permissions：JSON 对象或兼容旧版数组，序列化后入库）
+ * 仅更新角色的菜单权限（UB_ERP_System_role.Permissions：JSON 对象或兼容旧版数组，序列化后入库）
  */
 app.put('/api/roles/permissions', async (req, res) => {
   try {
@@ -782,7 +782,7 @@ app.put('/api/roles/permissions', async (req, res) => {
     request.input('now', sql.NVarChar(50), nowStr)
 
     const result = await request.query(`
-      UPDATE Sys_Roles
+      UPDATE dbo.[UB_ERP_System_role]
       SET
         Permissions = @Permissions,
         uid = @uid,
@@ -831,7 +831,7 @@ app.delete('/api/roles/:id', async (req, res) => {
 
     const pool = await getPool()
     const q1 = await pool.request().input('RoleID', sql.Int, roleId).query(`
-      SELECT TOP (1) pass, Status FROM Sys_Roles WHERE RoleID = @RoleID
+      SELECT TOP (1) pass, Status FROM dbo.[UB_ERP_System_role] WHERE RoleID = @RoleID
     `)
     const row = q1.recordset?.[0]
     if (!row) {
@@ -849,7 +849,7 @@ app.delete('/api/roles/:id', async (req, res) => {
     let cnt = 0
     if (!suMeta.legacyLayout) {
       const q2 = await pool.request().input('RoleID', sql.Int, roleId).query(`
-        SELECT COUNT(1) AS cnt FROM Sys_Users WHERE RoleID = @RoleID
+        SELECT COUNT(1) AS cnt FROM dbo.[UB_ERP_User] WHERE RoleID = @RoleID
       `)
       cnt = Number(q2.recordset?.[0]?.cnt ?? 0)
     }
@@ -859,7 +859,7 @@ app.delete('/api/roles/:id', async (req, res) => {
     }
 
     const del = await pool.request().input('RoleID', sql.Int, roleId).query(`
-      DELETE FROM Sys_Roles WHERE RoleID = @RoleID
+      DELETE FROM dbo.[UB_ERP_System_role] WHERE RoleID = @RoleID
     `)
     const affected = Number(del.rowsAffected?.[0] ?? 0)
     if (affected === 0) {
@@ -906,7 +906,7 @@ app.post('/api/login', async (req, res) => {
 
     // 关键：获取数据库连接池
     const pool = await getPool()
-    // 每次登录重读 Sys_Users 列清单，避免 INFORMATION_SCHEMA 变更或缓存导致 del/Status 误判
+    // 每次登录重读 UB_ERP_User 列清单，避免 INFORMATION_SCHEMA 变更或缓存导致 del/Status 误判
     invalidateSysUsersColumnsMeta()
     const meta = await getSysUsersColumnsMeta(pool)
     const userColset = meta.set
@@ -917,7 +917,7 @@ app.post('/api/login', async (req, res) => {
 
     let result
     if (meta.legacyLayout) {
-      // 业务主键：优先 UserID；人事姓名 JOIN 仍用 uid = Hr_staff.id（与主键分离）
+      // 业务主键：优先 UserID；人事姓名 JOIN 仍用 uid = UB_ERP_Hr_staff.id（与主键分离）
       const qUidForStaff = meta.qb('uid')
       const qEntityPk = getSysUsersEntityPkQb(meta)
       const qUsercode = meta.qb('usercode')
@@ -950,11 +950,11 @@ app.post('/api/login', async (req, res) => {
       const roleIdSel =
         legacyOperatorV2 && qRoleId ? `u.${qRoleId}` : `CAST(NULL AS INT)`
       const rolesJoin =
-        legacyOperatorV2 && qRoleId ? `LEFT JOIN Sys_Roles AS r ON r.RoleID = u.${qRoleId}` : ''
+        legacyOperatorV2 && qRoleId ? `LEFT JOIN dbo.[UB_ERP_System_role] AS r ON r.RoleID = u.${qRoleId}` : ''
       if (!qEntityPk || !qUidForStaff || !qUsercode || !qUsername || !qPassword) {
         res.status(500).json({
           code: 500,
-          msg: '登录失败：Sys_Users 旧表缺少主键列（UserID/uid）、uid（人事关联）、usercode、username 或 password 列',
+          msg: '登录失败：UB_ERP_User 旧表缺少主键列（UserID/uid）、uid（人事关联）、usercode、username 或 password 列',
           data: null,
         })
         return
@@ -973,7 +973,7 @@ app.post('/api/login', async (req, res) => {
           CAST(${permSql} AS NVARCHAR(MAX)) AS Permissions,
           ${legacyTruenameSel}
           s.[name] AS StaffDisplayName
-        FROM Sys_Users AS u
+        FROM dbo.[UB_ERP_User] AS u
         ${rolesJoin}
         LEFT JOIN ${meta.hrStaffFrom} AS s ON s.[id] = u.${qUidForStaff}
         WHERE u.${qUsername} = @LoginId OR u.${qUsercode} = @LoginId
@@ -985,7 +985,7 @@ app.post('/api/login', async (req, res) => {
       if (!qLogin || !qPwd) {
         res.status(500).json({
           code: 500,
-          msg: '登录失败：Sys_Users 缺少登录账号列（UserName）或密码列（password），请检查表结构',
+          msg: '登录失败：UB_ERP_User 缺少登录账号列（UserName）或密码列（password），请检查表结构',
           data: null,
         })
         return
@@ -1007,8 +1007,8 @@ app.post('/api/login', async (req, res) => {
         ? `LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(u.${qTruenameErp}, N'')))) AS AuditTruename,`
         : `CAST(N'' AS NVARCHAR(100)) AS AuditTruename,`
       const joinRoles = userColset.has('roleid')
-        ? `LEFT JOIN Sys_Roles AS r ON r.RoleID = u.${meta.qb('roleid')}`
-        : `LEFT JOIN Sys_Roles AS r ON 1 = 0`
+        ? `LEFT JOIN dbo.[UB_ERP_System_role] AS r ON r.RoleID = u.${meta.qb('roleid')}`
+        : `LEFT JOIN dbo.[UB_ERP_System_role] AS r ON 1 = 0`
       result = await request.query(`
         SELECT TOP (1)
           ${selUserId},
@@ -1023,7 +1023,7 @@ app.post('/api/login', async (req, res) => {
           r.Permissions AS Permissions,
           ${erpTruenameSel}
           CAST(N'' AS NVARCHAR(100)) AS StaffDisplayName
-        FROM Sys_Users AS u
+        FROM dbo.[UB_ERP_User] AS u
         ${joinRoles}
         WHERE u.${qLogin} = @LoginId
       `)
@@ -1038,7 +1038,7 @@ app.post('/api/login', async (req, res) => {
       return
     }
 
-    // 2) 校验账号是否被禁用：Sys_Users.del='1' 为禁用；无 del 列时用 Status=0（见 sysUsersDb.isSysUserRowLoginDisabled）
+    // 2) 校验账号是否被禁用：UB_ERP_User.del='1' 为禁用；无 del 列时用 Status=0（见 sysUsersDb.isSysUserRowLoginDisabled）
     if (isSysUserRowLoginDisabled(userRow, userColset)) {
       res.status(403).json({ code: 403, msg: '账号已被禁用，请联系管理员', data: null })
       return
@@ -1096,7 +1096,7 @@ app.post('/api/login', async (req, res) => {
           Status: userRow.Status,
           RoleID: userRow.RoleID != null ? Number(userRow.RoleID) : null,
           RoleName: userRow.RoleName != null ? String(userRow.RoleName) : null,
-          // v1.0.7：菜单权限 JSON 字符串（与 Sys_Roles.Permissions 一致）；NULL 表示未配置，前端按「不限制」处理
+          // v1.0.7：菜单权限 JSON 字符串（与 UB_ERP_System_role.Permissions 一致）；NULL 表示未配置，前端按「不限制」处理
           Permissions:
             userRow.Permissions != null && userRow.Permissions !== undefined
               ? String(userRow.Permissions)
@@ -1114,7 +1114,7 @@ app.post('/api/login', async (req, res) => {
       res.status(500).json({
         code: 500,
         msg:
-          '登录失败：数据库缺少 Sys_Roles.Permissions 列。请在 SQL Server 执行迁移脚本 scripts/migrations/sqlserver_v1.0.7_rbac_phase1.txt 中第 7 段（ALTER TABLE添加 NVARCHAR(MAX)），然后重试。',
+          '登录失败：数据库缺少 UB_ERP_System_role.Permissions 列。请在 SQL Server 执行迁移脚本 scripts/migrations/sqlserver_v1.0.7_rbac_phase1.txt 中第 7 段（ALTER TABLE添加 NVARCHAR(MAX)），然后重试。',
         data: null,
       })
       return
@@ -1124,7 +1124,7 @@ app.post('/api/login', async (req, res) => {
 })
 
 /**
- * 查看单条操作员（v1.1.9：旧版 Sys_Users + del/pass 时 JOIN 人事/角色）
+ * 查看单条操作员（v1.1.9：旧版 UB_ERP_User + del/pass 时 JOIN 人事/角色）
  */
 app.get('/api/users/:id', async (req, res) => {
   try {
@@ -1236,9 +1236,9 @@ app.get('/api/users', async (req, res) => {
     const pool = await getPool()
     const meta = await getSysUsersColumnsMeta(pool)
 
-    // 旧系统 Sys_Users：uid/username/usercode 等，只读列表映射为前端字段
+    // 旧系统 UB_ERP_User：uid/username/usercode 等，只读列表映射为前端字段
     if (meta.legacyLayout) {
-      // v1.1.9：含 del+pass 时列表改为 Usercode→Hr_staff.code、RoleID→Sys_Roles，仅 ROW_NUMBER 分页
+      // v1.1.9：含 del+pass 时列表改为 Usercode→UB_ERP_Hr_staff.code、RoleID→UB_ERP_System_role，仅 ROW_NUMBER 分页
       if (isOperatorUsersV2(meta)) {
         try {
           const r = await queryOperatorUsersPage(pool, meta, {
@@ -1280,7 +1280,7 @@ app.get('/api/users', async (req, res) => {
       const kwCond = hasKeyword
         ? ` AND (u.${qUsercode} LIKE @key OR u.${qUsername} LIKE @key OR s.[name] LIKE @key)`
         : ''
-      const baseFrom = `FROM Sys_Users AS u
+      const baseFrom = `FROM dbo.[UB_ERP_User] AS u
         LEFT JOIN ${meta.hrStaffFrom} AS s ON s.[id] = u.${qUidForStaff}`
       const whereLegacy = `WHERE ${statusCond}${kwCond}`
       const orderExpr = meta.set.has('createdat')
@@ -1402,8 +1402,8 @@ app.get('/api/users', async (req, res) => {
 
     const totalResult = await totalRequest.query(`
       SELECT COUNT(1) AS total
-      FROM Sys_Users AS u
-      LEFT JOIN Sys_Roles AS r ON u.RoleID = r.RoleID
+      FROM dbo.[UB_ERP_User] AS u
+      LEFT JOIN dbo.[UB_ERP_System_role] AS r ON u.RoleID = r.RoleID
       ${whereSql}
     `)
 
@@ -1454,8 +1454,8 @@ app.get('/api/users', async (req, res) => {
           u.CreatedAt,
           u.RoleID,
           r.RoleName AS RoleName
-        FROM Sys_Users AS u
-        LEFT JOIN Sys_Roles AS r ON u.RoleID = r.RoleID
+        FROM dbo.[UB_ERP_User] AS u
+        LEFT JOIN dbo.[UB_ERP_System_role] AS r ON u.RoleID = r.RoleID
         ${whereSql}
         ORDER BY u.CreatedAt DESC
         OFFSET @offset ROWS
@@ -1512,8 +1512,8 @@ app.get('/api/users', async (req, res) => {
             u.RoleID,
             r.RoleName AS RoleName,
             ROW_NUMBER() OVER (ORDER BY u.CreatedAt DESC) AS rn
-          FROM Sys_Users AS u
-          LEFT JOIN Sys_Roles AS r ON u.RoleID = r.RoleID
+          FROM dbo.[UB_ERP_User] AS u
+          LEFT JOIN dbo.[UB_ERP_System_role] AS r ON u.RoleID = r.RoleID
           ${whereSql}
         ) t
         WHERE t.rn BETWEEN @startRow AND @endRow
@@ -1585,7 +1585,7 @@ app.put('/api/users/resume', async (req, res) => {
 
     // 关键：把 Status 更新为 1，并返回更新后的关键字段
     const result = await request.query(`
-      UPDATE Sys_Users
+      UPDATE dbo.[UB_ERP_User]
       SET Status = @Status
       OUTPUT INSERTED.UserID, INSERTED.UserCode, INSERTED.UserName, INSERTED.Status, INSERTED.CreatedAt, INSERTED.RoleID
       WHERE UserID = @UserID
@@ -1603,7 +1603,7 @@ app.put('/api/users/resume', async (req, res) => {
       const rn = await pool
         .request()
         .input('RoleID', sql.Int, Number(updated.RoleID))
-        .query(`SELECT TOP (1) RoleName FROM Sys_Roles WHERE RoleID = @RoleID`)
+        .query(`SELECT TOP (1) RoleName FROM dbo.[UB_ERP_System_role] WHERE RoleID = @RoleID`)
       roleName = rn.recordset?.[0]?.RoleName ?? null
     }
 
@@ -1679,7 +1679,7 @@ app.put('/api/users/change-password', async (req, res) => {
       SELECT TOP (1)
         ${acExpr} AS UserCode,
         ${pwExpr} AS Password
-      FROM Sys_Users AS u
+      FROM dbo.[UB_ERP_User] AS u
       WHERE ${acExpr} = @UserCode
     `)
 
@@ -1715,7 +1715,7 @@ app.put('/api/users/change-password', async (req, res) => {
     updateReq.input('NewPassword', sql.NVarChar(200), String(pwdResolved.stored))
 
     const updateResult = await updateReq.query(`
-      UPDATE Sys_Users
+      UPDATE dbo.[UB_ERP_User]
       SET ${pwColBare} = @NewPassword
       WHERE ${acColBare} = @UserCode
     `)
@@ -1777,7 +1777,7 @@ app.delete('/api/users/:id', async (req, res) => {
     checkReq.input('UserID', sql.Int, userId)
     const check = await checkReq.query(`
       SELECT TOP (1) UserID, Status
-      FROM Sys_Users
+      FROM dbo.[UB_ERP_User]
       WHERE UserID = @UserID
     `)
     const row = check.recordset?.[0]
@@ -1796,7 +1796,7 @@ app.delete('/api/users/:id', async (req, res) => {
     const delReq = pool.request()
     delReq.input('UserID', sql.Int, userId)
     const del = await delReq.query(`
-      DELETE FROM Sys_Users
+      DELETE FROM dbo.[UB_ERP_User]
       WHERE UserID = @UserID
     `)
 
@@ -1819,7 +1819,7 @@ app.delete('/api/users/:id', async (req, res) => {
  *
  * 需求：
  * - 接收：UserCode（工号）、UserName（姓名）、Password（密码）、RoleID（角色，v1.0.7）
- * - 写入：Sys_Users
+ * - 写入：UB_ERP_User
  * - 默认：Status = 1（启用），CreatedAt = 当前时间
  *
  * 安全说明（非常重要）：
@@ -1852,7 +1852,7 @@ app.post('/api/users', async (req, res) => {
 
     const { UserCode, UserName, Password, RoleID } = body
 
-    // 关键：旧版 Sys_Users 做最基础的后端校验，避免插入空数据
+    // 关键：旧版 UB_ERP_User 做最基础的后端校验，避免插入空数据
     if (!String(UserCode || '').trim()) {
       res.status(400).json({ code: 400, msg: 'UserCode 不能为空', data: null })
       return
@@ -1892,7 +1892,7 @@ app.post('/api/users', async (req, res) => {
     try {
       // 关键：插入数据，并通过 OUTPUT 返回插入后的关键字段
       result = await request.query(`
-        INSERT INTO Sys_Users (UserCode, UserName, Password, Status, CreatedAt, RoleID)
+        INSERT INTO dbo.[UB_ERP_User] (UserCode, UserName, Password, Status, CreatedAt, RoleID)
         OUTPUT INSERTED.UserID, INSERTED.UserCode, INSERTED.UserName, INSERTED.Status, INSERTED.CreatedAt, INSERTED.RoleID
         VALUES (@UserCode, @UserName, @Password, 1, GETDATE(), @RoleID)
       `)
@@ -1938,7 +1938,7 @@ app.post('/api/users', async (req, res) => {
       const rn = await pool
         .request()
         .input('RoleID', sql.Int, Number(created.RoleID))
-        .query(`SELECT TOP (1) RoleName FROM Sys_Roles WHERE RoleID = @RoleID`)
+        .query(`SELECT TOP (1) RoleName FROM dbo.[UB_ERP_System_role] WHERE RoleID = @RoleID`)
       roleName = rn.recordset?.[0]?.RoleName ?? null
     }
 
@@ -2037,7 +2037,7 @@ app.put('/api/users', async (req, res) => {
 
       // 关键：更新并返回更新后的关键字段（方便前端确认改成功了）
       const result = await request.query(`
-        UPDATE Sys_Users
+        UPDATE dbo.[UB_ERP_User]
         SET Status = @Status
         OUTPUT INSERTED.UserID, INSERTED.UserCode, INSERTED.UserName, INSERTED.Status, INSERTED.CreatedAt, INSERTED.RoleID
         WHERE UserID = @UserID
@@ -2055,7 +2055,7 @@ app.put('/api/users', async (req, res) => {
         const rn = await pool
           .request()
           .input('RoleID', sql.Int, Number(updated.RoleID))
-          .query(`SELECT TOP (1) RoleName FROM Sys_Roles WHERE RoleID = @RoleID`)
+          .query(`SELECT TOP (1) RoleName FROM dbo.[UB_ERP_System_role] WHERE RoleID = @RoleID`)
         roleName = rn.recordset?.[0]?.RoleName ?? null
       }
 
@@ -2106,7 +2106,7 @@ app.put('/api/users', async (req, res) => {
     // 关键：根据是否要改密码，拼两种 UPDATE（注意：仍然是参数化，不存在注入风险）
     const sqlText = shouldUpdatePassword
       ? `
-        UPDATE Sys_Users
+        UPDATE dbo.[UB_ERP_User]
         SET
           UserCode = @UserCode,
           UserName = @UserName,
@@ -2116,7 +2116,7 @@ app.put('/api/users', async (req, res) => {
         WHERE UserID = @UserID
       `
       : `
-        UPDATE Sys_Users
+        UPDATE dbo.[UB_ERP_User]
         SET
           UserCode = @UserCode,
           UserName = @UserName,
@@ -2140,7 +2140,7 @@ app.put('/api/users', async (req, res) => {
       const rn = await pool
         .request()
         .input('RoleID', sql.Int, Number(updated.RoleID))
-        .query(`SELECT TOP (1) RoleName FROM Sys_Roles WHERE RoleID = @RoleID`)
+        .query(`SELECT TOP (1) RoleName FROM dbo.[UB_ERP_System_role] WHERE RoleID = @RoleID`)
       roleName = rn.recordset?.[0]?.RoleName ?? null
     }
 
@@ -2154,7 +2154,7 @@ app.put('/api/users', async (req, res) => {
 })
 
 /**
- * 获取 Sys_Users 列表
+ * 获取 UB_ERP_User 列表
  *
  * 重要说明（避免 SQL 注入）：
  * - 本接口不拼接用户输入到 SQL 字符串中
@@ -2165,9 +2165,9 @@ app.get('/api/sys-users', async (req, res) => {
     const pool = await getPool()
 
     // 说明：
-    // - 这里先用 SELECT * 简化展示（你已经创建了 Sys_Users 表）
+    // - 这里先用 SELECT * 简化展示（你已经创建了 UB_ERP_User 表）
     // - 生产建议明确列名，并按业务字段排序/分页
-    const result = await pool.request().query('SELECT * FROM Sys_Users')
+    const result = await pool.request().query('SELECT * FROM dbo.[UB_ERP_User]')
 
     res.json({
       ok: true,
@@ -2175,10 +2175,10 @@ app.get('/api/sys-users', async (req, res) => {
     })
   } catch (err) {
     // 详细错误只写到服务端日志，前端返回可读信息，避免泄露敏感连接信息
-    console.error('查询 Sys_Users 失败：', err)
+    console.error('查询 UB_ERP_User 失败：', err)
     res.status(500).json({
       ok: false,
-      message: '读取 Sys_Users 失败，请检查数据库连接配置与表是否存在。',
+      message: '读取 UB_ERP_User 失败，请检查数据库连接配置与表是否存在。',
       // 开发排错用：不建议在生产环境开启
       ...(String(process.env.DEBUG_API ?? 'false').toLowerCase() === 'true'
         ? {
@@ -2200,15 +2200,15 @@ const HR_DEPT_AUDIT_LOCK_MSG = '该记录已审核锁定，请反审后再操作
  * 旧系统部门表名：仅允许字母数字下划线，避免拼接进 SQL 时被注入；可在 .env 设置 HR_LEGACY_DEPT_TABLE
  */
 const HR_LEGACY_DEPT_TABLE = (() => {
-  const t = String(process.env.HR_LEGACY_DEPT_TABLE ?? 'HR_Departments').trim()
+  const t = String(process.env.HR_LEGACY_DEPT_TABLE ?? 'UB_ERP_Hr_department').trim()
   if (!/^[a-zA-Z0-9_]{1,64}$/.test(t)) {
-    console.warn('[部门资料] HR_LEGACY_DEPT_TABLE 不合法，已回退为 HR_Departments')
-    return 'HR_Departments'
+    console.warn('[部门资料] HR_LEGACY_DEPT_TABLE 不合法，已回退为 UB_ERP_Hr_department')
+    return 'UB_ERP_Hr_department'
   }
   return t
 })()
 
-/** 已解析的 FROM子句，如 dbo.[HR_Departments] */
+/** 已解析的 FROM子句，如 dbo.[UB_ERP_Hr_department] */
 const HR_LEGACY_DEPT_FROM = `dbo.[${HR_LEGACY_DEPT_TABLE}]`
 
 /** 旧表对外 JSON 字段顺序与大小写（与 Navicat 结构一致，严禁改名） */
@@ -2400,7 +2400,7 @@ app.get('/api/hr/departments/options', async (req, res) => {
 })
 
 /**
- * v1.1.0：岗位下拉（从 HR_Departments 接管表取岗位）
+ * v1.1.0：岗位下拉（从 UB_ERP_Hr_department 接管表取岗位）
  * GET /api/hr/departments/posts?parentId=部门code
  * - 只返回 ParentID=parentId 的在册记录（del 正常）
  * - **不按 pass 过滤**（与部门资料维护口径一致）
@@ -3137,27 +3137,27 @@ app.put('/api/hr/departments/unaudit', async (req, res) => {
   }
 })
 
-/** v1.0.9：人事档案（Hr_staff）已审核禁止改删固定文案 */
+/** v1.0.9：人事档案（UB_ERP_Hr_staff）已审核禁止改删固定文案 */
 const HR_STAFF_AUDIT_LOCK_MSG = '该记录已审核锁定，请反审后再操作'
 
-/** v1.0.9：员工表名固定为 Hr_staff（可用 .env 覆盖） */
+/** v1.0.9：员工表名固定为 UB_ERP_Hr_staff（可用 .env 覆盖） */
 const HR_STAFF_TABLE = (() => {
-  const t = String(process.env.HR_STAFF_TABLE ?? 'Hr_staff').trim()
+  const t = String(process.env.HR_STAFF_TABLE ?? 'UB_ERP_Hr_staff').trim()
   if (!/^[a-zA-Z0-9_]{1,64}$/.test(t)) {
-    console.warn('[员工档案] HR_STAFF_TABLE 不合法，已回退为 Hr_staff')
-    return 'Hr_staff'
+    console.warn('[员工档案] HR_STAFF_TABLE 不合法，已回退为 UB_ERP_Hr_staff')
+    return 'UB_ERP_Hr_staff'
   }
   return t
 })()
 
-/** 已解析的 FROM 子句，如 dbo.[Hr_staff] */
+/** 已解析的 FROM 子句，如 dbo.[UB_ERP_Hr_staff] */
 const HR_STAFF_FROM = `dbo.[${HR_STAFF_TABLE}]`
 
-/** v1.1.3：宿舍房间 / 入住（物理表名已由库端统一为 Hr_room、Hr_room_in） */
-const HR_ROOM_FROM = 'dbo.[Hr_room]'
-const HR_ROOM_IN_FROM = 'dbo.[Hr_room_in]'
-/** 宿舍电费汇总等：room_code 与 Hr_room.s_code / Hr_room_in.room_code 对应 */
-const HR_ROOM_USE_FROM = 'dbo.[Hr_room_use]'
+/** v1.1.3：宿舍房间 / 入住（物理表名已由库端统一为 UB_ERP_Hr_room、UB_ERP_Hr_room_in） */
+const HR_ROOM_FROM = 'dbo.[UB_ERP_Hr_room]'
+const HR_ROOM_IN_FROM = 'dbo.[UB_ERP_Hr_room_in]'
+/** 宿舍电费汇总等：room_code 与 UB_ERP_Hr_room.s_code / UB_ERP_Hr_room_in.room_code 对应 */
+const HR_ROOM_USE_FROM = 'dbo.[UB_ERP_Hr_room_use]'
 
 /** 库存基本资料：颜色编码（物理表 UB_ERP_Stocks_colorcode） */
 const BOM_COLORCODE_FROM = 'dbo.[UB_ERP_Stocks_colorcode]'
@@ -3166,10 +3166,10 @@ const BOM_COLORCODE_FROM = 'dbo.[UB_ERP_Stocks_colorcode]'
 const SYS_SUPPLIER_FROM = 'dbo.[System_supplier]'
 
 /** 结算方式（销售/采购/外协管理 → 基本资料 → 结算方式） */
-const SYS_SETTLEMENT_METHOD_FROM = 'dbo.[System_settlement_method]'
+const SYS_SETTLEMENT_METHOD_FROM = 'dbo.[UB_ERP_System_settlement_method]'
 
 /** 销售客户（销售/采购/外协管理 → 基本资料 → 销售客户） */
-const SYS_SALES_CUSTOMER_FROM = 'dbo.[System_sales_customer]'
+const SYS_SALES_CUSTOMER_FROM = 'dbo.[UB_ERP_System_sales_customer]'
 
 /**
  * 颜色编码业务时间串：年-月-日 时:分:秒（月、日不补零；时分秒两位），示例 2026-4-23 11:44:51
@@ -3378,7 +3378,7 @@ function hrRoomInStaffDisplayNameSql(tableAlias) {
 }
 
 /**
- * Hr_room_use.c_sum_money 在库中可能为 nvarchar：SUM 前转为 decimal；空或非数字视为 0。
+ * UB_ERP_Hr_room_use.c_sum_money 在库中可能为 nvarchar：SUM 前转为 decimal；空或非数字视为 0。
  * 去掉空格与英文逗号后再 ISNUMERIC + CAST（SQL Server 2008 R2，无 TRY_CONVERT）。
  * @param {string} colExpr 列引用，如 u.c_sum_money
  */
@@ -3487,7 +3487,7 @@ function lodgingMonthRangeOrThrow(yearRaw, monthRaw) {
 
 /**
  * v1.1.9：与 `src/views/dormitory/ElectricManage.vue` 的 shareRows 计算保持一致（按住宿天数权重分摊总用电量，再扣个人优惠电量，再乘 0.93；金额向下取到分）
- * @param {number} usedElectric 宿舍总用电量（与弹窗一致：取 Hr_room_use.c_electric 数值）
+ * @param {number} usedElectric 宿舍总用电量（与弹窗一致：取 UB_ERP_Hr_room_use.c_electric 数值）
  * @param {any[]} occupantsRaw 已含 stay_days、electric 等字段的行
  */
 function computeDormElectricSharesByDayWeight(usedElectric, occupantsRaw) {
@@ -3601,9 +3601,9 @@ function mapDormElectricOccupantsWithDiscountForAllocation(rows) {
 
 /**
  * 指定自然月与房号：分摊报表专用；v1.1.7 时间窗与 electric/context 一致（in_time < 次月初 且 未退或退宿 >= 月初）
- * - **Hr_staff 使用 LEFT JOIN**：只要入住表有行就必须出现在报表；未匹配档案或 pass≠1 时由 Node 侧标「(档案未审)」且金额按规则置 0（规则 18）
+ * - **UB_ERP_Hr_staff 使用 LEFT JOIN**：只要入住表有行就必须出现在报表；未匹配档案或 pass≠1 时由 Node 侧标「(档案未审)」且金额按规则置 0（规则 18）
  * - **ON 条件**：仅 `new_code=staff_code` 且 `del=0`；**不在 WHERE 中按 pass 剔除**
- * - **部门/职务**：LEFT JOIN HR_Departments；若未匹配到员工档案（s 为空）或部门名为空，显示「未设定」
+ * - **部门/职务**：LEFT JOIN UB_ERP_Hr_department；若未匹配到员工档案（s 为空）或部门名为空，显示「未设定」
  * @param {import('mssql').ConnectionPool} pool
  * @param {string} roomCode
  * @param {string} mStartStr YYYY-MM-DD HH:mm:ss
@@ -3695,7 +3695,7 @@ async function fetchDormElectricOccupantsMonthForAllocation(pool, roomCode, mSta
   return occRs.recordset ?? []
 }
 
-/** 与 `fetchDormElectricOccupantsMonthForAllocation` 同一 v1.1.7 在住窗，仅统计 Hr_room_in 行数（不联 staff），用于异常说明与明细行数对账 */
+/** 与 `fetchDormElectricOccupantsMonthForAllocation` 同一 v1.1.7 在住窗，仅统计 UB_ERP_Hr_room_in 行数（不联 staff），用于异常说明与明细行数对账 */
 async function fetchDormElectricRoomInMonthOverlapCount(pool, roomCode, mStartStr, mEndStr) {
   const occReq = pool.request().input('roomCode', sql.NVarChar(50), roomCode)
   occReq.input('hasMonth', sql.Bit, 1)
@@ -3735,10 +3735,10 @@ let HR_ROOM_COLSET_PROMISE = null
 let SYS_SETTLEMENT_METHOD_COLSET_PROMISE = null
 let SYS_SUPPLIER_COLSET_PROMISE = null
 let SYS_SALES_CUSTOMER_COLSET_PROMISE = null
-/** BOM 主档（默认 bom_000）列清单缓存 */
+/** BOM 主档（默认 UB_ERP_Bom_000）列清单缓存 */
 
 /**
- * 读取 Hr_staff 的列名集合（小写），并缓存到进程内
+ * 读取 UB_ERP_Hr_staff 的列名集合（小写），并缓存到进程内
  * @param {import('mssql').ConnectionPool} pool
  * @returns {Promise<Set<string>>}
  */
@@ -3762,7 +3762,7 @@ async function getHrStaffColumnSet(pool) {
       return set
     } catch (err) {
       // 降级策略：列探测失败时不阻断主流程（但也不会尝试写入扩展字段）
-      console.warn('[员工档案] 读取 Hr_staff 列清单失败，已降级：', err?.message ?? err)
+      console.warn('[员工档案] 读取 UB_ERP_Hr_staff 列清单失败，已降级：', err?.message ?? err)
       return new Set()
     }
   })()
@@ -3770,7 +3770,7 @@ async function getHrStaffColumnSet(pool) {
 }
 
 /**
- * 读取 Hr_room_in 的列名集合（小写），并缓存到进程内
+ * 读取 UB_ERP_Hr_room_in 的列名集合（小写），并缓存到进程内
  * 说明：用于兼容旧库字段不一致（如 status/electric/room_info 是否存在）
  * @param {import('mssql').ConnectionPool} pool
  * @returns {Promise<Set<string>>}
@@ -3782,7 +3782,7 @@ async function getHrRoomInColumnSet(pool) {
       const r = await pool.request().query(`
         SELECT COLUMN_NAME AS name
         FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'Hr_room_in'
+        WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'UB_ERP_Hr_room_in'
       `)
       const set = new Set()
       for (const row of r.recordset ?? []) {
@@ -3791,7 +3791,7 @@ async function getHrRoomInColumnSet(pool) {
       }
       return set
     } catch (err) {
-      console.warn('[宿舍入住] 读取 Hr_room_in 列清单失败，已降级：', err?.message ?? err)
+      console.warn('[宿舍入住] 读取 UB_ERP_Hr_room_in 列清单失败，已降级：', err?.message ?? err)
       return new Set()
     }
   })()
@@ -3799,7 +3799,7 @@ async function getHrRoomInColumnSet(pool) {
 }
 
 /**
- * 读取 Hr_room 的列名集合（小写），并缓存到进程内
+ * 读取 UB_ERP_Hr_room 的列名集合（小写），并缓存到进程内
  * 说明：用于兼容床位字段可能为 BedCount / in_bad
  * @param {import('mssql').ConnectionPool} pool
  * @returns {Promise<Set<string>>}
@@ -3823,7 +3823,7 @@ async function getHrRoomColumnSet(pool) {
       }
       return set
     } catch (err) {
-      console.warn('[宿舍房间] 读取 Hr_room 列清单失败，已降级：', err?.message ?? err)
+      console.warn('[宿舍房间] 读取 UB_ERP_Hr_room 列清单失败，已降级：', err?.message ?? err)
       return new Set()
     }
   })()
@@ -3854,7 +3854,7 @@ async function getSystemSupplierColumnSet(pool) {
   return SYS_SUPPLIER_COLSET_PROMISE
 }
 
-/** v1.2.2：缓存 System_settlement_method 列清单（兼容旧库字段不一致导致 SQL 报错） */
+/** v1.2.2：缓存 UB_ERP_System_settlement_method 列清单（兼容旧库字段不一致导致 SQL 报错） */
 async function getSystemSettlementMethodColumnSet(pool) {
   if (SYS_SETTLEMENT_METHOD_COLSET_PROMISE) return SYS_SETTLEMENT_METHOD_COLSET_PROMISE
   SYS_SETTLEMENT_METHOD_COLSET_PROMISE = (async () => {
@@ -3862,7 +3862,7 @@ async function getSystemSettlementMethodColumnSet(pool) {
       const r = await pool.request().query(`
         SELECT COLUMN_NAME AS name
         FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'System_settlement_method'
+        WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'UB_ERP_System_settlement_method'
       `)
       const set = new Set()
       for (const row of r.recordset ?? []) {
@@ -3871,14 +3871,14 @@ async function getSystemSettlementMethodColumnSet(pool) {
       }
       return set
     } catch (err) {
-      console.warn('[结算方式] 读取 System_settlement_method 列清单失败，已降级：', err?.message ?? err)
+      console.warn('[结算方式] 读取 UB_ERP_System_settlement_method 列清单失败，已降级：', err?.message ?? err)
       return new Set()
     }
   })()
   return SYS_SETTLEMENT_METHOD_COLSET_PROMISE
 }
 
-/** v1.2.3：缓存 System_sales_customer 列清单（兼容旧库字段不一致导致 SQL 报错） */
+/** v1.2.3：缓存 UB_ERP_System_sales_customer 列清单（兼容旧库字段不一致导致 SQL 报错） */
 async function getSystemSalesCustomerColumnSet(pool) {
   if (SYS_SALES_CUSTOMER_COLSET_PROMISE) return SYS_SALES_CUSTOMER_COLSET_PROMISE
   SYS_SALES_CUSTOMER_COLSET_PROMISE = (async () => {
@@ -3886,7 +3886,7 @@ async function getSystemSalesCustomerColumnSet(pool) {
       const r = await pool.request().query(`
         SELECT COLUMN_NAME AS name
         FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'System_sales_customer'
+        WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'UB_ERP_System_sales_customer'
       `)
       const set = new Set()
       for (const row of r.recordset ?? []) {
@@ -3895,7 +3895,7 @@ async function getSystemSalesCustomerColumnSet(pool) {
       }
       return set
     } catch (err) {
-      console.warn('[销售客户] 读取 System_sales_customer 列清单失败，已降级：', err?.message ?? err)
+      console.warn('[销售客户] 读取 UB_ERP_System_sales_customer 列清单失败，已降级：', err?.message ?? err)
       return new Set()
     }
   })()
@@ -4418,7 +4418,7 @@ app.get('/api/hr/staff/:code', async (req, res) => {
  * - code：禁止手动输入。服务端按 YYYYMMDD + 两位流水号生成（如 2024041601）
  * - new_code：新档案编码（可选，手动输入）
  * - card_number：卡号（必填，固定 10 位数字；唯一性仅相对「未删除且非离职」员工）
- * - join_department / position：入职部门/岗位（前端从 HR_Departments 实时下拉）
+ * - join_department / position：入职部门/岗位（前端从 UB_ERP_Hr_department 实时下拉）
  * - sex / meal_type（饭餐类型：员工餐、管理餐；空则按员工餐）/ yn_history（是否曾在我司应聘：是、否）
  * - intime：默认当天（前端可改）
  *
@@ -4817,11 +4817,11 @@ app.put('/api/hr/staff/leave/:id', async (req, res) => {
       })
       return
     }
-    // 旧版 Sys_Users 可能无 is_active：跳过账号封禁，不拦截离职主流程
+    // 旧版 UB_ERP_User 可能无 is_active：跳过账号封禁，不拦截离职主流程
     if (!userColset.has('is_active') && !userMeta.legacyLayout) {
       res.status(400).json({
         code: 400,
-        msg: 'Sys_Users 表缺少 is_active 字段，请先执行迁移：npm run migrate:hr-staff-leave-fields',
+        msg: 'UB_ERP_User 表缺少 is_active 字段，请先执行迁移：npm run migrate:hr-staff-leave-fields',
         data: null,
       })
       return
@@ -4851,7 +4851,7 @@ app.put('/api/hr/staff/leave/:id', async (req, res) => {
         return
       }
 
-      // 关联系统账号（可选）：旧表用 uid=Hr_staff.id；ERP 表用工号 UserCode 匹配
+      // 关联系统账号（可选）：旧表用 uid=UB_ERP_Hr_staff.id；ERP 表用工号 UserCode 匹配
       const staffId = Math.floor(Number(staffRow?.id ?? 0))
       let userRow = null
       if (userMeta.legacyLayout && staffId > 0) {
@@ -4862,7 +4862,7 @@ app.put('/api/hr/staff/leave/:id', async (req, res) => {
           const qEntity = getSysUsersEntityPkQb(userMeta)
           const userCheck = await tx.request().input('sid', sql.Int, staffId).query(`
             SELECT TOP (1) u.${qEntity} AS UserID, u.${qUsercode} AS UserCode, u.${qUsername} AS UserName
-            FROM Sys_Users AS u
+            FROM dbo.[UB_ERP_User] AS u
             WHERE u.${qUid} = @sid
           `)
           userRow = userCheck.recordset?.[0]
@@ -4873,7 +4873,7 @@ app.put('/api/hr/staff/leave/:id', async (req, res) => {
           .input('v', sql.NVarChar(50), staffCode)
           .query(`
             SELECT TOP (1) u.UserID, u.UserCode, u.UserName
-            FROM Sys_Users AS u
+            FROM dbo.[UB_ERP_User] AS u
             WHERE u.UserCode = @v
             ORDER BY u.UserID DESC
           `)
@@ -4908,7 +4908,7 @@ app.put('/api/hr/staff/leave/:id', async (req, res) => {
           updUser = await tx.request().input('sid', sql.Int, staffId).query(`
             UPDATE u
             SET u.${qIsActive} = 0
-            FROM Sys_Users AS u
+            FROM dbo.[UB_ERP_User] AS u
             WHERE u.${qUid} = @sid
           `)
         } else {
@@ -4918,14 +4918,14 @@ app.put('/api/hr/staff/leave/:id', async (req, res) => {
             .query(`
               UPDATE u
               SET u.is_active = 0
-              FROM Sys_Users AS u
+              FROM dbo.[UB_ERP_User] AS u
               WHERE u.UserCode = @v
             `)
         }
         const affected = Number(updUser?.rowsAffected?.[0] ?? 0)
         if (affected <= 0) {
           await tx.rollback()
-          res.status(500).json({ code: 500, msg: '封禁账号失败：未更新到 Sys_Users 记录', data: null })
+          res.status(500).json({ code: 500, msg: '封禁账号失败：未更新到 UB_ERP_User 记录', data: null })
           return
         }
       }
@@ -4941,7 +4941,7 @@ app.put('/api/hr/staff/leave/:id', async (req, res) => {
         req.__auditLeaveContent = `办理了工号为[${staffCode}]的员工离职（该员工未关联系统登录账号，已跳过封禁）`
       }
 
-      await writeLog(req, '办理员工离职', String(req.__auditLeaveContent), { targetTable: 'HR_staff' })
+      await writeLog(req, '办理员工离职', String(req.__auditLeaveContent), { targetTable: 'UB_ERP_Hr_staff' })
 
       const fresh = await fetchStaffById(pool, id)
       res.json({ code: 200, msg: 'success', data: fresh })
@@ -5041,10 +5041,10 @@ app.put('/api/hr/staff/unaudit', async (req, res) => {
  * body: { fileName, fileBase64 }
  *
  * 关联规则（大白话）：
- * - 先用「姓名」在 Hr_staff 找员工（必须唯一）
- * - 再用「部门」在 HR_Departments 找顶级部门（必须唯一、且已审核、且未删除）
- * - 再用「岗位」在 HR_Departments 找岗位（必须挂在该部门下、且已审核、且未删除）
- * - 最后更新 Hr_staff：in_bm=部门名称（显示用）、join_department=部门code、position=岗位code
+ * - 先用「姓名」在 UB_ERP_Hr_staff 找员工（必须唯一）
+ * - 再用「部门」在 UB_ERP_Hr_department 找顶级部门（必须唯一、且已审核、且未删除）
+ * - 再用「岗位」在 UB_ERP_Hr_department 找岗位（必须挂在该部门下、且已审核、且未删除）
+ * - 最后更新 UB_ERP_Hr_staff：in_bm=部门名称（显示用）、join_department=部门code、position=岗位code
  * - 特权：仅本接口允许更新已审核员工（pass='1'），未审核则跳过
  */
 app.post('/api/hr/staff/batch-update', async (req, res) => {
@@ -5247,7 +5247,7 @@ app.post('/api/hr/staff/batch-update', async (req, res) => {
  * - pass：'1' 已审核（默认）/'0' 未审核
  * - keyword：模糊匹配房号 s_code、楼栋 in_lou、名称 name、房型 code
  *
- * 在住人数：Hr_room_in 中 del=0 且 in_room=1 且 out_room=0 的记录条数（不按 pass 过滤，避免与床位占用不一致）
+ * 在住人数：UB_ERP_Hr_room_in 中 del=0 且 in_room=1 且 out_room=0 的记录条数（不按 pass 过滤，避免与床位占用不一致）
  */
 app.get('/api/hr/dormitory/rooms', async (req, res) => {
   res.setHeader('X-ERP-Dormitory-Rooms', 'v1.1.3')
@@ -5424,7 +5424,7 @@ app.get('/api/hr/dormitory/rooms/:id', async (req, res) => {
  * body: { s_code, s_code1?, code?, in_bad?, info? }
  * - s_code：房号（与列表 s_code 一致）；在册（del=0）下不可重复
  * - s_code1：使用 | 闲置，默认 使用
- * - code：宿舍类型 普通房|空调房|大房，默认 普通房（写入 Hr_room.code）
+ * - code：宿舍类型 普通房|空调房|大房，默认 普通房（写入 UB_ERP_Hr_room.code）
  * - in_bad：床位数，默认 6
  * - info：备注
  * 新建默认 pass=0、del=0
@@ -5756,7 +5756,7 @@ app.get('/api/hr/dormitory/check-in/staff-options', async (req, res) => {
 })
 
 /**
- * v1.1.3：办理入住（写入 Hr_room_in）
+ * v1.1.3：办理入住（写入 UB_ERP_Hr_room_in）
  * POST /api/hr/dormitory/check-in
  * body: { staff_code, room_code, pass? } — pass 与房间列表一致，用于定位「已审/未审」房间资料，默认 '1'
  * v1.1.4+：INSERT 前校验在住（out_room=0）与历史已退宿区间（out_room=1）时间重叠
@@ -5839,7 +5839,7 @@ app.post('/api/hr/dormitory/check-in', async (req, res) => {
         await tx.rollback()
         res.status(400).json({
           code: 400,
-          msg: '房号在系统中存在多条房间资料，无法唯一确定房间，请联系管理员核对 Hr_room.s_code',
+          msg: '房号在系统中存在多条房间资料，无法唯一确定房间，请联系管理员核对 UB_ERP_Hr_room.s_code',
           data: null,
         })
         return
@@ -5884,7 +5884,7 @@ app.post('/api/hr/dormitory/check-in', async (req, res) => {
 
       const staffReq = new sql.Request(tx)
       staffReq.input('staffCode', sql.NVarChar(50), staffCode)
-      // 口径锁定：Hr_staff.new_code = Hr_room_in.staff_code
+      // 口径锁定：UB_ERP_Hr_staff.new_code = UB_ERP_Hr_room_in.staff_code
       // 兼容：允许传老工号 code / UserCode 时也能匹配到 new_code（便于手工输入）
       const staffWhereExtra = hasUserCodeCol
         ? 'AND (LTRIM(RTRIM(s.new_code)) = @staffCode OR LTRIM(RTRIM(s.code)) = @staffCode OR LTRIM(RTRIM(ISNULL(s.UserCode, N\'\'))) = @staffCode)'
@@ -5931,7 +5931,7 @@ app.post('/api/hr/dormitory/check-in', async (req, res) => {
       // 兼容：new_code 可能为空；此时用 code 作为宿舍关联员工编码
       const staffLinkCode = staffNewCode || staffDbCode || staffCode
 
-      // 第一步：在住拦截（须用 staffLinkCode，与即将写入 Hr_room_in.staff_code 一致）
+      // 第一步：在住拦截（须用 staffLinkCode，与即将写入 UB_ERP_Hr_room_in.staff_code 一致）
       const stayReq = new sql.Request(tx)
       stayReq.input('staffLinkCode', sql.NVarChar(50), staffLinkCode)
       const stayRs = await stayReq.query(`
@@ -5987,13 +5987,13 @@ app.post('/api/hr/dormitory/check-in', async (req, res) => {
       // 旧库字段自检：不存在就提示（便于你回到 Navicat/旧系统核对字段）
       /** @type {string[]} */
       const missing = []
-      if (!hasInTimeCol) missing.push('Hr_room_in.in_time')
-      if (!hasRoomInfoCol) missing.push('Hr_room_in.room_info')
-      if (!hasElectricCol) missing.push('Hr_room_in.electric')
-      if (!inColset.has('room_code')) missing.push('Hr_room_in.room_code')
-      if (!inColset.has('staff_code')) missing.push('Hr_room_in.staff_code')
-      if (!inColset.has('out_room')) missing.push('Hr_room_in.out_room')
-      if (!inColset.has('pass')) missing.push('Hr_room_in.pass')
+      if (!hasInTimeCol) missing.push('UB_ERP_Hr_room_in.in_time')
+      if (!hasRoomInfoCol) missing.push('UB_ERP_Hr_room_in.room_info')
+      if (!hasElectricCol) missing.push('UB_ERP_Hr_room_in.electric')
+      if (!inColset.has('room_code')) missing.push('UB_ERP_Hr_room_in.room_code')
+      if (!inColset.has('staff_code')) missing.push('UB_ERP_Hr_room_in.staff_code')
+      if (!inColset.has('out_room')) missing.push('UB_ERP_Hr_room_in.out_room')
+      if (!inColset.has('pass')) missing.push('UB_ERP_Hr_room_in.pass')
       if (missing.length > 0) {
         await tx.rollback()
         res.status(400).json({ code: 400, msg: `旧表字段缺失，无法办理入住：${missing.join('、')}`, data: null })
@@ -6402,9 +6402,9 @@ app.get('/api/dorm/get-electric-history', async (req, res) => {
  * v1.1.6：宿舍电费情况统计报表（列表 + 汇总）
  * GET /api/dorm/electric-report-data
  * - year/month：统计月份；tj_date 可选（与 lodging-overview 一致，默认 `YYYY-M`）
- * - 主表 Hr_room（已审 pass=1）；左连当月 Hr_room_use（tj_date 主/备选格式，同房同月多条取 id 最大一条，与历史回填一致）
- * - 入住人数、优惠电量合计：Hr_room_in 按 v1.1.7 与 lodging-overview 相同的「跨月重叠」窗口（mStart/mEnd 由字符串 CONVERT，避免 JS 时区偏移）
- * - 用电量/单价/合计金额：直接取 Hr_room_use 落库字段（与 /api/hr/dormitory/electric/settle 写入一致）
+ * - 主表 UB_ERP_Hr_room（已审 pass=1）；左连当月 UB_ERP_Hr_room_use（tj_date 主/备选格式，同房同月多条取 id 最大一条，与历史回填一致）
+ * - 入住人数、优惠电量合计：UB_ERP_Hr_room_in 按 v1.1.7 与 lodging-overview 相同的「跨月重叠」窗口（mStart/mEnd 由字符串 CONVERT，避免 JS 时区偏移）
+ * - 用电量/单价/合计金额：直接取 UB_ERP_Hr_room_use 落库字段（与 /api/hr/dormitory/electric/settle 写入一致）
  */
 app.get('/api/dorm/electric-report-data', async (req, res) => {
   res.setHeader('X-ERP-Dormitory-Electric-Report', 'v1.1.6')
@@ -6605,7 +6605,7 @@ app.get('/api/dorm/electric-report-data', async (req, res) => {
 })
 
 /**
- * v1.1.6+：宿舍费用分摊情况（人员维度；以当月 Hr_room_use 为入口，按 v1.1.9 住宿天数权重与电费弹窗公式一致）
+ * v1.1.6+：宿舍费用分摊情况（人员维度；以当月 UB_ERP_Hr_room_use 为入口，按 v1.1.9 住宿天数权重与电费弹窗公式一致）
  * GET /api/dorm/electric-allocation-report
  * - 仅包含有电费记录且该月存在 overlap 入住人员的房间；无在住人员的房间不产生行（Tab1 仍保留能耗行）
  */
@@ -7410,7 +7410,7 @@ app.delete('/api/supply-chain/suppliers/:id/permanent', async (req, res) => {
 })
 
 /**
- * 销售/采购/外协管理：销售客户分页列表（物理表 System_sales_customer；SQL Server 2008 R2：ROW_NUMBER 分页）
+ * 销售/采购/外协管理：销售客户分页列表（物理表 UB_ERP_System_sales_customer；SQL Server 2008 R2：ROW_NUMBER 分页）
  * GET /api/supply-chain/customers/list
  * - 默认：只查已审核 pass=1 且在册 del=0（或空/NULL）
  * - 可切换：pass=0（显示未审核）；回收站 recycled=1（仅 del=1，不按 pass 过滤）
@@ -7694,7 +7694,7 @@ app.post('/api/supply-chain/customers', async (req, res) => {
     if (!cols.length) {
       res.status(500).json({
         code: 500,
-        msg: '新增失败：未探测到可写入的列（请检查 System_sales_customer 表结构）',
+        msg: '新增失败：未探测到可写入的列（请检查 UB_ERP_System_sales_customer 表结构）',
         data: null,
       })
       return
@@ -8011,7 +8011,7 @@ app.delete('/api/supply-chain/customers/:id/permanent', async (req, res) => {
 })
 
 /**
- * 销售/采购/外协管理：结算方式分页列表（物理表 System_settlement_method；SQL Server 2008 R2：ROW_NUMBER 分页）
+ * 销售/采购/外协管理：结算方式分页列表（物理表 UB_ERP_System_settlement_method；SQL Server 2008 R2：ROW_NUMBER 分页）
  * GET /api/supply-chain/settlement-methods/list
  * - 默认：只查已审核 pass=1 且在册 del=0（或空/NULL）
  * - 可切换：pass=0（显示未审核）；回收站 recycled=1（仅 del=1，不按 pass 过滤）
@@ -8271,7 +8271,7 @@ app.post('/api/supply-chain/settlement-methods', async (req, res) => {
     }
 
     if (!cols.length) {
-      res.status(500).json({ code: 500, msg: '新增失败：未探测到可写入的列（请检查 System_settlement_method 表结构）', data: null })
+      res.status(500).json({ code: 500, msg: '新增失败：未探测到可写入的列（请检查 UB_ERP_System_settlement_method 表结构）', data: null })
       return
     }
 
@@ -10637,7 +10637,7 @@ app.post('/api/dorm/delete-electric', async (req, res) => {
     const me = getCurrentUserFromReq(req)
     const uname = String(me?.userCode ?? me?.userName ?? '').trim() || '未知'
     await writeLog(req, '删除电费记录', `管理员 [${uname}] 删除了 [${roomCode}] [${tjDate}] 的电费记录`, {
-      targetTable: 'Hr_room_use',
+      targetTable: 'UB_ERP_Hr_room_use',
       pool,
     })
 
@@ -10650,7 +10650,7 @@ app.post('/api/dorm/delete-electric', async (req, res) => {
 })
 
 /**
- * v1.1.5：电费管理中心 - 核算并落库 Hr_room_use
+ * v1.1.5：电费管理中心 - 核算并落库 UB_ERP_Hr_room_use
  * POST /api/hr/dormitory/electric/settle
  * body: { room_code, tj_date, c_this, price, change?, manual_electric? }
  */
@@ -10818,7 +10818,7 @@ app.post('/api/hr/dormitory/electric/settle', async (req, res) => {
     const newId = Number(insRs.recordset?.[0]?.id ?? 0)
 
     await writeLog(req, '电费核算', `管理员 [${unameLegacy || '未知'}] 完成了 [${roomCode}] 的电费核算`, {
-      targetTable: 'Hr_room_use',
+      targetTable: 'UB_ERP_Hr_room_use',
       pool,
     })
 
@@ -11025,7 +11025,7 @@ app.put('/api/hr/dormitory/check-out', async (req, res) => {
  * 住宿管理 — 房间总览（已审房间 + 指定年月的在住聚合 + 电费）
  * GET /api/hr/dormitory/lodging-overview
  * - tj_date：电费查询年月（格式 YYYY-M，例如 2026-3）；不传则由 year/month 拼接（YYYY-M）
- * - year、month：入住人数/名单为“当前在住”（不按月份）；电费按 Hr_room_use.tj_date 精确匹配 tj_date
+ * - year、month：入住人数/名单为“当前在住”（不按月份）；电费按 UB_ERP_Hr_room_use.tj_date 精确匹配 tj_date
  * - 电费：同房同月可能多行但金额相同，取 MAX(c_sum_money) 防止重复累加
  * - keyword：房号/楼栋/名称/房型
  * - staffKeyword：在住记录中匹配员工工号或姓名（不限定月份，仅筛「该房是否存在该员工在住」）
@@ -11370,7 +11370,7 @@ app.get('/api/hr/dormitory/lodging-history', async (req, res) => {
 })
 
 /**
- * v1.1.4：入住审批管理中心列表（Hr_room_in + Hr_staff + HR_Departments 三表；SQL2008 用 ROW_NUMBER 分页）
+ * v1.1.4：入住审批管理中心列表（UB_ERP_Hr_room_in + UB_ERP_Hr_staff + UB_ERP_Hr_department 三表；SQL2008 用 ROW_NUMBER 分页）
  * GET /api/hr/dormitory/lodging-in/audit-center-list
  * query: page, pageSize, pass（'0'=待审核，'1'=已审核；须与 WHERE del/pass 对齐）
  * keyword：工号/姓名/房号/备注/部门名 模糊
@@ -11400,7 +11400,7 @@ app.get('/api/hr/dormitory/lodging-in/audit-center-list', async (req, res) => {
     if (!inColset.has('pass')) {
       res.status(500).json({
         code: 500,
-        msg: '物理表 Hr_room_in 缺少 pass 字段：请在 Navicat 中新增 nvarchar 类型的 pass 列后再使用本模块',
+        msg: '物理表 UB_ERP_Hr_room_in 缺少 pass 字段：请在 Navicat 中新增 nvarchar 类型的 pass 列后再使用本模块',
         data: null,
       })
       return
@@ -11408,7 +11408,7 @@ app.get('/api/hr/dormitory/lodging-in/audit-center-list', async (req, res) => {
     if (!inColset.has('in_time')) {
       res.status(500).json({
         code: 500,
-        msg: '物理表 Hr_room_in 缺少 in_time 字段：请在 Navicat 补列后再使用审核列表',
+        msg: '物理表 UB_ERP_Hr_room_in 缺少 in_time 字段：请在 Navicat 补列后再使用审核列表',
         data: null,
       })
       return
@@ -11416,7 +11416,7 @@ app.get('/api/hr/dormitory/lodging-in/audit-center-list', async (req, res) => {
     if (!inColset.has('staff_truename')) {
       res.status(500).json({
         code: 500,
-        msg: '物理表 Hr_room_in 缺少 staff_truename 字段：请在 Navicat 补列后再使用审核列表',
+        msg: '物理表 UB_ERP_Hr_room_in 缺少 staff_truename 字段：请在 Navicat 补列后再使用审核列表',
         data: null,
       })
       return
@@ -11518,7 +11518,7 @@ app.get('/api/hr/dormitory/lodging-in/audit-center-list', async (req, res) => {
 
 /**
  * 审核入住单：PUT /api/hr/dormitory/lodging-in/audit
- * body: { id } — Hr_room_in.id
+ * body: { id } — UB_ERP_Hr_room_in.id
  */
 app.put('/api/hr/dormitory/lodging-in/audit', async (req, res) => {
   res.setHeader('X-ERP-Dormitory-Lodging-In-Audit', 'v1.1.4')
@@ -11662,7 +11662,7 @@ app.put('/api/hr/dormitory/lodging-in/audit-batch', async (req, res) => {
 /**
  * v1.1.4：驳回入住申请（逻辑删除）：仅允许 pass='0' 且 del='0'
  * PUT /api/hr/dormitory/lodging-in/reject
- * body: { id } — Hr_room_in.id
+ * body: { id } — UB_ERP_Hr_room_in.id
  */
 app.put('/api/hr/dormitory/lodging-in/reject', async (req, res) => {
   res.setHeader('X-ERP-Dormitory-Lodging-In-Reject', 'v1.1.4')
@@ -11873,7 +11873,7 @@ app.delete('/api/dorm/delete-checkin', async (req, res) => {
   }
 })
 
-/** 纸格资料导入：临时目录（不写 Bom_000 等业务表） */
+/** 纸格资料导入：临时目录（不写 UB_ERP_Bom_000 等业务表） */
 ensurePaperPatternImportTmpDir()
 
 const paperPatternImportUpload = multer({
@@ -11944,7 +11944,7 @@ const paperPatternExcelMemoryUpload = multer({
 
 /**
  * GET /api/paper-pattern/import-types
- * 纸格导入「导入类型」下拉：Bom_code（排除 id=1），展示 flag1(flag5)，取值为 flag5。
+ * 纸格导入「导入类型」下拉：UB_ERP_Bom_code（排除 id=1），展示 flag1(flag5)，取值为 flag5。
  */
 app.get('/api/paper-pattern/import-types', async (req, res) => {
   try {
@@ -11968,7 +11968,7 @@ app.get('/api/paper-pattern/import-types', async (req, res) => {
 
 /**
  * POST /api/paper-pattern/upload
- * multipart：file；importTypeFlag5（Bom_code.flag5）可选，未传时解析仍进行但 BOM 前缀为空，由前端「基础资料确认区」补选后实时生成编码。
+ * multipart：file；importTypeFlag5（UB_ERP_Bom_code.flag5）可选，未传时解析仍进行但 BOM 前缀为空，由前端「基础资料确认区」补选后实时生成编码。
  */
 app.post('/api/paper-pattern/upload', (req, res) => {
   paperPatternExcelMemoryUpload.single('file')(req, res, async (err) => {
@@ -12091,21 +12091,21 @@ app.listen(port, () => {
   console.log(`BOM-Search-Filter-DefaultExcludeCUT-v1.1.7 ${bootAt}`)
   console.log(`BOM-Search-Core-Link-v1.1.7 ${bootAt}`)
   console.log(`BOM-Search-CUT-Suffix-Link-v1.1.7 ${bootAt}`)
-  console.log(`BOM-Parts-Seq-Persist ${bootAt} GET/PUT Bom_parts.[Seq]`)
+  console.log(`BOM-Parts-Seq-Persist ${bootAt} GET/PUT UB_ERP_Bom_parts.[Seq]`)
   console.log(
-    `BOM-Parts-Kcac06-JoinBom000-v1.2.5 ${bootAt} GET parts CTE+JOIN bom_000（同 TOP1 id）; PUT kcac04/05/06; audit usage`,
+    `BOM-Parts-Kcac06-JoinBom000-v1.2.5 ${bootAt} GET parts CTE+JOIN UB_ERP_Bom_000（同 TOP1 id）; PUT kcac04/05/06; audit usage`,
   )
   console.log(
-    `BOM-Parts-Save-Sync-Kcaa01-35-v1.2.6 ${bootAt} PUT parts: id+kcac01 lock; sync kcaa01-35/kcac02/systemcode from bom_000; audit [同步]`,
+    `BOM-Parts-Save-Sync-Kcaa01-35-v1.2.6 ${bootAt} PUT parts: id+kcac01 lock; sync kcaa01-35/kcac02/systemcode from UB_ERP_Bom_000; audit [同步]`,
   )
   console.log(
-    `BOM-Tree-v1.2.8-BatchPrefetch ${bootAt} GET/POST 用量树：bom_cost 命中直读；否则 Bom_parts 批量预取建树`,
+    `BOM-Tree-v1.2.8-BatchPrefetch ${bootAt} GET/POST 用量树：UB_ERP_Bom_cost 命中直读；否则 UB_ERP_Bom_parts 批量预取建树`,
   )
   console.log(
-    `BOM-Usage-Calc-bom_cost ${bootAt} POST /api/bom/usage-calc → bom_cost(tx DELETE+bom_000补全+binfo/GUID/审计+isok；Bom_consumption 已停用)`,
+    `BOM-Usage-Calc-UB_ERP_Bom_cost ${bootAt} POST /api/bom/usage-calc → UB_ERP_Bom_cost(tx DELETE+UB_ERP_Bom_000补全+binfo/GUID/审计+isok；Bom_consumption 已停用)`,
   )
   console.log(
-    `BOM-Propagate-Master-v1.0.0 ${bootAt} POST /api/inventory/bom/propagate-master → Bom_parts+bom_cost kcaa 同步（不改用量）`,
+    `BOM-Propagate-Master-v1.0.0 ${bootAt} POST /api/inventory/bom/propagate-master → UB_ERP_Bom_parts+UB_ERP_Bom_cost kcaa 同步（不改用量）`,
   )
   console.log(`PI-BOM-Data-Viewer-v1.1.0 ${bootAt} GET /api/inventory/pi-bom-data/list + detail`)
   console.log(`ColorCode-Module-Initial-v1.0.0 ${bootAt}`)
@@ -12136,10 +12136,10 @@ app.listen(port, () => {
     `PaperPattern-Import-Files-List ${bootAt} GET /api/paper-pattern/import/files/list；GET /api/paper-pattern/import/files/download`,
   )
   console.log(
-    `PaperPattern-Import-Types-List ${bootAt} GET /api/paper-pattern/import-types（Bom_code，排除 id=1）`,
+    `PaperPattern-Import-Types-List ${bootAt} GET /api/paper-pattern/import-types（UB_ERP_Bom_code，排除 id=1）`,
   )
   console.log(
-    `PaperPattern-Upload-Parse-Tree ${bootAt} POST /api/paper-pattern/upload（.xlsx/.xls；importTypeFlag5 可选，有则校验 Bom_code）`,
+    `PaperPattern-Upload-Parse-Tree ${bootAt} POST /api/paper-pattern/upload（.xlsx/.xls；importTypeFlag5 可选，有则校验 UB_ERP_Bom_code）`,
   )
   console.log(`PaperPattern-Import-Preview-Read ${bootAt} GET /api/paper-pattern/import/preview`)
   console.log(`PaperPattern-Import-Mapping-DB ${bootAt} GET/POST /api/paper-pattern/import/mapping|save-mapping`)

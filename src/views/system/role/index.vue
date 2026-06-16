@@ -267,7 +267,7 @@ const dialogTitle = computed(() => (dialogMode.value === 'edit' ? '编辑角色'
 
 /** 表单引用，用于 validate */
 const formRef = ref(null)
-/** 弹窗表单字段（与 Sys_Roles 列对应） */
+/** 弹窗表单字段（与 UB_ERP_System_role 列对应） */
 const form = ref({
   RoleID: undefined,
   RoleName: '',
@@ -598,7 +598,7 @@ function collectCheckedPermPaths() {
 }
 
 /**
- * 从后端拉取 Sys_Roles 分页数据
+ * 从后端拉取 UB_ERP_System_role 分页数据
  * 请求：GET /api/roles?page=&pageSize=&pass=&keyword=
  */
 async function loadRoles() {

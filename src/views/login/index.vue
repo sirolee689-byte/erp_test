@@ -107,7 +107,7 @@ const route = useRoute()
 const form = reactive({
   // 登录输入：旧表为 username（登录账号）或 usercode（账号编码）；ERP 表为 UserName
   account: '',
-  // 密码（对应数据库 Sys_Users.Password）
+  // 密码（对应数据库 UB_ERP_User.Password）
   password: '',
 })
 
@@ -166,10 +166,10 @@ async function onLogin() {
      *
      * 流程说明（从登录到前端读取）：
      * 1) 后端 POST /api/login 在校验通过后，会在 data.user 里返回 UserID/UserCode/UserName/Status，
-     *    以及本阶段新增的 RoleID、RoleName（来自 Sys_Users 关联 Sys_Roles）。
+     *    以及本阶段新增的 RoleID、RoleName（来自 UB_ERP_User 关联 UB_ERP_System_role）。
      * 2) localStorage 只能存字符串，所以这里用 JSON.stringify(user) 序列化整个 user 对象。
      * 3) 写入的 key 固定为 erp_user（与布局页 ErpLayout 读取的 key 一致）。
-     * 4) user.Permissions 为角色在 Sys_Roles.Permissions 中配置的菜单 path JSON 字符串；
+     * 4) user.Permissions 为角色在 UB_ERP_System_role.Permissions 中配置的菜单 path JSON 字符串；
      *    侧栏与路由守卫会读取它做菜单过滤与无权限拦截（详见 @/utils/menuPermission.js）。
      * 5) 路由守卫仍以 erp_token 判断登录；Permissions 用于登录后的菜单与 URL 授权。
      */

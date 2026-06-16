@@ -1,5 +1,5 @@
 /**
- * 只读：输出 Hr_staff / HR_staff 与 HR_Departments 的列结构
+ * 只读：输出 UB_ERP_Hr_staff 与 UB_ERP_Hr_department 的列结构
  * 注意：仅用于本机排查，不做任何写入操作
  */
 import dotenv from 'dotenv'
@@ -21,7 +21,7 @@ const config = {
 }
 
 const schemaName = 'dbo'
-const tables = ['Hr_staff', 'HR_staff', 'HR_Departments']
+const tables = ['UB_ERP_Hr_staff', 'UB_ERP_Hr_department']
 
 const sqlText = `
 SELECT

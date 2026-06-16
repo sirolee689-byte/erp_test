@@ -1,5 +1,5 @@
 /**
- * 销售订单散件判定：Bom_code（copen=1、flag5 非空）为「排除前缀」；
+ * 销售订单散件判定：UB_ERP_Bom_code（copen=1、flag5 非空）为「排除前缀」；
  * 明细 kcaa01 不命中任一排除前缀 → 散件行；订单含散件 → 显示「增加散件单用量」。
  */
 import sql from 'mssql'
@@ -9,7 +9,7 @@ import { normKcaa01 } from './salesOrderSaveLogic.js'
 const SALES_ORDER_LINE_FROM = 'dbo.[UB_ERP_Sales_order_list]'
 
 /**
- * 读取 Bom_code 全部生效排除前缀（2A：含 CUT/OUT，不排除 id）
+ * 读取 UB_ERP_Bom_code 全部生效排除前缀（2A：含 CUT/OUT，不排除 id）
  * @param {import('mssql').ConnectionPool | import('mssql').Transaction} db
  * @returns {Promise<string[]>}
  */
@@ -35,7 +35,7 @@ export async function fetchBomCodeExcludePrefixes(db) {
 }
 
 /**
- * kcaa01 是否命中 Bom_code 排除前缀（与 is_need_calc 同口径：flag5 + '%'）
+ * kcaa01 是否命中 UB_ERP_Bom_code 排除前缀（与 is_need_calc 同口径：flag5 + '%'）
  * @param {unknown} kcaa01
  * @param {string[]} excludePrefixes 建议已按长度降序
  */
@@ -50,7 +50,7 @@ export function kcaa01MatchesBomCodeExcludePrefix(kcaa01, excludePrefixes) {
 }
 
 /**
- * 是否散件编码（不命中任一 Bom_code 排除前缀）
+ * 是否散件编码（不命中任一 UB_ERP_Bom_code 排除前缀）
  * @param {unknown} kcaa01
  * @param {string[]} excludePrefixes
  */
@@ -77,7 +77,7 @@ export function orderLinesHaveSpareParts(lines, excludePrefixes) {
 }
 
 /**
- * 整款明细（命中 Bom_code 排除前缀）
+ * 整款明细（命中 UB_ERP_Bom_code 排除前缀）
  * @param {{ kcaa01?: unknown }[]} lines
  * @param {string[]} excludePrefixes
  */
@@ -124,7 +124,7 @@ export function resolveCanAddSpareUsage(lines, excludePrefixes, piCostPqSet) {
   return wholeLines.every((line) => piCostPqSet.has(normKcaa01(line.kcaa01)))
 }
 
-/** SQL：明细 kcaa01 是否命中 Bom_code 排除前缀 */
+/** SQL：明细 kcaa01 是否命中 UB_ERP_Bom_code 排除前缀 */
 function buildLineMatchesBomCodeExcludePrefixSqlExpr(lineKcaa01Expr) {
   const kc = String(lineKcaa01Expr ?? 'sl.[kcaa01]')
   return `

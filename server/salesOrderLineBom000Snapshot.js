@@ -1,9 +1,9 @@
 /**
- * 销售订单明细 / PI BOM 头：从 bom_000 抄扩展快照字段（散件单/整款单统一规则）
+ * 销售订单明细 / PI BOM 头：从 UB_ERP_Bom_000 抄扩展快照字段（散件单/整款单统一规则）
  */
 import { bomCostParseDecimal6OrNull } from './bomCostEnrichFromBom000.js'
 
-/** 保存时 UB_ERP_Sales_order_list 必须从 bom_000 抄写的扩展列 */
+/** 保存时 UB_ERP_Sales_order_list 必须从 UB_ERP_Bom_000 抄写的扩展列 */
 export const SALES_ORDER_LINE_BOM000_EXTENDED_COLUMNS = [
   'kcaa02_en',
   'kcaa32',
@@ -14,13 +14,13 @@ export const SALES_ORDER_LINE_BOM000_EXTENDED_COLUMNS = [
   'cost_price',
 ]
 
-/** 保存 PI BOM 头时从 bom_000 抄写的扩展列（与订单明细一致） */
+/** 保存 PI BOM 头时从 UB_ERP_Bom_000 抄写的扩展列（与订单明细一致） */
 export const PI_BOM_HEAD_BOM000_EXTENDED_COLUMNS = SALES_ORDER_LINE_BOM000_EXTENDED_COLUMNS
 
-/** PI BOM 头 INSERT 额外需要的 bom_000 快照列（含 kcaa12） */
+/** PI BOM 头 INSERT 额外需要的 UB_ERP_Bom_000 快照列（含 kcaa12） */
 export const PI_BOM_HEAD_BOM000_SNAPSHOT_COLUMNS = ['kcaa12', ...PI_BOM_HEAD_BOM000_EXTENDED_COLUMNS]
 
-/** bom_000 侧需存在的扩展列（用于保存前 schema 校验） */
+/** UB_ERP_Bom_000 侧需存在的扩展列（用于保存前 schema 校验） */
 export const BOM000_EXTENDED_SNAPSHOT_COLUMNS = [
   'kcaa02_en',
   'kcaa32',
@@ -59,7 +59,7 @@ export function parseSnapshotIntOrNull(raw) {
 }
 
 /**
- * bom_000 行 → 订单明细 / PI BOM 头共用扩展快照
+ * UB_ERP_Bom_000 行 → 订单明细 / PI BOM 头共用扩展快照
  * @param {Record<string, unknown> | null | undefined} row
  */
 export function mapBom000ExtendedSnapshotRow(row) {

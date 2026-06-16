@@ -1,6 +1,6 @@
 /**
  * 服务端权限解析（与前端 menuPermission.js 规则保持一致）
- * Sys_Roles.Permissions 支持：
+ * UB_ERP_System_role.Permissions 支持：
  * - 旧版：JSON 数组 ["*"] 或 ["system/operator"]（路径仅菜单，等价于该页 all）
  * - 新版：JSON 对象 { "system/operator": ["view","add"], "supply-chain/daily/purchase-order": ["view","edit"] }
  * - 全局：{"*":["all"]} 或 ["*"]

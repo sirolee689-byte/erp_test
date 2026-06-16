@@ -5,7 +5,7 @@
         <span class="page-title">{{ pageTitle }}</span>
       </template>
       <p class="page-desc">
-        数据表 <code>System_sales_customer</code>；默认每页 20 条；已审核行不可编辑/删除，需先反审。
+        数据表 <code>UB_ERP_System_sales_customer</code>；默认每页 20 条；已审核行不可编辑/删除，需先反审。
       </p>
 
       <div class="search-row">

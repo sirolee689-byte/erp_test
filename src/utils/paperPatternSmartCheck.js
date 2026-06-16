@@ -1,6 +1,6 @@
 /**
  * 纸格导入：智能校验（ERP 物料）会话态与指纹
- * Material 校验/指纹使用 codesByColor 全码（与正式导入 Bom_parts 一致）
+ * Material 校验/指纹使用 codesByColor 全码（与正式导入 UB_ERP_Bom_parts 一致）
  */
 import { erpCodeLookupKey, normalizeErpCodeDisplay } from '@/utils/paperPatternErpCodeNormalize.js'
 

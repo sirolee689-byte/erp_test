@@ -28,16 +28,19 @@ const TEST_CURRENCY_ID = '1'
 const PRODUCT_A = 'BAG-PQ3672A1/G-TEST'
 const PRODUCT_B = 'BAG-PQTEST/BLU2'
 const BOM_PARTS_TABLE = (() => {
-  const raw = String(process.env.INV_BOM_PARTS_TABLE ?? 'Bom_parts').trim()
-  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'Bom_parts'
+  const raw = String(process.env.INV_BOM_PARTS_TABLE ?? 'UB_ERP_Bom_parts').trim()
+  return /^[A-Za-z0-9_]+$/.test(raw) ? raw : 'UB_ERP_Bom_parts'
 })()
 
 /** @type {import('node:child_process').ChildProcess | null} */
 let serverChild = null
 let apiBase = ''
 let authToken = ''
+let piSeq = 0
 /** @type {string[]} */
 const cleanupPiNos = []
+/** @type {number[]} */
+const cleanupSeedPartIds = []
 
 function waitPort(host, port, timeoutMs) {
   const t0 = Date.now()
@@ -95,7 +98,8 @@ async function loginToken() {
 }
 
 function newTestPi() {
-  const pi = `PI-SYNC-${Date.now()}`
+  piSeq += 1
+  const pi = `PI-SYNC-${Date.now()}-${piSeq}`
   cleanupPiNos.push(pi)
   return pi
 }
@@ -144,6 +148,56 @@ async function hardDeleteTestPi(piNo) {
     DELETE FROM dbo.[UB_ERP_Sales_order_list] WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([xsak01], N'')))) = @pi;
     DELETE FROM dbo.[UB_ERP_Sales_order] WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([xsaj01], N'')))) = @pi;
   `)
+}
+
+async function ensureMasterDirectChild(productKcaa01, usage, seq) {
+  const { getPool, sql } = await import('./db.js')
+  const pool = await getPool()
+  const master = await fetchMasterBomHeadByKcaa01(pool, productKcaa01)
+  const parentSc = normalizeUsageTreeParentKey(master?.systemcode)
+  assert.ok(parentSc, `测试主 BOM 缺少 systemcode：${productKcaa01}`)
+
+  const existing = await pool.request().input('parent', sql.NVarChar(500), parentSc).query(`
+    SELECT TOP 1 [id]
+    FROM dbo.[${BOM_PARTS_TABLE}]
+    WHERE LTRIM(RTRIM(ISNULL(CAST([kcac01] AS nvarchar(500)), N''))) = @parent
+  `)
+  if (existing.recordset?.[0]?.id) return
+
+  const childCode = `UT-SYNC-CHILD-${seq}`
+  const childSc = `UT-SYNC-${Date.now()}-${seq}`
+  const inserted = await pool
+    .request()
+    .input('parent', sql.NVarChar(500), parentSc)
+    .input('childCode', sql.NVarChar(300), childCode)
+    .input('childSc', sql.NVarChar(500), childSc)
+    .input('usage', sql.Decimal(18, 6), usage)
+    .input('seq', sql.Int, seq)
+    .query(`
+      INSERT INTO dbo.[${BOM_PARTS_TABLE}] (
+        [kcac01], [kcac02], [kcaa01], [kcac04], [kcac05], [kcac06], [Seq],
+        [GUID], [systemcode], [del], [pass], [Describe]
+      )
+      OUTPUT INSERTED.[id]
+      VALUES (
+        @parent, N'', @childCode, @usage, 0, @usage, @seq,
+        @childSc, @childSc, N'0', N'1', N'销售订单同步 BOM 集成测试种子'
+      )
+    `)
+  const id = Number(inserted.recordset?.[0]?.id ?? 0)
+  if (id) cleanupSeedPartIds.push(id)
+}
+
+async function cleanupSeedBomParts() {
+  if (!cleanupSeedPartIds.length) return
+  const { getPool, sql } = await import('./db.js')
+  const pool = await getPool()
+  for (const id of cleanupSeedPartIds) {
+    await pool.request().input('id', sql.Int, id).query(`
+      DELETE FROM dbo.[${BOM_PARTS_TABLE}] WHERE [id] = @id
+    `)
+  }
+  cleanupSeedPartIds.length = 0
 }
 
 /** 主 BOM 成品下第一层子件（按 Seq） */
@@ -272,6 +326,8 @@ async function countPiCostRows(piNo) {
 
 describe('sales order sync bom integration', { skip: !hasE2e }, () => {
   before(async () => {
+    await ensureMasterDirectChild(PRODUCT_A, 1.25, 9101)
+    await ensureMasterDirectChild(PRODUCT_B, 2.5, 9102)
     await startE2eServer()
     await loginToken()
   })
@@ -283,6 +339,11 @@ describe('sales order sync bom integration', { skip: !hasE2e }, () => {
       } catch {
         // ignore
       }
+    }
+    try {
+      await cleanupSeedBomParts()
+    } catch {
+      // ignore
     }
     await stopE2eServer()
   })

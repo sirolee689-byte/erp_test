@@ -1,5 +1,5 @@
 /**
- * v1.0.8：执行 HR_Departments 建表与种子数据（与 dev:server 共用根目录 .env）
+ * v1.0.8：执行 UB_ERP_Hr_department 建表与种子数据（与 dev:server 共用根目录 .env）
  * 用法：在项目根目录执行 npm run migrate:hr-departments
  */
 import dotenv from 'dotenv'

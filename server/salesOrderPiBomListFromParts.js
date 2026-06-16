@@ -1,5 +1,5 @@
 /**
- * 销售订单 PI BOM 配件行：从 Bom_parts 按列快照写入 UB_ERP_Bom_Sales_list
+ * 销售订单 PI BOM 配件行：从 UB_ERP_Bom_parts 按列快照写入 UB_ERP_Bom_Sales_list
  */
 import sql from 'mssql'
 import {
@@ -19,7 +19,7 @@ const PI_BOM_LIST_FROM = 'dbo.[UB_ERP_Bom_Sales_list]'
 
 const BOM_PARTS_KCAC01_EXPR = `LTRIM(RTRIM(ISNULL(CAST(p.kcac01 AS nvarchar(500)), N'')))`
 
-/** 写入时由服务端覆盖，不从 Bom_parts 抄 */
+/** 写入时由服务端覆盖，不从 UB_ERP_Bom_parts 抄 */
 const PI_LIST_INSERT_OVERRIDE = new Set([
   'sid',
   'kcac01',
@@ -38,7 +38,7 @@ const PI_LIST_INSERT_SKIP = new Set(['id'])
 const PARTS_TO_LIST_COLUMN_ALIAS = new Map([['seq', 'Seq']])
 
 /**
- * PI BOM 配件行：先抄 Bom_parts，再按子件 kcaa01 用 bom_000 覆盖（无主档则保留 parts）
+ * PI BOM 配件行：先抄 UB_ERP_Bom_parts，再按子件 kcaa01 用 UB_ERP_Bom_000 覆盖（无主档则保留 parts）
  * @type {readonly string[]}
  */
 export const PI_BOM_LIST_BOM000_OVERRIDE_COLS = [
@@ -168,7 +168,7 @@ export function buildBomPartsSelectListForPiCopy(copyCols) {
 }
 
 /**
- * 批量读取 Bom_parts 层（含 PI 复制所需的全部同名列）
+ * 批量读取 UB_ERP_Bom_parts 层（含 PI 复制所需的全部同名列）
  * @param {import('mssql').ConnectionPool} pool
  * @param {string[]} kcac01Parents
  * @param {{ copyCols: { targetCol: string, sourceCol: string, dataType: string }[] }} meta
@@ -271,7 +271,7 @@ export function mergePiListPartRowWithBom000Override(partRow, bom000Snap) {
 }
 
 /**
- * 按子件编码批量读取 bom_000 覆盖字段（每码取 id 最大且未删的一条）
+ * 按子件编码批量读取 UB_ERP_Bom_000 覆盖字段（每码取 id 最大且未删的一条）
  * @param {import('mssql').ConnectionPool} pool
  * @param {string[]} kcaa01Codes
  * @returns {Promise<Map<string, Record<string, unknown>>>}

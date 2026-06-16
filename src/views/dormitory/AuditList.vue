@@ -1,8 +1,8 @@
 <template>
   <div class="audit-list-root">
     <p class="page-desc">
-      数据来自 <code>Hr_room_in</code>（<code>del='0'</code>）+ <code>Hr_staff</code> + <code>HR_Departments</code> 联查；部门列仅展示
-      <code>HR_Departments.name</code>。入住时间、<code>staff_truename</code> 与库端字段一致。
+      数据来自 <code>UB_ERP_Hr_room_in</code>（<code>del='0'</code>）+ <code>UB_ERP_Hr_staff</code> + <code>UB_ERP_Hr_department</code> 联查；部门列仅展示
+      <code>UB_ERP_Hr_department.name</code>。入住时间、<code>staff_truename</code> 与库端字段一致。
     </p>
     <div class="toolbar-row">
       <div class="audit-switch">
@@ -154,7 +154,7 @@ function passParam() {
   return showAudited.value ? '1' : '0'
 }
 
-/** 仅展示 HR_Departments.name（dept_name），不回退为部门编码 */
+/** 仅展示 UB_ERP_Hr_department.name（dept_name），不回退为部门编码 */
 function formatDeptName(row) {
   const n = row?.dept_name != null ? String(row.dept_name).trim() : ''
   return n || '—'

@@ -4,7 +4,7 @@
 
 ### 部门资料（`department/index.vue`）
 
-- **数据源**：部门物理表由根目录 `.env` 中 **`HR_LEGACY_DEPT_TABLE`** 指定（仅字母、数字、下划线），**默认 `HR_Departments`**。
+- **数据源**：部门物理表由根目录 `.env` 中 **`HR_LEGACY_DEPT_TABLE`** 指定（仅字母、数字、下划线），**默认 `UB_ERP_Hr_department`**。
 - **字段**：与旧库一致：`code`、`name`、`manager`（历史列，新增写入为 NULL）、**`remark`（备注，v1.1.0 迁移新增）**、`pass`、`del` 等；组织关系字段 **`ParentID`**（岗位必须填写所属部门的 `code`；顶级部门 `ParentID` 为空）。
 - **编码**：新增部门/岗位时 **`code` 由后端** 按表中「**纯数字** `code`」取最大值 **+1** 生成（兼容 **SQL Server 2008 R2**：不用 `TRY_CONVERT`，用 `PATINDEX` + `CAST`）；前端不再手填编码。
 - **名称规则**：部门与岗位共用一张表，但查重规则按业务口径区分：
@@ -22,7 +22,7 @@
 
 ### 员工档案资料
 
-- **数据源**：旧系统员工表 `dbo.Hr_staff`（可用 `.env` 覆盖：`HR_STAFF_TABLE`）。
+- **数据源**：旧系统员工表 `dbo.[UB_ERP_Hr_staff]`（可用 `.env` 覆盖：`HR_STAFF_TABLE`）。
 - **只查有效字段**：`code`、`new_code`、`name`、`sex`、`nation`、`highest`、`yn_firend`、`birth`、`in_bm`、`card_number`、`join_department`、`position`、`meal_type`、`yn_history`、`remark`、`intime`、`pass`（避免 SELECT *）。
 - **分页**：`GET /api/hr/staff`，默认 **`pageSize=20`**；支持 `OFFSET/FETCH`，不支持时自动降级 `ROW_NUMBER()`；**`pass`** 与部门页一致（默认已审核 `1`，「显示未审核」传 `0`）。
 - **搜索优先级**：先 `name` 模糊，再 `code` 精确，再 `card_number` 精确。
@@ -34,10 +34,10 @@
 - **入口**：员工档案资料页新增按钮【批量更新】。
 - **文件限制**：仅支持上传 **xlsx/xls**；第一行必须是表头三列：**姓名 / 部门 / 岗位**。
 - **关联规则（重点）**：
-  - 用 **姓名** 在 `Hr_staff` 精确匹配员工（必须唯一；同名会提示失败）。
-  - 用 **部门名称** 在 `HR_Departments` 精确匹配 **已审核的顶级部门**（必须唯一、且未删除）。
-  - 用 **岗位名称** 在 `HR_Departments` 精确匹配 **该部门下的已审核岗位**（必须唯一、且未删除）。
-  - 更新字段：`Hr_staff.in_bm = 部门名称`（展示用）、`join_department = 部门code`、`position = 岗位code`。
+  - 用 **姓名** 在 `UB_ERP_Hr_staff` 精确匹配员工（必须唯一；同名会提示失败）。
+  - 用 **部门名称** 在 `UB_ERP_Hr_department` 精确匹配 **已审核的顶级部门**（必须唯一、且未删除）。
+  - 用 **岗位名称** 在 `UB_ERP_Hr_department` 精确匹配 **该部门下的已审核岗位**（必须唯一、且未删除）。
+  - 更新字段：`UB_ERP_Hr_staff.in_bm = 部门名称`（展示用）、`join_department = 部门code`、`position = 岗位code`。
   - **仅更新已审核员工（pass='1'）**；未审核（pass!=1）会在结果中显示为「跳过」。
 - **接口**：`POST /api/hr/staff/batch-update`（权限按 `hr/files/employee-files` 的 `edit`）。
 - **已知注意**：Excel 走 base64 传输，文件过大可能会慢；建议一批几百行以内。
@@ -58,9 +58,9 @@
 #### v1.1.2 员工离职/状态修改
 
 - **字段（需迁移）**：
-  - `Hr_staff.status`：`nvarchar(20)`，默认 `在职`；离职后为 `离职`
-  - `Hr_staff.leave_date`：`datetime`，离职时写入当前时间
-  - `Sys_Users.is_active`：`int`，默认 `1`；离职时置 `0`（账号封禁）
+  - `UB_ERP_Hr_staff.status`：`nvarchar(20)`，默认 `在职`；离职后为 `离职`
+  - `UB_ERP_Hr_staff.leave_date`：`datetime`，离职时写入当前时间
+  - `UB_ERP_User.is_active`：`int`，默认 `1`；离职时置 `0`（账号封禁）
 - **迁移脚本**：
   - SQL：`docs/sql/sqlserver_v1.1.2_hr_staff_leave_fields.txt`
   - 命令：`npm run migrate:hr-staff-leave-fields`
@@ -85,9 +85,9 @@
 
 ## 配置提示
 
-- **v1.1.0 部门备注列迁移**：在项目根目录执行 `npm run migrate:hr-departments-remark`（或手动执行 `docs/sql/sqlserver_v1.1.0_hr_departments_add_remark.txt`）。若物理表名不是 `HR_Departments`，请先在 SQL 脚本里把表名改成与 **`HR_LEGACY_DEPT_TABLE`** 一致再执行。
+- **v1.1.0 部门备注列迁移**：在项目根目录执行 `npm run migrate:hr-departments-remark`（或手动执行 `docs/sql/sqlserver_v1.1.0_hr_departments_add_remark.txt`）。若物理表名不是 `UB_ERP_Hr_department`，请先在 SQL 脚本里把表名改成与 **`HR_LEGACY_DEPT_TABLE`** 一致再执行。
 - **v1.1.0 员工备注列迁移**：员工档案读写 **`remark`** 前，请在项目根目录执行 **`npm run migrate:hr-staff-remark`**（脚本按 **`HR_STAFF_TABLE`** 动态 `ALTER TABLE` 增加 `remark`，重复执行安全）。未迁移时接口会因缺列报错。
-- 若实际表名不是 `HR_Departments`，在 `.env` 增加一行：`HR_LEGACY_DEPT_TABLE=你的表名`，重启 `npm run dev:server`。
+- 若实际表名不是 `UB_ERP_Hr_department`，在 `.env` 增加一行：`HR_LEGACY_DEPT_TABLE=你的表名`，重启 `npm run dev:server`。
 - 审核写入 `passutruename` 等依赖登录 token 中的用户信息，**改代码后建议重新登录一次**。
 
 ## 自动化冒烟（Playwright）

@@ -323,7 +323,7 @@ function formatNum(value) {
   return String(n)
 }
 
-/** 未命中 Bom_code 前缀红 / 命中 flag5- 前缀蓝 */
+/** 未命中 UB_ERP_Bom_code 前缀红 / 命中 flag5- 前缀蓝 */
 function codeColorClass(codeColor) {
   if (codeColor === 'outbound') return ''
   return codeColor === 'sales_list'
@@ -941,7 +941,7 @@ onMounted(async () => {
   --el-button-hover-border-color: #8b949f;
 }
 
-/* 编码颜色：未命中 Bom_code 前缀红 / 命中 flag5- 前缀蓝，DIY 可调下方变量 */
+/* 编码颜色：未命中 UB_ERP_Bom_code 前缀红 / 命中 flag5- 前缀蓝，DIY 可调下方变量 */
 .assist-batch-code--pi-cost {
   --assist-batch-code-pi-cost: #e60000;
   color: var(--assist-batch-code-pi-cost);
