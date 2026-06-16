@@ -17,6 +17,7 @@ import { resolveActorAuditTripletFromReq } from './businessAuditFields.js'
 
 const HEADER_FROM = `dbo.[${DISPATCH_ORDER_HEADER_TABLE}]`
 const LINE_FROM = 'dbo.[UB_ERP_Dispatch_order_list]'
+const COLOR_FROM = 'dbo.[UB_ERP_Stocks_colorcode]'
 
 function bindListParams(req, params) {
   for (const [key, value] of Object.entries(params ?? {})) {
@@ -212,9 +213,16 @@ export function registerDispatchOrderRoutes(app, deps) {
       }
       const orderNo = String(header.scaj01 ?? '').trim()
       const lineR = await pool.request().input('orderNo', sql.NVarChar(200), orderNo).query(`
-        SELECT * FROM ${LINE_FROM}
-        WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([scak01], N'')))) = @orderNo
-        ORDER BY ISNULL([seq], [id]), [id]
+        SELECT
+          l.*,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.[name], N'')))) AS colorName,
+          CAST(0 AS decimal(18, 4)) AS stockProcessDispatchedQty
+        FROM ${LINE_FROM} AS l
+        LEFT JOIN ${COLOR_FROM} AS c
+          ON LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.[code], N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[kcaa11], N''))))
+         AND (ISNULL(c.[del], N'') = N'' OR c.[del] = N'0')
+        WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[scak01], N'')))) = @orderNo
+        ORDER BY ISNULL(l.[seq], l.[id]), l.[id]
       `)
       res.json({ code: 200, msg: 'success', data: { header: serializeRow(header), lines: (lineR.recordset ?? []).map(serializeRow) } })
     } catch (err) {
