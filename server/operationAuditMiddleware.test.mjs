@@ -83,3 +83,22 @@ describe('operationAuditMiddleware dispatch order exclusions', () => {
     }
   })
 })
+
+describe('operationAuditMiddleware stock-in exclusions', () => {
+  test('skips global audit log for stock-in write routes', async () => {
+    const routes = [
+      ['POST', '/api/stock-in'],
+      ['PUT', '/api/stock-in/8'],
+      ['POST', '/api/stock-in/8/audit'],
+      ['POST', '/api/stock-in/8/unaudit'],
+      ['POST', '/api/stock-in/8/restore'],
+      ['DELETE', '/api/stock-in/8'],
+      ['DELETE', '/api/stock-in/8/hard'],
+    ]
+
+    for (const [method, path] of routes) {
+      const calls = await runAuditMiddleware({ method, path })
+      assert.equal(calls.length, 0, `${method} ${path} should not write a global audit log`)
+    }
+  })
+})

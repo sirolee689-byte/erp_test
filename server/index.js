@@ -49,6 +49,7 @@ import { registerPiBomDataRoutes } from './piBomDataHandlers.js'
 import { registerOutsourcingQuotationRoutes } from './outsourcingQuotationHandlers.js'
 import { registerAssistOrderRoutes } from './assistOrderHandlers.js'
 import { registerDispatchOrderRoutes } from './dispatchOrderHandlers.js'
+import { registerStockInRoutes } from './stockInHandlers.js'
 import { registerBomRoutes } from './bom/registerBomRoutes.js'
 import {
   BOM_COST_TABLE,
@@ -12033,6 +12034,7 @@ registerPurchaseQuotationRoutes(app, {
 registerSalesOrderRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerAssistOrderRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerDispatchOrderRoutes(app, { getPool, getActorAuditTripletFromReq })
+registerStockInRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerPiBomDataRoutes(app, { getPool })
 registerBomRoutes(app, {
   escapeSqlLikePattern,
@@ -12098,6 +12100,7 @@ app.listen(port, () => {
   console.log(`ColorCode-Audit-Fields-Correction-v1.1.1 ${bootAt}`)
   console.log(`WorkshopDept-Module-v1.2.0 ${bootAt}`)
   console.log(`DispatchOrder-Module-v1.0.0 ${bootAt} GET/POST /api/dispatch-order -> UB_ERP_Dispatch_order`)
+  console.log(`StockIn-Module-v1.0.0 ${bootAt} GET/POST /api/stock-in -> UB_ERP_Stocks_Storage`)
   console.log(`Electric-Days-Weight-v1.1.9-Active ${bootAt}`)
   console.log(`Electric-Report-Force-Display-Fixed-v1.1.6 ${bootAt}`)
   console.log(`[启动指纹] v1.1.3-ElectricFee-Fix bootAt=${bootAt}`)

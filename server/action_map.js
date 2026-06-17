@@ -22,6 +22,23 @@ export const DEFAULT_UNKNOWN_TARGET_TABLE = 'ERP'
  * @type {OperationAuditRouteRule[]}
  */
 export const OPERATION_AUDIT_ROUTE_RULES = [
+  { method: 'GET', path: '/api/stock-in/list', action: '查询入库单列表', targetTable: 'UB_ERP_Stocks_Storage' },
+  { method: 'GET', path: '/api/stock-in/suggest-doc-no', action: '获取入库单建议单号', targetTable: 'UB_ERP_Stocks_Storage' },
+  { method: 'GET', path: '/api/stock-in/warehouse-options', action: '查询入库仓库候选', targetTable: 'UB_ERP_Stocks_Warehouse' },
+  { method: 'GET', path: '/api/stock-in/related-party-options', action: '查询入库关联方候选', targetTable: 'UB_ERP_Stocks_Storage' },
+  { method: 'GET', path: '/api/stock-in/material-options', action: '查询入库可选物料', targetTable: 'UB_ERP_Bom_000' },
+  { method: 'GET', path: '/api/stock-in/source-options', action: '查询入库关联单据候选', targetTable: 'UB_ERP_Stocks_Storage' },
+  { method: 'GET', path: '/api/stock-in/source-lines', action: '查询入库关联单据明细', targetTable: 'UB_ERP_Stocks_Storage' },
+  { method: 'GET', path: '/api/stock-in/print-data', action: '打印入库单', targetTable: 'UB_ERP_Stocks_Storage' },
+  { method: 'GET', path: '/api/stock-in/inventory-summary', action: '查询入库库存统计', targetTable: 'UB_ERP_Stocks_Storage_list' },
+  { method: 'GET', path: /^\/api\/stock-in\/\d+$/, action: '查看入库单', targetTable: 'UB_ERP_Stocks_Storage' },
+  { method: 'POST', path: '/api/stock-in', action: '新增入库单', targetTable: 'UB_ERP_Stocks_Storage' },
+  { method: 'PUT', path: /^\/api\/stock-in\/\d+$/, action: '修改入库单', targetTable: 'UB_ERP_Stocks_Storage' },
+  { method: 'POST', path: /^\/api\/stock-in\/\d+\/audit$/, action: '审核入库单', targetTable: 'UB_ERP_Stocks_Storage' },
+  { method: 'POST', path: /^\/api\/stock-in\/\d+\/unaudit$/, action: '反审核入库单', targetTable: 'UB_ERP_Stocks_Storage' },
+  { method: 'POST', path: /^\/api\/stock-in\/\d+\/restore$/, action: '恢复入库单', targetTable: 'UB_ERP_Stocks_Storage' },
+  { method: 'DELETE', path: /^\/api\/stock-in\/\d+\/hard$/, action: '彻底删除入库单', targetTable: 'UB_ERP_Stocks_Storage' },
+  { method: 'DELETE', path: /^\/api\/stock-in\/\d+$/, action: '删除入库单', targetTable: 'UB_ERP_Stocks_Storage' },
   { method: 'GET', path: '/api/dispatch-order/list', action: '查询派工单列表', targetTable: 'UB_ERP_Dispatch_order' },
   { method: 'GET', path: '/api/dispatch-order/workshop-options', action: '查询派工车间候选', targetTable: 'UB_ERP_Stocks_workshop' },
   { method: 'GET', path: '/api/dispatch-order/goods-options', action: '查询派工单可选货品', targetTable: 'UB_ERP_Dispatch_order' },

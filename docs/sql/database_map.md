@@ -4,7 +4,7 @@
 
 > 约定：本文只维护“项目当前明确使用到”的表与字段；如需扩展，请同时补充迁移脚本（见 `docs/sql/` 与 `scripts/migrations/`）和相关设计文档。
 
-## 1. 全局概览（当前确认：25 张表）
+## 1. 全局概览（当前确认：26 张表）
 
 - **UB_ERP_Hr_department**：部门 / 岗位（旧系统表接管）
 - **UB_ERP_Hr_staff**：人事档案资料（精简字段查询）
@@ -20,6 +20,7 @@
 - **UB_ERP_Stocks_unit_change**：库存基本资料 — 单位转换率（列表分页；审核/软删/恢复；旧表名 `Bom_unit_change`）
 - **UB_ERP_Stocks_material**：库存基本资料 — 材料分类（列表分页；审核/软删/恢复；旧表名 `Bom_material`）
 - **UB_ERP_Stocks_workshop**（旧名：`Bom_Stocks_workshop`）：库存基本资料 — 车间与部门编码（列表分页；审核/软删/恢复）
+- **UB_ERP_Stocks_Warehouse**（旧名：`Bom_Warehouse`）：库存基本资料 — 仓库编码（当前仅确认前端占位页，暂未发现后端 SQL 使用点）
 - **System_supplier**：销售/采购/外协管理 — 基本资料 — 供应商资料（列表分页；审核/反审/软删/恢复）
 - **UB_ERP_System_sales_customer**：销售/采购/外协管理 — 基本资料 — 销售客户（列表分页；审核/反审/软删/恢复）
 - **UB_ERP_Buy_offer**：销售/采购/外协管理 — 日常工作 — 采购报价主表（列表分页；主从保存；审核/反审/软删/恢复/彻底删；旧表名 `Purchase_Quotation`）
@@ -366,6 +367,16 @@
 - **权限（按钮级）**
   - 菜单 path：`inventory/basic/workshop-dept`：`view`、`add`、`audit`、`delete`、`edit`（恢复）
 
+### 3.11.1 `UB_ERP_Stocks_Warehouse`（仓库编码，旧名：`Bom_Warehouse`）
+
+- **Schema**：`dbo`
+- **模块/页面**
+  - 前端：`src/views/inventory/basic/warehouse/index.vue`（菜单 path：`inventory/basic/warehouse`）
+- **当前状态**
+  - 本次检索未发现 `Bom_Warehouse` 或 `UB_ERP_Stocks_Warehouse` 的后端 SQL 使用点。
+  - 当前仓库编码页面仍为占位页，暂未接入列表、新增、审核、删除等接口。
+  - 后续实现仓库编码模块时，物理表名应使用 **`UB_ERP_Stocks_Warehouse`**，不要再使用旧名 `Bom_Warehouse`。
+
 ### 3.12 `System_supplier`（供应商资料）
 
 - **Schema**：`dbo`
@@ -611,6 +622,17 @@
 
 - **`dbo.[UB_ERP_Stocks_workshop]`**
   - 来源：`server/index.js`（车间与部门编码列表、新增、审核、反审、软删、恢复）；`server/bom/registerBomRoutes.js`（BOM 详情生产车间名称展示）
+
+- **`dbo.[UB_ERP_Stocks_Warehouse]`**
+  - 来源：当前仅确认前端占位页 `src/views/inventory/basic/warehouse/index.vue`；本次检索未发现后端 SQL 使用点。旧表名为 `Bom_Warehouse`，后续实现仓库编码接口时应使用新表名。
+
+- **`dbo.[UB_ERP_Stocks_Storage]` / `dbo.[UB_ERP_Stocks_Storage_list]`**
+  - 来源：`server/stockInHandlers.js`、`server/stockInSaveService.js`、`server/stockInLifecycle.js`、`server/stockInListQuery.js`（入库单 REST）。
+  - 页面：`src/views/inventory/daily/stock-in/index.vue`。
+  - 接口：`GET /api/stock-in/list`、`GET /api/stock-in/:id`、`POST /api/stock-in`、`PUT /api/stock-in/:id`、审核/反审核/恢复/删除/彻底删除、打印数据和库存汇总。
+  - 关键字段：主表 `kcan01` 为后端保存时生成的入库单号；`kcan02` 为入库业务日期；`kcan03` 为入库类型；`kcan04` 为关联单号；`kcan06` 为仓库编码；`ck`、`kehu` 为名称快照；`pass`/`del` 控制审核与软删除；`sp_flag=1`、`closed=1`、类型 `8` 第一版只读。
+  - 明细关键字段：`kcao01` 关联入库单号；`kcao02` 是关联订单明细 `systemcode`，不是物料编码；`kcao03` 参与库存统计；`kcao031` 保存原始入库数量；`Describe` 对应前端行备注；`location` 保存真实库位。
+  - 库存口径：只统计已审核且未删除的入库明细 `kcao03`；待审核、已删除、已反审核记录不计入。第一版不新增库存余额表。
 
 - **`dbo.[UB_ERP_Buy_offer]` / `dbo.[UB_ERP_Buy_offer_list]`**
   - 来源：`server/purchaseQuotationHandlers.js`（采购报价 REST；旧表名 `Purchase_Quotation` / `Purchase_Quotation_list`）
