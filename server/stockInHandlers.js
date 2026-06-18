@@ -58,12 +58,16 @@ function sendSave(res, result, msg) {
 
 function sourceMeta(type) {
   const t = text(type)
-  // 采购入库：真实库字段为 kcak03 / kcak04（数量/单价），不是历史文档里的 cgae03/cgae04
-  if (t === '1') return { header: 'dbo.[UB_ERP_Buy_order]', line: 'dbo.[UB_ERP_Buy_order_list]', noCol: 'cgad01', partyCol: 'cgad05', lineOrderCol: 'kcak01', qtyCol: 'kcak03', priceCol: 'kcak04' }
+  // 采购入库：采购单真实字段是 kcaj01/kcaj05，明细关联口径是 kcak02(BOM systemcode)。
+  if (t === '1') return { header: 'dbo.[UB_ERP_Buy_order]', line: 'dbo.[UB_ERP_Buy_order_list]', noCol: 'kcaj01', partyCol: 'kcaj05', lineOrderCol: 'kcak01', qtyCol: 'kcak03', priceCol: 'kcak04', detailKeyCol: 'kcak02', taxIncludedPriceCol: 'kcak041', taxCol: 'tax' }
   if (t === '2' || t === '3' || t === '8') return { header: 'dbo.[UB_ERP_assist_order]', line: 'dbo.[UB_ERP_assist_order_list]', noCol: 'wxaj01', partyCol: 'wxaj05', lineOrderCol: 'wxak01', qtyCol: 'wxak03', priceCol: 'wxak04' }
   if (t === '4' || t === '5') return { header: 'dbo.[UB_ERP_Dispatch_order]', line: 'dbo.[UB_ERP_Dispatch_order_list]', noCol: 'scaj01', partyCol: 'scaj05', lineOrderCol: 'scak01', qtyCol: 'scak03', priceCol: 'cost_price' }
   if (t === '6') return { header: 'dbo.[UB_ERP_Sales_order]', line: 'dbo.[UB_ERP_Sales_order_list]', noCol: 'xsaj01', partyCol: 'xsaj04', lineOrderCol: 'xsak01', qtyCol: 'xsak03', priceCol: 'sale_price' }
   return null
+}
+
+export function __stockInSourceMetaForTest(type) {
+  return sourceMeta(type)
 }
 
 function sourceOrderPageParams(query = {}) {
@@ -193,6 +197,7 @@ async function queryLinkedOrderQty(pool, { inboundType, sourceOrderNo, materialC
   if (!sourceNo || !mat || t === '0' || t === '7') return { found: false, orderQty: 0 }
   const meta = sourceMeta(t)
   if (!meta) return { found: false, orderQty: 0 }
+  const materialCol = t === '1' ? 'kcak02' : 'kcaa01'
   const r = await pool.request()
     .input('sourceOrderNo', sql.NVarChar(200), sourceNo)
     .input('materialCode', sql.NVarChar(200), mat)
@@ -202,17 +207,18 @@ async function queryLinkedOrderQty(pool, { inboundType, sourceOrderNo, materialC
       FROM ${meta.line} AS l
       WHERE (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
         AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[${meta.lineOrderCol}], N'')))) = @sourceOrderNo
-        AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa01], N'')))) = @materialCode
+        AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[${materialCol}], N'')))) = @materialCode
       ORDER BY l.[id] DESC
     `)
   if (!r.recordset?.length) return { found: false, orderQty: 0 }
   return { found: true, orderQty: toNumber(r.recordset[0].orderQty) }
 }
 
-async function queryStockInSumQty(pool, sourceOrderNo, materialCode) {
+async function queryStockInSumQty(pool, sourceOrderNo, materialCode, inboundType) {
   const sourceNo = text(sourceOrderNo)
   const mat = text(materialCode)
   if (!sourceNo || !mat) return 0
+  const materialCol = text(inboundType) === '1' ? 'kcao02' : 'kcaa01'
   const r = await pool.request()
     .input('sourceOrderNo', sql.NVarChar(200), sourceNo)
     .input('materialCode', sql.NVarChar(200), mat)
@@ -226,14 +232,14 @@ async function queryStockInSumQty(pool, sourceOrderNo, materialCode) {
         AND LTRIM(RTRIM(ISNULL(h.[pass], N''))) = N'1'
         AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
         AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcan04], N'')))) = @sourceOrderNo
-        AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa01], N'')))) = @materialCode
+        AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[${materialCol}], N'')))) = @materialCode
     `)
   return toNumber(r.recordset?.[0]?.inboundQty)
 }
 
 async function enrichStockInLineRelationInfo(pool, inboundType, line) {
   const sourceOrderNo = text(line?.kcan04)
-  const materialCode = text(line?.kcaa01)
+  const materialCode = text(inboundType) === '1' ? text(line?.kcao02) : text(line?.kcaa01)
   if (!sourceOrderNo || !materialCode) {
     return { relationFound: false, relationNoData: true, relationOrderQty: 0, relationInboundQty: 0, relationReturnedQty: 0, relationDiffQty: 0, relationOverflowQty: 0 }
   }
@@ -242,7 +248,7 @@ async function enrichStockInLineRelationInfo(pool, inboundType, line) {
     return { relationFound: false, relationNoData: true, relationOrderQty: 0, relationInboundQty: 0, relationReturnedQty: 0, relationDiffQty: 0, relationOverflowQty: 0 }
   }
   const orderQty = computeConvertedOrderQty(linked.orderQty, line?.kcaa26, line?.kcaa27)
-  const inboundQty = await queryStockInSumQty(pool, sourceOrderNo, materialCode)
+  const inboundQty = await queryStockInSumQty(pool, sourceOrderNo, materialCode, inboundType)
   const returnedQty = await queryReturnedQtyBySourceAndMaterial(pool, sourceOrderNo, materialCode)
   const diffQty = round(orderQty - inboundQty, 4)
   const overflowQty = round(Math.max(0, inboundQty - orderQty - returnedQty), 4)
@@ -468,6 +474,7 @@ export function registerStockInRoutes(app, deps) {
       }
       const baseWhere = `
         WHERE (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
+          AND LTRIM(RTRIM(ISNULL(h.[pass], N''))) = N'1'
           AND LTRIM(RTRIM(ISNULL(h.[closed], N'0'))) = N'0'
           ${keywordSql}
       `
@@ -511,10 +518,12 @@ export function registerStockInRoutes(app, deps) {
       if (!meta || !sourceOrderNo) return res.json({ code: 200, msg: 'success', data: { list: [] } })
       const r = await pool.request().input('sourceOrderNo', sql.NVarChar(200), sourceOrderNo).query(`
         SELECT TOP 200
-          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[systemcode], ISNULL(l.[GUID], N''))))) AS kcao02,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[${meta.detailKeyCol || 'systemcode'}], ISNULL(l.[GUID], N''))))) AS kcao02,
           LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[${meta.lineOrderCol}], N'')))) AS kcan04,
           ISNULL(l.[${meta.qtyCol}], 0) AS availableQty,
           ISNULL(l.[${meta.priceCol}], 0) AS kcao04,
+          ${meta.taxIncludedPriceCol ? `ISNULL(l.[${meta.taxIncludedPriceCol}], 0)` : `ISNULL(l.[${meta.priceCol}], 0)`} AS kcao041,
+          ${meta.taxCol ? `ISNULL(l.[${meta.taxCol}], 0)` : `0`} AS tax,
           LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa01], N'')))) AS kcaa01,
           LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa02], N'')))) AS kcaa02,
           LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa03], N'')))) AS kcaa03,

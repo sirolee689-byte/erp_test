@@ -48,6 +48,7 @@ import { registerSalesOrderRoutes } from './salesOrderHandlers.js'
 import { registerPiBomDataRoutes } from './piBomDataHandlers.js'
 import { registerOutsourcingQuotationRoutes } from './outsourcingQuotationHandlers.js'
 import { registerAssistOrderRoutes } from './assistOrderHandlers.js'
+import { registerBuyOrderRoutes } from './buyOrderHandlers.js'
 import { registerDispatchOrderRoutes } from './dispatchOrderHandlers.js'
 import { registerStockInRoutes } from './stockInHandlers.js'
 import { registerBomRoutes } from './bom/registerBomRoutes.js'
@@ -12033,6 +12034,7 @@ registerPurchaseQuotationRoutes(app, {
 })
 registerSalesOrderRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerAssistOrderRoutes(app, { getPool, getActorAuditTripletFromReq })
+registerBuyOrderRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerDispatchOrderRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerStockInRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerPiBomDataRoutes(app, { getPool })

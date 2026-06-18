@@ -94,6 +94,13 @@ const assistOrderBatchWindowRoute = {
   meta: { title: '外协订单批量选材', permissionPath: '/supply-chain/daily/outsourcing-order' },
 }
 
+const purchaseOrderBatchWindowRoute = {
+  path: '/supply-chain/daily/purchase-order-batch-window',
+  name: 'supply-chain-daily-purchase-order-batch-window',
+  component: () => import('@/views/supply-chain/daily/purchase-order/batch-add-window.vue'),
+  meta: { title: '采购订单批量添加明细', permissionPath: '/supply-chain/daily/purchase-order' },
+}
+
 const childRoutes = [
   ...walkRoutes(menuStructure),
   paperPatternImportPreviewRoute,
@@ -128,6 +135,7 @@ const router = createRouter({
     piBomDataWindowRoute,
     salesOrderWindowRoute,
     assistOrderBatchWindowRoute,
+    purchaseOrderBatchWindowRoute,
     {
       path: '/',
       component: ErpLayout,

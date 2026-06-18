@@ -620,6 +620,36 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'DELETE' && /^\/api\/assist-order\/\d+(?:\/hard)?$/.test(path)) {
     return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'delete' }
   }
+  if (m === 'GET' && /^\/api\/buy-order(?:\/list|\/supplier-options|\/currency-options|\/pi-options|\/batch-add-lines|\/material-options|\/fee-options|\/print-data)?$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/purchase-order', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/buy-order/suggest-doc-no') {
+    return { menuPath: 'supply-chain/daily/purchase-order', action: 'add' }
+  }
+  if (m === 'GET' && path === '/api/buy-order/check-doc-no') {
+    return { menuPath: 'supply-chain/daily/purchase-order', action: 'add' }
+  }
+  if (m === 'GET' && /^\/api\/buy-order\/\d+$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/purchase-order', action: 'view' }
+  }
+  if (m === 'POST' && path === '/api/buy-order') {
+    return { menuPath: 'supply-chain/daily/purchase-order', action: 'add' }
+  }
+  if (m === 'PUT' && /^\/api\/buy-order\/\d+$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/purchase-order', action: 'edit' }
+  }
+  if (m === 'POST' && /^\/api\/buy-order\/\d+\/(?:audit|unaudit)$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/purchase-order', action: 'audit' }
+  }
+  if (m === 'POST' && /^\/api\/buy-order\/\d+\/(?:close|unclose)$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/purchase-order', action: 'close' }
+  }
+  if (m === 'POST' && /^\/api\/buy-order\/\d+\/restore$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/purchase-order', action: 'delete' }
+  }
+  if (m === 'DELETE' && /^\/api\/buy-order\/\d+(?:\/hard)?$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/purchase-order', action: 'delete' }
+  }
   if (m === 'GET' && path === '/api/dispatch-order/list') {
     return { menuPath: 'production/daily/dispatch', action: 'view' }
   }

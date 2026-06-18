@@ -45,6 +45,18 @@
 - **派工单与销售订单**：本厂/大板用 `UB_ERP_Dispatch_order.scaj04` 关联 `UB_ERP_Sales_order.xsaj01` / `UB_ERP_Sales_order_list.xsak01`；委外派工主表 `scaj04` 不作 PI，明细 `pi` 才是销售订单 PI。
 - **可派工数量**：`UB_ERP_Sales_order_list.xsak03 - SUM(UB_ERP_Dispatch_order_list.scak03)`，只排除 `UB_ERP_Dispatch_order.del=1`，不排除未审核；编辑时排除当前派工单号。
 
+## 采购单表补充
+
+- **UB_ERP_Buy_order**：采购单主表。`kcaj01` 为采购单号，`kcaj03` 为采购类型（`0` 其他采购、`1` 订单采购、`2` 请购采购），`kcaj04` 保存手填关联号或逗号分隔 PI，`kcaj05` 保存供应商编码，`kehu` 保存供应商名称快照，`kcaj07`/`rmb`/`rmb_hl` 保存币别和汇率快照，`pass`/`closed`/`del` 控制审核、结案和回收站。
+- **采购单列表补充（2026-06-18）**：主页面「采购订单数据」4 行展示新增使用主表 `kcaj08`（装货港）、`kcaj09`（卸货港）、`kcaj10`（付款条件）、`decimal`（小数位）；排序口径改为 `addtime` 最新优先（同时间按 `id` 倒序兜底）。
+- **UB_ERP_Buy_order_list**：采购单明细。`kcak01` 关联采购单号；`kcak02` / `systemcode` 保存 BOM 物料 `systemcode`；`kcak03` 为采购数量；`kcak04`/`kcak041`/`kcak05`/`kcak051`/`tax` 为不含税单价、含税单价、不含税金额、含税金额和税点；`Reference` 保存明细参考 PI 号（订单采购批量带回/保存口径为 PI 号，页面 PO/PI 列只读展示）；`gkcaa02` 为送货名快照；保存时复制 `kcaa01`～`kcaa35` 物料快照。
+- **采购单批量添加明细口径**：`GET /api/buy-order/batch-add-lines` 只读 `UB_ERP_Bom_pi_cost`，入参为单个 PI 号、供应商编码及 `page`/`pageSize`（默认 10 条/页，最大 100）；返回 `total` + `list`；筛选 `sid=PI号`、`kcaa12=1`、`isok=1`，按 `kcaa01` 聚合 `SUM(kcac06 * temp)`，再按 `kcaa26/kcaa27` 换算采购数量；最新报价来自已审核未删除的 `UB_ERP_Buy_offer` + `UB_ERP_Buy_offer_list`，已采购数量来自该 PI 已审核采购单明细，已入库数量来自该 PI 采购单对应的已审核入库单明细；分页排序沿用 `px` 升序；该接口不写库存、不写采购单。
+- **UB_ERP_Buy_order_money**：采购单额外费用。`buy_code` 关联采购单号，费用项目必须来自已审核、未删除且 `kcaa05='FEE'` 的 `UB_ERP_Bom_000`。
+- **未审入库数口径（列表聚合）**：按 `UB_ERP_Stocks_Storage.kcan04 = 采购单号` 关联 `UB_ERP_Stocks_Storage_list.kcao01 = 入库单号`，仅统计主表 `pass='0'` 且主/明细 `del=0` 的 `SUM(kcao03)`。
+- **UB_ERP_Buy_order_sp**：采购单反审原因记录。反审必须写原因，并保留操作人和时间。
+- **UB_ERP_Bom_buy_order / UB_ERP_Bom_buy_order_list**：采购单保存时重建的订单 BOM 快照，最多展开 6 层，仅用于追溯，不作为采购数量校验依据。
+- **采购入库来源口径**：`UB_ERP_Stocks_Storage.kcan04 = UB_ERP_Buy_order.kcaj01`；采购入库明细 `UB_ERP_Stocks_Storage_list.kcao02 = UB_ERP_Buy_order_list.kcak02`，也就是 BOM 物料 `systemcode`，不是采购明细 `id`。
+
 ## 2. 表关系（ER 摘要）
 
 - **`UB_ERP_User.RoleID` → `UB_ERP_System_role.RoleID`**
