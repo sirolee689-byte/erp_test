@@ -91,6 +91,7 @@ describe('operationAuditMiddleware stock-in exclusions', () => {
       ['PUT', '/api/stock-in/8'],
       ['POST', '/api/stock-in/8/audit'],
       ['POST', '/api/stock-in/8/unaudit'],
+      ['POST', '/api/stock-in/8/review'],
       ['POST', '/api/stock-in/8/restore'],
       ['DELETE', '/api/stock-in/8'],
       ['DELETE', '/api/stock-in/8/hard'],

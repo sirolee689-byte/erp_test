@@ -6,7 +6,7 @@
  * - 全局：{"*":["all"]} 或 ["*"]
  */
 
-const ALL_ACTIONS = ['view', 'add', 'edit', 'delete', 'audit']
+const ALL_ACTIONS = ['view', 'add', 'edit', 'delete', 'audit', 'review', 'unreview']
 
 /**
  * 从 localStorage 的 erp_user 解析 Permissions 字段

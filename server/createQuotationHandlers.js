@@ -46,7 +46,7 @@ export function createQuotationHandlers(config) {
 
   const HEADER_FROM = `dbo.[${HEADER_TABLE}]`
   const LINE_FROM = `dbo.[${LINE_TABLE}]`
-  const SYS_SUPPLIER_FROM = 'dbo.[System_supplier]'
+  const SYS_SUPPLIER_FROM = 'dbo.[UB_ERP_System_supplier]'
 
 /** INSERT/UPDATE 参数名：避免列名与 T-SQL 保留字冲突（如 decimal） */
 function pqSafeParamSuffix(colName) {
@@ -1112,7 +1112,7 @@ function registerQuotationRoutes(app, deps) {
 
   /**
    * GET ${apiBase}/supplier-options?keyword=&limit=
-   * 已审核且在册供应商（System_supplier），用于报价「供应商/外协商」下拉
+   * 已审核且在册供应商（UB_ERP_System_supplier），用于报价「供应商/外协商」下拉
    */
   app.get(`${apiBase}/supplier-options`, async (req, res) => {
     try {

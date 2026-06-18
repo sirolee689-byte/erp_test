@@ -40,7 +40,7 @@ import { markCurrentBomCostStale } from '../bomCostImpactScope.js'
 const BOM_UNIT_CHANGE_FROM = 'dbo.[UB_ERP_Stocks_unit_change]'
 const BOM_MATERIAL_FROM = 'dbo.[UB_ERP_Stocks_material]'
 const BOM_STOCKS_WORKSHOP_FROM = 'dbo.[UB_ERP_Stocks_workshop]'
-const SYS_SUPPLIER_FROM = 'dbo.[System_supplier]'
+const SYS_SUPPLIER_FROM = 'dbo.[UB_ERP_System_supplier]'
 
 /** 已审核禁止改删固定文案（与 server/index.js 一致） */
 const HR_STAFF_AUDIT_LOCK_MSG = '该记录已审核锁定，请反审后再操作'

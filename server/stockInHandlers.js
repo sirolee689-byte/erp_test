@@ -19,7 +19,7 @@ const HEADER_FROM = `dbo.[${STOCK_IN_HEADER_TABLE}]`
 const LINE_FROM = `dbo.[${STOCK_IN_LINE_TABLE}]`
 const WAREHOUSE_FROM = 'dbo.[UB_ERP_Stocks_Warehouse]'
 const BOM_FROM = 'dbo.[UB_ERP_Bom_000]'
-const SUPPLIER_FROM = 'dbo.[System_supplier]'
+const SUPPLIER_FROM = 'dbo.[UB_ERP_System_supplier]'
 const WORKSHOP_FROM = 'dbo.[UB_ERP_Stocks_workshop]'
 const CUSTOMER_FROM = 'dbo.[UB_ERP_Customer]'
 
@@ -58,11 +58,203 @@ function sendSave(res, result, msg) {
 
 function sourceMeta(type) {
   const t = text(type)
-  if (t === '1') return { header: 'dbo.[UB_ERP_Buy_order]', line: 'dbo.[UB_ERP_Buy_order_list]', noCol: 'cgad01', partyCol: 'cgad05', lineOrderCol: 'cgae01', qtyCol: 'cgae03', priceCol: 'cgae04' }
-  if (t === '2' || t === '3') return { header: 'dbo.[UB_ERP_assist_order]', line: 'dbo.[UB_ERP_assist_order_list]', noCol: 'wxaj01', partyCol: 'wxaj05', lineOrderCol: 'wxak01', qtyCol: 'wxak03', priceCol: 'wxak04' }
+  // 采购入库：真实库字段为 kcak03 / kcak04（数量/单价），不是历史文档里的 cgae03/cgae04
+  if (t === '1') return { header: 'dbo.[UB_ERP_Buy_order]', line: 'dbo.[UB_ERP_Buy_order_list]', noCol: 'cgad01', partyCol: 'cgad05', lineOrderCol: 'kcak01', qtyCol: 'kcak03', priceCol: 'kcak04' }
+  if (t === '2' || t === '3' || t === '8') return { header: 'dbo.[UB_ERP_assist_order]', line: 'dbo.[UB_ERP_assist_order_list]', noCol: 'wxaj01', partyCol: 'wxaj05', lineOrderCol: 'wxak01', qtyCol: 'wxak03', priceCol: 'wxak04' }
   if (t === '4' || t === '5') return { header: 'dbo.[UB_ERP_Dispatch_order]', line: 'dbo.[UB_ERP_Dispatch_order_list]', noCol: 'scaj01', partyCol: 'scaj05', lineOrderCol: 'scak01', qtyCol: 'scak03', priceCol: 'cost_price' }
   if (t === '6') return { header: 'dbo.[UB_ERP_Sales_order]', line: 'dbo.[UB_ERP_Sales_order_list]', noCol: 'xsaj01', partyCol: 'xsaj04', lineOrderCol: 'xsak01', qtyCol: 'xsak03', priceCol: 'sale_price' }
   return null
+}
+
+function sourceOrderPageParams(query = {}) {
+  const page = Math.max(1, Number.parseInt(query.page, 10) || 1)
+  const rawPageSize = Number.parseInt(query.pageSize, 10) || 10
+  const pageSize = Math.min(100, Math.max(1, rawPageSize))
+  return { page, pageSize, startRow: (page - 1) * pageSize + 1, endRow: page * pageSize }
+}
+
+function sourceOrderSelectExpressions(inboundType, meta) {
+  let partyNameExpr = `N''`
+  if (['1', '2', '3', '8'].includes(inboundType)) {
+    partyNameExpr = `
+      ISNULL((
+        SELECT TOP 1 LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(NULLIF(s.[s_name], N''), s.[name]))))
+        FROM ${SUPPLIER_FROM} AS s
+        WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[s_code], N''))))
+          = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.partyCol}], N''))))
+      ), N'')
+    `
+  } else if (['4', '5'].includes(inboundType)) {
+    partyNameExpr = `
+      ISNULL((
+        SELECT TOP 1 LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(w.[name], N''))))
+        FROM ${WORKSHOP_FROM} AS w
+        WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(w.[code], N''))))
+          = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.partyCol}], N''))))
+      ), N'')
+    `
+  } else if (inboundType === '6') {
+    partyNameExpr = `
+      ISNULL((
+        SELECT TOP 1 LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(c.[khaa02], N''))))
+        FROM ${CUSTOMER_FROM} AS c
+        WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.[khaa01], N''))))
+          = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.partyCol}], N''))))
+      ), N'')
+    `
+  }
+  let referenceExpr = `N''`
+  if (['2', '3', '8'].includes(inboundType)) {
+    referenceExpr = `LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj04], N''))))`
+  } else if (['4', '5'].includes(inboundType)) {
+    referenceExpr = `
+      ISNULL(NULLIF((
+        SELECT TOP 1 LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[pi], N''))))
+        FROM ${meta.line} AS l
+        WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[${meta.lineOrderCol}], N''))))
+          = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.noCol}], N''))))
+          AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
+          AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[pi], N'')))) <> N''
+        ORDER BY ISNULL(l.[seq], l.[id]), l.[id]
+      ), N''), LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[scaj04], N'')))))
+    `
+  } else if (inboundType === '6') {
+    referenceExpr = `LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.noCol}], N''))))`
+  }
+  return { partyNameExpr, referenceExpr }
+}
+
+function toNumber(v) {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : 0
+}
+
+function round(n, p = 4) {
+  const m = 10 ** p
+  return Math.round((toNumber(n) + Number.EPSILON) * m) / m
+}
+
+function computeConvertedOrderQty(orderQty, unitRatio, unitDirection) {
+  const qty = toNumber(orderQty)
+  const ratio = toNumber(unitRatio)
+  const dir = String(unitDirection ?? '').trim()
+  if (!(ratio > 0)) return qty
+  // kcaa27=1: 使用单位->采购单位，订单数需除以比例；kcaa27=0: 采购单位->使用单位，订单数需乘以比例
+  if (dir === '1') return qty / ratio
+  if (dir === '0') return qty * ratio
+  return qty
+}
+
+async function getStockOutLinkColumn(pool) {
+  const r = await pool.request().query(`
+    SELECT
+      CASE
+        WHEN COL_LENGTH('dbo.UB_ERP_Stocks_out', 'kcap04') IS NOT NULL THEN N'kcap04'
+        WHEN COL_LENGTH('dbo.UB_ERP_Stocks_out', 'kcan04') IS NOT NULL THEN N'kcan04'
+        WHEN COL_LENGTH('dbo.UB_ERP_Stocks_out', 'sourceOrderNo') IS NOT NULL THEN N'sourceOrderNo'
+        ELSE N''
+      END AS linkCol
+  `)
+  return text(r.recordset?.[0]?.linkCol)
+}
+
+async function queryReturnedQtyBySourceAndMaterial(pool, sourceOrderNo, materialCode) {
+  const sourceNo = text(sourceOrderNo)
+  const mat = text(materialCode)
+  if (!sourceNo || !mat) return 0
+  try {
+    const linkCol = await getStockOutLinkColumn(pool)
+    if (!linkCol) return 0
+    const r = await pool.request()
+      .input('sourceNo', sql.NVarChar(200), sourceNo)
+      .input('materialCode', sql.NVarChar(200), mat)
+      .query(`
+        SELECT SUM(ISNULL(l.[kcao03], 0)) AS returnedQty
+        FROM dbo.[UB_ERP_Stocks_out] AS h
+        INNER JOIN dbo.[UB_ERP_Stocks_out_list] AS l
+          ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcao01], N''))))
+            = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcap01], N''))))
+        WHERE (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
+          AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
+          AND LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(h.[kcap03], N'')))) = N'1'
+          AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${linkCol}], N'')))) = @sourceNo
+          AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa01], N'')))) = @materialCode
+      `)
+    return toNumber(r.recordset?.[0]?.returnedQty)
+  } catch {
+    return 0
+  }
+}
+
+async function queryLinkedOrderQty(pool, { inboundType, sourceOrderNo, materialCode }) {
+  const t = text(inboundType)
+  const sourceNo = text(sourceOrderNo)
+  const mat = text(materialCode)
+  if (!sourceNo || !mat || t === '0' || t === '7') return { found: false, orderQty: 0 }
+  const meta = sourceMeta(t)
+  if (!meta) return { found: false, orderQty: 0 }
+  const r = await pool.request()
+    .input('sourceOrderNo', sql.NVarChar(200), sourceNo)
+    .input('materialCode', sql.NVarChar(200), mat)
+    .query(`
+      SELECT TOP 1
+        ISNULL(l.[${meta.qtyCol}], 0) AS orderQty
+      FROM ${meta.line} AS l
+      WHERE (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
+        AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[${meta.lineOrderCol}], N'')))) = @sourceOrderNo
+        AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa01], N'')))) = @materialCode
+      ORDER BY l.[id] DESC
+    `)
+  if (!r.recordset?.length) return { found: false, orderQty: 0 }
+  return { found: true, orderQty: toNumber(r.recordset[0].orderQty) }
+}
+
+async function queryStockInSumQty(pool, sourceOrderNo, materialCode) {
+  const sourceNo = text(sourceOrderNo)
+  const mat = text(materialCode)
+  if (!sourceNo || !mat) return 0
+  const r = await pool.request()
+    .input('sourceOrderNo', sql.NVarChar(200), sourceNo)
+    .input('materialCode', sql.NVarChar(200), mat)
+    .query(`
+      SELECT SUM(ISNULL(l.[kcao03], 0)) AS inboundQty
+      FROM ${HEADER_FROM} AS h
+      INNER JOIN ${LINE_FROM} AS l
+        ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcao01], N''))))
+          = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcan01], N''))))
+      WHERE (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
+        AND LTRIM(RTRIM(ISNULL(h.[pass], N''))) = N'1'
+        AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
+        AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcan04], N'')))) = @sourceOrderNo
+        AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa01], N'')))) = @materialCode
+    `)
+  return toNumber(r.recordset?.[0]?.inboundQty)
+}
+
+async function enrichStockInLineRelationInfo(pool, inboundType, line) {
+  const sourceOrderNo = text(line?.kcan04)
+  const materialCode = text(line?.kcaa01)
+  if (!sourceOrderNo || !materialCode) {
+    return { relationFound: false, relationNoData: true, relationOrderQty: 0, relationInboundQty: 0, relationReturnedQty: 0, relationDiffQty: 0, relationOverflowQty: 0 }
+  }
+  const linked = await queryLinkedOrderQty(pool, { inboundType, sourceOrderNo, materialCode })
+  if (!linked.found) {
+    return { relationFound: false, relationNoData: true, relationOrderQty: 0, relationInboundQty: 0, relationReturnedQty: 0, relationDiffQty: 0, relationOverflowQty: 0 }
+  }
+  const orderQty = computeConvertedOrderQty(linked.orderQty, line?.kcaa26, line?.kcaa27)
+  const inboundQty = await queryStockInSumQty(pool, sourceOrderNo, materialCode)
+  const returnedQty = await queryReturnedQtyBySourceAndMaterial(pool, sourceOrderNo, materialCode)
+  const diffQty = round(orderQty - inboundQty, 4)
+  const overflowQty = round(Math.max(0, inboundQty - orderQty - returnedQty), 4)
+  return {
+    relationFound: true,
+    relationNoData: false,
+    relationOrderQty: round(orderQty, 4),
+    relationInboundQty: round(inboundQty, 4),
+    relationReturnedQty: round(returnedQty, 4),
+    relationDiffQty: diffQty > 0 ? diffQty : 0,
+    relationOverflowQty: overflowQty,
+  }
 }
 
 export function registerStockInRoutes(app, deps) {
@@ -118,6 +310,34 @@ export function registerStockInRoutes(app, deps) {
     }
   })
 
+  /** 列表筛选：供应商/外协商联想（点击可直接下拉，关键字可选） */
+  app.get('/api/stock-in/list-related-party-options', async (req, res) => {
+    try {
+      const keyword = text(req.query?.keyword)
+      const pool = await getPool()
+      const dbReq = pool.request()
+      if (keyword) dbReq.input('kw', sql.NVarChar(400), `%${keyword}%`)
+      const r = await dbReq.query(`
+        SELECT TOP 50
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([s_code], N'')))) AS code,
+          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(NULLIF([s_name], N''), [name])))) AS name
+        FROM ${SUPPLIER_FROM}
+        WHERE (ISNULL([del], N'') = N'' OR [del] = N'0')
+          AND LTRIM(RTRIM(ISNULL([pass], N''))) = N'1'
+          ${keyword
+    ? `AND (
+            LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([s_code], N'')))) LIKE @kw
+            OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(NULLIF([s_name], N''), [name])))) LIKE @kw
+          )`
+    : ''}
+        ORDER BY [s_code] ASC
+      `)
+      res.json({ code: 200, msg: 'success', data: { list: r.recordset ?? [] } })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取供应商候选失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
   app.get('/api/stock-in/related-party-options', async (req, res) => {
     try {
       const pool = await getPool()
@@ -135,6 +355,7 @@ export function registerStockInRoutes(app, deps) {
                  LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(NULLIF([s_name], N''), [name])))) AS name
           FROM ${SUPPLIER_FROM}
           WHERE (ISNULL([del], N'') = N'' OR [del] = N'0')
+            AND LTRIM(RTRIM(ISNULL([pass], N''))) = N'1'
           ${keyword ? `AND (LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([s_code], N'')))) LIKE @kw OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(NULLIF([s_name], N''), [name])))) LIKE @kw)` : ''}
           ORDER BY [s_code] ASC
         `
@@ -188,7 +409,8 @@ export function registerStockInRoutes(app, deps) {
   app.get('/api/stock-in/source-options', async (req, res) => {
     try {
       const pool = await getPool()
-      const meta = sourceMeta(req.query?.inboundType)
+      const inboundType = text(req.query?.inboundType)
+      const meta = sourceMeta(inboundType)
       if (!meta) return res.json({ code: 200, msg: 'success', data: { list: [] } })
       const partyCode = text(req.query?.relatedPartyCode)
       const keyword = text(req.query?.keyword)
@@ -202,9 +424,12 @@ export function registerStockInRoutes(app, deps) {
         dbReq.input('kw', sql.NVarChar(400), `%${keyword}%`)
         extra += ` AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.noCol}], N'')))) LIKE @kw`
       }
+      const { partyNameExpr, referenceExpr } = sourceOrderSelectExpressions(inboundType, meta)
       const r = await dbReq.query(`
         SELECT TOP 100 LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.noCol}], N'')))) AS sourceOrderNo,
-               LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.partyCol}], N'')))) AS relatedPartyCode
+               LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.partyCol}], N'')))) AS relatedPartyCode,
+               ${partyNameExpr} AS relatedPartyName,
+               ${referenceExpr} AS referenceNo
         FROM ${meta.header} AS h
         WHERE (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
           AND LTRIM(RTRIM(ISNULL(h.[pass], N''))) = N'1'
@@ -215,6 +440,66 @@ export function registerStockInRoutes(app, deps) {
       res.json({ code: 200, msg: 'success', data: { list: r.recordset ?? [] } })
     } catch (err) {
       res.status(500).json({ code: 500, msg: `读取关联单据失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  app.get('/api/stock-in/source-order-page', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const inboundType = text(req.query?.inboundType)
+      const meta = sourceMeta(inboundType)
+      if (!meta) return res.json({ code: 200, msg: 'success', data: { total: 0, list: [] } })
+      const keyword = text(req.query?.keyword)
+      const { page, pageSize, startRow, endRow } = sourceOrderPageParams(req.query ?? {})
+      const { partyNameExpr, referenceExpr } = sourceOrderSelectExpressions(inboundType, meta)
+      const dbReq = pool.request()
+        .input('startRow', sql.Int, startRow)
+        .input('endRow', sql.Int, endRow)
+      let keywordSql = ''
+      if (keyword) {
+        dbReq.input('kw', sql.NVarChar(400), `%${keyword}%`)
+        keywordSql = `
+          AND (
+            LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.noCol}], N'')))) LIKE @kw
+            OR LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.partyCol}], N'')))) LIKE @kw
+            OR ${referenceExpr} LIKE @kw
+          )
+        `
+      }
+      const baseWhere = `
+        WHERE (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
+          AND LTRIM(RTRIM(ISNULL(h.[closed], N'0'))) = N'0'
+          ${keywordSql}
+      `
+      const totalRow = await dbReq.query(`
+        SELECT COUNT(1) AS total
+        FROM ${meta.header} AS h
+        ${baseWhere}
+      `)
+      const total = Number(totalRow.recordset?.[0]?.total ?? 0)
+      const listReq = pool.request()
+        .input('startRow', sql.Int, startRow)
+        .input('endRow', sql.Int, endRow)
+      if (keyword) listReq.input('kw', sql.NVarChar(400), `%${keyword}%`)
+      const r = await listReq.query(`
+        SELECT *
+        FROM (
+          SELECT ROW_NUMBER() OVER (ORDER BY h.[id] DESC) AS rn,
+                 h.[id] AS id,
+                 LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.noCol}], N'')))) AS sourceOrderNo,
+                 LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.partyCol}], N'')))) AS relatedPartyCode,
+                 ${partyNameExpr} AS relatedPartyName,
+                 ${referenceExpr} AS referenceNo,
+                 LTRIM(RTRIM(ISNULL(h.[pass], N'0'))) AS pass
+          FROM ${meta.header} AS h
+          ${baseWhere}
+        ) AS src
+        WHERE src.rn BETWEEN @startRow AND @endRow
+        ORDER BY src.rn ASC
+      `)
+      res.json({ code: 200, msg: 'success', data: { page, pageSize, total, list: r.recordset ?? [] } })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取关联单据分页失败：${String(err?.message ?? err)}`, data: null })
     }
   })
 
@@ -277,7 +562,15 @@ export function registerStockInRoutes(app, deps) {
         WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([kcao01], N'')))) = @receiptNo
         ORDER BY ISNULL([seq], [id]), [id]
       `)
-      res.json({ code: 200, msg: 'success', data: { header: serializeRow(header), lines: (lineR.recordset ?? []).map(serializeRow), forPrint } })
+      const inboundType = text(header.kcan03)
+      const rawLines = lineR.recordset ?? []
+      const enrichedLines = []
+      for (const row of rawLines) {
+        const base = serializeRow(row)
+        const relation = await enrichStockInLineRelationInfo(pool, inboundType, base)
+        enrichedLines.push({ ...base, ...relation })
+      }
+      res.json({ code: 200, msg: 'success', data: { header: serializeRow(header), lines: enrichedLines, forPrint } })
     } catch (err) {
       res.status(500).json({ code: 500, msg: `读取入库单详情失败：${String(err?.message ?? err)}`, data: null })
     }
@@ -323,8 +616,9 @@ export function registerStockInRoutes(app, deps) {
 
   app.post('/api/stock-in/:id/audit', (req, res) => lifecycle(req, res, 'audit'))
   app.post('/api/stock-in/:id/unaudit', (req, res) => lifecycle(req, res, 'unaudit'))
+  app.post('/api/stock-in/:id/review', (req, res) => lifecycle(req, res, 'review'))
+  app.post('/api/stock-in/:id/unreview', (req, res) => lifecycle(req, res, 'unreview'))
   app.post('/api/stock-in/:id/restore', (req, res) => lifecycle(req, res, 'restore'))
   app.delete('/api/stock-in/:id', (req, res) => lifecycle(req, res, 'delete'))
   app.delete('/api/stock-in/:id/hard', (req, res) => lifecycle(req, res, 'hard-delete'))
 }
-

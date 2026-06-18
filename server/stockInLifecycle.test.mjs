@@ -11,6 +11,20 @@ describe('stockInLifecycle', () => {
     assert.match(cfg.error, /先反审核/)
   })
 
+  test('复核须已审核且写入 sp_flag', () => {
+    assert.match(resolveStockInLifecycleConfig('review', { pass: '0', sp_flag: '0', del: '0' }).error, /未审核/)
+    const cfg = resolveStockInLifecycleConfig('review', { pass: '1', sp_flag: '0', del: '0', closed: '0', inboundType: '1' })
+    assert.equal(cfg.nextSpFlag, '1')
+    const headerCols = new Set(['sp_flag'])
+    const sql = buildStockInLifecycleSetSql({
+      config: { nextSpFlag: '1' },
+      actor: { uid: 1, uname: 'fin' },
+      headerCols,
+      lineCols: new Set(),
+    })
+    assert.match(sql.headerSetSql, /\[sp_flag\]=N'1'/)
+  })
+
   test('已复核、已结案、类型 8 都只读不可操作', () => {
     assert.match(resolveStockInLifecycleConfig('audit', { pass: '0', sp_flag: '1' }).error, /已复核/)
     assert.match(resolveStockInLifecycleConfig('audit', { pass: '0', closed: '1' }).error, /已结案/)

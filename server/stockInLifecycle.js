@@ -33,10 +33,21 @@ export function resolveStockInLifecycleConfig(action, row = {}, actor = {}) {
   const closed = isOne(row.closed)
   const type = String(row.inboundType ?? row.kcan03 ?? '').trim()
 
-  if (reviewed) return { error: '此入库单已复核，只允许查看' }
+  if (reviewed && action !== 'unreview') return { error: '此入库单已复核，只允许查看' }
   if (closed) return { error: '此入库单已结案，只允许查看' }
   if (type === '8') return { error: '加工入库第一版只读，不允许操作' }
 
+  if (action === 'review') {
+    if (deleted) return { error: '回收站里的入库单不能复核' }
+    if (!audited) return { error: '未审核入库单不能复核' }
+    return { nextSpFlag: '1', actName: '复核入库单', msg: '复核成功' }
+  }
+  if (action === 'unreview') {
+    if (deleted) return { error: '回收站里的入库单不能反复核' }
+    if (!audited) return { error: '未审核入库单不能反复核' }
+    if (!reviewed) return { error: '未复核入库单不能反复核' }
+    return { nextSpFlag: '0', actName: '反复核入库单', msg: '反复核成功' }
+  }
   if (action === 'audit') {
     if (deleted) return { error: '回收站里的入库单不能审核' }
     if (audited) return { error: '入库单已审核' }
@@ -114,6 +125,10 @@ export function buildStockInLifecycleSetSql({ config, actor, headerCols, lineCol
     if (hasColumn(headerCols, 'deltime')) headerSet.push('[deltime]=CONVERT(nvarchar(30), GETDATE(), 120)')
   } else if (config.nextDel === '0') {
     headerSet.push("[del]=N'0'")
+  } else if (config.nextSpFlag === '1') {
+    headerSet.push("[sp_flag]=N'1'")
+  } else if (config.nextSpFlag === '0') {
+    headerSet.push("[sp_flag]=N'0'")
   }
 
   return { headerSetSql: headerSet.join(', '), lineSetSql: lineSet.join(', '), params }

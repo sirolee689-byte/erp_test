@@ -3,7 +3,7 @@ import { sql } from './db.js'
 const HEADER_FROM = 'dbo.[UB_ERP_assist_order]'
 const LINE_FROM = 'dbo.[UB_ERP_assist_order_list]'
 const MONEY_FROM = 'dbo.[UB_ERP_assist_order_money]'
-const SUPPLIER_FROM = 'dbo.[System_supplier]'
+const SUPPLIER_FROM = 'dbo.[UB_ERP_System_supplier]'
 const COLOR_FROM = 'dbo.[UB_ERP_Stocks_colorcode]'
 const PRINT_SETUP_FROM = 'dbo.[UB_ERP_User_print_setup]'
 

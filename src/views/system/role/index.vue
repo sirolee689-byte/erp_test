@@ -217,6 +217,8 @@
               <el-checkbox label="edit">编辑</el-checkbox>
               <el-checkbox label="delete">删除</el-checkbox>
               <el-checkbox label="audit">审核</el-checkbox>
+              <el-checkbox label="review">复核</el-checkbox>
+              <el-checkbox label="unreview">反复核</el-checkbox>
             </el-checkbox-group>
           </template>
           <el-empty v-else description="请点击左侧已勾选的菜单节点，配置操作权限" :image-size="72" />
@@ -872,7 +874,7 @@ onMounted(() => {
   border-color: #e67e22;
   color: #fff;
   box-shadow: 0 0 0 2px rgba(184, 95, 18, 0.14) inset;
-}
+}
 .perm-alert {
   margin-bottom: 10px;
 }

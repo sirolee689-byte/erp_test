@@ -9,6 +9,7 @@ describe('stock-in permission and action map', () => {
     assert.deepEqual(matchApiPermissionRule('POST', '/api/stock-in'), { menuPath: 'inventory/daily/stock-in', action: 'add' })
     assert.deepEqual(matchApiPermissionRule('PUT', '/api/stock-in/8'), { menuPath: 'inventory/daily/stock-in', action: 'edit' })
     assert.deepEqual(matchApiPermissionRule('POST', '/api/stock-in/8/audit'), { menuPath: 'inventory/daily/stock-in', action: 'audit' })
+    assert.deepEqual(matchApiPermissionRule('POST', '/api/stock-in/8/review'), { menuPath: 'inventory/daily/stock-in', action: 'review' })
     assert.deepEqual(matchApiPermissionRule('DELETE', '/api/stock-in/8/hard'), { menuPath: 'inventory/daily/stock-in', action: 'delete' })
   })
 

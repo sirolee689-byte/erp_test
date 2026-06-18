@@ -208,7 +208,7 @@ export function registerAssistOrderRoutes(app, deps) {
         SELECT TOP 50
           LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[s_code], N'')))) AS code,
           LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(NULLIF(s.[s_name], N''), s.[name])))) AS name
-        FROM dbo.[System_supplier] AS s
+        FROM dbo.[UB_ERP_System_supplier] AS s
         WHERE LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(s.[s_lb], N'')))) IN (N'外协', N'共用')
           AND LTRIM(RTRIM(ISNULL(s.[pass], N''))) = N'1'
           AND (ISNULL(s.[del], N'') = N'' OR s.[del] = N'0')

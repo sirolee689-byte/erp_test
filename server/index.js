@@ -3148,7 +3148,7 @@ const HR_ROOM_USE_FROM = 'dbo.[UB_ERP_Hr_room_use]'
 const BOM_COLORCODE_FROM = 'dbo.[UB_ERP_Stocks_colorcode]'
 
 /** 供应商资料（销售/采购/外协管理 → 基本资料 → 供应商资料） */
-const SYS_SUPPLIER_FROM = 'dbo.[System_supplier]'
+const SYS_SUPPLIER_FROM = 'dbo.[UB_ERP_System_supplier]'
 
 /** 结算方式（销售/采购/外协管理 → 基本资料 → 结算方式） */
 const SYS_SETTLEMENT_METHOD_FROM = 'dbo.[UB_ERP_System_settlement_method]'
@@ -3815,7 +3815,7 @@ async function getHrRoomColumnSet(pool) {
   return HR_ROOM_COLSET_PROMISE
 }
 
-/** v1.2.2：缓存 System_supplier 列清单（兼容旧库字段不一致导致 SQL 报错） */
+/** v1.2.2：缓存 UB_ERP_System_supplier 列清单（兼容旧库字段不一致导致 SQL 报错） */
 async function getSystemSupplierColumnSet(pool) {
   if (SYS_SUPPLIER_COLSET_PROMISE) return SYS_SUPPLIER_COLSET_PROMISE
   SYS_SUPPLIER_COLSET_PROMISE = (async () => {
@@ -3823,7 +3823,7 @@ async function getSystemSupplierColumnSet(pool) {
       const r = await pool.request().query(`
         SELECT COLUMN_NAME AS name
         FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'System_supplier'
+        WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'UB_ERP_System_supplier'
       `)
       const set = new Set()
       for (const row of r.recordset ?? []) {
@@ -3832,7 +3832,7 @@ async function getSystemSupplierColumnSet(pool) {
       }
       return set
     } catch (err) {
-      console.warn('[供应商资料] 读取 System_supplier 列清单失败，已降级：', err?.message ?? err)
+      console.warn('[供应商资料] 读取 UB_ERP_System_supplier 列清单失败，已降级：', err?.message ?? err)
       return new Set()
     }
   })()
@@ -12100,7 +12100,7 @@ app.listen(port, () => {
   console.log(`ColorCode-Audit-Fields-Correction-v1.1.1 ${bootAt}`)
   console.log(`WorkshopDept-Module-v1.2.0 ${bootAt}`)
   console.log(`DispatchOrder-Module-v1.0.0 ${bootAt} GET/POST /api/dispatch-order -> UB_ERP_Dispatch_order`)
-  console.log(`StockIn-Module-v1.0.0 ${bootAt} GET/POST /api/stock-in -> UB_ERP_Stocks_Storage`)
+  console.log(`StockIn-Module-v1.1.0-review ${bootAt} GET/POST /api/stock-in -> UB_ERP_Stocks_Storage`)
   console.log(`Electric-Days-Weight-v1.1.9-Active ${bootAt}`)
   console.log(`Electric-Report-Force-Display-Fixed-v1.1.6 ${bootAt}`)
   console.log(`[启动指纹] v1.1.3-ElectricFee-Fix bootAt=${bootAt}`)

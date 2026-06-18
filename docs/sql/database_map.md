@@ -39,6 +39,7 @@
 
 - **UB_ERP_Dispatch_order**：派工单主表。`scaj01` 为派工单号，`scaj03` 为派工类型，`scaj04` 本厂/大板保存 PI、委外保存供应商 code，`scaj05` 保存车间 code，`cj` 保存车间名称快照，`kid` 保存委外供应商 code，`pass`/`del` 走项目通用审核和回收站规则。
 - **UB_ERP_Dispatch_order_list**：派工单明细。`scak01` 关联派工单号，`pi` 保存销售订单 PI，`kcaa01` 保存货品编码，`scak03` 为本次派工数量，`scak04` 为已派工快照，`scak05` 为返修数量快照；保存时按页面当前明细整批重写。
+- **入库单带 PI 口径（2026-06-17）**：`GET /api/stock-in/source-options` 在生产入库/生产退料场景下，`referenceNo` 先取 `UB_ERP_Dispatch_order_list.pi` 的首个非空值；若明细 PI 都为空，再回退 `UB_ERP_Dispatch_order.scaj04`，避免出现“派工单可选但 PI 未带出”。
 - **真实字段差异（2026-06-16 已查库）**：当前 `UB_ERP_Dispatch_order` 与 `UB_ERP_Dispatch_order_list` 都有 `pass`，但没有 `passuid`/`passuname`；主表也没有 `delid`。审核/反审核只更新真实存在的字段，避免旧库弹出 `Invalid column name`。
 - **操作日志**：派工单新增、修改、审核、反审核、删除、恢复、彻底删除由派工单业务代码写入一条 `UB_Date_ERP_Operation_log`；全局自动审计已停用，避免同一个操作产生两行日志。
 - **派工单与销售订单**：本厂/大板用 `UB_ERP_Dispatch_order.scaj04` 关联 `UB_ERP_Sales_order.xsaj01` / `UB_ERP_Sales_order_list.xsak01`；委外派工主表 `scaj04` 不作 PI，明细 `pi` 才是销售订单 PI。
@@ -656,4 +657,21 @@
   - 模块手写：`server/assistOrderOperationLog.js`（外协订单事务内）、`server/operatorUsersHandlers.js`（操作员）等
   - 关键字段：`act_name`（动作中文名）、`act_info`（可读详情，≤500 字）、`uname`/`utruename`（操作人）、`code`（被操作物理表）、`systemcode`（业务单号）、`ip`、`addtime`
   - 约定详见：`CONTEXT.md` 第三节「操作日志（全系统，已定）」
+
+### 3.x `UB_ERP_Stocks_Storage` / `UB_ERP_Stocks_Storage_list`（入库单）
+
+- **模块/页面**：`inventory/daily/stock-in` → `src/views/inventory/daily/stock-in/index.vue`
+- **接口**：`server/stockInHandlers.js`、`server/stockInSaveService.js`、`server/stockInLifecycle.js`、`server/stockInListQuery.js`
+- **主表关键字段**
+  - `kcan01`：入库单号（系统生成，不可手改）
+  - `kcan02`：入库日期
+  - `kcan03`：入库类型（0–8）
+  - `kcan04`：关联单号；`kcan05` / `kehu`：关联方编码与名称快照
+  - `kcan06` / `ck`：仓库编码与名称
+  - `pass`：审核（`'1'` 已审核）；`del`：软删；`closed`：结案只读
+  - **`sp_flag`**：财务复核（`'1'` 已复核，锁定编辑/反审核/删除）；复核接口 `POST /api/stock-in/:id/review` 须 `pass=1`
+  - `in_tax`：含税模式；`remark`：备注
+- **明细表**：`kcao01` 关联主表单号；`kcao03` 入库数量；价格字段 `kcao04`/`kcao041`/`kcao05`/`kcao051`/`tax`
+- **列表筛选联想**：`GET /api/stock-in/list-related-party-options` → `System_supplier`（`s_code`/`s_name`）
+- **库存统计**：已审核且未删除明细 `kcao03` 计入增加口径（见 `CONTEXT.md` §入库单）
 

@@ -18,7 +18,7 @@ import {
 import { ASSIST_ORDER_HEADER_TABLE } from './assistOrderListQuery.js'
 
 const HEADER_FROM = `dbo.[${ASSIST_ORDER_HEADER_TABLE}]`
-const SUPPLIER_FROM = 'dbo.[System_supplier]'
+const SUPPLIER_FROM = 'dbo.[UB_ERP_System_supplier]'
 const CURRENCY_FROM = 'dbo.[UB_ERP_Finance_currency]'
 
 function activeWhere(alias) {

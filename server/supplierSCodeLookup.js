@@ -1,9 +1,9 @@
 /**
- * 主表「供应商/外协商」kehu 与 System_supplier.s_name 一致时，解析 s_code 写入主表编码列（如 cgaa04、wxaa04）
+ * 主表「供应商/外协商」kehu 与 UB_ERP_System_supplier.s_name 一致时，解析 s_code 写入主表编码列（如 cgaa04、wxaa04）
  */
 import { sql } from './db.js'
 
-const SYS_SUPPLIER_FROM = 'dbo.[System_supplier]'
+const SYS_SUPPLIER_FROM = 'dbo.[UB_ERP_System_supplier]'
 
 function pickBodyField(body, colName) {
   if (!body || typeof body !== 'object') return undefined

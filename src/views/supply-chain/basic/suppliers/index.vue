@@ -1,7 +1,7 @@
 <template>
   <div class="erp-module-page">
     <!--
-      供应商资料（System_supplier）：服务端分页 + keyword；审核/反审/软删/恢复标准件。
+      供应商资料（UB_ERP_System_supplier）：服务端分页 + keyword；审核/反审/软删/恢复标准件。
       默认只查已审 pass=1；可切换显示未审核；回收站仅查 del=1。
     -->
     <el-card shadow="never">
@@ -9,7 +9,7 @@
         <span class="page-title">{{ pageTitle }}</span>
       </template>
       <p class="page-desc">
-        数据表 <code>System_supplier</code>；默认每页 20 条；已审核行不可删除，需先反审。
+        数据表 <code>UB_ERP_System_supplier</code>；默认每页 20 条；已审核行不可删除，需先反审。
       </p>
 
       <div class="search-row">

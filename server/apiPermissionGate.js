@@ -662,8 +662,10 @@ export function matchApiPermissionRule(method, path, body, params) {
       '/api/stock-in/suggest-doc-no',
       '/api/stock-in/warehouse-options',
       '/api/stock-in/related-party-options',
+      '/api/stock-in/list-related-party-options',
       '/api/stock-in/material-options',
       '/api/stock-in/source-options',
+      '/api/stock-in/source-order-page',
       '/api/stock-in/source-lines',
       '/api/stock-in/print-data',
       '/api/stock-in/inventory-summary',
@@ -682,6 +684,12 @@ export function matchApiPermissionRule(method, path, body, params) {
   }
   if (m === 'POST' && /^\/api\/stock-in\/\d+\/(?:audit|unaudit)$/.test(path)) {
     return { menuPath: 'inventory/daily/stock-in', action: 'audit' }
+  }
+  if (m === 'POST' && /^\/api\/stock-in\/\d+\/review$/.test(path)) {
+    return { menuPath: 'inventory/daily/stock-in', action: 'review' }
+  }
+  if (m === 'POST' && /^\/api\/stock-in\/\d+\/unreview$/.test(path)) {
+    return { menuPath: 'inventory/daily/stock-in', action: 'unreview' }
   }
   if (m === 'POST' && /^\/api\/stock-in\/\d+\/restore$/.test(path)) {
     return { menuPath: 'inventory/daily/stock-in', action: 'delete' }

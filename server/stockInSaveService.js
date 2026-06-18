@@ -16,7 +16,7 @@ const HEADER_FROM = `dbo.[${STOCK_IN_HEADER_TABLE}]`
 const LINE_FROM = `dbo.[${STOCK_IN_LINE_TABLE}]`
 const WAREHOUSE_FROM = 'dbo.[UB_ERP_Stocks_Warehouse]'
 const BOM_FROM = 'dbo.[UB_ERP_Bom_000]'
-const SUPPLIER_FROM = 'dbo.[System_supplier]'
+const SUPPLIER_FROM = 'dbo.[UB_ERP_System_supplier]'
 const WORKSHOP_FROM = 'dbo.[UB_ERP_Stocks_workshop]'
 const CUSTOMER_FROM = 'dbo.[UB_ERP_Customer]'
 const PURCHASE_HEADER_FROM = 'dbo.[UB_ERP_Buy_order]'
@@ -147,7 +147,8 @@ async function fetchExistingReceipt(pool, id) {
 }
 
 function sourceTable(type) {
-  if (type === '1') return { header: PURCHASE_HEADER_FROM, line: PURCHASE_LINE_FROM, noCol: 'cgad01', partyCol: 'cgad05', lineOrderCol: 'cgae01', qtyCol: 'cgae03', priceCol: 'cgae04' }
+  // 采购订单明细真实字段：kcak01/kcak03/kcak04（而非旧库字段 cgae01/cgae03/cgae04）
+  if (type === '1') return { header: PURCHASE_HEADER_FROM, line: PURCHASE_LINE_FROM, noCol: 'cgad01', partyCol: 'cgad05', lineOrderCol: 'kcak01', qtyCol: 'kcak03', priceCol: 'kcak04' }
   if (type === '2' || type === '3') return { header: ASSIST_HEADER_FROM, line: ASSIST_LINE_FROM, noCol: 'wxaj01', partyCol: 'wxaj05', lineOrderCol: 'wxak01', qtyCol: 'wxak03', priceCol: 'wxak04' }
   if (type === '4' || type === '5') return { header: DISPATCH_HEADER_FROM, line: DISPATCH_LINE_FROM, noCol: 'scaj01', partyCol: 'scaj05', lineOrderCol: 'scak01', qtyCol: 'scak03', priceCol: 'cost_price' }
   if (type === '6') return { header: SALES_HEADER_FROM, line: SALES_LINE_FROM, noCol: 'xsaj01', partyCol: 'xsaj04', lineOrderCol: 'xsak01', qtyCol: 'xsak03', priceCol: 'sale_price' }

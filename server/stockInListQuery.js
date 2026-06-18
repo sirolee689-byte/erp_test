@@ -36,11 +36,13 @@ export function parseStockInListQuery(query) {
   const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
   const recycled = flag(query?.recycled)
   const showUnaudited = flag(query?.showUnaudited)
+  const showUnreviewed = flag(query?.showUnreviewed)
   return {
     page,
     pageSize,
     recycled,
     showUnaudited,
+    showUnreviewed,
     pass: recycled ? '' : showUnaudited ? '0' : normalizePass(query?.pass),
     receiptNo: text(query?.receiptNo ?? query?.kcan01),
     inboundType: normalizeInboundType(query?.inboundType ?? query?.kcan03),
@@ -67,6 +69,10 @@ export function buildStockInListWhereSql(opts) {
   if (!opts?.recycled && opts?.pass) {
     whereSql += ` AND LTRIM(RTRIM(ISNULL(h.[pass], N''))) = @pass `
     params.pass = opts.pass
+  }
+  // 未复核：sp_flag 非 '1'（空值视同未复核）
+  if (!opts?.recycled && opts?.showUnreviewed) {
+    whereSql += ` AND LTRIM(RTRIM(ISNULL(h.[sp_flag], N''))) <> N'1' `
   }
   if (opts?.receiptNo) {
     whereSql += ` AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcan01], N'')))) LIKE @receiptNo `
@@ -104,8 +110,9 @@ export function buildStockInListWhereSql(opts) {
     whereSql += `
       AND (
         LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcan01], N'')))) LIKE @keyword
+        OR LTRIM(RTRIM(CONVERT(nvarchar(30), h.[kcan02], 120))) LIKE @keyword
         OR LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcan04], N'')))) LIKE @keyword
-        OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kehu], N'')))) LIKE @keyword
+        OR LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcan08], N'')))) LIKE @keyword
         OR LTRIM(RTRIM(CONVERT(nvarchar(1000), ISNULL(h.[remark], N'')))) LIKE @keyword
       )
     `

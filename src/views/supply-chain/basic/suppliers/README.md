@@ -1,4 +1,4 @@
-# 供应商资料（System_supplier）
+# 供应商资料（UB_ERP_System_supplier）
 
 ## 功能说明
 

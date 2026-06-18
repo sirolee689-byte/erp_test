@@ -6,7 +6,7 @@
  * - 全局：{"*":["all"]} 或 ["*"]
  */
 
-const ALL_ACTIONS = ['view', 'add', 'edit', 'delete', 'audit']
+const ALL_ACTIONS = ['view', 'add', 'edit', 'delete', 'audit', 'review', 'unreview']
 
 /**
  * @param {unknown} raw 数据库读出的字符串或已解析对象
@@ -139,7 +139,7 @@ export function serializePermissionsForStore(raw) {
       for (const a of v) {
         const low = String(a).trim().toLowerCase()
         if (!allowed.has(low)) {
-          return { ok: false, msg: `非法操作：${a}（允许 view/add/edit/delete/audit/all）` }
+          return { ok: false, msg: `非法操作：${a}（允许 view/add/edit/delete/audit/review/unreview/all）` }
         }
         acts.push(low)
       }

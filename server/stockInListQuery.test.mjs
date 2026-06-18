@@ -30,6 +30,22 @@ describe('stockInListQuery', () => {
     assert.doesNotMatch(recycled.whereSql, /@pass/)
   })
 
+  test('关键词覆盖单号、日期、关联单号、纸质单号、备注（不含供应商）', () => {
+    const { whereSql, params } = buildStockInListWhereSql(parseStockInListQuery({ keyword: '2026-06' }))
+    assert.equal(params.keyword, '%2026-06%')
+    assert.match(whereSql, /\[kcan01\]/)
+    assert.match(whereSql, /\[kcan02\].*120/i)
+    assert.match(whereSql, /\[kcan04\]/)
+    assert.match(whereSql, /\[kcan08\]/)
+    assert.match(whereSql, /\[remark\]/)
+    assert.doesNotMatch(whereSql, /\[kehu\].*@keyword/is)
+  })
+
+  test('显示未复核时排除 sp_flag=1', () => {
+    const { whereSql } = buildStockInListWhereSql(parseStockInListQuery({ showUnreviewed: '1' }))
+    assert.match(whereSql, /\[sp_flag\].*<>.*N'1'/is)
+  })
+
   test('支持 PRD 要求的搜索条件', () => {
     const { whereSql, params } = buildStockInListWhereSql(
       parseStockInListQuery({
