@@ -945,6 +945,9 @@ app.post('/api/login', async (req, res) => {
         })
         return
       }
+      const legacyIsAdminSel = qIsAdmin
+        ? `CAST(u.${qIsAdmin} AS INT) AS IsAdmin,`
+        : 'CAST(0 AS INT) AS IsAdmin,'
       result = await request.query(`
         SELECT TOP (1)
           u.${qEntityPk} AS UserID,
@@ -954,6 +957,7 @@ app.post('/api/login', async (req, res) => {
           u.${qPassword} AS Password,
           CAST(1 AS INT) AS Status,
           ${isActiveSel}
+          ${legacyIsAdminSel}
           ${roleIdSel} AS RoleID,
           CAST(${roleNameSql} AS NVARCHAR(50)) AS RoleName,
           CAST(${permSql} AS NVARCHAR(MAX)) AS Permissions,
@@ -992,6 +996,10 @@ app.post('/api/login', async (req, res) => {
       const erpTruenameSel = qTruenameErp
         ? `LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(u.${qTruenameErp}, N'')))) AS AuditTruename,`
         : `CAST(N'' AS NVARCHAR(100)) AS AuditTruename,`
+      const qIsAdminErp = userColset.has('is_admin') ? meta.qb('is_admin') : null
+      const erpIsAdminSel = qIsAdminErp
+        ? `CAST(u.${qIsAdminErp} AS INT) AS IsAdmin,`
+        : 'CAST(0 AS INT) AS IsAdmin,'
       const joinRoles = userColset.has('roleid')
         ? `LEFT JOIN dbo.[UB_ERP_System_role] AS r ON r.RoleID = u.${meta.qb('roleid')}`
         : `LEFT JOIN dbo.[UB_ERP_System_role] AS r ON 1 = 0`
@@ -1004,6 +1012,7 @@ app.post('/api/login', async (req, res) => {
           u.${qPwd} AS Password,
           ${selStatus}
           ${selIsActive}
+          ${erpIsAdminSel}
           ${selRoleId},
           r.RoleName AS RoleName,
           r.Permissions AS Permissions,
@@ -1052,6 +1061,7 @@ app.post('/api/login', async (req, res) => {
     // 关键：生成随机 token（作为登录凭证）
     const token = crypto.randomBytes(24).toString('hex')
 
+    const isAdminFlag = Number(userRow.IsAdmin) === 1
     // 关键：保存到后端内存（可用于后续接口鉴权升级）
     tokenStore.set(token, {
       userId: Number(userRow.UserID),
@@ -1061,6 +1071,9 @@ app.post('/api/login', async (req, res) => {
       auditTruename: String(userRow.AuditTruename ?? ''),
       // 界面显示名：优先人事档案姓名
       userName: String(userRow.StaffDisplayName ?? userRow.UserName ?? ''),
+      // UB_ERP_User.is_admin：超级管理员（入库单彻底删除等）
+      isAdmin: isAdminFlag,
+      is_admin: isAdminFlag ? 1 : 0,
       // v1.0.7：附带角色，便于后续把接口鉴权与角色打通（当前仍以 token 为主）
       roleId: userRow.RoleID != null ? Number(userRow.RoleID) : null,
       roleName: String(userRow.RoleName ?? ''),

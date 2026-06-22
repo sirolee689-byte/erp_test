@@ -703,6 +703,7 @@ export function matchApiPermissionRule(method, path, body, params) {
       '/api/stock-in/source-options',
       '/api/stock-in/source-order-page',
       '/api/stock-in/source-lines',
+      '/api/stock-in/purchase-batch-lines',
       '/api/stock-in/print-data',
       '/api/stock-in/inventory-summary',
     ].includes(path)

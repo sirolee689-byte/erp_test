@@ -101,6 +101,13 @@ const purchaseOrderBatchWindowRoute = {
   meta: { title: '采购订单批量添加明细', permissionPath: '/supply-chain/daily/purchase-order' },
 }
 
+const stockInPurchaseBatchWindowRoute = {
+  path: '/inventory/daily/stock-in-purchase-batch-window',
+  name: 'inventory-daily-stock-in-purchase-batch-window',
+  component: () => import('@/views/inventory/daily/stock-in/batch-add-window.vue'),
+  meta: { title: '采购入库批量添加明细', permissionPath: '/inventory/daily/stock-in' },
+}
+
 const childRoutes = [
   ...walkRoutes(menuStructure),
   paperPatternImportPreviewRoute,
@@ -136,6 +143,7 @@ const router = createRouter({
     salesOrderWindowRoute,
     assistOrderBatchWindowRoute,
     purchaseOrderBatchWindowRoute,
+    stockInPurchaseBatchWindowRoute,
     {
       path: '/',
       component: ErpLayout,

@@ -148,8 +148,16 @@ export function validateStockInPayload(payload = {}) {
     if (line.kcao03 <= 0) return `第 ${i + 1} 行入库数量必须大于 0`
     if (header.inTax === '2' && line.tax > 0) return '不含税模式下税点只能为 0'
     if (linked && !line.kcao02) return `第 ${i + 1} 行明细必须来自关联单据`
-    if (linked && line.availableQty != null && line.kcao03 > numberValue(line.availableQty)) {
-      return `第 ${i + 1} 行入库数量不能大于可入库数量 ${numberValue(line.availableQty)}`
+    if (linked) {
+      const overflowCap = numberValue(line.kcao031)
+      const needQty = numberValue(line.availableQty ?? line.tempx ?? line.needQty)
+      const maxAllowed = overflowCap > 0 ? overflowCap : needQty
+      if (maxAllowed > 0 && line.kcao03 > maxAllowed) {
+        return `第 ${i + 1} 行入库数量不能大于可入库上限 ${maxAllowed}`
+      }
+      if (maxAllowed <= 0 && line.kcao03 > 0 && overflowCap <= 0 && needQty <= 0) {
+        return `第 ${i + 1} 行可入库数量已满，请检查采购单入库进度`
+      }
     }
   }
   return null

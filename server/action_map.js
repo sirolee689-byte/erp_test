@@ -31,6 +31,7 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   { method: 'GET', path: '/api/stock-in/source-options', action: '查询入库关联单据候选', targetTable: 'UB_ERP_Stocks_Storage' },
   { method: 'GET', path: '/api/stock-in/source-order-page', action: '查询入库关联单据分页', targetTable: 'UB_ERP_Stocks_Storage' },
   { method: 'GET', path: '/api/stock-in/source-lines', action: '查询入库关联单据明细', targetTable: 'UB_ERP_Stocks_Storage' },
+  { method: 'GET', path: '/api/stock-in/purchase-batch-lines', action: '查询采购入库批量添加明细', targetTable: 'UB_ERP_Buy_order_list' },
   { method: 'GET', path: '/api/stock-in/print-data', action: '打印入库单', targetTable: 'UB_ERP_Stocks_Storage' },
   { method: 'GET', path: '/api/stock-in/inventory-summary', action: '查询入库库存统计', targetTable: 'UB_ERP_Stocks_Storage_list' },
   { method: 'GET', path: /^\/api\/stock-in\/\d+$/, action: '查看入库单', targetTable: 'UB_ERP_Stocks_Storage' },

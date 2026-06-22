@@ -14,6 +14,8 @@ import {
 } from './stockInSaveService.js'
 import { applyStockInLifecycleAction } from './stockInLifecycle.js'
 import { resolveActorAuditTripletFromReq } from './businessAuditFields.js'
+import { resolveSysUserIsAdminByUserId } from './sysUsersDb.js'
+import { fetchStockInPurchaseBatchLines } from './stockInPurchaseBatchAdd.js'
 
 const HEADER_FROM = `dbo.[${STOCK_IN_HEADER_TABLE}]`
 const LINE_FROM = `dbo.[${STOCK_IN_LINE_TABLE}]`
@@ -45,7 +47,11 @@ function text(v) {
 
 async function getActor(pool, req) {
   const auditActor = await resolveActorAuditTripletFromReq(pool, req)
-  return { ...(req.user ?? req.session?.user ?? {}), ...auditActor }
+  const base = { ...(req.user ?? req.session?.user ?? {}), ...auditActor }
+  // 彻底删除等门禁读 UB_ERP_User.is_admin；登录令牌未必带该字段，按主键实时查库
+  const uid = auditActor.uidInt ?? base.userId ?? base.UserID
+  const isAdmin = await resolveSysUserIsAdminByUserId(pool, uid)
+  return { ...base, is_admin: isAdmin ? 1 : 0, isAdmin }
 }
 
 function sendSave(res, result, msg) {
@@ -507,6 +513,31 @@ export function registerStockInRoutes(app, deps) {
       res.json({ code: 200, msg: 'success', data: { page, pageSize, total, list: r.recordset ?? [] } })
     } catch (err) {
       res.status(500).json({ code: 500, msg: `读取关联单据分页失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  app.get('/api/stock-in/purchase-batch-lines', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const actor = await getActor(pool, req)
+      const result = await fetchStockInPurchaseBatchLines(pool, req.query ?? {}, actor)
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({
+        code: 200,
+        msg: 'success',
+        data: {
+          list: result.list ?? [],
+          total: result.total ?? 0,
+          page: result.page,
+          pageSize: result.pageSize,
+          isAdmin: result.isAdmin === true,
+        },
+      })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取采购入库批量明细失败：${String(err?.message ?? err)}`, data: null })
     }
   })
 

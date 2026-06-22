@@ -72,5 +72,19 @@ describe('stockInSaveLogic', () => {
     assert.equal(line.location, 'A-01')
     assert.equal(line.version, 'V1')
   })
+
+  test('采购入库保存按 kcao031 上限校验入库数量', () => {
+    const over = validateStockInPayload({
+      header: { inboundType: '1', inboundDate: '2026-06-17', warehouseCode: 'WH', relatedPartyCode: 'SUP', sourceOrderNo: 'PO1' },
+      lines: [{ kcaa01: 'M-1', kcao02: 'SRC-1', kcao03: 12, kcao031: 10, tempx: 8 }],
+    })
+    assert.match(over, /不能大于可入库上限/)
+
+    const ok = validateStockInPayload({
+      header: { inboundType: '1', inboundDate: '2026-06-17', warehouseCode: 'WH', relatedPartyCode: 'SUP', sourceOrderNo: 'PO1' },
+      lines: [{ kcaa01: 'M-1', kcao02: 'SRC-1', kcao03: 8, kcao031: 10, tempx: 8 }],
+    })
+    assert.equal(ok, null)
+  })
 })
 

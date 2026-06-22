@@ -169,6 +169,27 @@ export async function resolveSysUsersAuditTripletByUsercode(pool, usercode) {
 }
 
 /**
+ * 按 UB_ERP_User 主键查 is_admin（入库单彻底删除等超级管理员门禁用）
+ * @param {import('mssql').ConnectionPool | null | undefined} pool
+ * @param {number | string | null | undefined} userId
+ * @returns {Promise<boolean>}
+ */
+export async function resolveSysUserIsAdminByUserId(pool, userId) {
+  const id = Math.floor(Number(userId))
+  if (!pool || !Number.isFinite(id) || id <= 0) return false
+  const meta = await getSysUsersColumnsMeta(pool)
+  const qIsAdmin = meta.set.has('is_admin') ? meta.qb('is_admin') : null
+  const qPk = getSysUsersEntityPkQb(meta)
+  if (!qIsAdmin || !qPk) return false
+  const r = await pool.request().input('UserID', sql.Int, id).query(`
+    SELECT TOP (1) CAST(u.${qIsAdmin} AS INT) AS is_admin
+    FROM dbo.[UB_ERP_User] AS u
+    WHERE u.${qPk} = @UserID
+  `)
+  return Number(r.recordset?.[0]?.is_admin) === 1
+}
+
+/**
  * password 列不足 bcrypt 时自动扩至 NVARCHAR(200)（无需手工跑脚本）
  * @param {import('mssql').ConnectionPool} pool
  * @param {SysUsersColumnsMeta} [metaIn]

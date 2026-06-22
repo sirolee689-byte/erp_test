@@ -59,6 +59,8 @@ describe('stockInLifecycle', () => {
     assert.match(normal.error, /超级管理员/)
     const admin = resolveStockInLifecycleConfig('hard-delete', { pass: '0', del: '1', sp_flag: '0', closed: '0' }, { isAdmin: true })
     assert.equal(admin.hardDelete, true)
+    const adminByCol = resolveStockInLifecycleConfig('hard-delete', { pass: '0', del: '1', sp_flag: '0', closed: '0' }, { is_admin: 1 })
+    assert.equal(adminByCol.hardDelete, true)
   })
 })
 

@@ -212,7 +212,7 @@
       <div class="form-head">
         <strong>{{ editId ? '编辑入库单' : '新增入库单' }}</strong>
         <div>
-          <el-button @click="switchList">返回列表</el-button>
+          <el-button @click="resetCurrentForm">重置</el-button>
           <el-button type="primary" :loading="saving" @click="saveReceipt">保存</el-button>
         </div>
       </div>
@@ -300,13 +300,23 @@
         <el-tab-pane label="入库单明细" name="lines">
           <div class="line-toolbar">
             <el-button type="primary" plain @click="openBatchDialog">批量添加</el-button>
-            <el-button plain :disabled="!canManualAdd" @click="addManualLine">增加明细</el-button>
             <el-button type="danger" plain :disabled="!selectedLineKeys.length" @click="removeSelectedLines">删除选定明细</el-button>
             <el-button type="danger" plain :disabled="!lines.length" @click="removeAllLines">删除全部明细</el-button>
           </div>
 
-          <el-table :data="lines" border stripe row-key="__key" class="erp-list-table" @selection-change="onLineSelectionChange">
-            <el-table-column type="selection" width="44" />
+          <el-table :data="lines" border stripe row-key="__key" class="erp-list-table">
+            <el-table-column label="选择" fixed="left" width="90" align="center" class-name="erp-col-actions">
+              <template #default="{ row }">
+                <el-button
+                  size="small"
+                  class="stock-line-mark-btn"
+                  :class="{ 'stock-line-mark-btn--on': isLineMarked(row) }"
+                  @click="toggleLineMark(row)"
+                >
+                  {{ isLineMarked(row) ? '已选择' : '删除' }}
+                </el-button>
+              </template>
+            </el-table-column>
             <el-table-column label="序号" type="index" width="60" align="center" />
             <el-table-column label="材料编码" prop="kcaa01" min-width="150" show-overflow-tooltip />
             <el-table-column label="名称" prop="kcaa02" min-width="160" show-overflow-tooltip />
@@ -472,10 +482,21 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
+import {
+  STOCK_BATCH_MSG_ACCEPTED,
+  STOCK_BATCH_MSG_APPLY,
+  STOCK_BATCH_MSG_REJECTED,
+  STOCK_BATCH_REJECT_SOURCE_MISMATCH,
+  STOCK_BATCH_REJECT_SUPPLIER_MISMATCH,
+  buildStockBatchSessionId,
+  removeStockBatchResult,
+  validateStockBatchApply,
+  writeStockBatchContext,
+} from '@/utils/stockInBatchAdd'
 
 defineOptions({ name: 'inventory-daily-stock-in' })
 
@@ -515,7 +536,6 @@ const editId = ref(null)
 const warehouses = ref([])
 const relatedParties = ref([])
 const sourceOrders = ref([])
-const selectedLineKeys = ref([])
 const lines = ref([])
 const form = reactive(defaultForm())
 const formTab = ref('base')
@@ -528,6 +548,8 @@ const batchLoading = ref(false)
 const batchKeyword = ref('')
 const batchLines = ref([])
 const batchSelected = ref([])
+const activePurchaseBatchSessionId = ref('')
+const purchaseBatchChildWindow = ref(null)
 const printVisible = ref(false)
 const printData = reactive({ header: null, lines: [] })
 
@@ -535,6 +557,7 @@ const isFreeType = computed(() => ['0', '7'].includes(form.inboundType))
 const needsSourceOrder = computed(() => ['1', '2', '3', '4', '5', '6'].includes(form.inboundType))
 const canManualAdd = computed(() => isFreeType.value || (form.inboundType === '5' && !form.sourceOrderNo))
 const formReadOnly = computed(() => false)
+const selectedLineKeys = computed(() => lines.value.filter((line) => line._lineMarked).map((line) => line.__key))
 const relatedLabel = computed(() => {
   if (['1'].includes(form.inboundType)) return '供应商'
   if (['2', '3', '8'].includes(form.inboundType)) return '外协客户'
@@ -850,6 +873,23 @@ async function newReceipt() {
   formTab.value = 'base'
   pageMode.value = 'form'
   await Promise.all([loadWarehouses(), loadSuggestedNo()])
+  await applyDefaultWarehouse()
+}
+
+async function resetCurrentForm() {
+  if (editId.value) {
+    await editReceipt({ id: editId.value })
+    ElMessage.success('已重置')
+    return
+  }
+  Object.assign(form, defaultForm())
+  lines.value = []
+  relatedParties.value = []
+  sourceOrders.value = []
+  formTab.value = 'base'
+  await Promise.all([loadWarehouses(), loadSuggestedNo()])
+  await applyDefaultWarehouse()
+  ElMessage.success('已重置')
 }
 
 async function editReceipt(row) {
@@ -868,7 +908,7 @@ async function editReceipt(row) {
     paperNo: data.header.kcan08 || '',
     remark: data.header.remark || '',
   })
-  lines.value = (data.lines || []).map((line, idx) => ({ ...line, info: line.Describe || '', __key: `${idx}-${line.systemcode || line.id || Date.now()}` }))
+  lines.value = (data.lines || []).map((line, idx) => ({ ...line, info: line.Describe || '', _lineMarked: false, __key: `${idx}-${line.systemcode || line.id || Date.now()}` }))
   formTab.value = 'base'
   pageMode.value = 'form'
   await Promise.all([loadWarehouses(), loadRelatedParties(), loadSourceOrders()])
@@ -935,6 +975,23 @@ async function loadSuggestedNo() {
 async function loadWarehouses(keyword = '') {
   const res = await axios.get('/api/stock-in/warehouse-options', { params: { keyword } })
   warehouses.value = res.data?.data?.list || []
+}
+
+function isDefaultWarehouse(row) {
+  const name = String(row?.name ?? '').trim()
+  const code = String(row?.code ?? '').trim()
+  return name === '\u8d27\u4ed3' || code === '\u8d27\u4ed3'
+}
+
+async function applyDefaultWarehouse() {
+  if (form.warehouseCode) return
+  if (!warehouses.value.some(isDefaultWarehouse)) {
+    await loadWarehouses('\u8d27\u4ed3')
+  }
+  const target = warehouses.value.find(isDefaultWarehouse)
+  if (!target) return
+  form.warehouseCode = target.code || ''
+  form.warehouseName = target.name || ''
 }
 
 async function loadRelatedParties(keyword = '') {
@@ -1061,13 +1118,20 @@ function onTaxModeChange() {
   if (form.inTax === '2') lines.value.forEach((row) => { row.tax = 0; recalcLine(row) })
 }
 
-function onLineSelectionChange(selection) {
-  selectedLineKeys.value = selection.map((x) => x.__key)
+function isLineMarked(row) {
+  return !!row?._lineMarked
+}
+
+function toggleLineMark(row) {
+  if (!row) return
+  row._lineMarked = !row._lineMarked
 }
 
 function removeSelectedLines() {
+  if (!selectedLineKeys.value.length) return ElMessage.warning('请先在选择列点击“删除”标记要移除的明细')
   const s = new Set(selectedLineKeys.value)
   lines.value = lines.value.filter((x) => !s.has(x.__key))
+  ElMessage.success('已删除选定明细')
 }
 
 async function removeAllLines() {
@@ -1088,9 +1152,101 @@ async function openBatchDialog() {
   if (!form.warehouseCode) return ElMessage.warning('请先选择仓库')
   if (needsSourceOrder.value && !form.sourceOrderNo) return ElMessage.warning(form.inboundType === '4' ? '请先选择派工单' : '请先选择关联单号')
   if (!isFreeType.value && form.inboundType !== '5' && !form.relatedPartyCode) return ElMessage.warning(`请先选择${relatedLabel.value}`)
+  if (form.inboundType === '1') {
+    openPurchaseBatchWindow()
+    return
+  }
   batchVisible.value = true
   batchKeyword.value = ''
   await loadBatchLines()
+}
+
+function buildPurchaseBatchCurrentLineKeys() {
+  return lines.value.map((line) => String(line.kcao02 ?? '').trim().toLowerCase()).filter(Boolean)
+}
+
+function openPurchaseBatchWindow() {
+  const sessionId = buildStockBatchSessionId()
+  activePurchaseBatchSessionId.value = sessionId
+  writeStockBatchContext(sessionId, {
+    sourceOrderNo: form.sourceOrderNo,
+    supplierCode: form.relatedPartyCode,
+    supplierName: form.relatedPartyName,
+    excludeReceiptNo: editId.value ? form.receiptNo : '',
+    inTax: form.inTax,
+    currentLineKeys: buildPurchaseBatchCurrentLineKeys(),
+    pageSize: 20,
+  })
+  const url = `/inventory/daily/stock-in-purchase-batch-window?sessionId=${encodeURIComponent(sessionId)}&sourceOrderNo=${encodeURIComponent(form.sourceOrderNo)}`
+  const opened = window.open(url, '_blank')
+  purchaseBatchChildWindow.value = opened || null
+  if (!opened) ElMessage.error('无法打开新窗口，请检查浏览器是否拦截弹窗')
+}
+
+function clearPurchaseBatchSession() {
+  activePurchaseBatchSessionId.value = ''
+  purchaseBatchChildWindow.value = null
+}
+
+function replyPurchaseBatch(source, payload) {
+  const target = source && typeof source.postMessage === 'function'
+    ? source
+    : (purchaseBatchChildWindow.value && !purchaseBatchChildWindow.value.closed
+      ? purchaseBatchChildWindow.value
+      : null)
+  if (!target || typeof target.postMessage !== 'function') return
+  target.postMessage(payload, window.location.origin)
+}
+
+function applyPurchaseBatchLines(batchRows) {
+  const existing = new Set(buildPurchaseBatchCurrentLineKeys())
+  const newLines = (batchRows ?? []).filter((row) => {
+    const key = String(row.kcao02 ?? row.lineKey ?? '').trim().toLowerCase()
+    return key && !existing.has(key)
+  }).map((row) => makeLine(row))
+  if (!newLines.length) return ElMessage.warning('所选明细已在列表中，或未选择新行')
+  lines.value.push(...newLines)
+  ElMessage.success(`已批量添加 ${newLines.length} 条入库明细`)
+}
+
+function handlePurchaseBatchPayload(payload, source = null, options = {}) {
+  const sessionId = String(payload?.sessionId ?? '').trim()
+  const allowStoredSession = !!options.allowStoredSession
+  if (!sessionId) return false
+  if (sessionId !== activePurchaseBatchSessionId.value && !allowStoredSession) return false
+  const validation = validateStockBatchApply({
+    openedSourceOrderNo: payload.openedSourceOrderNo,
+    currentSourceOrderNo: form.sourceOrderNo,
+    openedSupplierCode: payload.openedSupplierCode,
+    currentSupplierCode: form.relatedPartyCode,
+  })
+  if (!validation.ok) {
+    removeStockBatchResult(sessionId)
+    if (allowStoredSession) return false
+    if (validation.reason === STOCK_BATCH_REJECT_SOURCE_MISMATCH) ElMessage.warning('采购单号已变更，批量添加已取消')
+    else if (validation.reason === STOCK_BATCH_REJECT_SUPPLIER_MISMATCH) ElMessage.warning('供应商已变更，请重新打开批量添加')
+    replyPurchaseBatch(source, { type: STOCK_BATCH_MSG_REJECTED, sessionId, reason: validation.reason })
+    clearPurchaseBatchSession()
+    return false
+  }
+  const batchRows = Array.isArray(payload.lines) ? payload.lines : []
+  if (!batchRows.length) {
+    removeStockBatchResult(sessionId)
+    replyPurchaseBatch(source, { type: STOCK_BATCH_MSG_REJECTED, sessionId, reason: 'empty-lines' })
+    return false
+  }
+  removeStockBatchResult(sessionId)
+  applyPurchaseBatchLines(batchRows)
+  replyPurchaseBatch(source, { type: STOCK_BATCH_MSG_ACCEPTED, sessionId, lineCount: batchRows.length })
+  clearPurchaseBatchSession()
+  return true
+}
+
+function handlePurchaseBatchMessage(event) {
+  if (event.origin !== window.location.origin) return
+  const data = event.data
+  if (!data || data.type !== STOCK_BATCH_MSG_APPLY) return
+  handlePurchaseBatchPayload(data, event.source)
 }
 
 async function loadBatchLines() {
@@ -1115,23 +1271,42 @@ function onBatchSelectionChange(selection) {
 }
 
 function makeLine(row) {
+  const needQty = Number(row.tempx ?? row.needQty ?? row.availableQty ?? 0)
+  const overflowCap = Number(row.kcao031 ?? row.overflowCap ?? 0)
+  const defaultQty = needQty > 0 ? needQty : (overflowCap > 0 ? overflowCap : 1)
   const line = {
     __key: `${Date.now()}-${Math.random()}`,
-    kcao02: row.kcao02 || '',
+    _lineMarked: false,
+    kcao02: row.kcao02 || row.lineKey || '',
     kcan04: form.sourceOrderNo,
-    availableQty: row.availableQty,
-    kcao03: Number(row.availableQty || 0) || 1,
-    kcao031: Number(row.availableQty || 0) || 1,
+    tempx: needQty,
+    needQty,
+    availableQty: overflowCap > 0 ? overflowCap : needQty,
+    kcao03: defaultQty,
+    kcao031: overflowCap > 0 ? overflowCap : (needQty > 0 ? needQty : 1),
     kcao04: Number(row.kcao04 || row.cost_price || 0) || 0,
+    kcao041: Number(row.kcao041 || 0) || 0,
     tax: form.inTax === '2' ? 0 : Number(row.tax || 0) || 0,
     kcaa01: row.kcaa01,
     kcaa02: row.kcaa02,
     kcaa03: row.kcaa03,
     kcaa04: row.kcaa04,
     kcaa11: row.kcaa11,
+    kcaa25: row.kcaa25,
+    kcaa26: row.kcaa26,
+    kcaa27: row.kcaa27,
+    reference: row.reference || '',
     location: row.location || '',
     version: row.version || '',
     info: row.info || '',
+    sale_price: row.sale_price,
+    cost_price: row.cost_price,
+    Customer_Name: row.Customer_Name,
+    Customer_supply: row.Customer_supply,
+    remark: row.remark,
+    kpname: row.kpname,
+    kcaa02_en: row.kcaa02_en,
+    systemcode: row.systemcode || row.GUID || row.kcao02 || '',
   }
   recalcLine(line)
   return line
@@ -1251,6 +1426,11 @@ function showTodo(msg) {
 onMounted(() => {
   loadList()
   loadWarehouses()
+  window.addEventListener('message', handlePurchaseBatchMessage)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('message', handlePurchaseBatchMessage)
 })
 </script>
 
@@ -1285,6 +1465,25 @@ onMounted(() => {
   gap: 10px;
   align-items: center;
   margin-bottom: 12px;
+}
+.stock-line-mark-btn {
+  min-width: 56px;
+  color: #e6a23c;
+  border-color: #f3d19e;
+  background: #fdf6ec;
+}
+.stock-line-mark-btn:hover,
+.stock-line-mark-btn:focus {
+  color: #b88230;
+  border-color: #eebe77;
+  background: #faecd8;
+}
+.stock-line-mark-btn--on,
+.stock-line-mark-btn--on:hover,
+.stock-line-mark-btn--on:focus {
+  color: #909399;
+  border-color: #dcdfe6;
+  background: #f4f4f5;
 }
 .stock-filter-bar {
   display: flex;
