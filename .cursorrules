@@ -17,7 +17,7 @@
         - **典型报错链（排错顺序）**：若出现 `'TRY_CONVERT' is not a recognized built-in function name`，根因是 **语法超出 2008 R2**；同一批次里若紧跟 `Incorrect syntax near ')'`，多为其后解析 **连带错误**，应先消除版本不兼容语法再执行，不要只盯着括号改。
 - **端口管理**：
     - 如果 3000 端口或 1433 端口被占用了，要教我怎么查进程并杀掉它。
-    - **防旧进程指纹**：凡是我修改了后端接口/SQL/权限门禁后，必须提醒你做一次“后端重启确认”，并要求在后端启动日志打印一个可识别指纹（例如启动时间、git commit、或自增版本号）。没有指纹 = 不允许断言代码已生效。
+    - **改后端后的重启**：见 §16；由**你手动**重启 API，Agent **只提醒、不执行**，不得断言「后端已生效」。
 - **内网兼容性**：
     - 考虑到内网可能无法随时下载新插件，尽量使用已经安装好的 Element Plus 和 Axios，不要随便乱加新的 npm 包。
 
@@ -26,11 +26,7 @@
 - **README 依赖**：每次进入一个新文件夹（比如 `inventory`），先读该目录下的 `README.md`，确认功能定义后再写代码。
 
 ## 4. 交互式调试 (Debug)
-- **第 0 步：先排除“命中旧后端进程”**：只要你说“我刚改了后端/SQL/接口但页面没变化”、或我发现端口占用/多开服务迹象，必须先做下面自检，并在回复里给出结论与证据；未完成第 0 步前，不允许直接下 SQL/业务逻辑结论、更不允许让我继续改 SQL：
-    1. 当前前端实际请求的 BaseURL/端口是多少（从浏览器 Network 或前端 axios baseURL 推断）。
-    2. 该端口当前被哪个 PID 占用（给出 PID）。
-    3. 后端日志中是否能看到“我刚加的标记日志/版本号/启动时间”（用它证明不是旧进程）。
-    4. 若无法证明，默认结论为：页面仍命中旧进程 → 先指导重启/释放端口，再继续查权限/SQL/数据。
+- **第 0 步（仅在你反馈「改了没效果 / 页面不变 / 疑似旧进程」时）**：先问你是否已按 §16 手动 `taskkill` → `npm run dev:server` 并重新登录；若仍异常，再一起查前端 BaseURL/端口、是否多开服务。**平时改完代码后 Agent 不主动查端口或 PID。**
 - **报错诊断**：报错时，先帮我分析是“我填错了”（前端）、“路不通”（网络/端口）、还是“仓库没货”（数据库没数据）。
 
 ## 5. 自动化文档要求 (README 自动同步)
@@ -83,7 +79,7 @@
 - **场景指引**：
   - 页面调优/交互/报错：`user-serkan-ozal.browser-devtools-mcp` (需截图)
   - 数据库字段/ del-pass 验证：`user-sqlserver`
-  - 端口/进程/服务重启：`user-terminal`
+  - 排错时查端口/进程：`user-terminal`（**不用于** Agent 自动重启 API，见 §16）
   - 批量文件结构同步：`user-filesystem`
 
 ### 12.数据库（SQL Server）
@@ -110,13 +106,28 @@
 - **业务中文名 → 物理表名**：当用户提到“房间表/入住/电费”等中文业务名时，助手必须先查 docs/sql/database_map.md，用映射结果（例如 Hr_room）再继续写接口/SQL/页面字段。
 - **缺失处理** ：如果映射表里没找到，助手必须先提示“映射缺失”，并给出建议把这一行补到 docs/sql/database_map.md（然后再继续）
 
-## 16. 运维守则升级（写死命令流程）
+## 16. 后端 API 重启（用户手动，Agent 只提醒）
 
-> 说明：`taskkill` 会结束本机 **所有** `node.exe`（含 Vite 前端、其它 Node 工具）。若前端也要跑，杀完后在 **另一终端** 再执行 `npm run dev`。
+### 触发
 
-### 17 仅重启 API（端口 3001，仓库根目录）
+本会话若修改了 `server/**` 或 `server/apiPermissionGate.js`。
 
-**PowerShell（推荐，与 Cursor 终端一致）：**
+### Agent 禁止
+
+- **禁止** Agent 执行 `taskkill`、查端口/PID、运行 `npm run dev:server`、等待启动日志或贴指纹/PID。
+- **禁止**断言「后端已生效」。
+
+### Agent 收尾（一句即可）
+
+请手动：`taskkill /F /IM node.exe /T` → `npm run dev:server`（前端还要用时另开终端 `npm run dev`）；重启后须 **重新登录**（`erp_token` 失效）。
+
+只改前端/文档/Skill 时：说明「无需重启后端 API」。
+
+### 用户操作备忘（仓库根目录，端口 3001）
+
+> `taskkill` 会结束本机 **所有** `node.exe`（含 Vite 前端、其它 Node 工具）。若前端也要跑，杀完后在 **另一终端** 再执行 `npm run dev`。
+
+**PowerShell（推荐）：**
 
 ```powershell
 Set-Location D:\my_projects\ERP_TEST
@@ -131,15 +142,6 @@ cd /d D:\my_projects\ERP_TEST
 taskkill /F /IM node.exe /T
 npm run dev:server
 ```
-
-### 17.2 自检
-
-- 控制台应出现 **`[启动指纹] bootAt=...`** 及与本次改动相关的 **指纹行**（如 `BOM-Tree-...`）。
-- 后端重启后须 **重新登录**（`erp_token` 失效）；Agent 硬性三条见 `.cursor/rules/backend-api-restart.mdc`。
-
-### 17.3 核心杀进程命令（单独执行亦可）
-
-`taskkill /F /IM node.exe /T` — 确保释放 3001 等被 Node 占用的端口后再起 `dev:server`。
 
 ## 18. 超长表格滚动优化
 

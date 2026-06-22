@@ -17,7 +17,7 @@
 | 写码纪律全文 | [`docs/agents/coding-discipline.md`](./docs/agents/coding-discipline.md) |
 | 业务域与定稿模块 | [`CONTEXT.md`](./CONTEXT.md) |
 | ERP 硬约束（SQL2008、pass/del、分页等） | [`.cursorrules`](./.cursorrules) |
-| 改后端后重启 API | [`.cursor/rules/backend-api-restart.mdc`](./.cursor/rules/backend-api-restart.mdc)（Cursor alwaysApply；Codex 改 `server/**` 时同样遵守） |
+| 改后端后重启 API | [`.cursorrules`](./.cursorrules) §16（用户手动；Agent 只提醒） |
 | 代码探索（CodeGraph MCP） | 存在 `.codegraph/` 时用 MCP；本地 `.cursor/rules/codegraph.mdc`（已 gitignore） |
 
 ## Agent skills（摘要）

@@ -97,7 +97,7 @@
           background
           layout="total, sizes, prev, pager, next, jumper"
           :total="page.total"
-          :page-sizes="[10, 20, 50, 100]"
+          :page-sizes="[5, 10, 20, 50, 100]"
           @size-change="loadList"
           @current-change="loadList"
         />
@@ -108,12 +108,101 @@
           ref="listTableRef"
           v-loading="loading"
           :data="rows"
+          row-key="id"
           border
           stripe
           class="erp-list-table buy-table"
           style="width: 100%"
           empty-text="暂无采购单"
+          @expand-change="onExpandChange"
+          @row-click="onListRowClick"
         >
+        <el-table-column type="expand" width="48">
+          <template #default="{ row }">
+            <div v-loading="row.expandedLoading" class="buy-expand-inner">
+              <el-table
+                v-if="(row.expandedRows || []).length"
+                :data="row.expandedRows"
+                border
+                size="small"
+                class="buy-expand-table"
+                show-summary
+                :summary-method="(param) => buyExpandSummaryMethod(row.expandedRows, param)"
+              >
+                <el-table-column label="序号" width="66" align="center">
+                  <template #default="{ row: line, $index }">{{ line._rowType === 'fee' ? '费用' : $index + 1 }}</template>
+                </el-table-column>
+                <el-table-column label="操作" width="88" align="center">
+                  <template #default="{ row: line }">
+                    <el-button v-if="line._rowType !== 'fee'" size="small" type="primary" plain @click.stop="openExpandedLinePiBom(line, row)">查看</el-button>
+                    <span v-else>-</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="材料编码" prop="kcaa01" min-width="130" show-overflow-tooltip />
+                <el-table-column label="材料名称" prop="kcaa02" min-width="150" show-overflow-tooltip />
+                <el-table-column label="规格" prop="kcaa03" min-width="130" show-overflow-tooltip />
+                <el-table-column label="颜色" min-width="120" show-overflow-tooltip>
+                  <template #default="{ row: line }">{{ line._rowType === 'fee' ? '-' : formatExpandColor(line) }}</template>
+                </el-table-column>
+                <el-table-column label="采购单位" prop="kcaa25" width="96" show-overflow-tooltip />
+                <el-table-column label="数量" prop="kcak03" width="96" align="right">
+                  <template #default="{ row: line }">{{ line._rowType === 'fee' ? '' : formatQuantityBlankZero(line.kcak03) }}</template>
+                </el-table-column>
+                <el-table-column label="入库相关" min-width="260" class-name="buy-expand-inbound-col">
+                  <template #default="{ row: line }">
+                    <template v-if="line._rowType === 'fee'">-</template>
+                    <div v-else class="buy-inbound-cell">
+                      <template v-if="!(line.inboundList || []).length">
+                        <span class="buy-inbound-empty">未入库</span>
+                      </template>
+                      <template v-else>
+                        <div v-for="item in line.inboundList" :key="`${item.kcan01}-${item.pass}`" class="buy-inbound-item">
+                          <div class="buy-inbound-line buy-inbound-line--blue">
+                            {{ item.pass === '1' ? '入库单号' : '未审入库单号' }}：{{ item.kcan01 || '-' }}
+                            <el-button link type="primary" size="small" @click.stop="toggleInboundDetail(item)">显示详情</el-button>
+                          </div>
+                          <div class="buy-inbound-line buy-inbound-line--red">
+                            {{ item.pass === '1' ? '采购入库数' : '未审数' }}：{{ formatQuantity(item.kcao03) }}，
+                            {{ item.pass === '1' ? '转单位' : '单位' }}：{{ item.kcaa04 || '-' }}，
+                            {{ item.pass === '1' ? '已入库数' : '转换数据' }}：{{ formatQuantity(item.convertedQty) }}
+                          </div>
+                          <div v-if="item._detailOpen" class="buy-inbound-detail">
+                            入库时间：{{ fmtDate(item.kcan02) || '-' }}；送货单号：{{ item.kcan08 || '-' }}；备注：{{ item.remark || '-' }}
+                          </div>
+                        </div>
+                      </template>
+                      <div v-if="numberVal(line.returnConvertedQty) > 0" class="buy-return-warn">
+                        **********************************，曾发生退货数共：{{ formatQuantity(line.returnConvertedQty) }}
+                      </div>
+                    </div>
+                  </template>
+                </el-table-column>
+                <el-table-column v-if="hasPrice" label="单价" prop="kcak04" width="130" align="right">
+                  <template #default="{ row: line }">{{ line._rowType === 'fee' ? '' : formatMoneyWithPrecision(line.kcak04, 4) }}</template>
+                </el-table-column>
+                <el-table-column v-if="hasPrice" label="单价（含税）" prop="kcak041" width="130" align="right">
+                  <template #default="{ row: line }">{{ line._rowType === 'fee' ? '' : formatMoneyWithPrecision(line.kcak041, taxIncludedPricePrecision) }}</template>
+                </el-table-column>
+                <el-table-column v-if="hasPrice" label="金额" prop="kcak05" width="130" align="right">
+                  <template #default="{ row: line }">{{ line._rowType === 'fee' ? '' : money(line.kcak05) }}</template>
+                </el-table-column>
+                <el-table-column v-if="hasPrice" label="金额（含税）" prop="kcak051" width="130" align="right">
+                  <template #default="{ row: line }">{{ money(line._rowType === 'fee' ? line.money : line.kcak051) }}</template>
+                </el-table-column>
+                <el-table-column v-if="hasPrice" label="税点" prop="tax" width="90" align="right">
+                  <template #default="{ row: line }">{{ formatMoneyWithPrecision(line.tax, 2) }}</template>
+                </el-table-column>
+                <el-table-column label="PO/PI" prop="Reference" min-width="130" show-overflow-tooltip />
+                <el-table-column label="交货日期" width="110">
+                  <template #default="{ row: line }">{{ fmtDate(line.delivery_date) }}</template>
+                </el-table-column>
+                <el-table-column label="客户订单号" prop="OrderNo" min-width="140" show-overflow-tooltip />
+                <el-table-column label="备注" prop="info" min-width="160" show-overflow-tooltip />
+              </el-table>
+              <el-empty v-else-if="!row.expandedLoading" description="暂无明细" />
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column
           label="操作"
           :width="buyOrderActionsColWidth"
@@ -232,7 +321,7 @@
           background
           layout="total, sizes, prev, pager, next, jumper"
           :total="page.total"
-          :page-sizes="[10, 20, 50, 100]"
+          :page-sizes="[5, 10, 20, 50, 100]"
           @size-change="loadList"
           @current-change="loadList"
         />
@@ -248,7 +337,8 @@
       <div class="buy-form-head">
         <strong>{{ pageMode === 'edit' ? '编辑采购订单' : '新增采购订单' }}</strong>
         <div class="buy-form-head__actions">
-          <el-button @click="switchToManage">返回列表</el-button>
+          <el-button v-if="pageMode === 'edit'" @click="switchToManage">返回列表</el-button>
+          <el-button v-else @click="confirmAndResetCreateForm">重置</el-button>
           <el-button type="primary" :loading="saving" @click="saveOrder">保存</el-button>
         </div>
       </div>
@@ -427,7 +517,7 @@
               <el-table-column label="采购单位" prop="kcaa25" width="96" show-overflow-tooltip />
               <el-table-column label="数量" width="120">
                 <template #default="{ row }">
-                  <el-input-number v-model="row.quantity" :min="0" :precision="4" :controls="false" class="buy-line-input-num" @change="recalcLine(row)" />
+                  <el-input-number v-model="row.quantity" :min="0" :precision="2" :controls="false" :formatter="formatQuantityInput" :parser="parseQuantityInput" class="buy-line-input-num" @change="recalcLine(row)" />
                 </template>
               </el-table-column>
               <el-table-column v-if="hasPrice" label="单价" width="110" align="right">
@@ -474,9 +564,15 @@
             <el-table :data="form.fees" border>
               <el-table-column prop="feeCode" label="费用编码" width="130" />
               <el-table-column prop="feeName" label="费用名称" min-width="160" />
-              <el-table-column prop="spec" label="规格" min-width="120" />
-              <el-table-column v-if="hasPrice" label="金额" width="130"><template #default="{ row }"><el-input-number v-model="row.money" :precision="2" /></template></el-table-column>
-              <el-table-column v-if="hasPrice" label="税点" width="120"><template #default="{ row }"><el-input-number v-model="row.tax" :min="0" :max="0.99" :precision="4" /></template></el-table-column>
+              <el-table-column v-if="hasPrice" label="金额" width="130">
+                <template #default="{ row }">
+                  <el-input
+                    :model-value="formatFeeMoneyBlankZero(row.money)"
+                    class="buy-fee-money-input"
+                    @update:model-value="(v) => { row.money = parseFeeMoneyInput(v) }"
+                  />
+                </template>
+              </el-table-column>
               <el-table-column label="备注" min-width="150"><template #default="{ row }"><el-input v-model="row.remark" /></template></el-table-column>
               <el-table-column label="操作" width="75"><template #default="{ $index }"><el-button link type="danger" @click="form.fees.splice($index, 1)">删除</el-button></template></el-table-column>
             </el-table>
@@ -580,7 +676,7 @@ const saving = ref(false)
 const recycled = ref(false)
 const showUnaudited = ref(false)
 const rows = ref([])
-const page = reactive({ page: 1, pageSize: 10, total: 0 })
+const page = reactive({ page: 1, pageSize: 5, total: 0 })
 const filters = reactive({ keyword: '', buyType: '', supplier: '' })
 const formRef = ref()
 const suppliers = ref([])
@@ -607,6 +703,7 @@ const activeBatchSessionId = ref('')
 
 const isFormPanel = computed(() => pageMode.value === 'create' || pageMode.value === 'edit')
 const isMultiPiMode = computed(() => form.header.buyType === '2')
+const taxIncludedPricePrecision = computed(() => (model.mode === 'full' ? 4 : 2))
 
 const buyOrderActionsColWidth = computed(() => {
   if (recycled.value) return getErpTableActionsColMinWidth(2)
@@ -684,7 +781,7 @@ const DetailBlock = defineComponent({
           h('td', line.kcaa01 || ''),
           h('td', line.kcaa02 || ''),
           h('td', line.kcaa03 || ''),
-          h('td', line.kcak03 ?? line.quantity ?? ''),
+          h('td', formatQuantity(line.kcak03 ?? line.quantity ?? 0)),
           ...(props.hasPrice ? [h('td', line.kcak041 ?? ''), h('td', line.tax ?? ''), h('td', line.kcak051 ?? '')] : []),
           h('td', line.info || ''),
         ]))),
@@ -723,6 +820,35 @@ function formatNumber(v, precision = 2) {
 }
 function formatMoneyWithPrecision(v, precision = 2) {
   return numberVal(v).toLocaleString('zh-CN', { minimumFractionDigits: precision, maximumFractionDigits: precision })
+}
+function formatQuantity(v) {
+  const n = numberVal(v)
+  return n === 0 ? '0' : n.toFixed(2)
+}
+function formatQuantityBlankZero(v) {
+  const n = numberVal(v)
+  return n === 0 ? '' : n.toFixed(2)
+}
+function formatQuantityInput(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n) || n === 0) return ''
+  return n.toFixed(2)
+}
+function parseQuantityInput(v) {
+  const n = Number(String(v ?? '').replace(/,/g, ''))
+  return Number.isFinite(n) ? n : 0
+}
+/** 额外费用金额：0 在输入框显示为空白，对齐明细数量体验 */
+function formatFeeMoneyBlankZero(v) {
+  const n = numberVal(v)
+  if (n === 0) return ''
+  return String(n)
+}
+function parseFeeMoneyInput(v) {
+  const text = String(v ?? '').trim().replace(/,/g, '')
+  if (!text) return 0
+  const n = Number(text)
+  return Number.isFinite(n) ? n : 0
 }
 function pendingInboundClass(row) {
   return numberVal(row?.pendingInboundQty) > 0 ? 'buy-order-data__pending--warn' : 'buy-order-data__pending--ok'
@@ -949,6 +1075,22 @@ async function switchToCreate() {
   createPanelInitialized.value = true
 }
 
+async function confirmAndResetCreateForm() {
+  if (pageMode.value !== 'create') return
+  if (form.lines.length > 0 || form.fees.length > 0) {
+    try {
+      await ElMessageBox.confirm(
+        '将清空当前订单基础资料、采购明细和额外费用清单，此操作不可恢复。是否继续？',
+        '重置录入',
+        { type: 'warning', confirmButtonText: '重置', cancelButtonText: '取消' }
+      )
+    } catch {
+      return
+    }
+  }
+  await onFormReset()
+}
+
 async function onFormReset() {
   if (pageMode.value === 'create') {
     resetFormData()
@@ -1001,6 +1143,96 @@ async function fetchDetail(id) {
   const { data } = await axios.get(`/api/buy-order/${id}`)
   if (data.code !== 200) throw new Error(data.msg)
   return data.data
+}
+async function fetchExpandDetail(id) {
+  const { data } = await axios.get(`/api/buy-order/${id}/expand-detail`)
+  if (data.code !== 200) throw new Error(data.msg)
+  return data.data
+}
+function buildExpandedDisplayRows(lines, fees) {
+  const lineRows = (Array.isArray(lines) ? lines : []).map((line) => ({
+    ...line,
+    _rowType: 'line',
+  }))
+  const feeRows = (Array.isArray(fees) ? fees : []).map((fee) => ({
+    _rowType: 'fee',
+    id: `fee-${fee.id ?? fee.seq ?? ''}`,
+    kcaa01: fee.kcaa01 || '',
+    kcaa02: fee.kcaa02 || '',
+    kcaa03: fee.kcaa03 || '',
+    kcaa25: '',
+    kcak03: '',
+    kcak04: '',
+    kcak041: '',
+    kcak05: '',
+    kcak051: fee.money,
+    money: fee.money,
+    tax: fee.tax,
+    Reference: '',
+    delivery_date: '',
+    OrderNo: '',
+    info: fee.remark || '',
+  }))
+  return [...lineRows, ...feeRows]
+}
+async function onExpandChange(row, expandedRows) {
+  const expanded = expandedRows.some((item) => item.id === row.id)
+  if (!expanded || row.expandedLoaded) return
+  row.expandedLoading = true
+  try {
+    const data = await fetchExpandDetail(row.id)
+    row.expandedRows = buildExpandedDisplayRows(data.lines, data.fees)
+    row.expandedSummary = data.summary || {}
+    row.expandedLoaded = true
+  } catch (err) {
+    row.expandedRows = []
+    ElMessage.error(err?.response?.data?.msg || err.message || '读取采购单展开明细失败')
+  } finally {
+    row.expandedLoading = false
+  }
+}
+function onListRowClick(row, column, event) {
+  if (!row?.id || !listTableRef.value) return
+  const target = event?.target
+  if (target && typeof target.closest === 'function') {
+    if (target.closest('.el-button, button, a, input, textarea, select')) return
+    if (target.closest('.el-table__expand-icon')) return
+  }
+  if (column?.type === 'expand') return
+  listTableRef.value.toggleRowExpansion(row)
+}
+function toggleInboundDetail(item) {
+  item._detailOpen = !item._detailOpen
+}
+function formatExpandColor(row) {
+  const code = String(row?.kcaa11 ?? '').trim()
+  const name = String(row?.colorName ?? '').trim()
+  if (!code) return '(-)'
+  if (!String(row?.kcaa01 ?? '').includes('/')) return code
+  return `${code}(${name || '-'})`
+}
+function calcExpandSubtotal(rows) {
+  const list = Array.isArray(rows) ? rows : []
+  return {
+    quantity: list.reduce((sum, row) => row._rowType === 'fee' ? sum : sum + numberVal(row.kcak03), 0),
+    taxExcludedPrice: list.reduce((sum, row) => row._rowType === 'fee' ? sum : sum + numberVal(row.kcak04), 0),
+    taxIncludedPrice: list.reduce((sum, row) => row._rowType === 'fee' ? sum : sum + numberVal(row.kcak041), 0),
+    taxExcludedAmount: list.reduce((sum, row) => row._rowType === 'fee' ? sum : sum + numberVal(row.kcak05), 0),
+    taxIncludedAmount: list.reduce((sum, row) => sum + numberVal(row._rowType === 'fee' ? row.money : row.kcak051), 0),
+  }
+}
+function buyExpandSummaryMethod(rows, { columns }) {
+  const sub = calcExpandSubtotal(rows)
+  return columns.map((col) => {
+    const prop = col.property
+    if (prop === 'kcaa02') return '小计：'
+    if (prop === 'kcak03') return formatQuantity(sub.quantity)
+    if (prop === 'kcak04') return formatMoneyWithPrecision(sub.taxExcludedPrice, 4)
+    if (prop === 'kcak041') return formatMoneyWithPrecision(sub.taxIncludedPrice, taxIncludedPricePrecision.value)
+    if (prop === 'kcak05') return money(sub.taxExcludedAmount)
+    if (prop === 'kcak051') return money(sub.taxIncludedAmount)
+    return ''
+  })
 }
 function hydrateForm(data) {
   const h1 = data.header || {}
@@ -1149,6 +1381,32 @@ async function openLinePiBom(row) {
     ElMessage.error('无法打开新窗口，请检查浏览器是否拦截弹窗')
   }
 }
+async function openExpandedLinePiBom(row, parentRow) {
+  const product = String(row?.topKcaa01 || row?.kcaa01 || '').trim()
+  if (!product) {
+    ElMessage.warning('当前明细缺少款号/编码，无法查看原资料')
+    return
+  }
+  const refNo = String(row?.Reference || parentRow?.referenceNo || '').split(',')[0].trim()
+  if (!refNo) {
+    ElMessage.warning('当前明细缺少关联 PI 号，无法查看原资料')
+    return
+  }
+  let orderId = Number(row?.referenceOrderId ?? 0)
+  if (!Number.isFinite(orderId) || orderId <= 0) {
+    orderId = await resolveOrderIdByPi(refNo)
+    if (orderId) row.referenceOrderId = orderId
+  }
+  if (!orderId) {
+    ElMessage.warning('无法解析销售订单，请确认关联 PI 号是否正确')
+    return
+  }
+  const url = `/inventory/basic/pi-bom-data-window?mode=edit&orderId=${encodeURIComponent(orderId)}&kcaa01=${encodeURIComponent(product)}`
+  const opened = window.open(url, '_blank')
+  if (!opened) {
+    ElMessage.error('无法打开新窗口，请检查浏览器是否拦截弹窗')
+  }
+}
 async function deleteSelectedBuyLines() {
   const marked = form.lines.filter((line) => line._lineMarked)
   if (!marked.length) {
@@ -1196,9 +1454,15 @@ function buildBatchCurrentLines() {
 function applyBatchAddLines(lines) {
   const list = Array.isArray(lines) ? lines : []
   if (!list.length) return
+  const isRequisition = ['0', '2'].includes(String(form.header.buyType ?? ''))
   const refPi = String(form.header.referenceNo || '').split(',')[0].trim()
   const newLines = list.map((row, index) => {
-    const qty = Number(row.quantity ?? row.availableQty ?? 0)
+    const qty = isRequisition
+      ? Number(row.quantity ?? 0)
+      : Number(row.quantity ?? row.availableQty ?? 0)
+    const lineRef = isRequisition && String(row.referenceNo || '').trim()
+      ? String(row.referenceNo).trim()
+      : refPi
     const line = {
       ...row,
       seq: form.lines.length + index + 1,
@@ -1208,7 +1472,7 @@ function applyBatchAddLines(lines) {
       kcaa11: row.kcaa11 || '',
       kcaa25: row.kcaa25 || row.purchaseUnit || '',
       topKcaa01: row.topKcaa01 || '',
-      referenceNo: row.referenceNo || refPi,
+      referenceNo: lineRef,
       quantity: qty,
       taxIncludedPrice: hasPrice.value ? Number(row.taxIncludedPrice ?? row.kcak041 ?? 0) : 0,
       taxExcludedPrice: hasPrice.value ? Number(row.taxExcludedPrice ?? row.kcak04 ?? 0) : 0,
@@ -1227,16 +1491,17 @@ function applyBatchAddLines(lines) {
   ElMessage.success(`已批量添加 ${newLines.length} 条采购明细`)
 }
 function openBuyBatchAdd() {
-  if (String(form.header.buyType ?? '') !== '1') {
-    ElMessage.warning('当前只有订单采购支持按 PI 批量添加明细')
+  const buyType = String(form.header.buyType ?? '')
+  if (!['0', '1', '2'].includes(buyType)) {
+    ElMessage.warning('当前采购类型不支持批量添加明细')
     return
   }
-  const piNo = String(form.header.referenceNo ?? '').trim()
-  if (!piNo) {
-    ElMessage.warning('订单采购须先填写或选择 PI 号')
+  const refNo = String(form.header.referenceNo ?? '').trim()
+  if ((buyType === '1' || buyType === '2') && !refNo) {
+    ElMessage.warning(buyType === '1' ? '订单采购须先填写或选择 PI 号' : '请购采购须先填写或选择关联单号')
     return
   }
-  if (piNo.includes(',')) {
+  if (buyType === '1' && refNo.includes(',')) {
     ElMessage.warning('订单采购批量添加一次只能使用一个 PI 号')
     return
   }
@@ -1248,13 +1513,14 @@ function openBuyBatchAdd() {
   const sessionId = buildBuyBatchSessionId()
   activeBatchSessionId.value = sessionId
   writeBuyBatchContext(sessionId, {
-    piNo,
+    buyType,
+    piNo: refNo,
     supplierCode,
     hasPrice: hasPrice.value,
     decimalPlaces: form.header.decimalPlaces,
     currentLines: buildBatchCurrentLines(),
   })
-  const url = `/supply-chain/daily/purchase-order-batch-window?sessionId=${encodeURIComponent(sessionId)}&piNo=${encodeURIComponent(piNo)}`
+  const url = `/supply-chain/daily/purchase-order-batch-window?sessionId=${encodeURIComponent(sessionId)}&buyType=${encodeURIComponent(buyType)}&piNo=${encodeURIComponent(refNo)}`
   const opened = window.open(url, '_blank')
   if (!opened) {
     ElMessage.error('无法打开新窗口，请检查浏览器是否拦截弹窗')
@@ -1274,7 +1540,7 @@ function handleBuyBatchPayload(payload, source = null) {
     currentSupplierCode: form.header.supplierCode,
   })
   if (!validation.ok) {
-    if (validation.reason === BUY_BATCH_REJECT_PI_MISMATCH) ElMessage.warning('关联 PI 已变更，批量添加已取消')
+    if (validation.reason === BUY_BATCH_REJECT_PI_MISMATCH) ElMessage.warning('关联单号已变更，批量添加已取消')
     else if (validation.reason === BUY_BATCH_REJECT_SUPPLIER_MISMATCH) ElMessage.warning('供应商已变更，请重新打开批量添加')
     replyBuyBatch(source, { type: BUY_BATCH_MSG_REJECTED, sessionId, reason: validation.reason })
     activeBatchSessionId.value = ''
@@ -1311,7 +1577,8 @@ function addFee() {
   feePicked.value = ''
 }
 function recalcLine(row) {
-  const qty = Number(row.quantity || 0)
+  const qty = Number(Number(row.quantity || 0).toFixed(2))
+  row.quantity = qty
   const price = Number(row.taxIncludedPrice || 0)
   const tax = form.header.taxIncluded === '2' ? 0 : Number(row.tax || 0)
   row.tax = tax
@@ -1323,8 +1590,32 @@ function recalcLine(row) {
 function recalcAll() {
   form.lines.forEach(recalcLine)
 }
+function validateHeaderBeforeSave() {
+  if (!form.header.buyOrderNo) return '请输入采购单号'
+  if (!form.header.buyDate) return '请选择采购日期'
+  if (!form.header.buyType) return '请选择采购类型'
+  if (['1', '2'].includes(String(form.header.buyType ?? '')) && !String(form.header.referenceNo ?? '').trim()) return '请选择或填写关联单号'
+  if (!form.header.supplierCode) return '请选择供应商'
+  if (!form.header.currencyCode) return '请选择币别'
+  if (!form.header.taxIncluded) return '请选择是否含税'
+  return ''
+}
 async function saveOrder() {
-  await formRef.value?.validate()
+  const headerErr = validateHeaderBeforeSave()
+  if (headerErr) {
+    activeTab.value = 'header'
+    await nextTick()
+    ElMessage.warning(headerErr)
+    return
+  }
+  try {
+    await formRef.value?.validate()
+  } catch (err) {
+    activeTab.value = 'header'
+    await nextTick()
+    ElMessage.warning('订单基础资料未填写完整，请先补齐')
+    return
+  }
   if (!form.lines.length) return ElMessage.warning('请至少添加一条采购明细')
   if (form.lines.some((x) => !(Number(x.quantity) > 0))) return ElMessage.warning('采购明细数量必须大于0')
   saving.value = true
@@ -1333,7 +1624,11 @@ async function saveOrder() {
     const body = {
       header: form.header,
       lines: form.lines.map(({ _lineMarked, ...line }) => line),
-      fees: form.fees,
+      fees: form.fees.map((fee) => ({
+        ...fee,
+        money: numberVal(fee.money),
+        tax: 0,
+      })),
     }
     const res = pageMode.value === 'create' ? await axios.post('/api/buy-order', body) : await axios.put(`/api/buy-order/${editId.value}`, body)
     if (res.data.code !== 200) throw new Error(res.data.msg)
@@ -1362,8 +1657,56 @@ async function askUnaudit(row) {
   const { value } = await ElMessageBox.prompt(`请输入采购单【${row.buyOrderNo}】反审原因`, '反审原因', { inputType: 'textarea', inputValidator: (v) => !!String(v || '').trim(), inputErrorMessage: '反审原因必填' })
   await lifecycle(row, 'unaudit', value)
 }
+function lifecycleConfirmConfig(row, action) {
+  const no = row?.buyOrderNo || row?.kcaj01 || row?.id || ''
+  if (action === 'audit') {
+    return {
+      message: `确认要审核采购单【${no}】吗？审核后将允许后续采购入库引用。`,
+      title: '审核确认',
+      type: 'warning',
+      confirmButtonText: '审核',
+    }
+  }
+  if (action === 'delete') {
+    return {
+      message: `确认要删除采购单【${no}】吗？删除后将移入回收站，可在回收站恢复。`,
+      title: '删除确认',
+      type: 'warning',
+      confirmButtonText: '删除',
+    }
+  }
+  if (action === 'hard') {
+    return {
+      message: `确认要彻底删除采购单【${no}】吗？该操作不可恢复。`,
+      title: '彻底删除确认',
+      type: 'error',
+      confirmButtonText: '彻底删除',
+    }
+  }
+  if (action === 'restore') {
+    return {
+      message: `确认要恢复采购单【${no}】吗？恢复后将回到正常列表。`,
+      title: '恢复确认',
+      type: 'info',
+      confirmButtonText: '恢复',
+    }
+  }
+  return null
+}
 async function lifecycle(row, action, reason = '') {
   const map = { audit: 'audit', unaudit: 'unaudit', restore: 'restore', hard: 'hard' }
+  const confirmConfig = lifecycleConfirmConfig(row, action)
+  if (confirmConfig) {
+    try {
+      await ElMessageBox.confirm(confirmConfig.message, confirmConfig.title, {
+        type: confirmConfig.type,
+        confirmButtonText: confirmConfig.confirmButtonText,
+        cancelButtonText: '取消',
+      })
+    } catch {
+      return
+    }
+  }
   try {
     if (action === 'delete') await axios.delete(`/api/buy-order/${row.id}`)
     else if (action === 'hard') await axios.delete(`/api/buy-order/${row.id}/hard`)
@@ -1731,6 +2074,57 @@ onUnmounted(() => {
 }
 .buy-order-data__pending--ok {
   color: #409eff;
+}
+
+.buy-expand-inner {
+  padding: 10px 12px;
+  background: #f8fafc;
+}
+.buy-expand-table {
+  width: 100%;
+}
+.buy-expand-table :deep(.el-table__footer-wrapper td) {
+  font-weight: 700;
+  background: #fff7ed;
+}
+.buy-inbound-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  line-height: 1.45;
+}
+.buy-inbound-empty {
+  color: #909399;
+}
+.buy-inbound-item {
+  padding-bottom: 6px;
+  border-bottom: 1px dashed #dcdfe6;
+}
+.buy-inbound-item:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.buy-inbound-line {
+  word-break: break-all;
+}
+.buy-inbound-line--blue {
+  color: #1d4ed8;
+}
+.buy-inbound-line--red,
+.buy-return-warn {
+  color: #dc2626;
+}
+.buy-inbound-detail {
+  margin-top: 4px;
+  padding: 4px 6px;
+  color: #606266;
+  background: #eef2ff;
+  border-radius: 4px;
+  word-break: break-all;
+}
+.buy-return-warn {
+  margin-top: 4px;
+  font-weight: 600;
 }
 
 /* DIY：采购明细表标记/分层列/无加减输入框 purchase-order/index.vue */

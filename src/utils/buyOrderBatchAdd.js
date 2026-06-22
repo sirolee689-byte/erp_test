@@ -54,7 +54,7 @@ export function validateBuyBatchApply({
 }) {
   const opened = String(openedPiNo ?? '').trim()
   const current = String(currentPiNo ?? '').trim()
-  if (!opened || !current || opened !== current) {
+  if (opened !== current) {
     return { ok: false, reason: BUY_BATCH_REJECT_PI_MISMATCH }
   }
   const openedSupplier = String(openedSupplierCode ?? '').trim()

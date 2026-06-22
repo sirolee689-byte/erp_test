@@ -9,8 +9,8 @@ import {
 } from './buyOrderSaveLogic.js'
 
 describe('buyOrderSaveLogic', () => {
-  test('generates ZY and PO numbers without reusing deleted occupied numbers', () => {
-    assert.equal(buildNextBuyOrderNo({ numberType: 'ZY', saveDate: '2026-06-18', existingOrderNos: ['ZY-2501', 'ZY-2509'] }), 'ZY-2510')
+  test('generates ZY and PO numbers from the latest active business number', () => {
+    assert.equal(buildNextBuyOrderNo({ numberType: 'ZY', saveDate: '2026-06-18', existingOrderNos: ['ZY-260851'] }), 'ZY-260852')
     assert.equal(buildNextBuyOrderNo({ numberType: 'PO', saveDate: '2026-06-18', existingOrderNos: ['PO-0098', 'PO-0099'] }), 'PO-0100')
   })
 

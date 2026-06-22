@@ -1,5 +1,6 @@
 import { sql } from './db.js'
 import { INV_BOM_MASTER_FROM } from './bomTables.js'
+import { formatSalesOrderAuditTime } from './salesOrderPiBom.js'
 
 const FEE_FROM = 'dbo.[UB_ERP_Buy_order_money]'
 
@@ -48,8 +49,18 @@ async function resolveFee(db, code) {
   return r.recordset?.[0] ?? null
 }
 
-export async function rewriteBuyOrderFees({ buyOrderNo, fees, tx, hasPricePermission = true }) {
+export async function rewriteBuyOrderFees({
+  buyOrderNo,
+  systemCode,
+  fees,
+  tx,
+  hasPricePermission = true,
+  actor = null,
+}) {
   const orderNo = text(buyOrderNo)
+  const headerSystemCode = text(systemCode)
+  const auditActor = actor ?? { uidInt: null, uname: null, utruename: null }
+  const addtime = formatSalesOrderAuditTime()
   const normalized = normalizeBuyOrderFees(fees)
   await new sql.Request(tx).input('buy_code', sql.NVarChar(200), orderNo).query(`
     DELETE FROM ${FEE_FROM}
@@ -67,9 +78,20 @@ export async function rewriteBuyOrderFees({ buyOrderNo, fees, tx, hasPricePermis
     req.input('money', sql.Decimal(18, 2), hasPricePermission ? fee.money : null)
     req.input('tax', sql.Decimal(18, 6), hasPricePermission ? fee.tax : null)
     req.input('remark', sql.NVarChar(1000), nullableText(fee.remark))
+    req.input('systemcode', sql.NVarChar(500), headerSystemCode)
+    req.input('uid', sql.NVarChar(50), auditActor.uidInt != null ? String(auditActor.uidInt) : '')
+    req.input('uname', sql.NVarChar(200), text(auditActor.uname))
+    req.input('utruename', sql.NVarChar(200), text(auditActor.utruename))
+    req.input('addtime', sql.NVarChar(50), addtime)
     await req.query(`
-      INSERT INTO ${FEE_FROM} ([buy_code], [kid], [kcaa01], [kcaa02], [kcaa03], [money], [tax], [remark])
-      VALUES (@buy_code, @kid, @kcaa01, @kcaa02, @kcaa03, @money, @tax, @remark)
+      INSERT INTO ${FEE_FROM} (
+        [buy_code], [kid], [kcaa01], [kcaa02], [kcaa03], [money], [tax], [remark],
+        [systemcode], [uid], [uname], [utruename], [addtime]
+      )
+      VALUES (
+        @buy_code, @kid, @kcaa01, @kcaa02, @kcaa03, @money, @tax, @remark,
+        @systemcode, @uid, @uname, @utruename, @addtime
+      )
     `)
   }
   return { count: normalized.length }

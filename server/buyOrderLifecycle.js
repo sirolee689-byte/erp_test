@@ -22,6 +22,38 @@ function uid(actor) {
   return Number.isFinite(n) ? Math.trunc(n) : 0
 }
 
+function hasColumn(cols, name) {
+  return cols instanceof Set && cols.has(String(name ?? '').toLowerCase())
+}
+
+async function fetchBuyOrderHeaderColumnSet(pool) {
+  const r = await pool.request().query(`
+    SELECT LOWER([name]) AS name
+    FROM sys.columns
+    WHERE [object_id] = OBJECT_ID(N'dbo.[UB_ERP_Buy_order]')
+  `)
+  return new Set((r.recordset ?? []).map((row) => String(row.name ?? '').toLowerCase()))
+}
+
+export function buildBuyOrderSoftDeleteSql({ headerCols, actor }) {
+  const sets = ['[del]=N\'1\'']
+  const params = {}
+  if (hasColumn(headerCols, 'delid')) {
+    sets.push('[delid]=@delid')
+    params.delid = String(uid(actor) || '')
+  }
+  if (hasColumn(headerCols, 'delname')) {
+    sets.push('[delname]=@delname')
+    params.delname = text(actor?.uname ?? actor?.auditUserName ?? actor?.userName)
+  }
+  if (hasColumn(headerCols, 'deltruename')) {
+    sets.push('[deltruename]=@deltruename')
+    params.deltruename = text(actor?.utruename ?? actor?.auditTruename ?? actor?.truename ?? actor?.userName)
+  }
+  if (hasColumn(headerCols, 'deltime')) sets.push('[deltime]=CONVERT(nvarchar(30), GETDATE(), 120)')
+  return { setSql: sets.join(', '), params }
+}
+
 async function fetchOrder(pool, id) {
   const r = await pool.request().input('id', sql.Int, id).query(`
     SELECT TOP 1
@@ -58,15 +90,30 @@ async function inboundCount(pool, orderNo) {
   return Number(r.recordset?.[0]?.inboundCount ?? 0)
 }
 
+async function fetchBomSnapshotId(pool, orderNo) {
+  const r = await pool.request().input('orderNo', sql.NVarChar(200), orderNo).query(`
+    SELECT TOP 1 [id]
+    FROM ${BOM_HEAD_FROM}
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([sid], N'')))) = @orderNo
+    ORDER BY [id] DESC
+  `)
+  const n = Number(r.recordset?.[0]?.id)
+  return Number.isFinite(n) && n > 0 ? String(Math.trunc(n)) : ''
+}
+
 async function insertReverseReason(pool, row, reason, actor) {
+  const bomSnapshotId = await fetchBomSnapshotId(pool, row.buyOrderNo)
   const req = pool.request()
-  req.input('xsaj01', sql.NVarChar(200), row.buyOrderNo)
-  req.input('oid', sql.Int, Number(row.id))
+  req.input('uid', sql.NVarChar(50), String(uid(actor) || ''))
+  req.input('username', sql.NVarChar(50), text(actor?.uname ?? actor?.auditUserName ?? actor?.username ?? actor?.userName))
+  req.input('truename', sql.NVarChar(50), text(actor?.utruename ?? actor?.trueName ?? actor?.userName))
+  req.input('ip', sql.NVarChar(50), text(actor?.ip))
+  req.input('oid', sql.NVarChar(50), bomSnapshotId)
   req.input('content', sql.NVarChar(1000), reason)
-  req.input('truename', sql.NVarChar(200), text(actor?.utruename ?? actor?.trueName ?? actor?.userName))
+  req.input('kcaj01', sql.NVarChar(50), row.buyOrderNo)
   await req.query(`
-    INSERT INTO ${REVERSE_FROM} ([xsaj01], [oid], [content], [addtime], [truename])
-    VALUES (@xsaj01, @oid, @content, CONVERT(nvarchar(30), GETDATE(), 120), @truename)
+    INSERT INTO ${REVERSE_FROM} ([uid], [username], [truename], [ip], [addtime], [oid], [content], [kcaj01])
+    VALUES (@uid, @username, @truename, @ip, CONVERT(nvarchar(30), GETDATE(), 120), @oid, @content, @kcaj01)
   `)
 }
 
@@ -120,11 +167,11 @@ export async function applyBuyOrderLifecycleAction({ pool, id, action, actor = {
     if (isDeleted) return { ok: false, status: 400, msg: '采购单已在回收站' }
     if (isAudited) return { ok: false, status: 400, msg: '已审核采购单不能删除' }
     if (linkCount > 0) return { ok: false, status: 400, msg: '此采购单已存在入库单关联，不允许删除' }
-    await pool.request().input('id', sql.Int, id)
-      .input('delid', sql.NVarChar(50), String(uid(actor) || ''))
-      .input('delname', sql.NVarChar(200), text(actor.uname))
-      .input('deltruename', sql.NVarChar(200), text(actor.utruename))
-      .query(`UPDATE ${HEADER_FROM} SET [del]=N'1', [delid]=@delid, [delname]=@delname, [deltruename]=@deltruename, [deltime]=CONVERT(nvarchar(30), GETDATE(), 120) WHERE [id]=@id`)
+    const headerCols = await fetchBuyOrderHeaderColumnSet(pool)
+    const { setSql, params } = buildBuyOrderSoftDeleteSql({ headerCols, actor })
+    const req = pool.request().input('id', sql.Int, id)
+    for (const [key, value] of Object.entries(params)) req.input(key, sql.NVarChar(200), value)
+    await req.query(`UPDATE ${HEADER_FROM} SET ${setSql} WHERE [id]=@id`)
   } else if (action === 'restore') {
     if (!isDeleted) return { ok: false, status: 400, msg: '只有回收站采购单可以恢复' }
     if (isAudited) return { ok: false, status: 400, msg: '已审核采购单不能从回收站恢复' }
@@ -154,4 +201,3 @@ export async function applyBuyOrderLifecycleAction({ pool, id, action, actor = {
   })
   return { ok: true, msg: `${actionLogName(action)}成功`, id, buyOrderNo: row.buyOrderNo }
 }
-

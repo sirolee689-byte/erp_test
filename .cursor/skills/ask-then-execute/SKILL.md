@@ -56,7 +56,7 @@ metadata:
 - 定稿没有写「不做什么」
 - 定稿还有待拍板事项就执行
 - Execute 阶段顺手扩大范围、重构、改样式、改文案
-- 改了后端却不重启 API，也不说明后端是否已生效
+- 改了后端却不提醒用户按 `.cursorrules` §16 手动重启 API
 - 定稿未列文档目标却擅自大改 CONTEXT.md
 - 该写 database_map 却只改了 README
 - 文档同步未完成就勾选验收标准
@@ -151,11 +151,9 @@ metadata:
 
 改了 `server/**` 或 `server/apiPermissionGate.js` 时：
 
-- 把「重启后端 API」当成本次执行的一部分，不要只提醒用户
-- 按 .cursorrules §17 在项目根目录重启 3001 API（释放旧进程后执行 `npm run dev:server`）
-- 等控制台出现 `[启动指纹] bootAt=...` 或确认新 PID
-- 最终回复里贴出启动指纹或新 PID，提醒用户重新登录
-- 环境限制无法自动重启时，必须明确说：后端还没重启，不要断言已生效
+- **禁止** Agent 自动杀进程、查端口、运行 `npm run dev:server` 或贴启动指纹/PID
+- 收尾 **一句** 提醒用户按 `.cursorrules` §16 手动 `taskkill` → `npm run dev:server` 并重新登录
+- 不得断言「后端已生效」
 - 只改前端/文档/Skill 文件时，说明「不需要重启后端 API」
 
 ### 文档同步执行

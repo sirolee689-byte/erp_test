@@ -31,9 +31,11 @@ async function fetchOrderNos(pool, numberType, saveDate) {
   const normalized = normalizeBuyOrderNumberType(numberType, saveDate)
   const prefix = normalized === 'ZY' || normalized === 'PO' ? `${normalized}-%` : `${normalized}%`
   const r = await pool.request().input('prefix', sql.NVarChar(50), prefix).query(`
-    SELECT LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([kcaj01], N'')))) AS buyOrderNo
+    SELECT TOP 1 LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([kcaj01], N'')))) AS buyOrderNo
     FROM ${HEADER_FROM}
     WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([kcaj01], N'')))) LIKE @prefix
+      AND LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL([del], N'0')))) = N'0'
+    ORDER BY LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([kcaj01], N'')))) DESC
   `)
   return (r.recordset ?? []).map((row) => row.buyOrderNo)
 }
@@ -140,10 +142,17 @@ function bindHeader(req, { header, finalNo, supplier, currency, systemCode, acto
   }
 }
 
-async function saveChildren({ tx, orderNo, systemCode, body, header, pricePermission }) {
-  await rewriteBuyOrderLines({ buyOrderNo: orderNo, systemcodeId: systemCode, lines: body.lines ?? [], header, tx, hasPricePermission: pricePermission })
-  await rewriteBuyOrderFees({ buyOrderNo: orderNo, fees: body.fees ?? [], tx, hasPricePermission: pricePermission })
-  await rewriteBuyOrderBomSnapshots({ buyOrderNo: orderNo, lines: body.lines ?? [], header, tx })
+async function saveChildren({ tx, orderNo, systemCode, body, header, pricePermission, actor }) {
+  await rewriteBuyOrderLines({ buyOrderNo: orderNo, systemcodeId: systemCode, lines: body.lines ?? [], header, tx, hasPricePermission: pricePermission, actor })
+  await rewriteBuyOrderFees({
+    buyOrderNo: orderNo,
+    systemCode,
+    fees: body.fees ?? [],
+    tx,
+    hasPricePermission: pricePermission,
+    actor,
+  })
+  await rewriteBuyOrderBomSnapshots({ buyOrderNo: orderNo, lines: body.lines ?? [], header, tx, actor })
 }
 
 export async function createBuyOrder({ pool, body = {}, req: httpReq, actor }) {
@@ -175,7 +184,7 @@ export async function createBuyOrder({ pool, body = {}, req: httpReq, actor }) {
         1, @uid, @uname, @utruename, @addtime, N'0', N'0', N'0'
       )
     `)
-    await saveChildren({ tx, orderNo: finalNo.buyOrderNo, systemCode, body, header, pricePermission: hasPricePermission(httpReq) })
+    await saveChildren({ tx, orderNo: finalNo.buyOrderNo, systemCode, body, header, pricePermission: hasPricePermission(httpReq), actor: auditActor })
     await writeBuyOrderOperationLog(tx, {
       actName: '采购单录入',
       info: buildBuyOrderLogInfo({ orderNo: finalNo.buyOrderNo, referenceNo: header.referenceNo, actor: auditActor }),
@@ -229,7 +238,7 @@ export async function updateBuyOrder({ pool, id, body = {}, req: httpReq, actor 
           [kehu]=@kehu, [rmb]=@rmb, [rmb_hl]=@rmb_hl, [remark]=@remark, [decimal]=@decimal, [edittime]=@edittime
       WHERE [id]=@id
     `)
-    await saveChildren({ tx, orderNo: row.buyOrderNo, systemCode: row.systemCode, body, header, pricePermission: hasPricePermission(httpReq) })
+    await saveChildren({ tx, orderNo: row.buyOrderNo, systemCode: row.systemCode, body, header, pricePermission: hasPricePermission(httpReq), actor: auditActor })
     await writeBuyOrderOperationLog(tx, {
       actName: '采购单修改',
       info: buildBuyOrderLogInfo({ orderNo: row.buyOrderNo, referenceNo: header.referenceNo, actor: auditActor }),
@@ -245,4 +254,3 @@ export async function updateBuyOrder({ pool, id, body = {}, req: httpReq, actor 
     throw e
   }
 }
-

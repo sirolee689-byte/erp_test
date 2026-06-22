@@ -1,7 +1,8 @@
 import { sql } from './db.js'
 import { resolveActorAuditTripletFromReq } from './businessAuditFields.js'
 import { applyBuyOrderLifecycleAction } from './buyOrderLifecycle.js'
-import { fetchBuyOrderBatchAddLines } from './buyOrderBatchAdd.js'
+import { enrichBuyOrderBatchAddPrices, fetchBuyOrderBatchAddLines } from './buyOrderBatchAdd.js'
+import { fetchBuyOrderExpandDetail } from './buyOrderExpandDetail.js'
 import { buildBuyOrderListPagedSql, buildBuyOrderListWhereSql, parseBuyOrderListQuery } from './buyOrderListQuery.js'
 import { checkBuyOrderNoAvailable, createBuyOrder, suggestBuyOrderNo, updateBuyOrder } from './buyOrderSaveService.js'
 
@@ -194,9 +195,11 @@ export function registerBuyOrderRoutes(app, deps) {
     try {
       const pool = await getPool()
       const result = await fetchBuyOrderBatchAddLines(pool, {
+        buyType: req.query?.buyType,
         piNo: req.query?.piNo,
         supplierCode: req.query?.supplierCode,
         keyword: req.query?.keyword,
+        bomCodeId: req.query?.bomCodeId,
         page: req.query?.page,
         pageSize: req.query?.pageSize,
         hasPricePermission: hasPricePermission(req),
@@ -205,10 +208,33 @@ export function registerBuyOrderRoutes(app, deps) {
       res.json({
         code: 200,
         msg: 'success',
-        data: { piNo: result.piNo, list: result.list, total: result.total, page: result.page, pageSize: result.pageSize },
+        data: {
+          buyType: result.buyType,
+          piNo: result.piNo,
+          multiPi: result.multiPi === true,
+          list: result.list,
+          total: result.total,
+          page: result.page,
+          pageSize: result.pageSize,
+        },
       })
     } catch (err) {
       res.status(500).json({ code: 500, msg: `读取采购订单批量添加明细失败：${String(err?.message ?? err?.originalError?.message ?? err)}`, data: null })
+    }
+  })
+
+  app.post('/api/buy-order/batch-add-prices', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const result = await enrichBuyOrderBatchAddPrices(pool, {
+        supplierCode: req.body?.supplierCode,
+        lines: req.body?.lines,
+        hasPricePermission: hasPricePermission(req),
+      })
+      if (!result.ok) return res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+      res.json({ code: 200, msg: 'success', data: { list: result.list } })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取采购订单批量添加报价失败：${String(err?.message ?? err?.originalError?.message ?? err)}`, data: null })
     }
   })
 
@@ -306,6 +332,17 @@ export function registerBuyOrderRoutes(app, deps) {
       return detail(req, res, true)
     }
     return res.status(400).json({ code: 400, msg: '采购单打印参数无效', data: null })
+  })
+
+  app.get('/api/buy-order/:id/expand-detail', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const result = await fetchBuyOrderExpandDetail(pool, req.params?.id)
+      if (!result.ok) return res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+      res.json({ code: 200, msg: 'success', data: result.data })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取采购单展开明细失败：${String(err?.message ?? err?.originalError?.message ?? err)}`, data: null })
+    }
   })
   app.get('/api/buy-order/:id', detail)
 

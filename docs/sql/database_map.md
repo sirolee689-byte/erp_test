@@ -50,12 +50,17 @@
 - **UB_ERP_Buy_order**：采购单主表。`kcaj01` 为采购单号，`kcaj03` 为采购类型（`0` 其他采购、`1` 订单采购、`2` 请购采购），`kcaj04` 保存手填关联号或逗号分隔 PI，`kcaj05` 保存供应商编码，`kehu` 保存供应商名称快照，`kcaj07`/`rmb`/`rmb_hl` 保存币别和汇率快照，`pass`/`closed`/`del` 控制审核、结案和回收站。
 - **采购单列表补充（2026-06-18）**：主页面「采购订单数据」4 行展示新增使用主表 `kcaj08`（装货港）、`kcaj09`（卸货港）、`kcaj10`（付款条件）、`decimal`（小数位）；排序口径改为 `addtime` 最新优先（同时间按 `id` 倒序兜底）。
 - **UB_ERP_Buy_order_list**：采购单明细。`kcak01` 关联采购单号；`kcak02` / `systemcode` 保存 BOM 物料 `systemcode`；`kcak03` 为采购数量；`kcak04`/`kcak041`/`kcak05`/`kcak051`/`tax` 为不含税单价、含税单价、不含税金额、含税金额和税点；`Reference` 保存明细参考 PI 号（订单采购批量带回/保存口径为 PI 号，页面 PO/PI 列只读展示）；`gkcaa02` 为送货名快照；保存时复制 `kcaa01`～`kcaa35` 物料快照。
-- **采购单批量添加明细口径**：`GET /api/buy-order/batch-add-lines` 只读 `UB_ERP_Bom_pi_cost`，入参为单个 PI 号、供应商编码及 `page`/`pageSize`（默认 10 条/页，最大 100）；返回 `total` + `list`；筛选 `sid=PI号`、`kcaa12=1`、`isok=1`，按 `kcaa01` 聚合 `SUM(kcac06 * temp)`，再按 `kcaa26/kcaa27` 换算采购数量；最新报价来自已审核未删除的 `UB_ERP_Buy_offer` + `UB_ERP_Buy_offer_list`，已采购数量来自该 PI 已审核采购单明细，已入库数量来自该 PI 采购单对应的已审核入库单明细；分页排序沿用 `px` 升序；该接口不写库存、不写采购单。
-- **UB_ERP_Buy_order_money**：采购单额外费用。`buy_code` 关联采购单号，费用项目必须来自已审核、未删除且 `kcaa05='FEE'` 的 `UB_ERP_Bom_000`。
+- **采购单批量添加明细口径**：`GET /api/buy-order/batch-add-lines` 按 `buyType` 分支只读选材，入参含供应商编码及 `page`/`pageSize`（默认 10 条/页，最大 100），返回 `total` + `list`；数量/单价/税点经 `server/buyOrderSqlSafe.js` 安全读取。
+  - **订单采购**（`buyType=1`）：只读 `UB_ERP_Bom_pi_cost`；须单个 PI 号；筛选 `sid=PI号`、`kcaa12=1`、`isok=1`，按 `kcaa01` 聚合 `SUM(kcac06 * temp)`，再按 `kcaa26/kcaa27` 换算采购数量；补充已采购/已入库数量与最新报价。
+  - **请购采购 / 其他采购**（`buyType=2` / `buyType=0`）：共用同一套 BOM 物料库批量选材逻辑；都须先选供应商。关联单号无逗号（其他采购可为空）时读 `UB_ERP_Bom_000`（`pass=1`、`del=0`、排除 `%CUT-%` 裁片，可按 `bom_code_id` 分类前缀与关键词筛选，`ORDER BY id DESC`）；关联单号含逗号（多 PI）时改读 `UB_ERP_Bom_Sales_list`（`sid IN (...)`，展示 SI 列）；不计算采购量/已采购/库存；仅补充供应商最新报价；带回父页明细时数量为 0，由用户在明细行手工录入。
+- **UB_ERP_Buy_order_money**：采购单额外费用。`buy_code` 关联采购单号；`systemcode` 与主表 `UB_ERP_Buy_order.systemcode` 一致；保存时写入当前操作员 `uid`/`uname`/`utruename` 与 `addtime`（整批删后重插，审计字段按本次保存刷新，口径对齐 `UB_ERP_Buy_order_list`）；费用项目必须来自已审核、未删除且 `kcaa05='FEE'` 的 `UB_ERP_Bom_000`。
 - **未审入库数口径（列表聚合）**：按 `UB_ERP_Stocks_Storage.kcan04 = 采购单号` 关联 `UB_ERP_Stocks_Storage_list.kcao01 = 入库单号`，仅统计主表 `pass='0'` 且主/明细 `del=0` 的 `SUM(kcao03)`。
 - **UB_ERP_Buy_order_sp**：采购单反审原因记录。反审必须写原因，并保留操作人和时间。
-- **UB_ERP_Bom_buy_order / UB_ERP_Bom_buy_order_list**：采购单保存时重建的订单 BOM 快照，最多展开 6 层，仅用于追溯，不作为采购数量校验依据。
+  - 反审写入字段（2026-06-22 已查库）：真实列为 `uid`、`username`、`truename`、`ip`、`addtime`、`oid`、`content`、`kcaj01`；没有 `xsaj01`。`oid` 关联 `UB_ERP_Bom_buy_order.id`，`kcaj01` 保存采购单号快照。
+- **UB_ERP_Bom_buy_order / UB_ERP_Bom_buy_order_list**：采购单保存时重建的订单 BOM 快照，最多展开 6 层，仅用于追溯，不作为采购数量校验依据。头表 `[GUID]` 与 `[systemcode]` **两列同值**，均取自 `UB_ERP_Bom_000.GUID`（无 GUID 时用 systemcode 兜底）。
 - **采购入库来源口径**：`UB_ERP_Stocks_Storage.kcan04 = UB_ERP_Buy_order.kcaj01`；采购入库明细 `UB_ERP_Stocks_Storage_list.kcao02 = UB_ERP_Buy_order_list.kcak02`，也就是 BOM 物料 `systemcode`，不是采购明细 `id`。
+- **采购单读库数字安全转换（2026-06-18）**：展开明细 `GET /api/buy-order/:id/expand-detail`、列表聚合 `GET /api/buy-order/list`、批量添加 `GET /api/buy-order/batch-add-lines` 的数量/单价/税点/金额字段统一经 `server/buyOrderSqlSafe.js` 的 `safeDecimalExpr` 读取，兼容旧表 nvarchar 物理类型，避免 `Error converting data type nvarchar to numeric`。
+- **采购单展开明细口径**：`GET /api/buy-order/:id/expand-detail` 为管理采购订单主页面行展开专用只读接口；按采购单号读取 `UB_ERP_Buy_order_list` 明细和 `UB_ERP_Buy_order_money` 额外费用，并批量聚合 `UB_ERP_Stocks_Storage` / `UB_ERP_Stocks_Storage_list` 的入库记录、`UB_ERP_Stocks_out` / `UB_ERP_Stocks_out_list` 的退货记录。入库匹配兼容旧口径 `kcaa01=材料编码` 和新口径 `kcao02=采购明细 kcak02/systemcode`；退货只展示历史提示，不反写采购单、不改库存。
 
 ## 2. 表关系（ER 摘要）
 
@@ -687,3 +692,8 @@
 - **列表筛选联想**：`GET /api/stock-in/list-related-party-options` → `System_supplier`（`s_code`/`s_name`）
 - **库存统计**：已审核且未删除明细 `kcao03` 计入增加口径（见 `CONTEXT.md` §入库单）
 
+## 2026-06-22 补充：采购单软删除字段兼容
+
+- `DELETE /api/buy-order/:id` 删除采购单时，后端先读取 `UB_ERP_Buy_order` 真实字段，再决定写哪些删除审计列。
+- 删除的核心状态仍是 `del=1`；`delid`、`delname`、`deltruename`、`deltime` 哪些列存在就写哪些，不存在就跳过。
+- 这样可以兼容旧库字段差异，避免再次出现 `Invalid column name 'delid'`。

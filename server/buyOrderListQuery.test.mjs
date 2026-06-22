@@ -27,4 +27,12 @@ describe('buyOrderListQuery', () => {
     assert.match(sql, /h\.\[kehu\]/)
     assert.doesNotMatch(sql, /cgad01|cgad05|OFFSET|TRY_CONVERT|FORMAT|IIF|CONCAT/i)
   })
+
+  test('paged sql uses safe decimal aggregation for legacy nvarchar numeric columns', () => {
+    const { whereSql } = buildBuyOrderListWhereSql(parseBuyOrderListQuery({}))
+    const { sql } = buildBuyOrderListPagedSql({ whereSql })
+    assert.match(sql, /WHEN l\.\[kcak03\] IS NULL THEN 0/)
+    assert.match(sql, /WHEN m\.\[money\] IS NULL THEN 0/)
+    assert.doesNotMatch(sql, /SUM\(ISNULL\(l\.\[kcak03\], 0\)\)/)
+  })
 })

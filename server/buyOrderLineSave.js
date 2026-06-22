@@ -1,6 +1,7 @@
 import { sql } from './db.js'
 import { INV_BOM_MASTER_FROM } from './bomTables.js'
 import { calculateBuyOrderAmount } from './buyOrderSaveLogic.js'
+import { formatSalesOrderAuditTime } from './salesOrderPiBom.js'
 
 const LINE_FROM = 'dbo.[UB_ERP_Buy_order_list]'
 
@@ -132,9 +133,11 @@ function bindKcaa(req, line) {
   }
 }
 
-export async function rewriteBuyOrderLines({ buyOrderNo, systemcodeId, lines, header, tx, hasPricePermission = true }) {
+export async function rewriteBuyOrderLines({ buyOrderNo, systemcodeId, lines, header, tx, hasPricePermission = true, actor = null }) {
   const orderNo = text(buyOrderNo)
   const normalized = normalizeBuyOrderLines(lines, header)
+  const auditActor = actor ?? { uidInt: null, uname: null, utruename: null }
+  const addtime = formatSalesOrderAuditTime()
   await new sql.Request(tx).input('kcak01', sql.NVarChar(200), orderNo).query(`
     DELETE FROM ${LINE_FROM}
     WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([kcak01], N'')))) = @kcak01
@@ -175,6 +178,10 @@ export async function rewriteBuyOrderLines({ buyOrderNo, systemcodeId, lines, he
     req.input('Customer_Name', sql.NVarChar(500), nullableText(line.customerName))
     req.input('remark', sql.NVarChar(sql.MAX), nullableText(line.remark))
     req.input('content', sql.NVarChar(sql.MAX), nullableText(line.content))
+    req.input('uid', sql.NVarChar(50), auditActor.uidInt != null ? String(auditActor.uidInt) : '')
+    req.input('uname', sql.NVarChar(200), text(auditActor.uname))
+    req.input('utruename', sql.NVarChar(200), text(auditActor.utruename))
+    req.input('addtime', sql.NVarChar(50), addtime)
     bindKcaa(req, line)
     await req.query(`
       INSERT INTO ${LINE_FROM} (
@@ -186,7 +193,7 @@ export async function rewriteBuyOrderLines({ buyOrderNo, systemcodeId, lines, he
         [kcaa21], [kcaa22], [kcaa23], [kcaa24], [kcaa25], [kcaa26], [kcaa27], [kcaa28], [kcaa29], [kcaa30],
         [kcaa31], [kcaa32], [kcaa33], [kcaa34], [kcaa35],
         [seq], [kcak06], [kcak07], [pass], [del], [type], [version], [location], [sale_price], [cost_price],
-        [Customer_Name], [remark], [content]
+        [Customer_Name], [uid], [uname], [utruename], [addtime], [remark], [content]
       )
       VALUES (
         @kcak01, @kcak02, @systemcode, @systemcode_id,
@@ -197,7 +204,7 @@ export async function rewriteBuyOrderLines({ buyOrderNo, systemcodeId, lines, he
         @kcaa21, @kcaa22, @kcaa23, @kcaa24, @kcaa25, @kcaa26, @kcaa27, @kcaa28, @kcaa29, @kcaa30,
         @kcaa31, @kcaa32, @kcaa33, @kcaa34, @kcaa35,
         @seq, @kcak06, @kcak07, N'1', N'0', N'1', @version, @location, @sale_price, @cost_price,
-        @Customer_Name, @remark, @content
+        @Customer_Name, @uid, @uname, @utruename, @addtime, @remark, @content
       )
     `)
   }

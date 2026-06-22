@@ -128,8 +128,8 @@ metadata:
 
 ### 后端重启规则
 
-若改动 `server/**` 或 `server/apiPermissionGate.js`，执行后必须进行后端重启确认，并给出启动指纹/新 PID 证据；同时提醒用户重新登录。  
-若仅改前端/文档，明确说明“不需要重启后端 API”。
+若改动 `server/**` 或 `server/apiPermissionGate.js`：收尾 **一句** 提醒用户按 `.cursorrules` §16 手动 `taskkill` → `npm run dev:server` 并重新登录；**禁止** Agent 自动重启或断言「后端已生效」。  
+若仅改前端/文档，明确说明「不需要重启后端 API」。
 
 ### 完成回复格式
 

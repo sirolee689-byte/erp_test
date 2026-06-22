@@ -623,6 +623,9 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'GET' && /^\/api\/buy-order(?:\/list|\/supplier-options|\/currency-options|\/pi-options|\/batch-add-lines|\/material-options|\/fee-options|\/print-data)?$/.test(path)) {
     return { menuPath: 'supply-chain/daily/purchase-order', action: 'view' }
   }
+  if (m === 'POST' && path === '/api/buy-order/batch-add-prices') {
+    return { menuPath: 'supply-chain/daily/purchase-order', action: 'view' }
+  }
   if (m === 'GET' && path === '/api/buy-order/suggest-doc-no') {
     return { menuPath: 'supply-chain/daily/purchase-order', action: 'add' }
   }
@@ -630,6 +633,9 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'supply-chain/daily/purchase-order', action: 'add' }
   }
   if (m === 'GET' && /^\/api\/buy-order\/\d+$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/purchase-order', action: 'view' }
+  }
+  if (m === 'GET' && /^\/api\/buy-order\/\d+\/expand-detail$/.test(path)) {
     return { menuPath: 'supply-chain/daily/purchase-order', action: 'view' }
   }
   if (m === 'POST' && path === '/api/buy-order') {

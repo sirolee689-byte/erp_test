@@ -1,3 +1,5 @@
+import { safeDecimalExpr } from './buyOrderSqlSafe.js'
+
 export const BUY_ORDER_HEADER_TABLE = 'UB_ERP_Buy_order'
 
 const HEADER_FROM = `dbo.[${BUY_ORDER_HEADER_TABLE}]`
@@ -115,16 +117,16 @@ export function buildBuyOrderListPagedSql(opts = {}) {
       LEFT JOIN (
         SELECT LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcak01], N'')))) AS buyOrderNo,
                COUNT(1) AS itemCount,
-               SUM(ISNULL(l.[kcak03], 0)) AS totalQty,
-               SUM(ISNULL(l.[kcak051], 0)) AS taxIncludedTotal,
-               SUM(ISNULL(l.[kcak05], 0)) AS taxExcludedTotal
+               SUM(${safeDecimalExpr('l', 'kcak03')}) AS totalQty,
+               SUM(${safeDecimalExpr('l', 'kcak051')}) AS taxIncludedTotal,
+               SUM(${safeDecimalExpr('l', 'kcak05')}) AS taxExcludedTotal
         FROM dbo.[UB_ERP_Buy_order_list] AS l
         WHERE (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
         GROUP BY LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcak01], N''))))
       ) AS lineAgg ON lineAgg.[buyOrderNo] = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcaj01], N''))))
       LEFT JOIN (
         SELECT LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[kcan04], N'')))) AS buyOrderNo,
-               SUM(ISNULL(l.[kcao03], 0)) AS pendingInboundQty
+               SUM(${safeDecimalExpr('l', 'kcao03')}) AS pendingInboundQty
         FROM dbo.[UB_ERP_Stocks_Storage] AS s
         INNER JOIN dbo.[UB_ERP_Stocks_Storage_list] AS l
           ON l.[kcao01] = s.[kcan01]
@@ -135,7 +137,7 @@ export function buildBuyOrderListPagedSql(opts = {}) {
       ) AS inboundPendingAgg ON inboundPendingAgg.[buyOrderNo] = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcaj01], N''))))
       LEFT JOIN (
         SELECT LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(m.[buy_code], N'')))) AS buyOrderNo,
-               SUM(ISNULL(m.[money], 0)) AS extraFeeTotal
+               SUM(${safeDecimalExpr('m', 'money')}) AS extraFeeTotal
         FROM dbo.[UB_ERP_Buy_order_money] AS m
         GROUP BY LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(m.[buy_code], N''))))
       ) AS feeAgg ON feeAgg.[buyOrderNo] = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcaj01], N''))))
