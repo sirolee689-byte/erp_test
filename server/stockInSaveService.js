@@ -5,6 +5,7 @@ import {
   buildNextStockInNo,
   buildStockInSystemCode,
   isLinkedInboundType,
+  normalizeCustomerSupplyInt,
   normalizeStockInHeader,
   normalizeStockInLine,
   validateStockInPayload,
@@ -35,6 +36,62 @@ function text(v) {
 function actorUid(actor) {
   const n = Number(actor?.uidInt ?? actor?.uid ?? actor?.userId ?? actor?.UserID)
   return Number.isFinite(n) && n > 0 ? String(Math.trunc(n)) : ''
+}
+
+function actorUname(actor) {
+  return text(actor?.uname ?? actor?.auditUserName ?? actor?.userName)
+}
+
+function actorTruename(actor) {
+  return text(actor?.utruename ?? actor?.auditTruename ?? actor?.truename ?? actor?.userName)
+}
+
+function nullableNumber(value) {
+  if (value === '' || value === null || value === undefined) return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+const STOCK_IN_LINE_BOM_SNAPSHOT_FIELDS = [
+  'kcaa07',
+  'kcaa08',
+  'kcaa12',
+  'kcaa13',
+  'kcaa14',
+  'kcaa25',
+  'kcaa28',
+  'kcaa29',
+  'kcaa30',
+  'kcaa31',
+  'kcaa32',
+  'kcaa33',
+  'kcaa34',
+  'kcaa35',
+]
+const STOCK_IN_LINE_DECIMAL_SNAPSHOT_FIELDS = new Set(['kcaa07', 'kcaa08', 'kcaa30', 'kcaa32', 'kcaa33'])
+const STOCK_IN_LINE_INT_SNAPSHOT_FIELDS = new Set(['kcaa12', 'kcaa13', 'kcaa14'])
+
+export function __stockInLineBomSnapshotFieldsForTest() {
+  return [...STOCK_IN_LINE_BOM_SNAPSHOT_FIELDS]
+}
+
+function applyBomSnapshotFields(line, bom) {
+  if (!bom) return line
+  const out = { ...line }
+  for (const col of STOCK_IN_LINE_BOM_SNAPSHOT_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(bom, col)) out[col] = bom[col]
+  }
+  return out
+}
+
+function bindStockInLineSnapshotInput(req, col, value) {
+  if (STOCK_IN_LINE_INT_SNAPSHOT_FIELDS.has(col)) {
+    req.input(col, sql.Int, nullableNumber(value))
+  } else if (STOCK_IN_LINE_DECIMAL_SNAPSHOT_FIELDS.has(col)) {
+    req.input(col, sql.Decimal(18, 6), nullableNumber(value))
+  } else {
+    req.input(col, sql.NVarChar(200), text(value))
+  }
 }
 
 function activeWhere(alias) {
@@ -148,11 +205,27 @@ async function fetchExistingReceipt(pool, id) {
 
 function sourceTable(type) {
   // 采购订单明细真实字段：kcak01/kcak03/kcak04（而非旧库字段 cgae01/cgae03/cgae04）
-  if (type === '1') return { header: PURCHASE_HEADER_FROM, line: PURCHASE_LINE_FROM, noCol: 'cgad01', partyCol: 'cgad05', lineOrderCol: 'kcak01', qtyCol: 'kcak03', priceCol: 'kcak04' }
+  if (type === '1') return { header: PURCHASE_HEADER_FROM, line: PURCHASE_LINE_FROM, noCol: 'kcaj01', partyCol: 'kcaj05', lineOrderCol: 'kcak01', qtyCol: 'kcak03', priceCol: 'kcak04' }
   if (type === '2' || type === '3') return { header: ASSIST_HEADER_FROM, line: ASSIST_LINE_FROM, noCol: 'wxaj01', partyCol: 'wxaj05', lineOrderCol: 'wxak01', qtyCol: 'wxak03', priceCol: 'wxak04' }
   if (type === '4' || type === '5') return { header: DISPATCH_HEADER_FROM, line: DISPATCH_LINE_FROM, noCol: 'scaj01', partyCol: 'scaj05', lineOrderCol: 'scak01', qtyCol: 'scak03', priceCol: 'cost_price' }
   if (type === '6') return { header: SALES_HEADER_FROM, line: SALES_LINE_FROM, noCol: 'xsaj01', partyCol: 'xsaj04', lineOrderCol: 'xsak01', qtyCol: 'xsak03', priceCol: 'sale_price' }
   return null
+}
+
+export function __stockInSaveSourceMetaForTest(type) {
+  return sourceTable(String(type ?? ''))
+}
+
+export function buildValidateSourceOrderSql(meta) {
+  return `
+      SELECT TOP 1 [id]
+      FROM ${meta.header} AS h
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.noCol}], N'')))) = @sourceNo
+        AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.partyCol}], N'')))) = @partyCode
+        AND ${activeWhere('h')}
+        AND ${auditedWhere('h')}
+        AND LTRIM(RTRIM(ISNULL(h.[closed], N'0'))) = N'0'
+    `
 }
 
 async function validateSourceOrder(pool, header, related) {
@@ -162,32 +235,14 @@ async function validateSourceOrder(pool, header, related) {
   const r = await pool.request()
     .input('sourceNo', sql.NVarChar(200), header.sourceOrderNo)
     .input('partyCode', sql.NVarChar(200), related.code)
-    .query(`
-      SELECT TOP 1 [id]
-      FROM ${meta.header} AS h
-      WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.noCol}], N'')))) = @sourceNo
-        AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.partyCol}], N'')))) = @partyCode
-        AND ${activeWhere('h')}
-        AND ${auditedWhere('h')}
-        AND LTRIM(RTRIM(ISNULL(h.[closed], N'0'))) = N'0'
-    `)
+    .query(buildValidateSourceOrderSql(meta))
   if (!r.recordset?.[0]) return { ok: false, msg: '关联单据不存在、未审核、已结案或关联方不匹配' }
   return { ok: true }
 }
 
-async function getAutoApprove(pool, actor) {
-  const usercode = text(actor?.uname ?? actor?.auditUserName ?? actor?.userCode ?? actor?.userName)
-  if (!usercode) return false
-  try {
-    const r = await pool.request().input('usercode', sql.NVarChar(200), usercode).query(`
-      SELECT TOP 1 LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL([ub_Stocks_Storage_sp], N'')))) AS autoApprove
-      FROM dbo.[UB_ERP_User]
-      WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([usercode], ISNULL([username], N''))))) = @usercode
-    `)
-    return text(r.recordset?.[0]?.autoApprove) === '1'
-  } catch {
-    return false
-  }
+export function __resolveStockInSaveApprovalForTest(id = null) {
+  const autoApprove = !id
+  return { autoApprove, pass: autoApprove ? '1' : '0' }
 }
 
 async function fetchMaterialSnapshot(pool, materialCode) {
@@ -202,10 +257,14 @@ async function fetchMaterialSnapshot(pool, materialCode) {
 }
 
 async function insertLines(tx, { pool, receiptNo, sourceOrderNo, pass, lines, actor, ip }) {
+  const addtime = formatSalesOrderAuditTime()
+  const uid = actorUid(actor)
+  const uname = actorUname(actor)
+  const utruename = actorTruename(actor)
   for (let i = 0; i < lines.length; i += 1) {
     const normalized = normalizeStockInLine({ ...lines[i], kcao01: receiptNo, kcan04: sourceOrderNo }, i + 1, { receiptNo, sourceOrderNo })
     const bom = await fetchMaterialSnapshot(pool, normalized.kcaa01)
-    const line = { ...normalized, ...(bom ?? {}), ...normalized }
+    const line = applyBomSnapshotFields({ ...normalized, ...(bom ?? {}), ...normalized }, bom)
     const req = new sql.Request(tx)
     req.input('kcao01', sql.NVarChar(200), receiptNo)
     req.input('kcao02', sql.NVarChar(200), line.kcao02)
@@ -236,23 +295,34 @@ async function insertLines(tx, { pool, receiptNo, sourceOrderNo, pass, lines, ac
     req.input('version', sql.NVarChar(200), text(line.version))
     req.input('sale_price', sql.Decimal(18, 4), Number(line.sale_price ?? 0) || 0)
     req.input('cost_price', sql.Decimal(18, 4), Number(line.cost_price ?? 0) || 0)
-    req.input('Customer_supply', sql.NVarChar(50), text(line.Customer_supply))
+    req.input('Customer_supply', sql.Int, normalizeCustomerSupplyInt(line.Customer_supply))
     req.input('Customer_Name', sql.NVarChar(500), text(line.Customer_Name))
     req.input('seq', sql.Int, i + 1)
     req.input('systemcode', sql.NVarChar(200), text(line.systemcode))
     req.input('pass', sql.NVarChar(20), pass)
+    for (const col of STOCK_IN_LINE_BOM_SNAPSHOT_FIELDS) bindStockInLineSnapshotInput(req, col, line[col])
+    req.input('uid', sql.NVarChar(50), uid)
+    req.input('uname', sql.NVarChar(200), uname)
+    req.input('utruename', sql.NVarChar(200), utruename)
+    req.input('addtime', sql.NVarChar(30), addtime)
     await req.query(`
       INSERT INTO ${LINE_FROM} (
         [kcao01], [kcao02], [kcan04], [kcao03], [kcao031], [kcao04], [kcao041], [kcao05], [kcao051], [tax],
         [reference], [Describe], [kcaa01], [kcaa02], [kcaa02_en], [kpname], [kcaa03], [kcaa04], [kcaa05],
-        [kcaa06], [kcaa09], [kcaa10], [kcaa11], [kcaa26], [kcaa27], [location], [version], [sale_price],
-        [cost_price], [Customer_supply], [Customer_Name], [seq], [systemcode], [type], [pass], [del]
+        [kcaa06], [kcaa07], [kcaa08], [kcaa09], [kcaa10], [kcaa11], [kcaa12], [kcaa13], [kcaa14],
+        [kcaa25], [kcaa26], [kcaa27], [kcaa28], [kcaa29], [kcaa30], [kcaa31], [kcaa32], [kcaa33],
+        [kcaa34], [kcaa35], [location], [version], [sale_price],
+        [cost_price], [Customer_supply], [Customer_Name], [seq], [systemcode], [type], [pass], [del],
+        [uid], [uname], [utruename], [addtime]
       )
       VALUES (
         @kcao01, @kcao02, @kcan04, @kcao03, @kcao031, @kcao04, @kcao041, @kcao05, @kcao051, @tax,
         @reference, @Describe, @kcaa01, @kcaa02, @kcaa02_en, @kpname, @kcaa03, @kcaa04, @kcaa05,
-        @kcaa06, @kcaa09, @kcaa10, @kcaa11, @kcaa26, @kcaa27, @location, @version, @sale_price,
-        @cost_price, @Customer_supply, @Customer_Name, @seq, @systemcode, N'1', @pass, N'0'
+        @kcaa06, @kcaa07, @kcaa08, @kcaa09, @kcaa10, @kcaa11, @kcaa12, @kcaa13, @kcaa14,
+        @kcaa25, @kcaa26, @kcaa27, @kcaa28, @kcaa29, @kcaa30, @kcaa31, @kcaa32, @kcaa33,
+        @kcaa34, @kcaa35, @location, @version, @sale_price,
+        @cost_price, @Customer_supply, @Customer_Name, @seq, @systemcode, N'1', @pass, N'0',
+        @uid, @uname, @utruename, @addtime
       )
     `)
   }
@@ -261,7 +331,7 @@ async function insertLines(tx, { pool, receiptNo, sourceOrderNo, pass, lines, ac
 async function saveStockIn({ pool, body, req: httpReq, actor, id = null }) {
   const header = normalizeStockInHeader(body?.header ?? {})
   const lines = (body?.lines ?? []).map((line, idx) => normalizeStockInLine(line, idx + 1, header))
-  const valErr = validateStockInPayload({ header, lines })
+  const valErr = validateStockInPayload({ header, lines, rawLines: body?.lines ?? [], isEdit: Boolean(id) })
   if (valErr) return { ok: false, status: 400, msg: valErr }
 
   const existing = id ? await fetchExistingReceipt(pool, id) : null
@@ -277,8 +347,7 @@ async function saveStockIn({ pool, body, req: httpReq, actor, id = null }) {
   const source = await validateSourceOrder(pool, header, related)
   if (!source.ok) return { ok: false, status: 400, msg: source.msg }
 
-  const autoApprove = !id && (await getAutoApprove(pool, actor))
-  const pass = autoApprove ? '1' : '0'
+  const { autoApprove, pass } = __resolveStockInSaveApprovalForTest(id)
   const saveDate = new Date()
   const receiptNo = id ? existing.receiptNo : await resolveFinalReceiptNo(pool, saveDate)
   const systemCode = id ? existing.systemCode : buildStockInSystemCode(actor, saveDate)
@@ -297,15 +366,15 @@ async function saveStockIn({ pool, body, req: httpReq, actor, id = null }) {
     hreq.input('kcan05', sql.NVarChar(200), related.code)
     hreq.input('kcan06', sql.NVarChar(200), warehouse.code)
     hreq.input('ck', sql.NVarChar(500), warehouse.name)
-    hreq.input('kcan07', sql.NVarChar(200), text(actor?.utruename ?? actor?.auditTruename ?? actor?.truename ?? actor?.userName))
+    hreq.input('kcan07', sql.NVarChar(200), actorTruename(actor))
     hreq.input('kcan08', sql.NVarChar(200), header.paperNo)
     hreq.input('kehu', sql.NVarChar(500), related.name)
     hreq.input('in_tax', sql.NVarChar(20), header.inTax)
     hreq.input('remark', sql.NVarChar(sql.MAX), header.remark)
     hreq.input('pass', sql.NVarChar(20), pass)
     hreq.input('uid', sql.NVarChar(50), actorUid(actor))
-    hreq.input('uname', sql.NVarChar(200), text(actor?.uname ?? actor?.auditUserName ?? actor?.userName))
-    hreq.input('utruename', sql.NVarChar(200), text(actor?.utruename ?? actor?.auditTruename ?? actor?.truename ?? actor?.userName))
+    hreq.input('uname', sql.NVarChar(200), actorUname(actor))
+    hreq.input('utruename', sql.NVarChar(200), actorTruename(actor))
     hreq.input('now', sql.NVarChar(30), now)
     hreq.input('ip', sql.NVarChar(50), ip)
     if (id) {

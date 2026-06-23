@@ -142,9 +142,3 @@ cd /d D:\my_projects\ERP_TEST
 taskkill /F /IM node.exe /T
 npm run dev:server
 ```
-
-## 18. 超长表格滚动优化
-
-- **双滚动条**：凡是横向字段超过 8 个的表格，必须在表格上方同步配置横向滚动条，或使用固定表头+固定左右列（Fixed Columns）方案。
-- **高度自适应**：表格高度必须限制在视口范围内（如 `max-height="calc(100vh - 200px)"`），确保底部滚动条始终可见，无需翻页。
-- **关键列固定**：`s_code`（编码）和 `操作列` 必须设为 `fixed`，确保在滑动时核心标识不丢失。

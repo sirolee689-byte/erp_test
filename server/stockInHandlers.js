@@ -16,6 +16,13 @@ import { applyStockInLifecycleAction } from './stockInLifecycle.js'
 import { resolveActorAuditTripletFromReq } from './businessAuditFields.js'
 import { resolveSysUserIsAdminByUserId } from './sysUsersDb.js'
 import { fetchStockInPurchaseBatchLines } from './stockInPurchaseBatchAdd.js'
+import { fetchStockInAssistBatchLines } from './stockInAssistBatchAdd.js'
+import { fetchStockInProductionBatchLines } from './stockInProductionBatchAdd.js'
+import { fetchStockInProductionDispatchPickPage } from './stockInProductionDispatchPick.js'
+import {
+  fetchStockInAssistReturnBatchLines,
+  fetchStockInAssistReturnBomParts,
+} from './stockInAssistReturnBatchAdd.js'
 
 const HEADER_FROM = `dbo.[${STOCK_IN_HEADER_TABLE}]`
 const LINE_FROM = `dbo.[${STOCK_IN_LINE_TABLE}]`
@@ -33,6 +40,14 @@ function serializeRow(row) {
   const out = {}
   for (const [k, v] of Object.entries(row ?? {})) out[k] = v instanceof Date ? v.toISOString() : v
   if (out.id != null) out.id = Number(out.id)
+  return out
+}
+
+/** 入库明细：物理列 Tax 统一映射为前端小写 tax */
+function serializeStockInLineRow(row) {
+  const out = serializeRow(row)
+  if (out.tax == null && out.Tax != null) out.tax = out.Tax
+  if (Object.prototype.hasOwnProperty.call(out, 'Tax')) delete out.Tax
   return out
 }
 
@@ -76,11 +91,236 @@ export function __stockInSourceMetaForTest(type) {
   return sourceMeta(type)
 }
 
+export function __buildSourceOrderKeywordSqlForTest(inboundType, meta) {
+  return buildSourceOrderKeywordSql(inboundType, meta)
+}
+
+export function __buildSourceOrderListSqlForTest(inboundType, meta, baseWhere = sourceOrderBaseWhereSql(), hasKeyword = false) {
+  return buildSourceOrderListSql(inboundType, meta, baseWhere, hasKeyword)
+}
+
+export function __buildSourceOrderCountSqlForTest(inboundType, meta, keywordSql = '', hasKeyword = false, partyFilterSql = '') {
+  return buildSourceOrderCountSql(inboundType, meta, keywordSql, hasKeyword, partyFilterSql)
+}
+
+export function __buildSourceOrderPartyFilterSqlForTest(meta) {
+  return buildSourceOrderPartyFilterSql(meta)
+}
+
 function sourceOrderPageParams(query = {}) {
   const page = Math.max(1, Number.parseInt(query.page, 10) || 1)
   const rawPageSize = Number.parseInt(query.pageSize, 10) || 10
   const pageSize = Math.min(100, Math.max(1, rawPageSize))
   return { page, pageSize, startRow: (page - 1) * pageSize + 1, endRow: page * pageSize }
+}
+
+/** 头表列安全转 nvarchar，供关联单分页 SQL 复用（SQL Server 2008 R2） */
+function trimHeaderCol(alias, col, size = 200) {
+  return `LTRIM(RTRIM(CONVERT(nvarchar(${size}), ISNULL(${alias}.[${col}], N''))))`
+}
+
+function sourceOrderBaseWhereSql(extraKeywordSql = '') {
+  return `
+    WHERE (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
+      AND LTRIM(RTRIM(ISNULL(h.[pass], N''))) = N'1'
+      AND LTRIM(RTRIM(ISNULL(h.[closed], N'0'))) = N'0'
+      ${extraKeywordSql}
+  `
+}
+
+/**
+ * 关联单搜索：派工/生产退料类型用头表字段 + LEFT JOIN 明细 PI（禁止 PI 标量子查询进 WHERE OR）。
+ * 有 keyword 时须配合 buildDispatchSourceOrderKeywordJoinSql 使用。
+ */
+function buildSourceOrderKeywordSql(inboundType, meta) {
+  const t = text(inboundType)
+  if (['4', '5'].includes(t)) {
+    return `
+      AND (
+        ${trimHeaderCol('h', meta.noCol)} LIKE @kw
+        OR ${trimHeaderCol('h', meta.partyCol)} LIKE @kw
+        OR ${trimHeaderCol('h', 'scaj04')} LIKE @kw
+        OR lk.[id] IS NOT NULL
+      )
+    `
+  }
+  let extra = ''
+  if (['2', '3', '8'].includes(t)) {
+    extra = `OR ${trimHeaderCol('h', 'wxaj04')} LIKE @kw`
+  }
+  return `
+    AND (
+      ${trimHeaderCol('h', meta.noCol)} LIKE @kw
+      OR ${trimHeaderCol('h', meta.partyCol)} LIKE @kw
+      ${extra}
+    )
+  `
+}
+
+/** 派工类型带 keyword 时：LEFT JOIN 明细 PI，避免 EXISTS + ROW_NUMBER 触发全表嵌套扫描 */
+function buildDispatchSourceOrderKeywordJoinSql(meta) {
+  return `
+    LEFT JOIN ${meta.line} AS lk
+      ON ${trimHeaderCol('lk', meta.lineOrderCol)} = ${trimHeaderCol('h', meta.noCol)}
+     AND (ISNULL(lk.[del], N'') = N'' OR lk.[del] = N'0')
+     AND ${trimHeaderCol('lk', 'pi')} LIKE @kw
+  `
+}
+
+function isDispatchInboundType(inboundType) {
+  return ['4', '5'].includes(text(inboundType))
+}
+
+/** 生产入库/退料：按生产车间 scaj05 过滤派工单，避免全表扫描 */
+function buildSourceOrderPartyFilterSql(meta) {
+  return ` AND ${trimHeaderCol('h', meta.partyCol)} = @relatedPartyCode `
+}
+
+function buildSourceOrderCountSql(inboundType, meta, keywordSql, hasKeyword, partyFilterSql = '') {
+  const t = text(inboundType)
+  const baseWhere = sourceOrderBaseWhereSql(`${partyFilterSql}${keywordSql}`)
+  if (hasKeyword && isDispatchInboundType(t)) {
+    return `
+      SELECT COUNT(DISTINCT h.[id]) AS total
+      FROM ${meta.header} AS h
+      ${buildDispatchSourceOrderKeywordJoinSql(meta)}
+      ${baseWhere}
+    `
+  }
+  return `
+    SELECT COUNT(1) AS total
+    FROM ${meta.header} AS h
+    ${baseWhere}
+  `
+}
+
+/** 关联单列表：先 ROW_NUMBER 分页，再对当前页 JOIN/APPLY 补车间名与 PI，避免对全量头表跑关联子查询 */
+function buildSourceOrderListSql(inboundType, meta, baseWhere, hasKeyword = false) {
+  const t = text(inboundType)
+  const pageAlias = 'page'
+  const orderNoExpr = trimHeaderCol('h', meta.noCol)
+  const partyCodeExpr = trimHeaderCol('h', meta.partyCol)
+  const innerExtraCols = []
+  if (['2', '3', '8'].includes(t)) {
+    innerExtraCols.push(`${trimHeaderCol('h', 'wxaj04')} AS referenceNo`)
+  } else if (['4', '5'].includes(t)) {
+    innerExtraCols.push(`${trimHeaderCol('h', 'scaj04')} AS headerPi`)
+  } else if (t === '6') {
+    innerExtraCols.push(`${orderNoExpr} AS referenceNo`)
+  }
+  const innerExtraSelect = innerExtraCols.length ? `,\n            ${innerExtraCols.join(',\n            ')}` : ''
+  const srcPassThroughCols = []
+  if (['4', '5'].includes(t)) srcPassThroughCols.push('src.headerPi')
+  if (['2', '3', '8', '6'].includes(t)) srcPassThroughCols.push('src.referenceNo')
+  const srcPassThroughSelect = srcPassThroughCols.length ? `,\n             ${srcPassThroughCols.join(',\n             ')}` : ''
+
+  let outerSelect = `N'' AS relatedPartyName`
+  let outerJoin = ''
+  let referenceSelect = `N''`
+
+  if (['1', '2', '3', '8'].includes(t)) {
+    outerSelect = `
+      ISNULL(LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(NULLIF(s.[s_name], N''), s.[name])))), N'') AS relatedPartyName
+    `
+    outerJoin = `
+      LEFT JOIN ${SUPPLIER_FROM} AS s
+        ON ${trimHeaderCol('s', 's_code')} = ${pageAlias}.relatedPartyCode
+    `
+    if (['2', '3', '8'].includes(t)) {
+      referenceSelect = `${pageAlias}.referenceNo`
+    }
+  } else if (['4', '5'].includes(t)) {
+    outerSelect = `
+      ISNULL(LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(w.[name], N'')))), N'') AS relatedPartyName
+    `
+    outerJoin = `
+      LEFT JOIN ${WORKSHOP_FROM} AS w
+        ON ${trimHeaderCol('w', 'code')} = ${pageAlias}.relatedPartyCode
+      OUTER APPLY (
+        SELECT TOP 1 ${trimHeaderCol('lk2', 'pi')} AS [pi]
+        FROM ${meta.line} AS lk2
+        WHERE ${trimHeaderCol('lk2', meta.lineOrderCol)} = ${pageAlias}.sourceOrderNo
+          AND (ISNULL(lk2.[del], N'') = N'' OR lk2.[del] = N'0')
+          AND ${trimHeaderCol('lk2', 'pi')} <> N''
+        ORDER BY ISNULL(lk2.[seq], lk2.[id]), lk2.[id]
+      ) AS piRef
+    `
+    referenceSelect = `ISNULL(NULLIF(piRef.[pi], N''), ${pageAlias}.headerPi)`
+  } else if (t === '6') {
+    outerSelect = `
+      ISNULL(LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(c.[khaa02], N'')))), N'') AS relatedPartyName
+    `
+    outerJoin = `
+      LEFT JOIN ${CUSTOMER_FROM} AS c
+        ON ${trimHeaderCol('c', 'khaa01')} = ${pageAlias}.relatedPartyCode
+    `
+    referenceSelect = `${pageAlias}.referenceNo`
+  }
+
+  const keywordJoinSql = hasKeyword && isDispatchInboundType(t)
+    ? buildDispatchSourceOrderKeywordJoinSql(meta)
+    : ''
+
+  const matchedSourceSql = hasKeyword && isDispatchInboundType(t)
+    ? `
+        SELECT DISTINCT
+               h.[id] AS id,
+               ${orderNoExpr} AS sourceOrderNo,
+               ${partyCodeExpr} AS relatedPartyCode,
+               LTRIM(RTRIM(ISNULL(h.[pass], N'0'))) AS pass
+               ${innerExtraSelect}
+        FROM ${meta.header} AS h
+        ${keywordJoinSql}
+        ${baseWhere}
+      `
+    : `
+        SELECT ROW_NUMBER() OVER (ORDER BY h.[id] DESC) AS rn,
+               h.[id] AS id,
+               ${orderNoExpr} AS sourceOrderNo,
+               ${partyCodeExpr} AS relatedPartyCode,
+               LTRIM(RTRIM(ISNULL(h.[pass], N'0'))) AS pass
+               ${innerExtraSelect}
+        FROM ${meta.header} AS h
+        ${baseWhere}
+      `
+
+  const numberedSourceSql = hasKeyword && isDispatchInboundType(t)
+    ? `
+        SELECT ROW_NUMBER() OVER (ORDER BY matched.[id] DESC) AS rn,
+               matched.id,
+               matched.sourceOrderNo,
+               matched.relatedPartyCode,
+               matched.pass
+               ${['4', '5'].includes(t) ? ', matched.headerPi' : ''}
+               ${['2', '3', '8', '6'].includes(t) ? ', matched.referenceNo' : ''}
+        FROM (${matchedSourceSql}) AS matched
+      `
+    : matchedSourceSql
+
+  return `
+    SELECT
+      ${pageAlias}.rn,
+      ${pageAlias}.id,
+      ${pageAlias}.sourceOrderNo,
+      ${pageAlias}.relatedPartyCode,
+      ${outerSelect},
+      ${referenceSelect} AS referenceNo,
+      ${pageAlias}.pass
+    FROM (
+      SELECT src.rn,
+             src.id,
+             src.sourceOrderNo,
+             src.relatedPartyCode,
+             src.pass
+             ${srcPassThroughSelect}
+      FROM (
+        ${numberedSourceSql}
+      ) AS src
+      WHERE src.rn BETWEEN @startRow AND @endRow
+    ) AS ${pageAlias}
+    ${outerJoin}
+    ORDER BY ${pageAlias}.rn ASC
+  `
 }
 
 function sourceOrderSelectExpressions(inboundType, meta) {
@@ -455,61 +695,64 @@ export function registerStockInRoutes(app, deps) {
     }
   })
 
+  app.get('/api/stock-in/production-dispatch-pick-page', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const result = await fetchStockInProductionDispatchPickPage(pool, req.query ?? {})
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({
+        code: 200,
+        msg: 'success',
+        data: {
+          list: result.list ?? [],
+          total: result.total ?? 0,
+          page: result.page,
+          pageSize: result.pageSize,
+          workshopName: result.workshopName ?? '',
+        },
+      })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取派工单明细失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
   app.get('/api/stock-in/source-order-page', async (req, res) => {
     try {
       const pool = await getPool()
       const inboundType = text(req.query?.inboundType)
       const meta = sourceMeta(inboundType)
       if (!meta) return res.json({ code: 200, msg: 'success', data: { total: 0, list: [] } })
+      const partyCode = text(req.query?.relatedPartyCode)
+      if (isDispatchInboundType(inboundType) && !partyCode) {
+        res.status(400).json({ code: 400, msg: '请先选择生产车间', data: null })
+        return
+      }
       const keyword = text(req.query?.keyword)
       const { page, pageSize, startRow, endRow } = sourceOrderPageParams(req.query ?? {})
-      const { partyNameExpr, referenceExpr } = sourceOrderSelectExpressions(inboundType, meta)
-      const dbReq = pool.request()
-        .input('startRow', sql.Int, startRow)
-        .input('endRow', sql.Int, endRow)
+      const countReq = pool.request()
       let keywordSql = ''
-      if (keyword) {
-        dbReq.input('kw', sql.NVarChar(400), `%${keyword}%`)
-        keywordSql = `
-          AND (
-            LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.noCol}], N'')))) LIKE @kw
-            OR LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.partyCol}], N'')))) LIKE @kw
-            OR ${referenceExpr} LIKE @kw
-          )
-        `
+      let partyFilterSql = ''
+      const hasKeyword = Boolean(keyword)
+      if (hasKeyword) {
+        countReq.input('kw', sql.NVarChar(400), `%${keyword}%`)
+        keywordSql = buildSourceOrderKeywordSql(inboundType, meta)
       }
-      const baseWhere = `
-        WHERE (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
-          AND LTRIM(RTRIM(ISNULL(h.[pass], N''))) = N'1'
-          AND LTRIM(RTRIM(ISNULL(h.[closed], N'0'))) = N'0'
-          ${keywordSql}
-      `
-      const totalRow = await dbReq.query(`
-        SELECT COUNT(1) AS total
-        FROM ${meta.header} AS h
-        ${baseWhere}
-      `)
+      if (partyCode && isDispatchInboundType(inboundType)) {
+        countReq.input('relatedPartyCode', sql.NVarChar(200), partyCode)
+        partyFilterSql = buildSourceOrderPartyFilterSql(meta)
+      }
+      const baseWhere = sourceOrderBaseWhereSql(`${partyFilterSql}${keywordSql}`)
+      const totalRow = await countReq.query(buildSourceOrderCountSql(inboundType, meta, keywordSql, hasKeyword, partyFilterSql))
       const total = Number(totalRow.recordset?.[0]?.total ?? 0)
       const listReq = pool.request()
         .input('startRow', sql.Int, startRow)
         .input('endRow', sql.Int, endRow)
-      if (keyword) listReq.input('kw', sql.NVarChar(400), `%${keyword}%`)
-      const r = await listReq.query(`
-        SELECT *
-        FROM (
-          SELECT ROW_NUMBER() OVER (ORDER BY h.[id] DESC) AS rn,
-                 h.[id] AS id,
-                 LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.noCol}], N'')))) AS sourceOrderNo,
-                 LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.partyCol}], N'')))) AS relatedPartyCode,
-                 ${partyNameExpr} AS relatedPartyName,
-                 ${referenceExpr} AS referenceNo,
-                 LTRIM(RTRIM(ISNULL(h.[pass], N'0'))) AS pass
-          FROM ${meta.header} AS h
-          ${baseWhere}
-        ) AS src
-        WHERE src.rn BETWEEN @startRow AND @endRow
-        ORDER BY src.rn ASC
-      `)
+      if (hasKeyword) listReq.input('kw', sql.NVarChar(400), `%${keyword}%`)
+      if (partyFilterSql) listReq.input('relatedPartyCode', sql.NVarChar(200), partyCode)
+      const r = await listReq.query(buildSourceOrderListSql(inboundType, meta, baseWhere, hasKeyword))
       res.json({ code: 200, msg: 'success', data: { page, pageSize, total, list: r.recordset ?? [] } })
     } catch (err) {
       res.status(500).json({ code: 500, msg: `读取关联单据分页失败：${String(err?.message ?? err)}`, data: null })
@@ -538,6 +781,99 @@ export function registerStockInRoutes(app, deps) {
       })
     } catch (err) {
       res.status(500).json({ code: 500, msg: `读取采购入库批量明细失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  app.get('/api/stock-in/assist-batch-lines', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const query = { ...(req.query ?? {}), inboundType: '2' }
+      const result = await fetchStockInAssistBatchLines(pool, query)
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({
+        code: 200,
+        msg: 'success',
+        data: {
+          list: result.list ?? [],
+          total: result.total ?? 0,
+          page: result.page,
+          pageSize: result.pageSize,
+        },
+      })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取外协入库批量明细失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  app.get('/api/stock-in/production-batch-lines', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const query = { ...(req.query ?? {}), inboundType: '4' }
+      const result = await fetchStockInProductionBatchLines(pool, query)
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({
+        code: 200,
+        msg: 'success',
+        data: {
+          list: result.list ?? [],
+          total: result.total ?? 0,
+          page: result.page,
+          pageSize: result.pageSize,
+        },
+      })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取生产入库批量明细失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  app.get('/api/stock-in/assist-return-batch-lines', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const result = await fetchStockInAssistReturnBatchLines(pool, req.query ?? {})
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({
+        code: 200,
+        msg: 'success',
+        data: {
+          list: result.list ?? [],
+          total: result.total ?? 0,
+          page: result.page,
+          pageSize: result.pageSize,
+        },
+      })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取外协退料批量成品明细失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  app.get('/api/stock-in/assist-return-bom-parts', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const result = await fetchStockInAssistReturnBomParts(pool, req.query ?? {})
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({
+        code: 200,
+        msg: result.msg || 'success',
+        data: {
+          list: result.list ?? [],
+          productKcaa01: result.productKcaa01,
+          bomMissing: result.bomMissing === true,
+        },
+      })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取外协退料 BOM 配件失败：${String(err?.message ?? err)}`, data: null })
     }
   })
 
@@ -606,7 +942,7 @@ export function registerStockInRoutes(app, deps) {
       const rawLines = lineR.recordset ?? []
       const enrichedLines = []
       for (const row of rawLines) {
-        const base = serializeRow(row)
+        const base = serializeStockInLineRow(row)
         const relation = await enrichStockInLineRelationInfo(pool, inboundType, base)
         enrichedLines.push({ ...base, ...relation })
       }

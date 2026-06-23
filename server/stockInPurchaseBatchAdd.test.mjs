@@ -97,7 +97,7 @@ describe('stockInPurchaseBatchAdd', () => {
     assert.equal(parseFloatRate('0.05'), 0.05)
   })
 
-  test('resolvePurchaseBatchSelectState blocks pending return and allows admin force', () => {
+  test('resolvePurchaseBatchSelectState blocks pending return and full rows', () => {
     const blocked = resolvePurchaseBatchSelectState({
       tempx:  0,
       kcao031: 0,
@@ -108,14 +108,15 @@ describe('stockInPurchaseBatchAdd', () => {
     assert.equal(blocked.selectable, false)
     assert.match(blocked.selectLabel, /未审退货/)
 
-    const admin = resolvePurchaseBatchSelectState({
+    const full = resolvePurchaseBatchSelectState({
       tempx: 0,
       kcao031: 0,
       pendingReturnQty: 0,
       alreadySelected: false,
       isAdmin: true,
     })
-    assert.equal(admin.selectable, true)
+    assert.equal(full.selectable, false)
+    assert.match(full.selectLabel, /不可选/)
   })
 
   test('fetchStockInPurchaseBatchLines requires source order', async () => {

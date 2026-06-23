@@ -61,6 +61,25 @@ export function isLinkedInboundType(type, sourceOrderNo = '') {
   return ['1', '2', '3', '4', '5', '6'].includes(t)
 }
 
+/** 客供展示：物理列 Customer_supply（1=是，0/2=否） */
+export function customerSupplyLabel(v) {
+  const s = text(v)
+  if (s === '1' || s.toLowerCase() === 'y' || s === '是') return '是'
+  if (s === '2' || s === '0' || s.toLowerCase() === 'n' || s === '否') return '否'
+  return ''
+}
+
+/** 入库明细保存：Customer_supply 为整型，兼容界面「是/否」与 0/1/2 */
+export function normalizeCustomerSupplyInt(v) {
+  const s = text(v)
+  if (!s || s === '-') return null
+  if (s === '是' || s.toLowerCase() === 'y') return 1
+  if (s === '否' || s.toLowerCase() === 'n') return 2
+  const n = Number(s)
+  if (!Number.isFinite(n)) return null
+  return Math.trunc(n)
+}
+
 export function normalizeStockInHeader(input = {}) {
   const inboundType = normalizeInboundType(input.inboundType ?? input.kcan03)
   return {
@@ -97,7 +116,7 @@ export function calcStockInAmounts({ qty, priceExTax, priceInTax, tax }) {
 
 export function normalizeStockInLine(line = {}, seq = 1, header = {}) {
   const qty = numberValue(line.kcao03 ?? line.qty)
-  const tax = numberValue(line.tax)
+  const tax = numberValue(line.tax ?? line.Tax)
   const amounts = calcStockInAmounts({
     qty,
     priceExTax: line.kcao04 ?? line.priceExTax,
@@ -126,6 +145,7 @@ export function normalizeStockInLine(line = {}, seq = 1, header = {}) {
     seq: Number.isInteger(Number(line.seq)) ? Number(line.seq) : seq,
     systemcode: text(line.systemcode) || crypto.randomUUID?.() || crypto.createHash('md5').update(`${Date.now()}-${Math.random()}`).digest('hex'),
     type: text(line.type) || '1',
+    Customer_supply: normalizeCustomerSupplyInt(line.Customer_supply),
   }
 }
 
@@ -134,21 +154,27 @@ export function validateStockInPayload(payload = {}) {
   if (header.inboundType === '8') return '加工入库第一版只读，不允许新增或编辑'
   if (!header.warehouseCode) return '仓库不能为空'
   if (!header.inboundDate && payload.requireInboundDate) return '入库日期不能为空'
+  // 外协退料（类型 3）来货单号 kcan08 允许为空
+  if (!header.paperNo && header.inboundType !== '3') return '来货单号不能为空'
   if (['1', '2', '3', '6'].includes(header.inboundType) && !header.relatedPartyCode) return '关联方不能为空'
   if (header.inboundType === '4' && !header.relatedPartyCode) return '生产入库必须选择生产车间'
   if (['1', '2', '3', '6'].includes(header.inboundType) && !header.sourceOrderNo) return '关联单号不能为空'
   if (header.inboundType === '4' && !header.sourceOrderNo) return '生产入库必须选择派工单'
 
+  const rawLines = payload.rawLines ?? payload.lines ?? []
   const lines = (payload.lines ?? []).map((line, idx) => normalizeStockInLine(line, idx + 1, header))
   if (!lines.length) return '入库单至少需要一条明细'
   const linked = isLinkedInboundType(header.inboundType, header.sourceOrderNo)
   for (let i = 0; i < lines.length; i += 1) {
+    const rawLine = rawLines[i] ?? {}
     const line = lines[i]
     if (!line.kcaa01) return `第 ${i + 1} 行材料编码不能为空`
     if (line.kcao03 <= 0) return `第 ${i + 1} 行入库数量必须大于 0`
+    if (payload.isEdit && text(rawLine.tax ?? rawLine.Tax) === '') return `第 ${i + 1} 行税点不能为空，如无税点，则可以填写0。`
     if (header.inTax === '2' && line.tax > 0) return '不含税模式下税点只能为 0'
     if (linked && !line.kcao02) return `第 ${i + 1} 行明细必须来自关联单据`
-    if (linked) {
+    // 外协退料：kcao031=100000，只校验数量>0，不按可退数量卡上限
+    if (linked && header.inboundType !== '3') {
       const overflowCap = numberValue(line.kcao031)
       const needQty = numberValue(line.availableQty ?? line.tempx ?? line.needQty)
       const maxAllowed = overflowCap > 0 ? overflowCap : needQty

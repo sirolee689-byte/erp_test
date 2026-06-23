@@ -81,9 +81,6 @@ export function resolvePurchaseBatchSelectState({
   if (toNumber(tempx) > 0 || toNumber(kcao031) > 0) {
     return { selectState: 'select', selectLabel: '选择', selectable: true }
   }
-  if (isAdmin) {
-    return { selectState: 'admin_force', selectLabel: '选择', selectable: true }
-  }
   return { selectState: 'disabled_full', selectLabel: '不可选', selectable: false }
 }
 

@@ -101,11 +101,39 @@ const purchaseOrderBatchWindowRoute = {
   meta: { title: '采购订单批量添加明细', permissionPath: '/supply-chain/daily/purchase-order' },
 }
 
+const purchaseOrderMaterialTraceWindowRoute = {
+  path: '/supply-chain/daily/purchase-order-material-trace-window',
+  name: 'supply-chain-daily-purchase-order-material-trace-window',
+  component: () => import('@/views/supply-chain/daily/purchase-order/material-trace-window.vue'),
+  meta: { title: '采购订单转向物料查询', permissionPath: '/supply-chain/daily/purchase-order' },
+}
+
 const stockInPurchaseBatchWindowRoute = {
   path: '/inventory/daily/stock-in-purchase-batch-window',
   name: 'inventory-daily-stock-in-purchase-batch-window',
   component: () => import('@/views/inventory/daily/stock-in/batch-add-window.vue'),
   meta: { title: '采购入库批量添加明细', permissionPath: '/inventory/daily/stock-in' },
+}
+
+const stockInAssistBatchWindowRoute = {
+  path: '/inventory/daily/stock-in-assist-batch-window',
+  name: 'inventory-daily-stock-in-assist-batch-window',
+  component: () => import('@/views/inventory/daily/stock-in/batch-add-window.vue'),
+  meta: { title: '外协入库批量添加明细', permissionPath: '/inventory/daily/stock-in' },
+}
+
+const stockInAssistReturnBatchWindowRoute = {
+  path: '/inventory/daily/stock-in-assist-return-batch-window',
+  name: 'inventory-daily-stock-in-assist-return-batch-window',
+  component: () => import('@/views/inventory/daily/stock-in/assist-return-batch-window.vue'),
+  meta: { title: '外协退料批量添加明细', permissionPath: '/inventory/daily/stock-in' },
+}
+
+const stockInProductionBatchWindowRoute = {
+  path: '/inventory/daily/stock-in-production-batch-window',
+  name: 'inventory-daily-stock-in-production-batch-window',
+  component: () => import('@/views/inventory/daily/stock-in/batch-add-window.vue'),
+  meta: { title: '生产入库批量添加明细', permissionPath: '/inventory/daily/stock-in' },
 }
 
 const childRoutes = [
@@ -143,7 +171,11 @@ const router = createRouter({
     salesOrderWindowRoute,
     assistOrderBatchWindowRoute,
     purchaseOrderBatchWindowRoute,
+    purchaseOrderMaterialTraceWindowRoute,
     stockInPurchaseBatchWindowRoute,
+    stockInAssistBatchWindowRoute,
+    stockInProductionBatchWindowRoute,
+    stockInAssistReturnBatchWindowRoute,
     {
       path: '/',
       component: ErpLayout,

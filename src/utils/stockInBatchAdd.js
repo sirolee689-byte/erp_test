@@ -14,6 +14,14 @@ export function buildStockBatchSessionId() {
   return `stock-batch-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
+/** 外协退料已选键：BOM systemcode + 成品 kcaa01（pm） */
+export function buildAssistReturnLineKey(systemcode, pm) {
+  const sc = String(systemcode ?? '').trim().toLowerCase()
+  const product = String(pm ?? '').trim().toLowerCase()
+  if (!sc) return ''
+  return `${sc}|${product}`
+}
+
 export function readStockBatchContext(sessionId) {
   try {
     const raw = sessionStorage.getItem(`${STOCK_BATCH_CTX_PREFIX}${sessionId}`)

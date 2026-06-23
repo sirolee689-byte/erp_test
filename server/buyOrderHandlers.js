@@ -3,6 +3,7 @@ import { resolveActorAuditTripletFromReq } from './businessAuditFields.js'
 import { applyBuyOrderLifecycleAction } from './buyOrderLifecycle.js'
 import { enrichBuyOrderBatchAddPrices, fetchBuyOrderBatchAddLines } from './buyOrderBatchAdd.js'
 import { fetchBuyOrderExpandDetail } from './buyOrderExpandDetail.js'
+import { fetchBuyOrderMaterialTrace, fetchBuyOrderTraceBomCodes } from './buyOrderMaterialTrace.js'
 import { buildBuyOrderListPagedSql, buildBuyOrderListWhereSql, parseBuyOrderListQuery } from './buyOrderListQuery.js'
 import { checkBuyOrderNoAvailable, createBuyOrder, suggestBuyOrderNo, updateBuyOrder } from './buyOrderSaveService.js'
 
@@ -276,6 +277,25 @@ export function registerBuyOrderRoutes(app, deps) {
       res.json({ code: 200, msg: 'success', data: { list: r.recordset ?? [] } })
     } catch (err) {
       res.status(500).json({ code: 500, msg: `读取费用项目失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  app.get('/api/buy-order/material-trace/bom-codes', async (_req, res) => {
+    try {
+      const list = await fetchBuyOrderTraceBomCodes(await getPool())
+      res.json({ code: 200, msg: 'success', data: { list } })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取采购转向物料分类失败：${String(err?.message ?? err?.originalError?.message ?? err)}`, data: null })
+    }
+  })
+
+  app.get('/api/buy-order/material-trace/list', async (req, res) => {
+    try {
+      const result = await fetchBuyOrderMaterialTrace(await getPool(), req.query ?? {})
+      if (!result.ok) return res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+      res.json({ code: 200, msg: 'success', data: result })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取采购转向物料失败：${String(err?.message ?? err?.originalError?.message ?? err)}`, data: null })
     }
   })
 

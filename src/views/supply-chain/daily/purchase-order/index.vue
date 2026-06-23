@@ -16,6 +16,9 @@
       >
         采购订单添加
       </el-button>
+      <el-button plain @click="openMaterialTraceWindow">
+        转向物料查询
+      </el-button>
     </div>
 
     <div v-show="pageMode === 'manage'" class="buy-manage-panel">
@@ -1073,6 +1076,12 @@ async function switchToCreate() {
     await Promise.all([loadSuppliers(), loadCurrencies(), loadMaterials(), loadFees()])
   }
   createPanelInitialized.value = true
+}
+
+function openMaterialTraceWindow() {
+  const url = '/supply-chain/daily/purchase-order-material-trace-window'
+  const opened = window.open(url, '_blank')
+  if (!opened) ElMessage.error('无法打开新窗口，请检查浏览器是否拦截弹窗')
 }
 
 async function confirmAndResetCreateForm() {
