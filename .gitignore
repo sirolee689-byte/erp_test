@@ -1,6 +1,8 @@
 # --- 数据库与敏感信息 ---
 .env
 .env.local
+.env.*
+!.env.example
 config/db.config.js
 *.sql
 *.bak
@@ -35,8 +37,18 @@ e2e-output/
 .codegraph/
 .cursor/rules/codegraph.mdc
 
-docs/
+# --- 开发/测试本地产物（勿提交）---
+.playwright-mcp/
+artifacts/
+test-results/
+playwright-report/
+coverage/
+.codex/
+.scratch/
 
-.scratch/*-build/assets/
-.scratch/**/assets/
-.scratch/server-restart/
+# --- docs：保留 PRD/ADR/agents/sql 映射；仅忽略本地附件与杂项 ---
+docs/*.xlsx
+docs/*.xls
+docs/*.asp
+docs/bom_cost.txt
+docs/System_uplod_file.txt

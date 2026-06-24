@@ -51,6 +51,7 @@ import { registerAssistOrderRoutes } from './assistOrderHandlers.js'
 import { registerBuyOrderRoutes } from './buyOrderHandlers.js'
 import { registerDispatchOrderRoutes } from './dispatchOrderHandlers.js'
 import { registerStockInRoutes } from './stockInHandlers.js'
+import { registerStockOutRoutes } from './stockOutHandlers.js'
 import { registerBomRoutes } from './bom/registerBomRoutes.js'
 import {
   BOM_COST_TABLE,
@@ -12050,6 +12051,7 @@ registerAssistOrderRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerBuyOrderRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerDispatchOrderRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerStockInRoutes(app, { getPool, getActorAuditTripletFromReq })
+registerStockOutRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerPiBomDataRoutes(app, { getPool })
 registerBomRoutes(app, {
   escapeSqlLikePattern,
@@ -12158,4 +12160,3 @@ app.listen(port, () => {
     `PaperPattern-ErpCheck-Material ${bootAt} POST /api/paper-pattern/check-material；GET /api/paper-pattern/import/parse-tree；POST /api/paper-pattern/material-bom-fields；POST /api/paper-pattern/import/commit-bom000；POST /api/paper-pattern/import/delete-bom-tree`,
   )
 })
-

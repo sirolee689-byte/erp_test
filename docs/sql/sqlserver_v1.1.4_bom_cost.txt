@@ -1,0 +1,25 @@
+/* v1.1.4：BOM 成本明细表 bom_cost（pq=成品编码，sid=主档 systemcode；明细行不合并） */
+IF NOT EXISTS (
+  SELECT 1 FROM sys.objects
+  WHERE object_id = OBJECT_ID(N'[dbo].[bom_cost]') AND type IN (N'U')
+)
+BEGIN
+  CREATE TABLE [dbo].[bom_cost] (
+    [id] BIGINT IDENTITY(1, 1) NOT NULL,
+    [pq] NVARCHAR(300) NOT NULL,
+    [sid] NVARCHAR(100) NOT NULL,
+    [kcaa01] NVARCHAR(300) NOT NULL,
+    [kcaa02] NVARCHAR(300) NULL,
+    [kcaa03] NVARCHAR(300) NULL,
+    [kcaa04] NVARCHAR(80) NULL,
+    [kcac04] DECIMAL(28, 10) NOT NULL CONSTRAINT [DF_bom_cost_kcac04] DEFAULT (0),
+    [kcac05] DECIMAL(28, 10) NOT NULL CONSTRAINT [DF_bom_cost_kcac05] DEFAULT (0),
+    [kcac06] DECIMAL(28, 10) NOT NULL CONSTRAINT [DF_bom_cost_kcac06] DEFAULT (0),
+    [kcac07] DECIMAL(28, 10) NULL,
+    [kcac08] DECIMAL(28, 10) NULL,
+    [Describe] NVARCHAR(500) NULL,
+    [isok] INT NOT NULL CONSTRAINT [DF_bom_cost_isok] DEFAULT (0),
+    CONSTRAINT [PK_bom_cost] PRIMARY KEY CLUSTERED ([id] ASC)
+  );
+  CREATE NONCLUSTERED INDEX [IX_bom_cost_pq_sid] ON [dbo].[bom_cost] ([pq] ASC, [sid] ASC);
+END

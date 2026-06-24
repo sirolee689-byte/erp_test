@@ -1,0 +1,39 @@
+/* 纸格资料导入：Excel 列与系统字段映射（按 file_id） */
+
+IF NOT EXISTS (
+  SELECT 1 FROM sys.objects
+  WHERE object_id = OBJECT_ID(N'[dbo].[paper_pattern_import_mapping]') AND type IN (N'U')
+)
+BEGIN
+  CREATE TABLE [dbo].[paper_pattern_import_mapping](
+    [id] [int] IDENTITY(1,1) NOT NULL,
+    [file_id] [nvarchar](36) NOT NULL,
+    [col_index] [int] NOT NULL,
+    [field_name] [nvarchar](32) NOT NULL,
+    [created_at] [datetime] NOT NULL CONSTRAINT [DF_paper_pattern_import_mapping_created_at] DEFAULT (GETDATE()),
+    CONSTRAINT [PK_paper_pattern_import_mapping] PRIMARY KEY CLUSTERED ([id] ASC)
+  )
+END
+GO
+
+IF NOT EXISTS (
+  SELECT 1 FROM sys.indexes
+  WHERE name = N'UX_paper_pattern_import_mapping_file_col'
+    AND object_id = OBJECT_ID(N'[dbo].[paper_pattern_import_mapping]')
+)
+BEGIN
+  CREATE UNIQUE NONCLUSTERED INDEX [UX_paper_pattern_import_mapping_file_col]
+  ON [dbo].[paper_pattern_import_mapping] ([file_id] ASC, [col_index] ASC)
+END
+GO
+
+IF NOT EXISTS (
+  SELECT 1 FROM sys.indexes
+  WHERE name = N'UX_paper_pattern_import_mapping_file_field'
+    AND object_id = OBJECT_ID(N'[dbo].[paper_pattern_import_mapping]')
+)
+BEGIN
+  CREATE UNIQUE NONCLUSTERED INDEX [UX_paper_pattern_import_mapping_file_field]
+  ON [dbo].[paper_pattern_import_mapping] ([file_id] ASC, [field_name] ASC)
+END
+GO

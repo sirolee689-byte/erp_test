@@ -1,0 +1,351 @@
+# 出库单模块 PRD
+
+triage: ready-for-agent
+
+## Problem Statement
+
+仓库、采购、外协、生产和销售等业务都需要把物料、半成品或成品正式出库。旧系统已经有出库单逻辑，但规则分散在旧页面、弹窗、库存公式和审核反写里，部分出库类型甚至只有入口、没有完整闭环。
+
+新系统需要建设一版可落地的“出库单”模块。它要保留旧系统已经明确的核心口径：出库单是库存减少的合法凭证，未审核出库单会先占用可用库存，审核后才成为正式出库。有关联来源的出库必须在审核时反写上游单据，避免库存扣了但采购、外协、派工、销售来源数量没有闭环。
+
+第一版目标是先完成出库单自身闭环和核心来源闭环：用户能录入、查询、编辑、审核、反审核、复核、删除、恢复、查看、打印出库单，并能按不同出库类型从库存或上游来源选择明细。旧系统中入口存在但闭环不完整的类型，第一版只读历史数据，不开放新增和编辑。
+
+## Solution
+
+建设“出库单”模块，支持 `0` 其他出库、`1` 采购退货、`2` 外协领料、`3` 外协退货、`4` 生产领料、`5` 生产返修、`6` 成品出库、`9` 盘亏出库。
+
+用户新增出库单时，先选择出库类型、是否含税、仓库和必要的关联方或关联单据，再通过批量添加从库存或来源单据带出明细。系统保存时由后端生成最终出库单号。新增保存后一律为待审核，不支持自动审核；待审核单据立即占用可用库存，审核后转为正式出库。
+
+页面形态对齐入库单：列表为主，新增和编辑在当前模块内嵌整页表单完成，查看用只读大弹窗，打印打开独立打印页。回收站作为当前模块内的筛选或切换，不照搬旧系统独立恢复页。
+
+## User Stories
+
+1. As a 仓管员, I want to create other outbound orders from current warehouse stock, so that occasional non-linked stock-out business can be recorded.
+2. As a 仓管员, I want to create inventory-loss outbound orders from current warehouse stock, so that stocktake loss can formally reduce stock.
+3. As a 采购员, I want to create purchase return outbound orders from approved purchase and inbound records, so that supplier returns reduce stock and close the purchase return quantity.
+4. As an 外协管理员, I want to create outsourcing material issue outbound orders from outsourcing sources, so that materials issued to outsourcing can be tracked.
+5. As an 外协管理员, I want to create outsourcing return outbound orders from outsourcing sources, so that outsourcing-related return stock-out can be recorded.
+6. As a 生产主管, I want to create production material issue outbound orders from dispatch or PI production sources, so that workshop material issue has a clear production source.
+7. As a 生产主管, I want to create production repair outbound orders from production sources, so that repair materials can be tracked separately from normal material issue.
+8. As a 销售员, I want to create finished-goods outbound orders from sales orders, so that customer shipments reduce stock and update sales shipped quantity.
+9. As a data-entry user, I want unavailable old types `7`, `8`, and `10` to be read-only, so that incomplete legacy flows are not reopened by mistake.
+10. As a data-entry user, I want the page to require outbound type, tax mode, and warehouse before batch add, so that source selection has enough context.
+11. As a data-entry user, I want linked outbound details to come only from the correct source order, so that stock-out rows stay traceable.
+12. As a data-entry user, I want other outbound and inventory-loss outbound details to come only from available warehouse stock, so that users cannot type arbitrary source-less materials.
+13. As a data-entry user, I want stock rows with different color, version, or location to stay separate, so that the correct stock dimension is deducted.
+14. As a data-entry user, I want pending outbound orders to occupy available stock, so that another user cannot reserve the same stock again.
+15. As a data-entry user, I want editing a pending outbound order to exclude its own old details from stock occupation, so that the document does not block itself.
+16. As a data-entry user, I want deleting a pending outbound order to release stock occupation, so that canceled pending records no longer block available stock.
+17. As an approver, I want to approve a pending outbound order, so that occupied stock becomes formal stock-out.
+18. As an approver, I want to reverse-audit an approved outbound order back to pending occupation, so that wrong approved records can be corrected without losing reservation semantics.
+19. As an approver, I want reverse audit to reject operations that would make stock or source accumulated quantities negative, so that historical totals remain trustworthy.
+20. As an approver, I want purchase return approval to update purchase-order returned quantity, so that purchase source quantity is closed.
+21. As an approver, I want outsourcing issue and outsourcing return approval to update outsourcing accumulated outbound quantity, so that outsourcing source quantity is closed.
+22. As an approver, I want production material issue approval to update dispatch material-issued quantity, so that production source quantity is closed.
+23. As an approver, I want production repair approval to update dispatch repair quantity, so that repair material use is tracked separately.
+24. As an approver, I want finished-goods outbound approval to update sales shipped quantity, so that sales source quantity is closed.
+25. As a reviewer, I want to financially review approved outbound orders, so that final stock-out documents are locked.
+26. As a reviewer, I want reviewed outbound orders to forbid edit, reverse audit, and delete, so that reviewed data cannot be changed casually.
+27. As a data-entry user, I want new outbound orders to always save as pending, so that no outbound is approved automatically.
+28. As a data-entry user, I want outbound number to be generated by the server on save, so that concurrent users do not create duplicate numbers.
+29. As a data-entry user, I want outbound number to be non-editable, so that numbering stays controlled by the system.
+30. As a data-entry user, I want outbound date to default to current time and be editable while pending, so that business occurrence date can be corrected before approval.
+31. As a data-entry user, I want approved and reviewed outbound dates to be read-only, so that formal documents do not change silently.
+32. As a data-entry user, I want warehouse, supplier, outsourcing customer, workshop, and customer names refreshed by the server from master data, so that saved snapshots match valid codes.
+33. As a data-entry user, I want other outbound to allow free-text related party when needed, so that one-off non-coded counterparties can be recorded.
+34. As a data-entry user, I want inventory-loss outbound not to require a related party, so that stocktake loss stays simple.
+35. As a data-entry user, I want material snapshots to be refreshed from BOM master on save, so that saved details have stable material information.
+36. As a data-entry user, I want business inputs such as quantity, price, remark, and source detail key not to be overwritten by material snapshot refresh, so that the outbound document preserves user-entered business facts.
+37. As a data-entry user, I want deleted or missing materials to be blocked on save, so that new documents do not use invalid material master data.
+38. As a viewer, I want historical data with deleted materials to remain viewable, so that old documents can still be inspected.
+39. As a price-authorized user, I want to view and edit unit price, tax, and amount fields, so that outbound amount information can be maintained.
+40. As a user without price permission, I want price fields hidden in page, print, and future export, so that sensitive price information is protected.
+41. As a user without price permission, I want the server to reject or ignore my price changes, so that hidden fields cannot be overwritten through requests.
+42. As a data-entry user, I want amount fields to calculate from excluding-tax unit price and tax point, so that amount rules match the rest of the ERP.
+43. As a data-entry user, I want no-tax mode to force tax point to zero, so that tax and amount calculations stay consistent.
+44. As a normal user, I want pending outbound orders to be editable before review, so that data-entry mistakes can be corrected.
+45. As a normal user, I want approved outbound orders to be view-only unless reverse-audited, so that formal stock-out records are protected.
+46. As a normal user, I want closed historical outbound orders to be read-only, so that old closed data remains compatible but protected.
+47. As a normal user, I want soft-deleted pending outbound orders to appear in recycle bin, so that accidental deletion can be restored.
+48. As a user with delete permission, I want to restore pending deleted outbound orders, so that valid records can return to the normal list.
+49. As a super administrator, I want to permanently delete pending deleted outbound orders, so that wrong test records can be cleaned when necessary.
+50. As a viewer, I want to open a read-only detail modal, so that I can inspect header and detail data without entering edit mode.
+51. As a viewer, I want to print outbound orders with header, details, and totals, so that warehouse paperwork can be used offline.
+52. As a viewer without price permission, I want printed outbound orders to hide price and amount fields, so that printed documents follow permission rules.
+53. As an operations manager, I want operation logs for add, edit, delete, restore, audit, reverse audit, review, and permanent delete, so that every key action is traceable.
+54. As an inventory report user, I want available stock to subtract approved outbound and pending outbound occupation, so that stock availability reflects real reservations.
+55. As a developer, I want source writeback fields to be explicit by outbound type, so that implementation does not guess old-system semantics.
+
+## Functional Requirements
+
+### List, Search, And Recycle Bin
+
+- The list page is the main entry for the module.
+- Normal list shows non-deleted outbound orders.
+- The page supports filters for outbound number, outbound type, warehouse, related party, related source order, audit status, review status, outbound date range, handler, creator, and remark keyword where practical.
+- The recycle bin is a switch or filter inside the current module.
+- Recycle bin shows soft-deleted pending outbound orders.
+- Reviewed, closed, or unavailable historical type records are displayed read-only.
+- Outbound types `7`, `8`, and `10` show a disabled or unavailable marker when encountered in historical data.
+- Export button is shown only as a pending-development placeholder in first version.
+
+### Create
+
+- Create form includes outbound type, outbound number suggestion, outbound date, tax mode, warehouse, related party, related source order, handler, PI or external reference field where applicable, remark, and detail table.
+- Before batch add, the user must select outbound type, tax mode, and warehouse.
+- Final `kcap01` is generated by the server on save.
+- The add page may display only a suggested number before save.
+- `kcap01` is not manually editable.
+- The number date part uses the save day, not the user-filled outbound date.
+- New outbound order defaults include `pass=0`, `del=0`, `closed=0`, and unreviewed state.
+- First version does not support auto approval; every create saves as pending.
+- Pending outbound orders immediately occupy available stock.
+
+### Edit
+
+- Only pending, non-deleted, unreviewed, unclosed records can be edited.
+- Approved records must be reverse-audited before editing.
+- Reviewed records cannot be edited.
+- Closed records cannot be edited.
+- Types `7`, `8`, and `10` cannot be edited in first version.
+- Editing saves details by whole-batch rewrite: remove old details for the current outbound order and insert current page details.
+- First version does not do line-level diff update.
+- Editing recalculates stock occupation and source available quantity while excluding the current outbound order's old details.
+
+### View
+
+- View is read-only for every status.
+- View should show header data, detail rows, audit metadata, review metadata, delete metadata where useful, and operation constraints.
+- Reviewed, closed, and unavailable historical type records should clearly show they are not operable.
+
+### Print
+
+- Print is included in first version.
+- Print opens a separate print page from view.
+- Print includes outbound number, outbound date, type, warehouse, related party, related source order, handler, tax mode, remark, details, and totals.
+- Price fields in print are controlled by price permission.
+- First version uses modern print styling and does not support old IE registry-based header/footer compatibility.
+
+### Audit And Reverse Audit
+
+- First version supports only pending and approved: `pass=0` and `pass=1`.
+- First version does not implement audit rejection.
+- Audit changes header and details to approved.
+- Audit turns pending stock occupation into formal stock-out.
+- Audit writes approver and approval time.
+- Audit writes source accumulated quantities for linked outbound types.
+- Reverse audit changes approved outbound orders back to pending.
+- Reverse-audited outbound orders remain pending stock occupation and do not release stock.
+- Reverse audit reverses source accumulated quantities.
+- Reverse audit must reject operations that would make available stock or source accumulated quantities negative.
+- Reviewed, closed, deleted, and unavailable historical type records cannot be audited or reverse-audited.
+- Approved outbound orders cannot be deleted directly and must be reverse-audited first.
+
+### Review
+
+- First version includes financial review.
+- Only approved `pass=1` outbound orders can be reviewed.
+- Review locks the outbound order.
+- Reviewed outbound orders cannot be edited, reverse-audited, or deleted.
+- New outbound orders default to unreviewed.
+
+### Delete, Restore, And Permanent Delete
+
+- Normal delete is soft delete.
+- Only pending, non-reviewed, non-closed, available-type records can be soft-deleted.
+- Soft delete releases pending stock occupation.
+- Soft delete writes delete actor and delete time.
+- Restore is available in recycle bin for soft-deleted pending outbound orders.
+- Permanent delete is available only to super administrators.
+- Permanent delete is limited to pending deleted records.
+- Approved records must be reverse-audited before deletion or permanent deletion.
+
+### Detail Entry
+
+- Details must come from inventory or corresponding source documents.
+- Users cannot manually type arbitrary source-less materials.
+- Other outbound and inventory-loss outbound must select from current warehouse stock with available quantity.
+- Purchase return, outsourcing issue, outsourcing return, production material issue, production repair, and finished-goods outbound must use their corresponding source.
+- Users can only modify allowed fields such as quantity, price, and remark.
+- Detail rows preserve stock dimensions: material code, warehouse, color, version, and location.
+- The same material in different warehouse, color, version, or location rows must be selected and deducted separately.
+- The server re-queries material master by material code when saving.
+- Existing `kcaa01` through `kcaa35` material snapshot fields should be written when present in the detail table.
+- Business input fields such as quantity, price, remark, and source detail identifier must not be overwritten by material master lookup.
+- Saving should reject missing or deleted material master records for new or edited documents.
+- Historical old data remains viewable even if the material is no longer valid.
+
+### Stock Rules
+
+- Stock is calculated in real time; first version does not introduce a new stock balance table.
+- Stock dimensions are material code, warehouse code, color, version, and location.
+- Empty location is grouped as an empty value.
+- First version does not introduce batch number.
+- Available stock equals approved inbound quantity minus approved outbound quantity minus pending outbound occupation.
+- Pending outbound occupation includes saved pending outbound orders.
+- Editing must exclude the current outbound order's own old details from occupation calculation.
+- Other outbound and inventory-loss outbound cannot exceed available stock.
+- Linked outbound types cannot exceed source available quantity or stock available quantity.
+- Server-side validation is required on save and audit.
+
+### Amount Rules
+
+- First version uses a unified amount calculation direction.
+- Main inputs are excluding-tax unit price and tax point.
+- Including-tax unit price, excluding-tax amount, and including-tax amount are calculated from quantity, excluding-tax unit price, and tax point.
+- If the user directly edits including-tax unit price, the page reverse-calculates excluding-tax unit price.
+- No-tax mode `in_tax=2` requires tax point `0`.
+- Price, tax, and amount fields are hidden when the user lacks price permission.
+- The server must prevent users without price permission from overriding price fields.
+
+## Outbound Type Rules
+
+- `0` 其他出库: no mandatory source document; details must be selected from current warehouse available stock; no source writeback.
+- `1` 采购退货: purchase order is required; supplier must match; details come from approved purchase and inbound-returnable source; approval writes purchase-order returned quantity.
+- `2` 外协领料: outsourcing order is required; outsourcing customer must match; details come from outsourcing source; approval writes outsourcing accumulated outbound quantity.
+- `3` 外协退货: outsourcing order is required; outsourcing customer must match; details come from outsourcing source; approval writes outsourcing accumulated outbound quantity.
+- `4` 生产领料: dispatch or production source is required according to the selected flow; PI, production workshop, and warehouse are required where applicable; approval writes production issued quantity.
+- `5` 生产返修: dispatch or production source is required; approval writes production repair quantity.
+- `6` 成品出库: sales order is required; customer must match; approval writes sales shipped quantity.
+- `7` 生产领料（计划外）: first version does not allow add or edit; historical records are read-only.
+- `8` 生产领料（补数）: first version does not allow add or edit; historical records are read-only.
+- `9` 盘亏出库: no mandatory source document; details must be selected from current warehouse available stock; no source writeback.
+- `10` 销售出库: first version does not allow add or edit; historical records are read-only.
+
+## Source Quantity And Writeback Rules
+
+- Linked source quantity must be strictly controlled.
+- Production material issue, production repair, and finished-goods outbound cannot exceed source required quantity minus already-out quantity minus pending occupation.
+- Purchase return available quantity is based on approved inbound quantity minus approved outbound quantity minus pending outbound occupation, and must also be capped by current warehouse available stock.
+- Other outbound and inventory-loss outbound use stock availability only and do not rely on source document quantity.
+- Purchase return approval writes `UB_ERP_Buy_order_list.kcak07`.
+- Outsourcing material issue and outsourcing return approval write `UB_ERP_assist_order_list.wxak08`.
+- In first version, `wxak08` remains compatible with old system semantics and is defined as outsourcing-related accumulated outbound quantity; first version does not split it into separate issued and returned fields.
+- Production material issue approval writes `UB_ERP_Dispatch_order_list.scak04`.
+- Production repair approval writes `UB_ERP_Dispatch_order_list.scak05`.
+- Finished-goods outbound approval writes `UB_ERP_Sales_order_list.xsak06`.
+- Reverse audit performs the opposite source writeback.
+- Reverse audit cannot reduce any source accumulated quantity below zero.
+- Purchase return, outsourcing issue, and outsourcing return use material unit conversion when writing source quantities where old-system unit conversion fields require it.
+- Production material issue, production repair, and finished-goods outbound use outbound quantity directly without material unit conversion.
+
+## Data And Field Decisions
+
+### Header Table
+
+Header table: `UB_ERP_Stocks_out`.
+
+- `systemcode`: generated unique internal code.
+- `kcap01`: outbound number generated by server on save.
+- `kcap02`: outbound business date.
+- `kcap03`: outbound type.
+- `kcap04`: related source order number.
+- `kcap05`: related party code when the type uses coded master data.
+- `kcap06`: warehouse code.
+- `ck`: warehouse name snapshot where present.
+- `kcap07`: handler.
+- `kcap08`: PI, PO, or external business reference where applicable.
+- `kehu`: related party name snapshot where present.
+- `in_tax`: tax mode.
+- `remark`: header remark.
+- `pass`: audit status, first version uses `0` pending and `1` approved.
+- `del`: soft delete flag.
+- `closed`: close flag; first version creates `0` and respects existing `1` as locked.
+- review flag field, if present in the table, represents financial review state and locks the document after review.
+- creator, edit, audit, review, delete, IP, and time fields are written from session and request context.
+
+### Detail Table
+
+Detail table: `UB_ERP_Stocks_out_list`.
+
+- `systemcode` or `GUID`: generated unique detail identity where present.
+- `kcaq01`: outbound number.
+- `kcap04`: source order number snapshot where present.
+- `kcaq02`: source detail identifier.
+- `kcaq03`: outbound quantity.
+- unit price, tax, and amount fields store excluding-tax and including-tax price/amount according to the amount rules.
+- `tax`: tax point.
+- `reference`, `Describe`, `remark`, and similar fields store business reference or row remark according to available columns.
+- `seq`: detail sort order where present.
+- `del`: soft delete flag.
+- `pass`: detail audit status synchronized with header where present.
+- `type`: detail or business type where present.
+- `kcaa01` through `kcaa35`: material snapshot fields copied from material master when present.
+- `kpname`, `location`, `sale_price`, `cost_price`, `Customer_Name`, and similar material snapshot columns are written when present and authorized by business rules.
+
+### Master Data Snapshots
+
+- Warehouse, supplier, outsourcing customer, production workshop, and customer names are refreshed by the server from coded master data during save.
+- Frontend-provided names are not trusted as final snapshots.
+- Other outbound may store free-text related party when it is intentionally not a coded master-data party.
+- Inventory-loss outbound does not require a related party in first version.
+
+## Permissions
+
+- `view`: list, detail, and print.
+- `add`: create.
+- `edit`: edit pending unreviewed records.
+- `audit`: audit and reverse audit.
+- `review`: financial review.
+- `delete`: soft delete and restore.
+- `price`: price, tax, and amount fields.
+- `export`: reserved for future real export.
+- Permanent delete is restricted to super administrators and is not opened by `delete` permission alone.
+
+## Implementation Decisions
+
+- Build a stock-out module parallel to the existing stock-in module shape.
+- Reuse the new-system list, embedded form, read-only modal, print page, recycle-bin, permission, operation-log, and audit-field patterns.
+- Keep stock availability as a real-time calculation in first version.
+- Treat pending outbound orders as stock occupation.
+- Keep audit as the boundary between occupation and formal outbound.
+- Do not support auto approval for outbound orders.
+- Keep financial review as a post-approval lock.
+- Use whole-batch detail rewrite for edit saves.
+- Validate source and stock availability on the server for save and audit.
+- Implement source writeback in audit and reverse audit inside the same business transaction as outbound status changes.
+- Keep SQL compatible with SQL Server 2008 R2.
+- Do not hard-code old incomplete type behavior for types `7`, `8`, and `10`; show historical data read-only.
+- Keep `wxak08` as the first-version compatibility field for outsourcing accumulated outbound quantity.
+
+Suggested deep modules:
+
+- Stock availability calculator: calculates approved inbound, approved outbound, pending outbound occupation, and current-document exclusion by stock dimension.
+- Source availability calculator: calculates source remaining quantity by outbound type and source order.
+- Source writeback service: applies and reverses source accumulated quantity changes by outbound type.
+- Stock-out amount calculator: centralizes tax mode, excluding-tax price, including-tax price, and amount calculations.
+- Stock-out permission policy: centralizes which actions are available for pending, approved, reviewed, deleted, closed, and unavailable historical records.
+- Stock-out material snapshot writer: refreshes material and master-data snapshots while preserving business input fields.
+
+## Testing Decisions
+
+- Tests should cover external behavior and business outcomes rather than internal SQL shape.
+- Stock availability tests should verify pending outbound occupation, approved outbound deduction, deletion release, and edit self-exclusion.
+- Audit tests should verify status changes, formal stock-out effect, source writeback, and operation locking.
+- Reverse-audit tests should verify return to pending occupation, reverse source writeback, and negative-quantity rejection.
+- Detail-save tests should verify source-less manual rows are rejected where not allowed, material snapshots are refreshed, and business input fields are preserved.
+- Permission tests should verify action availability for pending, approved, reviewed, deleted, closed, and unavailable historical records.
+- Price-permission tests should verify hidden price fields cannot be overwritten by unauthorized requests.
+- Amount-calculation tests should verify tax mode, no-tax mode, including-tax reverse calculation, and totals.
+- Print behavior should be checked for price-permission visibility and basic header/detail/totals content.
+- Source writeback tests should cover purchase return, outsourcing issue, outsourcing return, production material issue, production repair, and finished-goods outbound separately.
+
+## Out of Scope
+
+- Auto approval for outbound orders.
+- Audit rejection or audit-not-passed status.
+- Add or edit for types `7`, `8`, and `10`.
+- True Excel export.
+- Old IE print header/footer compatibility.
+- New stock balance table.
+- Batch number inventory management.
+- Separate outsourcing issued quantity and returned quantity fields replacing `wxak08`.
+- Close and reverse-close operations.
+- Complex old-system PI-based external picker behavior whose source code was incomplete.
+- New configuration page for special over-outbound or exception rules.
+
+## Further Notes
+
+- First version should preserve the new-system behavior patterns already confirmed for stock-in, purchase order, and dispatch order where they apply.
+- Outbound is intentionally different from inbound in one important point: pending inbound does not increase stock, but pending outbound does occupy available stock.
+- The PRD relies on the confirmed business glossary in `CONTEXT.md`; if old-system source review later proves a field has different semantics, update `CONTEXT.md` first and then revise this PRD.

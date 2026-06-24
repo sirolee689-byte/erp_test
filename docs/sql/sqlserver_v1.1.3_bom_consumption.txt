@@ -1,0 +1,21 @@
+/* v1.1.3：BOM 成本真实用量落库表 Bom_consumption（pq=成品编码，sid=主档 systemcode） */
+IF NOT EXISTS (
+  SELECT 1 FROM sys.objects
+  WHERE object_id = OBJECT_ID(N'[dbo].[Bom_consumption]') AND type IN (N'U')
+)
+BEGIN
+  CREATE TABLE [dbo].[Bom_consumption] (
+    [id] BIGINT IDENTITY(1, 1) NOT NULL,
+    [pq] NVARCHAR(300) NOT NULL,
+    [sid] NVARCHAR(100) NOT NULL,
+    [kcaa01] NVARCHAR(300) NOT NULL,
+    [kcaa02] NVARCHAR(300) NULL,
+    [kcaa03] NVARCHAR(300) NULL,
+    [kcaa04] NVARCHAR(80) NULL,
+    [sumay] DECIMAL(28, 10) NOT NULL CONSTRAINT [DF_Bom_consumption_sumay] DEFAULT (0),
+    [sumby] DECIMAL(28, 10) NOT NULL CONSTRAINT [DF_Bom_consumption_sumby] DEFAULT (0),
+    [kcac05] DECIMAL(28, 10) NOT NULL CONSTRAINT [DF_Bom_consumption_kcac05] DEFAULT (0),
+    CONSTRAINT [PK_Bom_consumption] PRIMARY KEY CLUSTERED ([id] ASC)
+  );
+  CREATE NONCLUSTERED INDEX [IX_Bom_consumption_pq_sid] ON [dbo].[Bom_consumption] ([pq] ASC, [sid] ASC);
+END

@@ -739,6 +739,42 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'DELETE' && /^\/api\/stock-in\/\d+(?:\/hard)?$/.test(path)) {
     return { menuPath: 'inventory/daily/stock-in', action: 'delete' }
   }
+  if (m === 'GET' && path === '/api/stock-out/list') {
+    return { menuPath: 'inventory/daily/stock-out', action: 'view' }
+  }
+  if (
+    m === 'GET' &&
+    [
+      '/api/stock-out/suggest-doc-no',
+      '/api/stock-out/warehouse-options',
+      '/api/stock-out/list-related-party-options',
+      '/api/stock-out/related-party-options',
+      '/api/stock-out/material-options',
+      '/api/stock-out/source-lines',
+      '/api/stock-out/print-data',
+      '/api/stock-out/inventory-summary',
+    ].includes(path)
+  ) {
+    return { menuPath: 'inventory/daily/stock-out', action: 'view' }
+  }
+  if (m === 'GET' && /^\/api\/stock-out\/\d+$/.test(path)) {
+    return { menuPath: 'inventory/daily/stock-out', action: 'view' }
+  }
+  if (m === 'POST' && path === '/api/stock-out') {
+    return { menuPath: 'inventory/daily/stock-out', action: 'add' }
+  }
+  if (m === 'PUT' && /^\/api\/stock-out\/\d+$/.test(path)) {
+    return { menuPath: 'inventory/daily/stock-out', action: 'edit' }
+  }
+  if (m === 'POST' && /^\/api\/stock-out\/\d+\/(?:audit|unaudit)$/.test(path)) {
+    return { menuPath: 'inventory/daily/stock-out', action: 'audit' }
+  }
+  if (m === 'POST' && /^\/api\/stock-out\/\d+\/restore$/.test(path)) {
+    return { menuPath: 'inventory/daily/stock-out', action: 'delete' }
+  }
+  if (m === 'DELETE' && /^\/api\/stock-out\/\d+(?:\/hard)?$/.test(path)) {
+    return { menuPath: 'inventory/daily/stock-out', action: 'delete' }
+  }
   if (m === 'POST' && path === '/api/sales-order') {
     return { menuPath: 'supply-chain/daily/sales-order', action: 'add' }
   }

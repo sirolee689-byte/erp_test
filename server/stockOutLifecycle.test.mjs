@@ -1,0 +1,67 @@
+import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
+import {
+  buildStockOutSourceWritebackSql,
+  buildStockOutLifecycleSetSql,
+  resolveStockOutLifecycleConfig,
+} from './stockOutLifecycle.js'
+
+describe('stockOutLifecycle', () => {
+  test('出库单新增后只能人工审核，已审核不能直接删除', () => {
+    const cfg = resolveStockOutLifecycleConfig('delete', { pass: '1', del: '0', closed: '0', outboundType: '1' })
+    assert.match(cfg.error, /先反审核/)
+  })
+
+  test('已结案单据不可操作', () => {
+    assert.match(resolveStockOutLifecycleConfig('audit', { pass: '0', closed: '1' }).error, /已结案/)
+  })
+
+  test('审核和反审核会同步主表与明细 pass', () => {
+    const headerCols = new Set(['pass', 'passuid', 'passuname', 'shtime'])
+    const lineCols = new Set(['pass', 'passuid', 'passuname'])
+    const audit = buildStockOutLifecycleSetSql({
+      config: { nextPass: '1' },
+      actor: { uid: 9, uname: 'admin' },
+      headerCols,
+      lineCols,
+    })
+    assert.match(audit.headerSetSql, /\[pass\]=N'1'/)
+    assert.match(audit.headerSetSql, /\[shtime\]=CONVERT/)
+    assert.match(audit.lineSetSql, /\[pass\]=N'1'/)
+
+    const unaudit = buildStockOutLifecycleSetSql({
+      config: { nextPass: '0' },
+      actor: { uid: 9, uname: 'admin' },
+      headerCols,
+      lineCols,
+    })
+    assert.match(unaudit.headerSetSql, /\[pass\]=N'0'/)
+    assert.match(unaudit.lineSetSql, /\[pass\]=N'0'/)
+  })
+
+  test('彻底删除只允许超级管理员', () => {
+    const normal = resolveStockOutLifecycleConfig('hard-delete', { pass: '0', del: '1', closed: '0' }, { isAdmin: false })
+    assert.match(normal.error, /超级管理员/)
+    const admin = resolveStockOutLifecycleConfig('hard-delete', { pass: '0', del: '1', closed: '0' }, { isAdmin: true })
+    assert.equal(admin.hardDelete, true)
+  })
+  test('source writeback SQL adds on audit and floors at zero on unaudit', () => {
+    const auditSql = buildStockOutSourceWritebackSql({
+      tableName: 'UB_ERP_Buy_order_list',
+      writebackField: 'kcak07',
+      keyColumn: 'systemcode',
+      direction: 1,
+    })
+    assert.match(auditSql, /UPDATE dbo\.\[UB_ERP_Buy_order_list\]/)
+    assert.match(auditSql, /\[kcak07\] = ISNULL\(\[kcak07\], 0\) \+ @delta/)
+    assert.match(auditSql, /\[systemcode\] = @sourceLineCode/)
+
+    const unauditSql = buildStockOutSourceWritebackSql({
+      tableName: 'UB_ERP_Buy_order_list',
+      writebackField: 'kcak07',
+      keyColumn: 'systemcode',
+      direction: -1,
+    })
+    assert.match(unauditSql, /CASE WHEN ISNULL\(\[kcak07\], 0\) - @delta < 0 THEN 0/)
+  })
+})

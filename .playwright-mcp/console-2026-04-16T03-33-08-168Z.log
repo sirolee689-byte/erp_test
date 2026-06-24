@@ -1,2 +1,0 @@
-[      11ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3001/api/hr/staff/debug-code?name=%E8%BF%90%E7%BB%B4%E6%B5%8B%E8%AF%95&card_number=1234567890:0
-[      36ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3001/favicon.ico:0

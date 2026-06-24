@@ -1107,6 +1107,14 @@ function isStockInBusinessLoggedWriteRoute(method, path) {
   return false
 }
 
+function isStockOutBusinessLoggedWriteRoute(method, path) {
+  if (method === 'POST' && path === '/api/stock-out') return true
+  if (method === 'PUT' && /^\/api\/stock-out\/\d+$/.test(path)) return true
+  if (method === 'POST' && /^\/api\/stock-out\/\d+\/(audit|unaudit|restore)$/.test(path)) return true
+  if (method === 'DELETE' && /^\/api\/stock-out\/\d+(\/hard)?$/.test(path)) return true
+  return false
+}
+
 /**
  * @param {{
  *   getCurrentUserFromReq: (req: import('express').Request) => any | null,
@@ -1139,6 +1147,7 @@ export function createOperationAuditMiddleware(deps) {
         if (isAssistOrderBusinessLoggedWriteRoute(method, path)) return
         if (isDispatchOrderBusinessLoggedWriteRoute(method, path)) return
         if (isStockInBusinessLoggedWriteRoute(method, path)) return
+        if (isStockOutBusinessLoggedWriteRoute(method, path)) return
 
         const user = getCurrentUserFromReq(req)
         if (!user) return

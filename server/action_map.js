@@ -22,6 +22,23 @@ export const DEFAULT_UNKNOWN_TARGET_TABLE = 'ERP'
  * @type {OperationAuditRouteRule[]}
  */
 export const OPERATION_AUDIT_ROUTE_RULES = [
+  { method: 'GET', path: '/api/stock-out/list', action: '查询出库单列表', targetTable: 'UB_ERP_Stocks_out' },
+  { method: 'GET', path: '/api/stock-out/suggest-doc-no', action: '获取出库单建议单号', targetTable: 'UB_ERP_Stocks_out' },
+  { method: 'GET', path: '/api/stock-out/warehouse-options', action: '查询出库仓库候选', targetTable: 'UB_ERP_Stocks_Warehouse' },
+  { method: 'GET', path: '/api/stock-out/list-related-party-options', action: '查询出库列表供应商候选', targetTable: 'UB_ERP_System_supplier' },
+  { method: 'GET', path: '/api/stock-out/related-party-options', action: '查询出库关联方候选', targetTable: 'UB_ERP_Stocks_out' },
+  { method: 'GET', path: '/api/stock-out/material-options', action: '查询出库可选库存物料', targetTable: 'UB_ERP_Stocks_Storage_list' },
+  { method: 'GET', path: '/api/stock-out/source-lines', action: '查询出库来源明细', targetTable: 'UB_ERP_Stocks_out' },
+  { method: 'GET', path: '/api/stock-out/print-data', action: '打印出库单', targetTable: 'UB_ERP_Stocks_out' },
+  { method: 'GET', path: '/api/stock-out/inventory-summary', action: '查询出库库存统计', targetTable: 'UB_ERP_Stocks_out_list' },
+  { method: 'GET', path: /^\/api\/stock-out\/\d+$/, action: '查看出库单', targetTable: 'UB_ERP_Stocks_out' },
+  { method: 'POST', path: '/api/stock-out', action: '新增出库单', targetTable: 'UB_ERP_Stocks_out' },
+  { method: 'PUT', path: /^\/api\/stock-out\/\d+$/, action: '修改出库单', targetTable: 'UB_ERP_Stocks_out' },
+  { method: 'POST', path: /^\/api\/stock-out\/\d+\/audit$/, action: '审核出库单', targetTable: 'UB_ERP_Stocks_out' },
+  { method: 'POST', path: /^\/api\/stock-out\/\d+\/unaudit$/, action: '反审核出库单', targetTable: 'UB_ERP_Stocks_out' },
+  { method: 'POST', path: /^\/api\/stock-out\/\d+\/restore$/, action: '恢复出库单', targetTable: 'UB_ERP_Stocks_out' },
+  { method: 'DELETE', path: /^\/api\/stock-out\/\d+\/hard$/, action: '彻底删除出库单', targetTable: 'UB_ERP_Stocks_out' },
+  { method: 'DELETE', path: /^\/api\/stock-out\/\d+$/, action: '删除出库单', targetTable: 'UB_ERP_Stocks_out' },
   { method: 'GET', path: '/api/stock-in/list', action: '查询入库单列表', targetTable: 'UB_ERP_Stocks_Storage' },
   { method: 'GET', path: '/api/stock-in/suggest-doc-no', action: '获取入库单建议单号', targetTable: 'UB_ERP_Stocks_Storage' },
   { method: 'GET', path: '/api/stock-in/warehouse-options', action: '查询入库仓库候选', targetTable: 'UB_ERP_Stocks_Warehouse' },
