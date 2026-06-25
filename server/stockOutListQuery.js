@@ -29,8 +29,8 @@ function normalizeOutboundType(v) {
 
 export function parseStockOutListQuery(query) {
   const page = Math.max(1, Number(query?.page ?? 1) || 1)
-  const pageSizeRaw = Number(query?.pageSize ?? 20) || 20
-  const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+  const pageSizeRaw = Number(query?.pageSize ?? 10) || 10
+  const pageSize = Math.min(200, Math.max(1, pageSizeRaw))
   const recycled = flag(query?.recycled)
   const showUnaudited = flag(query?.showUnaudited)
   return {

@@ -1,5 +1,6 @@
 import { sql } from './db.js'
 import { getActorAuditTripletFromReq } from './businessAuditFields.js'
+import { resolveSysUserIsAdminByUserId } from './sysUsersDb.js'
 import {
   buildStockOutListPagedSql,
   buildStockOutListWhereSql,
@@ -9,13 +10,28 @@ import { suggestStockOutNo, createStockOut, updateStockOut } from './stockOutSav
 import { applyStockOutLifecycleAction } from './stockOutLifecycle.js'
 import { buildStockOutAvailabilitySql } from './stockOutAvailability.js'
 import { queryStockOutSourceLines } from './stockOutSourceLines.js'
+import { queryStockOutExpandLines } from './stockOutExpandLines.js'
+import {
+  fetchStockOutOtherBatchLines,
+  fetchStockOutOtherBatchPrices,
+} from './stockOutOtherBatchAdd.js'
+import { fetchStockOutPurchaseReturnBatchLines } from './stockOutPurchaseReturnBatchAdd.js'
+import { fetchStockOutAssistIssueBatchLines } from './stockOutAssistIssueBatchAdd.js'
+import { safeDecimalExpr } from './buyOrderSqlSafe.js'
 
 const HEADER_FROM = 'dbo.[UB_ERP_Stocks_out]'
-const LINE_FROM = 'dbo.[UB_ERP_Stocks_out_list]'
 const WAREHOUSE_FROM = 'dbo.[UB_ERP_Stocks_Warehouse]'
 const SUPPLIER_FROM = 'dbo.[UB_ERP_System_supplier]'
 const WORKSHOP_FROM = 'dbo.[UB_ERP_Stocks_workshop]'
 const CUSTOMER_FROM = 'dbo.[UB_ERP_Customer]'
+const SALES_CUSTOMER_FROM = 'dbo.[UB_ERP_System_sales_customer]'
+const BUY_ORDER_FROM = 'dbo.[UB_ERP_Buy_order]'
+const BUY_ORDER_LINE_FROM = 'dbo.[UB_ERP_Buy_order_list]'
+const ASSIST_ORDER_FROM = 'dbo.[UB_ERP_assist_order]'
+const ASSIST_ORDER_LINE_FROM = 'dbo.[UB_ERP_assist_order_list]'
+const CURRENCY_FROM = 'dbo.[UB_ERP_Finance_currency]'
+const STOCK_IN_FROM = 'dbo.[UB_ERP_Stocks_Storage]'
+const STOCK_IN_LINE_FROM = 'dbo.[UB_ERP_Stocks_Storage_list]'
 
 function text(v) {
   return String(v ?? '').trim()
@@ -34,15 +50,19 @@ function serializeRow(row = {}) {
   return { ...row }
 }
 
+function parsePageParams(query = {}, { defaultPageSize = 10, maxPageSize = 200 } = {}) {
+  const page = Math.max(1, Number.parseInt(query.page, 10) || 1)
+  const pageSize = Math.min(maxPageSize, Math.max(1, Number.parseInt(query.pageSize, 10) || defaultPageSize))
+  return { page, pageSize, startRow: (page - 1) * pageSize + 1, endRow: page * pageSize }
+}
+
 async function getActor(pool, req) {
   const triplet = await getActorAuditTripletFromReq(pool, req)
-  return {
-    uid: triplet.uid,
-    uname: triplet.uname,
-    utruename: triplet.utruename,
-    userName: req?.user?.userName,
-    isAdmin: req?.user?.isAdmin === true || req?.user?.is_admin === 1 || req?.user?.is_admin === '1',
-  }
+  const base = { ...(req.user ?? req.session?.user ?? {}), ...triplet }
+  // 彻底删除等门禁读 UB_ERP_User.is_admin；登录令牌未必带该字段，按主键实时查库
+  const uid = triplet.uidInt ?? base.userId ?? base.UserID
+  const isAdmin = await resolveSysUserIsAdminByUserId(pool, uid)
+  return { ...base, is_admin: isAdmin ? 1 : 0, isAdmin }
 }
 
 function sendSave(res, result, fallback = '保存成功') {
@@ -51,6 +71,248 @@ function sendSave(res, result, fallback = '保存成功') {
     return
   }
   res.json({ code: 200, msg: result.msg || fallback, data: result })
+}
+
+/** 采购退货选单：供应商筛选（主表 h） */
+function buildPurchaseReturnSourceSupplierWhere(hasSupplier) {
+  if (!hasSupplier) return ''
+  return `AND (
+    LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcaj05], N'')))) LIKE @supplier
+    OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kehu], N'')))) LIKE @supplier
+  )`
+}
+
+/** 采购退货选单：关键字（主表 h + 明细 l，须在 JOIN 后使用） */
+function buildPurchaseReturnSourceKeywordWhere(hasKeyword) {
+  if (!hasKeyword) return ''
+  return `AND (
+    LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcaj01], N'')))) LIKE @keyword
+    OR LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcaj02], N'')))) LIKE @keyword
+    OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kcaj03], N'')))) LIKE @keyword
+    OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kcaj04], N'')))) LIKE @keyword
+    OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kcaj05], N'')))) LIKE @keyword
+    OR LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[kcaj06], N'')))) LIKE @keyword
+    OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kcaj08], N'')))) LIKE @keyword
+    OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[rmb], N'')))) LIKE @keyword
+    OR LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa01], N'')))) LIKE @keyword
+    OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa02], N'')))) LIKE @keyword
+    OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa03], N'')))) LIKE @keyword
+  )`
+}
+
+/** 采购退货选单：主从合并 CTE（COUNT 与列表共用，保证 total 与分页行数一致） */
+function buildPurchaseReturnSourceCteSql(supplierWhere = '', keywordWhere = '') {
+  return `
+    WITH source AS (
+      SELECT
+        h.[id] AS headerId,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcaj01], N'')))) AS sourceOrderNo,
+        h.[kcaj02] AS buyDate,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcaj05], N'')))) AS supplierCode,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kehu], N'')))) AS supplierName,
+        LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(h.[kcaj06], N'')))) AS taxIncluded,
+        LTRIM(RTRIM(CONVERT(nvarchar(1000), ISNULL(h.[remark], N'')))) AS remark,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[systemcode], N'')))) AS sourceSystemcode,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[rmb], N'')))) AS currencyName,
+        ISNULL(NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(h.[rmb_hl], N'')))), N''), N'1') AS exchangeRate,
+        l.[id] AS lineId,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcak02], ISNULL(l.[systemcode], N'')))) ) AS sourceLineCode,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa01], N'')))) AS kcaa01,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa02], N'')))) AS kcaa02,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa03], N'')))) AS kcaa03,
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[kcaa04], N'')))) AS kcaa04,
+        ${safeDecimalExpr('l', 'kcak03')} AS orderQty,
+        ${safeDecimalExpr('l', 'kcak04')} AS kcak04,
+        ${safeDecimalExpr('l', 'kcak041')} AS kcak041,
+        ${safeDecimalExpr('l', 'kcak05')} AS kcak05,
+        ${safeDecimalExpr('l', 'kcak051')} AS kcak051,
+        ${safeDecimalExpr('l', 'tax')} AS tax,
+        ISNULL(${safeDecimalExpr('l', 'kcak07')}, 0) AS outQty,
+        CASE WHEN ISNULL(${safeDecimalExpr('l', 'kcak03')}, 0) - ISNULL(${safeDecimalExpr('l', 'kcak07')}, 0) > 0 THEN N'有' ELSE N'无' END AS hasConvertData,
+        ROW_NUMBER() OVER (PARTITION BY h.[kcaj01] ORDER BY ISNULL(l.[seq], 0), l.[id]) AS groupRowNo,
+        ROW_NUMBER() OVER (
+          ORDER BY
+            CASE WHEN ISNULL(LTRIM(RTRIM(CONVERT(nvarchar(50), h.[addtime]))), N'') = N'' THEN 1 ELSE 0 END ASC,
+            LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(h.[addtime], N'')))) DESC,
+            h.[id] DESC,
+            ISNULL(l.[seq], 0),
+            l.[id]
+        ) AS rn
+      FROM ${BUY_ORDER_FROM} AS h
+      INNER JOIN ${BUY_ORDER_LINE_FROM} AS l
+        ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcak01], N''))))
+         = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcaj01], N''))))
+      WHERE (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
+        AND LTRIM(RTRIM(ISNULL(h.[pass], N''))) = N'1'
+        AND LTRIM(RTRIM(ISNULL(h.[closed], N'0'))) = N'0'
+        AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
+        AND LTRIM(RTRIM(ISNULL(l.[pass], N''))) = N'1'
+        ${supplierWhere}
+        ${keywordWhere}
+    )
+  `
+}
+
+function buildPurchaseReturnSourceCountSql(supplierWhere = '', keywordWhere = '') {
+  return `${buildPurchaseReturnSourceCteSql(supplierWhere, keywordWhere)}
+    SELECT COUNT(1) AS total
+    FROM source
+  `
+}
+
+function buildPurchaseReturnSourceListSql(supplierWhere = '', keywordWhere = '') {
+  return `${buildPurchaseReturnSourceCteSql(supplierWhere, keywordWhere)}
+    SELECT *
+    FROM source
+    WHERE rn BETWEEN @startRow AND @endRow
+    ORDER BY rn ASC
+  `
+}
+
+export function __buildPurchaseReturnSourceCountSqlForTest(supplierWhere, keywordWhere) {
+  return buildPurchaseReturnSourceCountSql(supplierWhere, keywordWhere)
+}
+
+export function __buildPurchaseReturnSourceListSqlForTest(supplierWhere, keywordWhere) {
+  return buildPurchaseReturnSourceListSql(supplierWhere, keywordWhere)
+}
+
+/** 外协领料选单：关键字只搜 PI、外协商、外协单号 */
+function buildAssistIssueSourceKeywordWhere(hasKeyword) {
+  if (!hasKeyword) return ''
+  return `AND (
+    LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj01], N'')))) LIKE @keyword
+    OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[wxaj04], N'')))) LIKE @keyword
+    OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[wxaj05], N'')))) LIKE @keyword
+    OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kehu], N'')))) LIKE @keyword
+  )`
+}
+
+/** 外协明细换算后剩余量 SQL 片段（用于过滤可出明细） */
+function assistLineRemainExpr() {
+  const qty = safeDecimalExpr('l', 'wxak03')
+  const used = safeDecimalExpr('l', 'wxak08')
+  const adjust = safeDecimalExpr('l', 'wxak07')
+  const ratio = safeDecimalExpr('l', 'kcaa26')
+  const dir = `LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(l.[kcaa27], N''))))`
+  const ksum = `
+    CASE
+      WHEN ${ratio} > 0 AND ${dir} = N'1' THEN ${qty} / ${ratio}
+      WHEN ${ratio} > 0 AND ${dir} = N'0' THEN ${qty} * ${ratio}
+      ELSE ${qty}
+    END`
+  return `(${ksum}) - ${used} + ISNULL(${adjust}, 0)`
+}
+
+/** 外协明细已审外协入库数量（选单展示用） */
+function assistLineInboundQtySubquery() {
+  return `ISNULL((
+    SELECT SUM(${safeDecimalExpr('sl', 'kcao03')})
+    FROM ${STOCK_IN_FROM} AS sh
+    INNER JOIN ${STOCK_IN_LINE_FROM} AS sl
+      ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(sl.[kcao01], N''))))
+       = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(sh.[kcan01], N''))))
+    WHERE (ISNULL(sh.[del], N'') = N'' OR sh.[del] = N'0')
+      AND (ISNULL(sl.[del], N'') = N'' OR sl.[del] = N'0')
+      AND LTRIM(RTRIM(ISNULL(sh.[pass], N''))) = N'1'
+      AND LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(sh.[kcan03], N'')))) = N'2'
+      AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(sh.[kcan04], N''))))
+        = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj01], N''))))
+      AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(sl.[kcao02], N''))))
+        = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[wxak02], ISNULL(l.[systemcode], N'')))))
+  ), 0)`
+}
+
+function buildAssistIssueSourceCteSql(supplierWhere = '', keywordWhere = '') {
+  const remainExpr = assistLineRemainExpr()
+  return `
+    WITH source AS (
+      SELECT
+        h.[id] AS headerId,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj01], N'')))) AS sourceOrderNo,
+        h.[wxaj02] AS assistDate,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[wxaj04], N'')))) AS referenceNo,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj05], N'')))) AS supplierCode,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kehu], N'')))) AS supplierName,
+        LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(h.[wxaj06], N'')))) AS taxIncluded,
+        LTRIM(RTRIM(CONVERT(nvarchar(1000), ISNULL(h.[remark], N'')))) AS remark,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[systemcode], N'')))) AS sourceSystemcode,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[rmb], N'')))) AS currencyName,
+        ISNULL(NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(c.[rate], ISNULL(h.[rmb_hl], N''))))), N''), N'1') AS exchangeRate,
+        l.[id] AS lineId,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[wxak02], ISNULL(l.[systemcode], N''))))) AS sourceLineCode,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa01], N'')))) AS kcaa01,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa02], N'')))) AS kcaa02,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa03], N'')))) AS kcaa03,
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[kcaa04], N'')))) AS kcaa04,
+        ${safeDecimalExpr('l', 'wxak03')} AS orderQty,
+        ${safeDecimalExpr('l', 'wxak04')} AS wxak04,
+        ${safeDecimalExpr('l', 'wxak041')} AS wxak041,
+        ${safeDecimalExpr('l', 'wxak05')} AS wxak05,
+        ${safeDecimalExpr('l', 'wxak051')} AS wxak051,
+        ${safeDecimalExpr('l', 'Tax')} AS tax,
+        ISNULL(${safeDecimalExpr('l', 'wxak08')}, 0) AS outQty,
+        ${assistLineInboundQtySubquery()} AS inboundQty,
+        CASE
+          WHEN LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa25], N'')))) <> N''
+            AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa25], N'')))) <> LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa04], N''))))
+          THEN N'有'
+          ELSE N'无'
+        END AS hasConvertData,
+        ROW_NUMBER() OVER (PARTITION BY h.[wxaj01] ORDER BY ISNULL(l.[seq], 0), l.[id]) AS groupRowNo,
+        ROW_NUMBER() OVER (
+          ORDER BY
+            CASE WHEN ISNULL(LTRIM(RTRIM(CONVERT(nvarchar(50), h.[addtime]))), N'') = N'' THEN 1 ELSE 0 END ASC,
+            LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(h.[addtime], N'')))) DESC,
+            h.[id] DESC,
+            ISNULL(l.[seq], 0),
+            l.[id]
+        ) AS rn
+      FROM ${ASSIST_ORDER_FROM} AS h
+      INNER JOIN ${ASSIST_ORDER_LINE_FROM} AS l
+        ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[wxak01], N''))))
+         = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj01], N''))))
+      LEFT JOIN ${CURRENCY_FROM} AS c
+        ON LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.[code], N''))))
+         = LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[wxaj07], N''))))
+      WHERE (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
+        AND LTRIM(RTRIM(ISNULL(h.[pass], N''))) = N'1'
+        AND LTRIM(RTRIM(ISNULL(h.[closed], N'0'))) = N'0'
+        AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
+        AND LTRIM(RTRIM(ISNULL(l.[pass], N''))) = N'1'
+        AND ${remainExpr} > 0
+        ${supplierWhere}
+        ${keywordWhere}
+    )
+  `
+}
+
+function buildAssistIssueSourceCountSql(supplierWhere = '', keywordWhere = '') {
+  return `${buildAssistIssueSourceCteSql(supplierWhere, keywordWhere)}
+    SELECT COUNT(1) AS total
+    FROM source
+  `
+}
+
+function buildAssistIssueSourceListSql(supplierWhere = '', keywordWhere = '') {
+  return `${buildAssistIssueSourceCteSql(supplierWhere, keywordWhere)}
+    SELECT *
+    FROM source
+    WHERE rn BETWEEN @startRow AND @endRow
+    ORDER BY rn ASC
+  `
+}
+
+export function __buildAssistIssueSourceCountSqlForTest(supplierWhere, keywordWhere) {
+  return buildAssistIssueSourceCountSql(supplierWhere, keywordWhere)
+}
+
+export function __buildAssistIssueSourceListSqlForTest(supplierWhere, keywordWhere) {
+  return buildAssistIssueSourceListSql(supplierWhere, keywordWhere)
+}
+
+export function __buildAssistIssueSourceKeywordWhereForTest(hasKeyword) {
+  return buildAssistIssueSourceKeywordWhere(hasKeyword)
 }
 
 export function registerStockOutRoutes(app, deps) {
@@ -140,11 +402,16 @@ export function registerStockOutRoutes(app, deps) {
       if (keyword) dbReq.input('kw', sql.NVarChar(400), `%${keyword}%`)
       let sqlText = ''
       if (['1', '2', '3'].includes(type)) {
+        const assistFilter = type === '2'
+          ? `AND LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL([s_lb], N'')))) IN (N'外协', N'共用')`
+          : ''
         sqlText = `
           SELECT TOP 100 LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([s_code], N'')))) AS code,
                  LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(NULLIF([s_name], N''), [name])))) AS name
           FROM ${SUPPLIER_FROM}
           WHERE (ISNULL([del], N'') = N'' OR [del] = N'0')
+            AND LTRIM(RTRIM(ISNULL([pass], N''))) = N'1'
+            ${assistFilter}
           ${keyword ? `AND (LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([s_code], N'')))) LIKE @kw OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(NULLIF([s_name], N''), [name])))) LIKE @kw)` : ''}
           ORDER BY [s_code] ASC
         `
@@ -156,6 +423,23 @@ export function registerStockOutRoutes(app, deps) {
           WHERE (ISNULL([del], N'') = N'' OR [del] = N'0')
           ${keyword ? `AND (LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([code], N'')))) LIKE @kw OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([name], N'')))) LIKE @kw)` : ''}
           ORDER BY [code] ASC
+        `
+      } else if (type === '0') {
+        // 其他出库：关联单位实际为销售客户（非供应商）
+        sqlText = `
+          SELECT TOP 100
+            LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([s_code], N'')))) AS code,
+            LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([s_name], N'')))) AS name
+          FROM ${SALES_CUSTOMER_FROM}
+          WHERE (ISNULL([del], N'') = N'' OR [del] = N'0')
+            AND LTRIM(RTRIM(ISNULL([pass], N''))) = N'1'
+          ${keyword
+    ? `AND (
+            LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([s_code], N'')))) LIKE @kw
+            OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([s_name], N'')))) LIKE @kw
+          )`
+    : ''}
+          ORDER BY [s_code] ASC
         `
       } else {
         sqlText = `
@@ -194,6 +478,159 @@ export function registerStockOutRoutes(app, deps) {
       res.json({ code: 200, msg: 'success', data: { list: r.recordset ?? [] } })
     } catch (err) {
       res.status(500).json({ code: 500, msg: `读取可出库存失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  /** 采购退货：关联采购单分页（主从同屏，单号首行显示“关联选择”） */
+  app.get('/api/stock-out/purchase-return-source-page', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const supplier = text(req.query?.supplier)
+      const keyword = text(req.query?.keyword)
+      const { page, pageSize, startRow, endRow } = parsePageParams(req.query ?? {}, { defaultPageSize: 10, maxPageSize: 200 })
+      const countReq = pool.request()
+      const listReq = pool.request()
+        .input('startRow', sql.Int, startRow)
+        .input('endRow', sql.Int, endRow)
+      const supplierWhere = buildPurchaseReturnSourceSupplierWhere(Boolean(supplier))
+      const keywordWhere = buildPurchaseReturnSourceKeywordWhere(Boolean(keyword))
+      if (supplier) {
+        countReq.input('supplier', sql.NVarChar(400), `%${supplier}%`)
+        listReq.input('supplier', sql.NVarChar(400), `%${supplier}%`)
+      }
+      if (keyword) {
+        countReq.input('keyword', sql.NVarChar(400), `%${keyword}%`)
+        listReq.input('keyword', sql.NVarChar(400), `%${keyword}%`)
+      }
+
+      const countResult = await countReq.query(buildPurchaseReturnSourceCountSql(supplierWhere, keywordWhere))
+      const total = Number(countResult.recordset?.[0]?.total ?? 0)
+      const listResult = await listReq.query(buildPurchaseReturnSourceListSql(supplierWhere, keywordWhere))
+      res.json({ code: 200, msg: 'success', data: { page, pageSize, total, list: listResult.recordset ?? [] } })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取采购退货关联采购单失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  /** 采购退货批量添加：本仓入库/退货出库/仓库库存计算可退数量 */
+  app.get('/api/stock-out/purchase-return-batch-lines', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const result = await fetchStockOutPurchaseReturnBatchLines(pool, req.query ?? {})
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({
+        code: 200,
+        msg: 'success',
+        data: {
+          page: result.page,
+          pageSize: result.pageSize,
+          total: result.total,
+          sourceOrderNo: result.sourceOrderNo,
+          supplierCode: result.supplierCode,
+          warehouseCode: result.warehouseCode,
+          list: result.list ?? [],
+        },
+      })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取采购退货批量明细失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  /** 外协领料：关联外协单分页（主从同屏） */
+  app.get('/api/stock-out/assist-issue-source-page', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const keyword = text(req.query?.keyword)
+      const { page, pageSize, startRow, endRow } = parsePageParams(req.query ?? {}, { defaultPageSize: 10, maxPageSize: 200 })
+      const countReq = pool.request()
+      const listReq = pool.request()
+        .input('startRow', sql.Int, startRow)
+        .input('endRow', sql.Int, endRow)
+      const keywordWhere = buildAssistIssueSourceKeywordWhere(Boolean(keyword))
+      if (keyword) {
+        countReq.input('keyword', sql.NVarChar(400), `%${keyword}%`)
+        listReq.input('keyword', sql.NVarChar(400), `%${keyword}%`)
+      }
+
+      const countResult = await countReq.query(buildAssistIssueSourceCountSql('', keywordWhere))
+      const total = Number(countResult.recordset?.[0]?.total ?? 0)
+      const listResult = await listReq.query(buildAssistIssueSourceListSql('', keywordWhere))
+      res.json({ code: 200, msg: 'success', data: { page, pageSize, total, list: listResult.recordset ?? [] } })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取外协领料关联外协单失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  /** 外协领料批量添加：来源剩余 + 仓库库存计算可领数量 */
+  app.get('/api/stock-out/assist-issue-batch-lines', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const result = await fetchStockOutAssistIssueBatchLines(pool, req.query ?? {})
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({
+        code: 200,
+        msg: 'success',
+        data: {
+          page: result.page,
+          pageSize: result.pageSize,
+          total: result.total,
+          sourceOrderNo: result.sourceOrderNo,
+          supplierCode: result.supplierCode,
+          warehouseCode: result.warehouseCode,
+          piNo: result.piNo,
+          list: result.list ?? [],
+        },
+      })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取外协领料批量明细失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  /** 其他出库批量选材：按仓库 + kcaa01 汇总库存分页 */
+  app.get('/api/stock-out/other-batch-lines', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const result = await fetchStockOutOtherBatchLines(pool, req.query ?? {})
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({
+        code: 200,
+        msg: 'success',
+        data: {
+          list: result.list ?? [],
+          total: result.total ?? 0,
+          page: result.page,
+          pageSize: result.pageSize,
+          warehouseCode: result.warehouseCode,
+        },
+      })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取其他出库批量选材失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  /** 其他出库批量选材：按物料取最近已审核且已复核入库价 */
+  app.post('/api/stock-out/other-batch-prices', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const warehouseCode = text(req.body?.warehouseCode)
+      const materialCodes = Array.isArray(req.body?.materialCodes) ? req.body.materialCodes : []
+      const result = await fetchStockOutOtherBatchPrices(pool, { warehouseCode, materialCodes })
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({ code: 200, msg: 'success', data: { priceMap: result.priceMap ?? {} } })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取批量选材价格失败：${String(err?.message ?? err)}`, data: null })
     }
   })
 
@@ -243,13 +680,8 @@ export function registerStockOutRoutes(app, deps) {
       const header = headerR.recordset?.[0]
       if (!header) return res.status(404).json({ code: 404, msg: '出库单不存在', data: null })
       const outboundNo = text(header.kcap01)
-      const lineR = await pool.request().input('outboundNo', sql.NVarChar(200), outboundNo).query(`
-        SELECT *
-        FROM ${LINE_FROM}
-        WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([kcaq01], N'')))) = @outboundNo
-        ORDER BY ISNULL([seq], [id]), [id]
-      `)
-      res.json({ code: 200, msg: 'success', data: { header: serializeRow(header), lines: lineR.recordset ?? [], forPrint } })
+      const lines = await queryStockOutExpandLines(pool, outboundNo)
+      res.json({ code: 200, msg: 'success', data: { header: serializeRow(header), lines, forPrint } })
     } catch (err) {
       res.status(500).json({ code: 500, msg: `读取出库单详情失败：${String(err?.message ?? err)}`, data: null })
     }

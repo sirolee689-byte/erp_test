@@ -33,9 +33,8 @@ server/tmp/
 logs/
 e2e-output/
 
-# --- CodeGraph（本地索引与安装器生成的 Agent 规则，勿提交）---
+# --- CodeGraph（本地索引；MCP 配置含路径，勿提交）---
 .codegraph/
-.cursor/rules/codegraph.mdc
 
 # --- 开发/测试本地产物（勿提交）---
 .playwright-mcp/

@@ -1,10 +1,12 @@
 ---
 name: webapp-testing
-description: Toolkit for interacting with and testing local web applications using Playwright. Supports verifying frontend functionality, debugging UI behavior, capturing browser screenshots, and viewing browser logs.
+description: "DEPRECATED for daily ERP UI verification — use IronBee DevTools (.cursor/rules/ironbee-devtools-use.mdc) instead. Only for standalone Python Playwright scripts when IronBee is unavailable."
 license: Complete terms in LICENSE.txt
 ---
 
 # Web Application Testing
+
+> **本仓库日常验收不用本 Skill。** 页面点击、截图、Console 请用 **IronBee DevTools**（见 `.cursor/rules/ironbee-devtools-use.mdc`）。下列内容仅作无 IronBee 时的 Python Playwright 黑盒脚本参考。
 
 To test local web applications, write native Python Playwright scripts.
 

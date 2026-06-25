@@ -63,7 +63,75 @@
       <el-alert v-if="showRecycle" type="info" show-icon title="当前是回收站：只处理已软删除的待审核出库单。" class="stock-alert" />
       <el-alert v-else-if="showUnaudited" type="warning" show-icon title="当前显示待审核出库单，可编辑、审核或删除。" class="stock-alert" />
 
-      <el-table v-loading="loading" :data="list" border stripe row-key="id" class="erp-list-table" :empty-text="loading ? '加载中' : '暂无数据'">
+      <el-table
+        ref="listTableRef"
+        v-loading="loading"
+        v-erp-list-h-scroll
+        :data="list"
+        border
+        stripe
+        row-key="id"
+        class="erp-list-table"
+        :expand-row-keys="expandedRowKeys"
+        :empty-text="loading ? '加载中' : '暂无数据'"
+        @expand-change="onExpandChange"
+        @row-click="onListRowClick"
+      >
+        <el-table-column type="expand" width="48">
+          <template #default="{ row }">
+            <div v-loading="row.__linesLoading" class="stock-expand-inner" @click.stop>
+              <el-table
+                v-if="(row.__lines || []).length"
+                :data="row.__lines || []"
+                border
+                stripe
+                size="small"
+                class="stock-expand-lines-table"
+                show-summary
+                :summary-method="(param) => expandLineSummaryMethod(row, param)"
+              >
+                <el-table-column label="序号" type="index" width="60" align="center" />
+                <el-table-column label="材料编码" prop="kcaa01" min-width="140" show-overflow-tooltip />
+                <el-table-column label="材料名称" prop="kcaa02" min-width="160" show-overflow-tooltip />
+                <el-table-column label="规格" prop="kcaa03" min-width="140" show-overflow-tooltip />
+                <el-table-column label="颜色" min-width="120" show-overflow-tooltip>
+                  <template #default="{ row: line }">{{ formatCell(line.colorText || line.kcaa11) }}</template>
+                </el-table-column>
+                <el-table-column label="单位" prop="kcaa04" width="80" />
+                <el-table-column label="数量" prop="kcaq03" width="110" align="right">
+                  <template #default="{ row: line }">{{ formatExpandDecimal(line.kcaq03) }}</template>
+                </el-table-column>
+                <template v-if="hasPricePermission">
+                  <el-table-column label="单价" prop="kcaq04" width="110" align="right">
+                    <template #default="{ row: line }">{{ formatExpandDecimal(line.kcaq04) }}</template>
+                  </el-table-column>
+                  <el-table-column label="单价（含税）" prop="kcaq041" width="130" align="right">
+                    <template #default="{ row: line }">{{ formatExpandDecimal(line.kcaq041) }}</template>
+                  </el-table-column>
+                  <el-table-column label="金额" prop="kcaq05" width="110" align="right">
+                    <template #default="{ row: line }">{{ formatExpandDecimal(line.kcaq05) }}</template>
+                  </el-table-column>
+                  <el-table-column label="金额（含税）" prop="kcaq051" width="130" align="right">
+                    <template #default="{ row: line }">{{ formatExpandDecimal(line.kcaq051) }}</template>
+                  </el-table-column>
+                  <el-table-column label="税点" prop="tax" width="100" align="right" />
+                </template>
+                <template v-if="isFinishedOutbound(row)">
+                  <el-table-column label="报关单号" prop="reference" min-width="120" show-overflow-tooltip />
+                  <el-table-column label="报关型号" prop="Describe" min-width="180" show-overflow-tooltip />
+                  <el-table-column label="报关单价" prop="kcaq08" width="110" align="right">
+                    <template #default="{ row: line }">{{ formatExpandDecimal(line.kcaq08) }}</template>
+                  </el-table-column>
+                </template>
+                <template v-else>
+                  <el-table-column label="PO/PI" prop="reference" min-width="120" show-overflow-tooltip />
+                  <el-table-column label="备注" prop="Describe" min-width="180" show-overflow-tooltip />
+                </template>
+              </el-table>
+              <el-empty v-else-if="!row.__linesLoading" description="暂无明细" />
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" fixed="left" width="260">
           <template #default="{ row }">
             <div class="row-actions">
@@ -98,15 +166,31 @@
         <el-table-column label="出库日期" width="120">
           <template #default="{ row }">{{ formatDate(row.outboundDate) }}</template>
         </el-table-column>
+        <el-table-column label="出库单数据" min-width="500" class-name="stock-out-data-col">
+          <template #default="{ row }">
+            <template v-for="s in [stockOutListSummary(row)]" :key="row.id">
+              <div class="stock-out-data">
+                <div class="stock-out-data__line">
+                  关联单位：<span class="stock-out-data__blue">{{ s.relatedPartyName }}</span>，
+                  货仓：<span class="stock-out-data__blue">{{ s.warehouseName }}</span>
+                </div>
+                <div class="stock-out-data__line">
+                  总项数: <span class="stock-out-data__blue">{{ formatNumber(s.itemCount, 0) }}</span>
+                  <template v-if="hasPricePermission">
+                    &nbsp;&nbsp;含税总价: <span class="stock-out-data__purple">{{ formatMoney(s.taxIncludedTotal) }} 元</span>，
+                    不含税总价: <span class="stock-out-data__danger">{{ formatMoney(s.taxExcludedTotal) }} 元</span>，
+                    税点总价: <span class="stock-out-data__danger">{{ formatMoney(s.taxTotal) }} 元</span> ,
+                  </template>
+                  出库总数量: <span class="stock-out-data__danger">{{ formatNumber(s.totalQty) }}</span>
+                </div>
+              </div>
+            </template>
+          </template>
+        </el-table-column>
         <el-table-column label="仓库" min-width="150" show-overflow-tooltip>
           <template #default="{ row }">{{ row.warehouseName || row.warehouseCode || '-' }}</template>
         </el-table-column>
         <el-table-column label="关联方" prop="relatedPartyName" min-width="180" show-overflow-tooltip />
-        <el-table-column label="数量" prop="totalQty" width="100" align="right" />
-        <template v-if="hasPricePermission">
-          <el-table-column label="不含税金额" prop="taxExcludedTotal" width="120" align="right" />
-          <el-table-column label="含税金额" prop="taxIncludedTotal" width="120" align="right" />
-        </template>
         <el-table-column label="经手人" prop="handlerName" min-width="110" show-overflow-tooltip />
         <el-table-column label="备注" prop="remark" min-width="180" show-overflow-tooltip />
       </el-table>
@@ -114,7 +198,7 @@
       <el-pagination
         v-model:current-page="pager.page"
         v-model:page-size="pager.pageSize"
-        :page-sizes="[10, 20, 50, 100]"
+        :page-sizes="[10, 20, 50, 100, 200]"
         layout="total, sizes, prev, pager, next, jumper"
         :total="pager.total"
         class="pagination"
@@ -158,27 +242,124 @@
               </div>
             </el-form-item>
             <el-form-item label="关联单号">
-              <el-input v-model="form.sourceOrderNo" class="stock-unified-input" :disabled="!isLinkedType" placeholder="关联型出库必须填写来源单号" />
+              <el-input
+                v-if="isFreeSourceOrder"
+                v-model="form.sourceOrderNo"
+                class="stock-unified-input"
+                clearable
+                placeholder="请输入关联单号（选填）"
+              />
+              <div v-else-if="isPurchaseReturnPicker" class="source-picker-field">
+                <el-input :model-value="form.sourceOrderNo" class="stock-unified-input" readonly placeholder="请选择采购单" />
+                <el-button type="primary" plain @click="openPurchaseSourcePicker">选择</el-button>
+                <el-button plain :disabled="!form.sourceOrderNo" @click="clearSourceOrder">清空</el-button>
+              </div>
+              <div v-else-if="isAssistIssuePicker" class="source-picker-field">
+                <el-input :model-value="form.sourceOrderNo" class="stock-unified-input" readonly placeholder="请选择外协单" />
+                <el-button type="primary" plain @click="openAssistSourcePicker">选择</el-button>
+                <el-button plain :disabled="!form.sourceOrderNo" @click="clearSourceOrder">清空</el-button>
+              </div>
+              <el-input
+                v-else-if="isLinkedType"
+                v-model="form.sourceOrderNo"
+                class="stock-unified-input"
+                placeholder="关联型出库必须填写来源单号"
+              />
+              <el-input
+                v-else
+                v-model="form.sourceOrderNo"
+                class="stock-unified-input"
+                disabled
+                placeholder="当前出库类型无需关联单号"
+              />
             </el-form-item>
             <el-form-item :label="relatedPartyLabel">
-              <el-input v-if="form.outboundType === '0'" v-model="form.relatedPartyName" class="stock-unified-input" placeholder="可填写自由文本关联单位" />
-              <span v-else-if="form.outboundType === '9'" class="muted">盘亏出库不强制关联单位</span>
-              <el-select v-else v-model="form.relatedPartyCode" filterable remote reserve-keyword clearable class="stock-unified-input" :remote-method="fetchRelatedParties" @focus="fetchRelatedParties('')" placeholder="请选择关联方">
-                <el-option v-for="item in relatedPartyOptions" :key="item.code" :label="`${item.code} ${item.name}`" :value="item.code" />
+              <span v-if="form.outboundType === '9'" class="muted">盘亏出库不强制关联单位</span>
+              <div v-else-if="form.outboundType === '2'" class="assist-party-row">
+                <el-select
+                  v-model="form.relatedPartyCode"
+                  filterable
+                  remote
+                  reserve-keyword
+                  clearable
+                  class="stock-unified-input assist-party-row__party"
+                  :remote-method="fetchRelatedParties"
+                  @focus="fetchRelatedParties('')"
+                  @change="onAssistRelatedPartyChange"
+                  placeholder="请选择外协商"
+                >
+                  <el-option
+                    v-for="item in relatedPartyOptions"
+                    :key="item.code"
+                    :label="formatRelatedPartyOptionLabel(item)"
+                    :value="item.code"
+                  />
+                </el-select>
+                <div v-if="form.postProcessAssist" class="assist-party-row__workshop">
+                  <span class="inline-pair__label">加工车间</span>
+                  <el-select
+                    v-model="form.workshopCode"
+                    filterable
+                    remote
+                    reserve-keyword
+                    clearable
+                    class="stock-inline-input"
+                    :remote-method="fetchWorkshopOptions"
+                    @focus="fetchWorkshopOptions('')"
+                    @change="onWorkshopChange"
+                    placeholder="本厂加工车间"
+                  >
+                    <el-option
+                      v-for="item in workshopOptions"
+                      :key="item.code"
+                      :label="`${item.code} ${item.name}`"
+                      :value="item.code"
+                    />
+                  </el-select>
+                </div>
+              </div>
+              <el-autocomplete
+                v-else-if="form.outboundType === '0'"
+                v-model="otherOutboundRelatedPartyInput"
+                clearable
+                class="stock-unified-input"
+                :fetch-suggestions="queryOtherOutboundRelatedParties"
+                placeholder="可选销售客户或手填关联单位"
+                @select="onOtherOutboundRelatedPartySelect"
+              />
+              <el-select
+                v-else
+                v-model="form.relatedPartyCode"
+                filterable
+                remote
+                reserve-keyword
+                clearable
+                class="stock-unified-input"
+                :remote-method="fetchRelatedParties"
+                @focus="fetchRelatedParties('')"
+                placeholder="请选择关联单位"
+              >
+                <el-option
+                  v-for="item in relatedPartyOptions"
+                  :key="item.code"
+                  :label="formatRelatedPartyOptionLabel(item)"
+                  :value="item.code"
+                />
               </el-select>
             </el-form-item>
-            <el-form-item label="仓库" class="form-row-inline">
-              <div class="form-inline-pairs">
-                <el-select v-model="form.warehouseCode" filterable remote reserve-keyword clearable class="stock-unified-input" :remote-method="fetchWarehouses" @focus="fetchWarehouses('')" placeholder="请选择仓库">
+            <el-form-item label="仓库" class="form-row-inline stock-inline-triple">
+              <div class="form-inline-pairs form-inline-pairs--nowrap">
+                <el-select v-model="form.warehouseCode" filterable remote reserve-keyword clearable class="stock-inline-input" :remote-method="fetchWarehouses" @focus="fetchWarehouses('')" placeholder="请选择仓库">
                   <el-option v-for="item in warehouseOptions" :key="item.code" :label="`${item.code} ${item.name}`" :value="item.code" />
                 </el-select>
                 <div class="inline-pair">
-                  <span class="inline-pair__label">纸质单号</span>
-                  <el-input v-model="form.paperNo" class="stock-unified-input" clearable placeholder="纸质单号" />
+                  <span class="inline-pair__label">{{ isAssistIssuePicker ? 'PI单号' : '纸质单号' }}</span>
+                  <el-input v-if="isAssistIssuePicker" :model-value="form.piNo" class="stock-inline-input" readonly placeholder="选择外协单后自动带入" />
+                  <el-input v-else v-model="form.paperNo" class="stock-inline-input" clearable placeholder="纸质单号" />
                 </div>
                 <div class="inline-pair">
                   <span class="inline-pair__label">预留单号</span>
-                  <el-input v-model="form.reserveNo" class="stock-unified-input" clearable placeholder="预留单号" />
+                  <el-input v-model="form.reserveNo" class="stock-inline-input" clearable placeholder="预留单号" />
                 </div>
               </div>
             </el-form-item>
@@ -195,58 +376,209 @@
         </el-tab-pane>
         <el-tab-pane label="出库单明细" name="lines">
           <div class="line-toolbar">
-            <el-input v-model="materialKeyword" clearable placeholder="库存物料编码关键字" class="line-search" @keyup.enter="openMaterialPicker" />
-            <el-button type="primary" @click="openMaterialPicker">批量添加</el-button>
-            <el-button @click="addBlankLine">增加明细</el-button>
-            <span class="muted">关联型出库第一版先按来源标识校验，后续可细化独立来源窗口。</span>
+            <el-button type="primary" plain @click="openMaterialPicker">批量添加</el-button>
+            <el-button type="danger" plain :disabled="!selectedLineKeys.length" @click="removeSelectedLines">删除选定明细</el-button>
+            <el-button type="danger" plain :disabled="!form.lines.length" @click="removeAllLines">删除全部明细</el-button>
           </div>
-          <el-table :data="form.lines" border stripe class="erp-list-table">
-            <el-table-column label="操作" width="80">
-              <template #default="{ $index }">
-                <el-button link type="danger" @click="removeLine($index)">删除</el-button>
+          <el-table
+            ref="linesTableRef"
+            v-erp-list-h-scroll
+            :data="form.lines"
+            border
+            stripe
+            row-key="__key"
+            class="erp-list-table stock-out-lines-table"
+          >
+            <el-table-column label="选择" fixed="left" width="90" align="center" class-name="erp-col-actions">
+              <template #default="{ row }">
+                <el-button
+                  size="small"
+                  class="stock-line-mark-btn"
+                  :class="{ 'stock-line-mark-btn--on': isLineMarked(row) }"
+                  @click="toggleLineMark(row)"
+                >
+                  {{ isLineMarked(row) ? '已选择' : '删除' }}
+                </el-button>
               </template>
             </el-table-column>
-            <el-table-column label="材料编码" min-width="140">
-              <template #default="{ row }"><el-input v-model="row.kcaa01" /></template>
-            </el-table-column>
-            <el-table-column label="来源明细" min-width="140">
-              <template #default="{ row }"><el-input v-model="row.kcaq02" :disabled="!isLinkedType" /></template>
-            </el-table-column>
-            <el-table-column label="名称" min-width="150">
-              <template #default="{ row }"><el-input v-model="row.kcaa02" /></template>
-            </el-table-column>
-            <el-table-column label="规格" min-width="130">
-              <template #default="{ row }"><el-input v-model="row.kcaa03" /></template>
-            </el-table-column>
-            <el-table-column label="颜色" min-width="100">
-              <template #default="{ row }"><el-input v-model="row.kcaa11" /></template>
-            </el-table-column>
-            <el-table-column label="单位" width="90">
-              <template #default="{ row }"><el-input v-model="row.kcaa04" /></template>
-            </el-table-column>
+            <el-table-column label="序号" type="index" width="60" align="center" />
+            <el-table-column label="材料编码" prop="kcaa01" min-width="140" show-overflow-tooltip />
+            <el-table-column label="名称" prop="kcaa02" min-width="150" show-overflow-tooltip />
+            <el-table-column label="规格" prop="kcaa03" min-width="130" show-overflow-tooltip />
+            <el-table-column label="颜色" prop="kcaa11" min-width="100" show-overflow-tooltip />
+            <el-table-column label="单位" prop="kcaa04" width="90" show-overflow-tooltip />
             <el-table-column label="数量" width="130">
               <template #default="{ row }"><el-input-number v-model="row.kcaq03" :min="0" :precision="4" controls-position="right" /></template>
             </el-table-column>
             <template v-if="hasPricePermission">
-              <el-table-column label="不含税单价" width="140">
+              <el-table-column label="单价" width="140">
                 <template #default="{ row }"><el-input-number v-model="row.kcaq04" :min="0" :precision="4" controls-position="right" @change="recalcLine(row)" /></template>
               </el-table-column>
-              <el-table-column label="含税单价" width="140">
+              <el-table-column label="单价(含税)" width="140">
                 <template #default="{ row }"><el-input-number v-model="row.kcaq041" :min="0" :precision="4" controls-position="right" @change="reverseLine(row)" /></template>
               </el-table-column>
               <el-table-column label="税点" width="120">
                 <template #default="{ row }"><el-input-number v-model="row.tax" :min="0" :precision="4" controls-position="right" @change="recalcLine(row)" /></template>
               </el-table-column>
               <el-table-column label="金额" width="110" prop="kcaq05" />
-              <el-table-column label="含税金额" width="120" prop="kcaq051" />
+              <el-table-column label="金额(含税)" width="120" prop="kcaq051" />
             </template>
-            <el-table-column label="备注" min-width="160">
-              <template #default="{ row }"><el-input v-model="row.Describe" /></template>
+            <el-table-column label="厂款号/PI号" min-width="420" class-name="stock-out-line-wide-col">
+              <template #default="{ row }">
+                <el-input v-model="row.reference" class="stock-out-line-wide-input" />
+              </template>
+            </el-table-column>
+            <el-table-column label="备注" min-width="420" class-name="stock-out-line-wide-col">
+              <template #default="{ row }">
+                <el-input v-model="row.Describe" class="stock-out-line-wide-input" />
+              </template>
             </el-table-column>
           </el-table>
         </el-tab-pane>
       </el-tabs>
     </section>
+
+    <el-dialog v-model="purchaseSourceDialog.visible" title="采购订单列表" width="92%">
+      <div class="stock-filter-row" style="margin-bottom: 10px;">
+        <el-input
+          v-model="purchaseSourceDialog.supplier"
+          clearable
+          class="stock-unified-input"
+          placeholder="供应商（编码或名称）"
+          @keyup.enter="searchPurchaseSourcePage"
+        />
+        <el-input
+          v-model="purchaseSourceDialog.keyword"
+          clearable
+          class="stock-filter-keyword"
+          placeholder="采购单号/日期/供应商/币别等模糊查询"
+          @keyup.enter="searchPurchaseSourcePage"
+        />
+        <el-button type="primary" @click="searchPurchaseSourcePage">查询</el-button>
+        <el-button @click="clearPurchaseSourceFilter">重置</el-button>
+      </div>
+      <el-table v-loading="purchaseSourceDialog.loading" :data="purchaseSourceDialog.list" border stripe height="460">
+        <el-table-column label="操作" width="90" fixed="left">
+          <template #default="{ row }">
+            <el-button v-if="Number(row.groupRowNo) === 1" type="primary" size="small" @click="choosePurchaseSource(row)">关联选择</el-button>
+          </template>
+        </el-table-column>
+        <el-table-column label="采购单号" min-width="150">
+          <template #default="{ row }">{{ Number(row.groupRowNo) === 1 ? row.sourceOrderNo : '' }}</template>
+        </el-table-column>
+        <el-table-column label="采购日期" min-width="120">
+          <template #default="{ row }">{{ Number(row.groupRowNo) === 1 ? formatDate(row.buyDate) : '' }}</template>
+        </el-table-column>
+        <el-table-column label="供应商" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">{{ Number(row.groupRowNo) === 1 ? `${row.supplierCode || ''},${row.supplierName || ''}` : '' }}</template>
+        </el-table-column>
+        <el-table-column label="是否含税" width="90" align="center">
+          <template #default="{ row }">
+            <span v-if="Number(row.groupRowNo) === 1" :style="{ color: isPurchaseTaxIncluded(row.taxIncluded) ? '#dc2626' : '#a855f7' }">
+              {{ purchaseTaxMark(row.taxIncluded) }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column label="备注" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">{{ Number(row.groupRowNo) === 1 ? (row.remark || '-') : '' }}</template>
+        </el-table-column>
+        <el-table-column label="材料编码" prop="kcaa01" min-width="130" show-overflow-tooltip />
+        <el-table-column label="入库数量" prop="orderQty" width="110" align="right" />
+        <el-table-column label="材料名称" prop="kcaa02" min-width="150" show-overflow-tooltip />
+        <el-table-column label="规格" prop="kcaa03" min-width="120" show-overflow-tooltip />
+        <el-table-column label="采购币别/汇率" min-width="150" show-overflow-tooltip>
+          <template #default="{ row }">{{ `${row.currencyName || '-'} / ${row.exchangeRate || '1'}` }}</template>
+        </el-table-column>
+        <el-table-column label="使用单位" prop="kcaa04" width="90" />
+        <el-table-column label="采购数量" prop="orderQty" width="110" align="right" />
+        <el-table-column label="单价" prop="kcak04" width="110" align="right" />
+        <el-table-column label="单价含税" prop="kcak041" width="120" align="right" />
+        <el-table-column label="金额" prop="kcak05" width="110" align="right" />
+        <el-table-column label="金额含税" prop="kcak051" width="120" align="right" />
+        <el-table-column label="出库数量" prop="outQty" width="110" align="right" />
+        <el-table-column label="是否存在转换数据" prop="hasConvertData" width="150" />
+      </el-table>
+      <el-pagination
+        v-model:current-page="purchaseSourceDialog.page"
+        v-model:page-size="purchaseSourceDialog.pageSize"
+        :page-sizes="[10, 20, 50, 100, 200]"
+        layout="total, sizes, prev, pager, next, jumper"
+        :total="purchaseSourceDialog.total"
+        class="pagination"
+        @size-change="searchPurchaseSourcePage"
+        @current-change="loadPurchaseSourcePage"
+      />
+    </el-dialog>
+
+    <el-dialog v-model="assistSourceDialog.visible" title="外协订单列表" width="92%">
+      <div class="stock-filter-row" style="margin-bottom: 10px;">
+        <el-input
+          v-model="assistSourceDialog.keyword"
+          clearable
+          class="stock-filter-keyword"
+          placeholder="PI号 / 外协商 / 外协单号模糊查询"
+          @keyup.enter="searchAssistSourcePage"
+        />
+        <el-button type="primary" @click="searchAssistSourcePage">查询</el-button>
+        <el-button @click="clearAssistSourceFilter">重置</el-button>
+      </div>
+      <el-table v-loading="assistSourceDialog.loading" :data="assistSourceDialog.list" border stripe height="460">
+        <el-table-column label="操作" width="90" fixed="left">
+          <template #default="{ row }">
+            <el-button v-if="Number(row.groupRowNo) === 1" type="primary" size="small" @click="chooseAssistSource(row)">关联选择</el-button>
+          </template>
+        </el-table-column>
+        <el-table-column label="外协单号" min-width="150">
+          <template #default="{ row }">{{ Number(row.groupRowNo) === 1 ? row.sourceOrderNo : '' }}</template>
+        </el-table-column>
+        <el-table-column label="关联单号" min-width="130">
+          <template #default="{ row }">{{ Number(row.groupRowNo) === 1 ? (row.referenceNo || '-') : '' }}</template>
+        </el-table-column>
+        <el-table-column label="外协日期" min-width="120">
+          <template #default="{ row }">{{ Number(row.groupRowNo) === 1 ? formatDate(row.assistDate) : '' }}</template>
+        </el-table-column>
+        <el-table-column label="供应商" min-width="220" show-overflow-tooltip>
+          <template #default="{ row }">{{ Number(row.groupRowNo) === 1 ? `${row.supplierCode || ''},${row.supplierName || ''}` : '' }}</template>
+        </el-table-column>
+        <el-table-column label="是否含税" width="90" align="center">
+          <template #default="{ row }">
+            <span v-if="Number(row.groupRowNo) === 1" :style="{ color: isPurchaseTaxIncluded(row.taxIncluded) ? '#dc2626' : '#a855f7' }">
+              {{ purchaseTaxMark(row.taxIncluded) }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column label="备注" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">{{ Number(row.groupRowNo) === 1 ? (row.remark || '-') : '' }}</template>
+        </el-table-column>
+        <el-table-column label="材料编码" prop="kcaa01" min-width="130" show-overflow-tooltip />
+        <el-table-column label="材料名称" prop="kcaa02" min-width="150" show-overflow-tooltip />
+        <el-table-column label="规格" prop="kcaa03" min-width="120" show-overflow-tooltip />
+        <el-table-column label="外协币别/汇率" min-width="150" show-overflow-tooltip>
+          <template #default="{ row }">{{ `${row.currencyName || '-'} / ${row.exchangeRate || '1'}` }}</template>
+        </el-table-column>
+        <el-table-column label="使用单位" prop="kcaa04" width="90" />
+        <el-table-column label="外协数量" prop="orderQty" width="110" align="right" />
+        <template v-if="hasPricePermission">
+          <el-table-column label="单价" prop="wxak04" width="110" align="right" />
+          <el-table-column label="单价含税" prop="wxak041" width="120" align="right" />
+          <el-table-column label="金额" prop="wxak05" width="110" align="right" />
+          <el-table-column label="金额含税" prop="wxak051" width="120" align="right" />
+        </template>
+        <el-table-column label="入库数量" prop="inboundQty" width="110" align="right" />
+        <el-table-column label="出库数量" prop="outQty" width="110" align="right" />
+        <el-table-column label="是否存在转换数据" prop="hasConvertData" width="150" />
+      </el-table>
+      <el-pagination
+        v-model:current-page="assistSourceDialog.page"
+        v-model:page-size="assistSourceDialog.pageSize"
+        :page-sizes="[10, 20, 50, 100, 200]"
+        layout="total, sizes, prev, pager, next, jumper"
+        :total="assistSourceDialog.total"
+        class="pagination"
+        @size-change="searchAssistSourcePage"
+        @current-change="loadAssistSourcePage"
+      />
+    </el-dialog>
 
     <el-dialog v-model="detailVisible" title="出库单详情" width="86%">
       <el-descriptions v-if="detail.header" :column="3" border>
@@ -275,10 +607,44 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
+import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
+import {
+  STOCK_OUT_BATCH_MSG_APPLY,
+  STOCK_OUT_BATCH_MSG_ACCEPTED,
+  STOCK_OUT_BATCH_MSG_REJECTED,
+  STOCK_OUT_BATCH_REJECT_WAREHOUSE_MISMATCH,
+  buildStockOutBatchSessionId,
+  readStockOutBatchResult,
+  removeStockOutBatchResult,
+  validateStockOutBatchApply,
+  writeStockOutBatchContext,
+} from '@/utils/stockOutBatchAdd'
+import {
+  STOCK_OUT_PR_BATCH_MSG_APPLY,
+  STOCK_OUT_PR_BATCH_MSG_ACCEPTED,
+  STOCK_OUT_PR_BATCH_MSG_REJECTED,
+  buildStockOutPurchaseReturnBatchSessionId,
+  readStockOutPurchaseReturnBatchResult,
+  removeStockOutPurchaseReturnBatchResult,
+  validateStockOutPurchaseReturnBatchApply,
+  writeStockOutPurchaseReturnBatchContext,
+} from '@/utils/stockOutPurchaseReturnBatchAdd'
+import {
+  STOCK_OUT_AI_BATCH_MSG_APPLY,
+  STOCK_OUT_AI_BATCH_MSG_ACCEPTED,
+  STOCK_OUT_AI_BATCH_MSG_REJECTED,
+  buildStockOutAssistIssueBatchSessionId,
+  readStockOutAssistIssueBatchResult,
+  removeStockOutAssistIssueBatchResult,
+  validateStockOutAssistIssueBatchApply,
+  writeStockOutAssistIssueBatchContext,
+} from '@/utils/stockOutAssistIssueBatchAdd'
 
+const MENU_PATH = 'inventory/daily/stock-out'
 const OUTBOUND_TYPES = [
   { value: '0', label: '其他出库' },
   { value: '1', label: '采购退货' },
@@ -296,6 +662,9 @@ const pageMode = ref('list')
 const formTab = ref('base')
 const showRecycle = ref(false)
 const showUnaudited = ref(false)
+const listTableRef = ref(null)
+const linesTableRef = ref(null)
+const expandedRowKeys = ref([])
 const loading = ref(false)
 const saving = ref(false)
 const list = ref([])
@@ -303,27 +672,134 @@ const editId = ref(null)
 const suggestedNo = ref('')
 const warehouseOptions = ref([])
 const relatedPartyOptions = ref([])
+/** 其他出库：关联单位输入框展示值（下拉候选 + 手填文本） */
+const otherOutboundRelatedPartyInput = ref('')
 const filterRelatedParties = ref([])
 const filterRelatedPartyLoading = ref(false)
-const materialKeyword = ref('')
 const detailVisible = ref(false)
 const detail = reactive({ header: null, lines: [] })
+const activeOtherBatchSessionId = ref('')
+const otherBatchChildWindow = ref(null)
+const activePurchaseReturnBatchSessionId = ref('')
+const purchaseReturnBatchChildWindow = ref(null)
+const activeAssistIssueBatchSessionId = ref('')
+const assistIssueBatchChildWindow = ref(null)
+const purchaseSourceDialog = reactive({
+  visible: false,
+  loading: false,
+  supplier: '',
+  keyword: '',
+  page: 1,
+  pageSize: 10,
+  total: 0,
+  list: [],
+})
+const assistSourceDialog = reactive({
+  visible: false,
+  loading: false,
+  keyword: '',
+  page: 1,
+  pageSize: 10,
+  total: 0,
+  list: [],
+})
+const workshopOptions = ref([])
 
-const pager = reactive({ page: 1, pageSize: 20, total: 0 })
+const pager = reactive({ page: 1, pageSize: 10, total: 0 })
 const filters = reactive({ outboundType: '', keyword: '', relatedParty: '' })
 const form = reactive(defaultForm())
 
 const outboundTypeOptions = OUTBOUND_TYPES
 const addableOutboundTypes = OUTBOUND_TYPES
-const hasPricePermission = computed(() => true)
+const permissionModel = computed(() => getPermissionModelFromStorage())
+const hasPricePermission = computed(() => hasPageAction(permissionModel.value, MENU_PATH, 'price'))
 const displayOutboundNo = computed(() => form.outboundNo || suggestedNo.value || '保存时生成')
 const isLinkedType = computed(() => ['1', '2', '3', '4', '5', '6'].includes(form.outboundType))
+const isFreeSourceOrder = computed(() => form.outboundType === '0')
+const isPurchaseReturnPicker = computed(() => form.outboundType === '1')
+const isAssistIssuePicker = computed(() => form.outboundType === '2')
+const selectedLineKeys = computed(() => form.lines.filter((line) => line._lineMarked).map((line) => line.__key))
 const relatedPartyLabel = computed(() => {
   if (['1'].includes(form.outboundType)) return '供应商'
-  if (['2', '3'].includes(form.outboundType)) return '外协客户'
+  if (form.outboundType === '2') return '外协商'
+  if (['3'].includes(form.outboundType)) return '外协客户'
   if (['4', '5'].includes(form.outboundType)) return '生产车间'
   if (form.outboundType === '6') return '客户'
   return '关联单位'
+})
+
+/** 其他出库关联单位为销售客户，选项格式：编码,名称 */
+function formatRelatedPartyOptionLabel(item) {
+  const code = String(item?.code ?? '').trim()
+  const name = String(item?.name ?? '').trim()
+  if (form.outboundType === '0' || form.outboundType === '2') return name ? `${code},${name}` : code
+  return name ? `${code} ${name}` : code
+}
+
+function ensureRelatedPartyOptionSeed() {
+  const code = String(form.relatedPartyCode ?? '').trim()
+  const name = String(form.relatedPartyName ?? '').trim()
+  if (!code && !name) return
+  if (!relatedPartyOptions.value.some((item) => item.code === code)) {
+    relatedPartyOptions.value = [{ code, name }, ...relatedPartyOptions.value]
+  }
+}
+
+function syncOtherOutboundRelatedPartyDisplay() {
+  const code = String(form.relatedPartyCode ?? '').trim()
+  const name = String(form.relatedPartyName ?? '').trim()
+  if (code) {
+    otherOutboundRelatedPartyInput.value = name ? `${code},${name}` : code
+    return
+  }
+  otherOutboundRelatedPartyInput.value = name
+}
+
+function matchOtherOutboundRelatedPartyOption(text) {
+  const t = String(text ?? '').trim()
+  if (!t) return null
+  return relatedPartyOptions.value.find((item) => {
+    const label = formatRelatedPartyOptionLabel(item)
+    return label === t || item.code === t
+  }) || null
+}
+
+function applyOtherOutboundRelatedPartyInput(val) {
+  const text = String(val ?? '').trim()
+  if (!text) {
+    form.relatedPartyCode = ''
+    form.relatedPartyName = ''
+    return
+  }
+  const hit = matchOtherOutboundRelatedPartyOption(text)
+  if (hit) {
+    form.relatedPartyCode = hit.code
+    form.relatedPartyName = hit.name
+    return
+  }
+  // 手填文本：只写 kehu，kcap05 留空
+  form.relatedPartyCode = ''
+  form.relatedPartyName = text
+}
+
+function onOtherOutboundRelatedPartySelect(item) {
+  form.relatedPartyCode = String(item?.code ?? '').trim()
+  form.relatedPartyName = String(item?.name ?? '').trim()
+  otherOutboundRelatedPartyInput.value = formatRelatedPartyOptionLabel(item)
+}
+
+async function queryOtherOutboundRelatedParties(queryString, cb) {
+  await fetchRelatedParties(queryString)
+  cb(relatedPartyOptions.value.map((item) => ({
+    value: formatRelatedPartyOptionLabel(item),
+    code: item.code,
+    name: item.name,
+  })))
+}
+
+watch(otherOutboundRelatedPartyInput, (val) => {
+  if (form.outboundType !== '0') return
+  applyOtherOutboundRelatedPartyInput(val)
 })
 
 function nowText() {
@@ -348,7 +824,12 @@ function defaultForm() {
     warehouseCode: '',
     handlerName: '',
     paperNo: '',
+    piNo: '',
     reserveNo: '',
+    postProcessAssist: false,
+    workshopCode: '',
+    workshopName: '',
+    sourceSystemcodeId: '',
     inTax: '1',
     remark: '',
     lines: [],
@@ -361,6 +842,54 @@ function outboundTypeText(value) {
 
 function formatDate(value) {
   return String(value ?? '').slice(0, 10) || '-'
+}
+
+function formatCell(value) {
+  const text = String(value ?? '').trim()
+  return text || '-'
+}
+
+function coerceScalarValue(value) {
+  if (Array.isArray(value)) return value.length ? value[0] : null
+  return value
+}
+
+function toNumber(value) {
+  const scalar = coerceScalarValue(value)
+  const n = Number(scalar)
+  return Number.isFinite(n) ? n : 0
+}
+
+function formatNumber(value, precision = 2) {
+  return toNumber(value).toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: precision })
+}
+
+function formatMoney(value) {
+  return toNumber(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+/** 展开明细数值：固定两位小数、不加千分位逗号 */
+function formatExpandDecimal(value) {
+  const n = toNumber(value)
+  return (Math.round(n * 100) / 100).toFixed(2)
+}
+
+/** 列表「出库单数据」汇总（主表 kehu/ck + 明细聚合字段） */
+function stockOutListSummary(row) {
+  const taxIncludedTotal = toNumber(row?.taxIncludedTotal)
+  const taxExcludedTotal = toNumber(row?.taxExcludedTotal)
+  const taxTotal = row?.taxTotal != null && row?.taxTotal !== ''
+    ? toNumber(row.taxTotal)
+    : Math.round((taxIncludedTotal - taxExcludedTotal) * 100) / 100
+  return {
+    relatedPartyName: formatCell(row?.relatedPartyName),
+    warehouseName: formatCell(row?.warehouseName || row?.warehouseCode),
+    itemCount: toNumber(row?.itemCount),
+    taxIncludedTotal,
+    taxExcludedTotal,
+    taxTotal,
+    totalQty: toNumber(row?.totalQty),
+  }
 }
 
 function canEdit(row) {
@@ -379,6 +908,87 @@ function isLocked(row) {
   return row.closed === '1'
 }
 
+function isFinishedOutbound(row) {
+  return String(row?.outboundType ?? row?.kcap03 ?? '') === '6'
+}
+
+function formatSubtotalQty(n) {
+  return formatExpandDecimal(n)
+}
+
+function formatSubtotalUnitPrice(n) {
+  if (n === null || n === undefined) return '—'
+  const num = Number(n)
+  if (!Number.isFinite(num)) return '—'
+  return formatExpandDecimal(num)
+}
+
+/** 展开明细小计：汇总数量与金额，单价为金额÷数量 */
+function calcStockOutExpandSubtotal(lines = []) {
+  let quantity = 0
+  let amountEx = 0
+  let amountInc = 0
+  for (const line of lines) {
+    quantity += toNumber(line?.kcaq03)
+    amountEx += toNumber(line?.kcaq05)
+    amountInc += toNumber(line?.kcaq051 ?? line?.kcaq05)
+  }
+  return {
+    quantity,
+    amountEx,
+    amountInc,
+    unitPriceEx: quantity > 0 ? amountEx / quantity : null,
+    unitPriceInc: quantity > 0 ? amountInc / quantity : null,
+  }
+}
+
+function expandLineSummaryMethod(row, { columns }) {
+  const sub = calcStockOutExpandSubtotal(row?.__lines || [])
+  const finished = isFinishedOutbound(row)
+  return columns.map((col) => {
+    const prop = col.property
+    if (prop === 'kcaa04') return '小计：'
+    if (prop === 'kcaq03') return formatSubtotalQty(sub.quantity)
+    if (prop === 'kcaq04') return formatSubtotalUnitPrice(sub.unitPriceEx)
+    if (prop === 'kcaq041') return formatSubtotalUnitPrice(sub.unitPriceInc)
+    if (prop === 'kcaq05') return formatExpandDecimal(sub.amountEx)
+    if (prop === 'kcaq051') return formatExpandDecimal(sub.amountInc)
+    if (finished && prop === 'kcaq08') return ''
+    return ''
+  })
+}
+
+async function fetchDetail(id) {
+  const res = await axios.get(`/api/stock-out/${id}`)
+  return res.data?.data || { header: null, lines: [] }
+}
+
+async function loadExpandedLines(row) {
+  if (!row || row.__linesLoaded || row.__linesLoading) return
+  row.__linesLoading = true
+  try {
+    const data = await fetchDetail(row.id)
+    row.__lines = data.lines || []
+    row.__linesLoaded = true
+  } catch (err) {
+    row.__lines = []
+    ElMessage.error(err.response?.data?.msg || err.message || '读取出库单明细失败')
+  } finally {
+    row.__linesLoading = false
+  }
+}
+
+function onExpandChange(row, expandedRows) {
+  expandedRowKeys.value = (expandedRows || []).map((item) => item.id)
+  if (expandedRowKeys.value.includes(row.id)) loadExpandedLines(row)
+}
+
+function onListRowClick(row, column, event) {
+  const target = event?.target
+  if (target?.closest?.('.row-actions, .stock-expand-inner, .el-button, .el-table__expand-icon, a')) return
+  listTableRef.value?.toggleRowExpansion(row)
+}
+
 async function loadList() {
   loading.value = true
   try {
@@ -395,6 +1005,7 @@ async function loadList() {
     })
     list.value = data?.data?.list || []
     pager.total = Number(data?.data?.total || 0)
+    expandedRowKeys.value = []
   } catch (err) {
     ElMessage.error(err?.response?.data?.msg || err.message || '读取出库单列表失败')
   } finally {
@@ -431,8 +1042,10 @@ async function newOrder() {
   editId.value = null
   Object.assign(form, defaultForm())
   form.lines = []
+  otherOutboundRelatedPartyInput.value = ''
   pageMode.value = 'form'
   formTab.value = 'base'
+  await applyDefaultWarehouse()
   try {
     const { data } = await axios.get('/api/stock-out/suggest-doc-no')
     suggestedNo.value = data?.data?.suggested || ''
@@ -445,24 +1058,34 @@ async function editOrder(row) {
   try {
     const { data } = await axios.get(`/api/stock-out/${row.id}`)
     const h = data?.data?.header || {}
+    const outboundType = String(h.kcap03 || row.outboundType || '0')
+    const isAssist = outboundType === '2'
     editId.value = row.id
     Object.assign(form, {
       outboundNo: h.kcap01 || row.outboundNo || '',
       outboundDate: formatDateTime(h.kcap02 || row.outboundDate),
-      outboundType: String(h.kcap03 || row.outboundType || '0'),
+      outboundType,
       sourceOrderNo: h.kcap04 || '',
       relatedPartyCode: h.kcap05 || '',
       relatedPartyName: h.kehu || '',
       warehouseCode: h.kcap06 || '',
       handlerName: h.kcap07 || '',
-      paperNo: h.kcap08 || '',
+      paperNo: isAssist ? '' : (h.kcap08 || ''),
+      piNo: isAssist ? (h.kcap08 || '') : '',
       reserveNo: h.kcap09 || '',
+      postProcessAssist: isAssist && !!(h.cj || h.cjname),
+      workshopCode: isAssist ? (h.cj || '') : '',
+      workshopName: isAssist ? (h.cjname || '') : '',
+      sourceSystemcodeId: '',
       inTax: String(h.in_tax || '1'),
       remark: h.remark || '',
-      lines: (data?.data?.lines || []).map((line) => ({ ...line, tax: Number(line.tax ?? line.Tax ?? 0) })),
+      lines: (data?.data?.lines || []).map((line, idx) => wrapOutboundLine({ ...line, tax: Number(line.tax ?? line.Tax ?? 0) }, idx)),
     })
     pageMode.value = 'form'
     formTab.value = 'base'
+    ensureRelatedPartyOptionSeed()
+    if (form.postProcessAssist) ensureWorkshopOptionSeed()
+    syncOtherOutboundRelatedPartyDisplay()
   } catch (err) {
     ElMessage.error(err?.response?.data?.msg || err.message || '读取出库单失败')
   }
@@ -472,15 +1095,213 @@ function resetForm() {
   if (editId.value) return ElMessage.info('编辑时请重新打开单据恢复原内容')
   Object.assign(form, defaultForm())
   form.lines = []
+  otherOutboundRelatedPartyInput.value = ''
+  applyDefaultWarehouse()
+}
+
+function isDefaultWarehouse(row) {
+  const name = String(row?.name ?? '').trim()
+  const code = String(row?.code ?? '').trim()
+  return name === '货仓' || code === '货仓'
+}
+
+async function applyDefaultWarehouse() {
+  if (form.warehouseCode) return
+  if (!warehouseOptions.value.some(isDefaultWarehouse)) {
+    await fetchWarehouses('货仓')
+  }
+  const target = warehouseOptions.value.find(isDefaultWarehouse)
+  if (!target) return
+  form.warehouseCode = target.code || ''
 }
 
 function pickOutboundType(type) {
   if (form.outboundType === type) return
+  if (type === '2') {
+    ElMessageBox.confirm('是否需要加工后外协？', '外协领料', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      distinguishCancelAndClose: true,
+      type: 'info',
+    }).then(() => {
+      applyOutboundTypeSwitch(type, { postProcessAssist: true })
+    }).catch((action) => {
+      if (action === 'cancel') applyOutboundTypeSwitch(type, { postProcessAssist: false })
+    })
+    return
+  }
+  applyOutboundTypeSwitch(type, {})
+}
+
+function applyOutboundTypeSwitch(type, { postProcessAssist = false } = {}) {
   form.outboundType = type
   form.sourceOrderNo = ''
+  form.sourceSystemcodeId = ''
   form.relatedPartyCode = ''
   form.relatedPartyName = ''
+  form.piNo = ''
+  form.paperNo = ''
+  form.reserveNo = ''
+  form.postProcessAssist = type === '2' ? !!postProcessAssist : false
+  form.workshopCode = ''
+  form.workshopName = ''
+  otherOutboundRelatedPartyInput.value = ''
   form.lines = []
+}
+
+async function openPurchaseSourcePicker() {
+  purchaseSourceDialog.visible = true
+  purchaseSourceDialog.supplier = form.relatedPartyCode || form.relatedPartyName || ''
+  purchaseSourceDialog.keyword = ''
+  purchaseSourceDialog.page = 1
+  purchaseSourceDialog.pageSize = 10
+  await loadPurchaseSourcePage()
+}
+
+function clearSourceOrder() {
+  form.sourceOrderNo = ''
+  if (form.outboundType === '1' || form.outboundType === '2') {
+    form.relatedPartyCode = ''
+    form.relatedPartyName = ''
+    form.sourceSystemcodeId = ''
+    form.piNo = ''
+    form.lines = []
+  }
+}
+
+function purchaseTaxMark(v) {
+  const s = String(v ?? '').trim()
+  if (s === '1') return '√'
+  if (s === '2') return '×'
+  return '-'
+}
+
+function isPurchaseTaxIncluded(v) {
+  return String(v ?? '').trim() === '1'
+}
+
+async function loadPurchaseSourcePage() {
+  purchaseSourceDialog.loading = true
+  try {
+    const { data } = await axios.get('/api/stock-out/purchase-return-source-page', {
+      params: {
+        supplier: purchaseSourceDialog.supplier || undefined,
+        keyword: purchaseSourceDialog.keyword || undefined,
+        page: purchaseSourceDialog.page,
+        pageSize: purchaseSourceDialog.pageSize,
+      },
+    })
+    purchaseSourceDialog.list = data?.data?.list || []
+    purchaseSourceDialog.total = Number(data?.data?.total || 0)
+  } catch (err) {
+    purchaseSourceDialog.list = []
+    purchaseSourceDialog.total = 0
+    ElMessage.error(err?.response?.data?.msg || err.message || '读取采购单失败')
+  } finally {
+    purchaseSourceDialog.loading = false
+  }
+}
+
+function searchPurchaseSourcePage() {
+  purchaseSourceDialog.page = 1
+  loadPurchaseSourcePage()
+}
+
+function clearPurchaseSourceFilter() {
+  purchaseSourceDialog.supplier = ''
+  purchaseSourceDialog.keyword = ''
+  searchPurchaseSourcePage()
+}
+
+function choosePurchaseSource(row) {
+  if (!row) return
+  form.sourceOrderNo = String(row.sourceOrderNo ?? '').trim()
+  form.relatedPartyCode = String(row.supplierCode ?? '').trim()
+  form.relatedPartyName = String(row.supplierName ?? '').trim()
+  form.sourceSystemcodeId = String(row.sourceSystemcode ?? '').trim()
+  form.lines = []
+  ensureRelatedPartyOptionSeed()
+  purchaseSourceDialog.visible = false
+  ElMessage.success('已关联采购单，旧明细已清空')
+}
+
+async function openAssistSourcePicker() {
+  assistSourceDialog.visible = true
+  assistSourceDialog.keyword = ''
+  assistSourceDialog.page = 1
+  assistSourceDialog.pageSize = 10
+  await loadAssistSourcePage()
+}
+
+async function loadAssistSourcePage() {
+  assistSourceDialog.loading = true
+  try {
+    const { data } = await axios.get('/api/stock-out/assist-issue-source-page', {
+      params: {
+        keyword: assistSourceDialog.keyword || undefined,
+        page: assistSourceDialog.page,
+        pageSize: assistSourceDialog.pageSize,
+      },
+    })
+    assistSourceDialog.list = data?.data?.list || []
+    assistSourceDialog.total = Number(data?.data?.total || 0)
+  } catch (err) {
+    assistSourceDialog.list = []
+    assistSourceDialog.total = 0
+    ElMessage.error(err?.response?.data?.msg || err.message || '读取外协单失败')
+  } finally {
+    assistSourceDialog.loading = false
+  }
+}
+
+function searchAssistSourcePage() {
+  assistSourceDialog.page = 1
+  loadAssistSourcePage()
+}
+
+function clearAssistSourceFilter() {
+  assistSourceDialog.keyword = ''
+  searchAssistSourcePage()
+}
+
+function chooseAssistSource(row) {
+  if (!row) return
+  form.sourceOrderNo = String(row.sourceOrderNo ?? '').trim()
+  form.piNo = String(row.referenceNo ?? '').trim()
+  form.relatedPartyCode = String(row.supplierCode ?? '').trim()
+  form.relatedPartyName = String(row.supplierName ?? '').trim()
+  form.sourceSystemcodeId = String(row.sourceSystemcode ?? '').trim()
+  form.lines = []
+  ensureRelatedPartyOptionSeed()
+  assistSourceDialog.visible = false
+  ElMessage.success('已关联外协单，旧明细已清空')
+}
+
+async function fetchWorkshopOptions(keyword = '') {
+  const { data } = await axios.get('/api/stock-out/related-party-options', {
+    params: { outboundType: '4', keyword },
+  })
+  workshopOptions.value = data?.data?.list || []
+  ensureWorkshopOptionSeed()
+}
+
+function ensureWorkshopOptionSeed() {
+  const code = String(form.workshopCode ?? '').trim()
+  const name = String(form.workshopName ?? '').trim()
+  if (!code && !name) return
+  if (!workshopOptions.value.some((item) => item.code === code)) {
+    workshopOptions.value = [{ code, name }, ...workshopOptions.value]
+  }
+}
+
+function onWorkshopChange(code) {
+  const hit = workshopOptions.value.find((item) => item.code === code)
+  form.workshopName = hit?.name || ''
+}
+
+function onAssistRelatedPartyChange(code) {
+  const hit = relatedPartyOptions.value.find((item) => item.code === code)
+  form.relatedPartyName = hit?.name || ''
 }
 
 async function fetchWarehouses(keyword = '') {
@@ -510,9 +1331,10 @@ function handleFilterRelatedPartyFocus() {
 }
 
 async function fetchRelatedParties(keyword = '') {
-  if (form.outboundType === '0' || form.outboundType === '9') return
+  if (form.outboundType === '9') return
   const { data } = await axios.get('/api/stock-out/related-party-options', { params: { outboundType: form.outboundType, keyword } })
   relatedPartyOptions.value = data?.data?.list || []
+  ensureRelatedPartyOptionSeed()
 }
 
 function validateBeforeSave() {
@@ -547,9 +1369,9 @@ async function saveOrder() {
 
 async function viewOrder(row) {
   try {
-    const { data } = await axios.get(`/api/stock-out/${row.id}`)
-    detail.header = data?.data?.header || null
-    detail.lines = data?.data?.lines || []
+    const data = await fetchDetail(row.id)
+    detail.header = data.header || null
+    detail.lines = data.lines || []
     detailVisible.value = true
   } catch (err) {
     ElMessage.error(err?.response?.data?.msg || err.message || '读取出库单失败')
@@ -583,43 +1405,390 @@ async function runAction(row, action) {
   }
 }
 
-function addBlankLine() {
-  form.lines.push({ kcaa01: '', kcaq02: isLinkedType.value ? form.sourceOrderNo : '', kcaa02: '', kcaa03: '', kcaa11: '', kcaa04: '', kcaq03: 1, kcaq04: 0, kcaq041: 0, kcaq05: 0, kcaq051: 0, tax: 0, Describe: '' })
+function wrapOutboundLine(line, idx = 0) {
+  const reference = String(line.reference ?? line.Reference ?? '').trim()
+  return {
+    ...line,
+    reference,
+    _lineMarked: false,
+    __key: line.__key || `${idx}-${line.systemcode || line.id || Date.now()}-${Math.random()}`,
+  }
 }
 
-function removeLine(index) {
-  form.lines.splice(index, 1)
+function isLineMarked(row) {
+  return !!row?._lineMarked
+}
+
+function toggleLineMark(row) {
+  if (!row) return
+  row._lineMarked = !row._lineMarked
+}
+
+function removeSelectedLines() {
+  if (!selectedLineKeys.value.length) return ElMessage.warning('请先在选择列点击“删除”标记要移除的明细')
+  const s = new Set(selectedLineKeys.value)
+  form.lines = form.lines.filter((x) => !s.has(x.__key))
+  ElMessage.success('已删除选定明细')
+}
+
+async function removeAllLines() {
+  await ElMessageBox.confirm('确定删除全部明细吗？', '提示', { type: 'warning' })
+  form.lines = []
+}
+
+function buildOtherBatchCurrentLineKeys() {
+  return form.lines.map((line) => String(line.kcaa01 ?? '').trim().toLowerCase()).filter(Boolean)
+}
+
+function resolveAssistIssueBatchLineKey(line) {
+  const fromRow = String(line?.lineKey ?? '').trim().toLowerCase()
+  if (fromRow) return fromRow
+  const src = String(line?.sourceLineCode ?? line?.kcaq02 ?? line?.wxak02 ?? '').trim().toLowerCase()
+  const mat = String(line?.kcaa01 ?? '').trim().toLowerCase()
+  if (src && mat) return `${src}|${mat}`
+  return src
+}
+
+function buildAssistIssueBatchCurrentLineKeys() {
+  return form.lines.map((line) => resolveAssistIssueBatchLineKey(line)).filter(Boolean)
+}
+
+function openAssistIssueBatchWindow() {
+  const sessionId = buildStockOutAssistIssueBatchSessionId()
+  activeAssistIssueBatchSessionId.value = sessionId
+  writeStockOutAssistIssueBatchContext(sessionId, {
+    sourceOrderNo: form.sourceOrderNo,
+    supplierCode: form.relatedPartyCode,
+    supplierName: form.relatedPartyName,
+    piNo: form.piNo,
+    warehouseCode: form.warehouseCode,
+    warehouseName: resolveWarehouseName(),
+    excludeOutboundNo: editId.value ? form.outboundNo : '',
+    inTax: form.inTax,
+    currentLineKeys: buildAssistIssueBatchCurrentLineKeys(),
+    pageSize: 20,
+  })
+  const url = `/inventory/daily/stock-out-assist-issue-batch-window?sessionId=${encodeURIComponent(sessionId)}&warehouseCode=${encodeURIComponent(form.warehouseCode)}`
+  const opened = window.open(url, '_blank')
+  assistIssueBatchChildWindow.value = opened || null
+  if (!opened) ElMessage.error('无法打开新窗口，请检查浏览器是否拦截弹窗')
+}
+
+function clearAssistIssueBatchSession() {
+  activeAssistIssueBatchSessionId.value = ''
+  assistIssueBatchChildWindow.value = null
+}
+
+function replyAssistIssueBatch(source, payload) {
+  const target = source && typeof source.postMessage === 'function'
+    ? source
+    : (assistIssueBatchChildWindow.value && !assistIssueBatchChildWindow.value.closed
+      ? assistIssueBatchChildWindow.value
+      : null)
+  if (!target || typeof target.postMessage !== 'function') return
+  target.postMessage(payload, window.location.origin)
+}
+
+function applyAssistIssueBatchLines(batchRows) {
+  const existing = new Set(buildAssistIssueBatchCurrentLineKeys())
+  const newLines = (batchRows ?? []).filter((row) => {
+    const key = String(row.lineKey ?? '').trim().toLowerCase()
+      || resolveAssistIssueBatchLineKey(row)
+    return key && !existing.has(key)
+  }).map((row) => makeBatchLine({
+    ...row,
+    lineKey: row.lineKey || resolveAssistIssueBatchLineKey(row),
+  }))
+  if (!newLines.length) return ElMessage.warning('所选明细已在列表中，或未选择新行')
+  form.lines.push(...newLines)
+  ElMessage.success(`已批量添加 ${newLines.length} 条出库明细`)
+}
+
+function handleAssistIssueBatchPayload(payload, source = null, options = {}) {
+  const sessionId = String(payload?.sessionId ?? '').trim()
+  const allowStoredSession = !!options.allowStoredSession
+  if (!sessionId) return false
+  if (sessionId !== activeAssistIssueBatchSessionId.value && !allowStoredSession) return false
+  const validation = validateStockOutAssistIssueBatchApply({
+    openedWarehouseCode: payload.openedWarehouseCode,
+    currentWarehouseCode: form.warehouseCode,
+    openedSourceOrderNo: payload.openedSourceOrderNo,
+    currentSourceOrderNo: form.sourceOrderNo,
+    openedSupplierCode: payload.openedSupplierCode,
+    currentSupplierCode: form.relatedPartyCode,
+    openedPiNo: payload.openedPiNo,
+    currentPiNo: form.piNo,
+  })
+  if (!validation.ok) {
+    removeStockOutAssistIssueBatchResult(sessionId)
+    if (!allowStoredSession) {
+      ElMessage.warning('外协单/外协商/仓库/PI 数据已变更，请重新打开批量添加')
+      replyAssistIssueBatch(source, { type: STOCK_OUT_AI_BATCH_MSG_REJECTED, sessionId, reason: validation.reason })
+      clearAssistIssueBatchSession()
+    }
+    return false
+  }
+  const batchRows = Array.isArray(payload.lines) ? payload.lines : []
+  if (!batchRows.length) {
+    removeStockOutAssistIssueBatchResult(sessionId)
+    replyAssistIssueBatch(source, { type: STOCK_OUT_AI_BATCH_MSG_REJECTED, sessionId, reason: 'empty-lines' })
+    return false
+  }
+  removeStockOutAssistIssueBatchResult(sessionId)
+  applyAssistIssueBatchLines(batchRows)
+  replyAssistIssueBatch(source, { type: STOCK_OUT_AI_BATCH_MSG_ACCEPTED, sessionId, lineCount: batchRows.length })
+  clearAssistIssueBatchSession()
+  return true
+}
+
+function handleAssistIssueBatchMessage(event) {
+  if (event.origin !== window.location.origin) return
+  const data = event.data
+  if (!data || data.type !== STOCK_OUT_AI_BATCH_MSG_APPLY) return
+  handleAssistIssueBatchPayload(data, event.source)
+}
+
+function buildPurchaseReturnBatchCurrentLineKeys() {
+  return form.lines
+    .map((line) => String(line.sourceLineCode ?? line.kcaq02 ?? '').trim().toLowerCase())
+    .filter(Boolean)
+}
+
+function resolveWarehouseName() {
+  const code = String(form.warehouseCode ?? '').trim()
+  const hit = warehouseOptions.value.find((item) => String(item.code ?? '').trim() === code)
+  return String(hit?.name ?? '').trim()
+}
+
+function openOtherBatchWindow() {
+  const sessionId = buildStockOutBatchSessionId()
+  activeOtherBatchSessionId.value = sessionId
+  writeStockOutBatchContext(sessionId, {
+    warehouseCode: form.warehouseCode,
+    warehouseName: resolveWarehouseName(),
+    excludeOutboundNo: editId.value ? form.outboundNo : '',
+    inTax: form.inTax,
+    currentLineKeys: buildOtherBatchCurrentLineKeys(),
+    pageSize: 5,
+  })
+  const url = `/inventory/daily/stock-out-other-batch-window?sessionId=${encodeURIComponent(sessionId)}&warehouseCode=${encodeURIComponent(form.warehouseCode)}`
+  const opened = window.open(url, '_blank')
+  otherBatchChildWindow.value = opened || null
+  if (!opened) ElMessage.error('无法打开新窗口，请检查浏览器是否拦截弹窗')
+}
+
+function clearOtherBatchSession() {
+  activeOtherBatchSessionId.value = ''
+  otherBatchChildWindow.value = null
+}
+
+function openPurchaseReturnBatchWindow() {
+  const sessionId = buildStockOutPurchaseReturnBatchSessionId()
+  activePurchaseReturnBatchSessionId.value = sessionId
+  writeStockOutPurchaseReturnBatchContext(sessionId, {
+    sourceOrderNo: form.sourceOrderNo,
+    supplierCode: form.relatedPartyCode,
+    supplierName: form.relatedPartyName,
+    warehouseCode: form.warehouseCode,
+    warehouseName: resolveWarehouseName(),
+    excludeOutboundNo: editId.value ? form.outboundNo : '',
+    inTax: form.inTax,
+    currentLineKeys: buildPurchaseReturnBatchCurrentLineKeys(),
+    pageSize: 20,
+  })
+  const url = `/inventory/daily/stock-out-purchase-return-batch-window?sessionId=${encodeURIComponent(sessionId)}&warehouseCode=${encodeURIComponent(form.warehouseCode)}`
+  const opened = window.open(url, '_blank')
+  purchaseReturnBatchChildWindow.value = opened || null
+  if (!opened) ElMessage.error('无法打开新窗口，请检查浏览器是否拦截弹窗')
+}
+
+function clearPurchaseReturnBatchSession() {
+  activePurchaseReturnBatchSessionId.value = ''
+  purchaseReturnBatchChildWindow.value = null
+}
+
+function replyPurchaseReturnBatch(source, payload) {
+  const target = source && typeof source.postMessage === 'function'
+    ? source
+    : (purchaseReturnBatchChildWindow.value && !purchaseReturnBatchChildWindow.value.closed
+      ? purchaseReturnBatchChildWindow.value
+      : null)
+  if (!target || typeof target.postMessage !== 'function') return
+  target.postMessage(payload, window.location.origin)
+}
+
+function replyOtherBatch(source, payload) {
+  const target = source && typeof source.postMessage === 'function'
+    ? source
+    : (otherBatchChildWindow.value && !otherBatchChildWindow.value.closed ? otherBatchChildWindow.value : null)
+  if (!target || typeof target.postMessage !== 'function') return
+  target.postMessage(payload, window.location.origin)
+}
+
+function makeBatchLine(row) {
+  const tax = form.inTax === '2' ? 0 : Number(row.tax ?? 0)
+  const qty = Number(row.kcaq03 ?? row.returnableQty ?? row.issueableQty ?? row.actualQty ?? 0)
+  const ex = Number(row.kcaq04 ?? 0)
+  const inc = Number(row.kcaq041 ?? (ex * (1 + tax)))
+  const sourceLineCode = String(row.sourceLineCode ?? row.lineKey ?? row.kcak02 ?? row.wxak02 ?? '').trim()
+  const line = wrapOutboundLine({
+    ...row,
+    kcaa01: row.kcaa01 || row.materialCode,
+    kcaq02: isLinkedType.value ? sourceLineCode : '',
+    kcaq03: qty,
+    kcaq031: Number(row.kcaq031 ?? qty),
+    availableQty: Number(row.availableQty ?? row.returnableQty ?? row.issueableQty ?? qty),
+    kcaq04: ex,
+    kcaq041: inc,
+    kcaq05: Number(row.kcaq05 ?? (qty * ex).toFixed(2)),
+    kcaq051: Number(row.kcaq051 ?? (qty * inc).toFixed(2)),
+    tax,
+    reference: String(row.reference ?? row.Reference ?? '').trim(),
+    sourceLineCode,
+    Describe: row.Describe || row.info || row.remark || '',
+  })
+  recalcLine(line)
+  return line
+}
+
+async function refreshLinesTableHScroll() {
+  await nextTick()
+  linesTableRef.value?.doLayout?.()
+  const el = linesTableRef.value?.$el
+  if (el) refreshErpTableViewportHScroll(el)
+}
+
+watch([formTab, () => form.lines.length], ([tab]) => {
+  if (tab !== 'lines') return
+  refreshLinesTableHScroll()
+})
+
+function applyOtherBatchLines(batchRows) {
+  const existing = new Set(buildOtherBatchCurrentLineKeys())
+  const newLines = (batchRows ?? []).filter((row) => {
+    const key = String(row.kcaa01 ?? row.materialCode ?? '').trim().toLowerCase()
+    return key && !existing.has(key)
+  }).map((row) => makeBatchLine(row))
+  if (!newLines.length) return ElMessage.warning('所选明细已在列表中，或未选择新行')
+  form.lines.push(...newLines)
+  ElMessage.success(`已批量添加 ${newLines.length} 条出库明细`)
+}
+
+function handleOtherBatchPayload(payload, source = null, options = {}) {
+  const sessionId = String(payload?.sessionId ?? '').trim()
+  const allowStoredSession = !!options.allowStoredSession
+  if (!sessionId) return false
+  if (sessionId !== activeOtherBatchSessionId.value && !allowStoredSession) return false
+  const validation = validateStockOutBatchApply({
+    openedWarehouseCode: payload.openedWarehouseCode,
+    currentWarehouseCode: form.warehouseCode,
+  })
+  if (!validation.ok) {
+    removeStockOutBatchResult(sessionId)
+    if (!allowStoredSession) {
+      ElMessage.warning('仓库数据错误，请检查所选仓库')
+      replyOtherBatch(source, { type: STOCK_OUT_BATCH_MSG_REJECTED, sessionId, reason: validation.reason })
+      clearOtherBatchSession()
+    }
+    return false
+  }
+  const batchRows = Array.isArray(payload.lines) ? payload.lines : []
+  if (!batchRows.length) {
+    removeStockOutBatchResult(sessionId)
+    replyOtherBatch(source, { type: STOCK_OUT_BATCH_MSG_REJECTED, sessionId, reason: 'empty-lines' })
+    return false
+  }
+  removeStockOutBatchResult(sessionId)
+  applyOtherBatchLines(batchRows)
+  replyOtherBatch(source, { type: STOCK_OUT_BATCH_MSG_ACCEPTED, sessionId, lineCount: batchRows.length })
+  clearOtherBatchSession()
+  return true
+}
+
+function handleOtherBatchMessage(event) {
+  if (event.origin !== window.location.origin) return
+  const data = event.data
+  if (!data || data.type !== STOCK_OUT_BATCH_MSG_APPLY) return
+  handleOtherBatchPayload(data, event.source)
+}
+
+function applyPurchaseReturnBatchLines(batchRows) {
+  const existing = new Set(buildPurchaseReturnBatchCurrentLineKeys())
+  const newLines = (batchRows ?? [])
+    .filter((row) => {
+      const key = String(row.sourceLineCode ?? row.lineKey ?? row.kcaq02 ?? '').trim().toLowerCase()
+      return key && !existing.has(key)
+    })
+    .map((row) => makeBatchLine(row))
+  if (!newLines.length) return ElMessage.warning('所选明细已在列表中，或未选择新行')
+  form.lines.push(...newLines)
+  ElMessage.success(`已批量添加 ${newLines.length} 条采购退货明细`)
+}
+
+function handlePurchaseReturnBatchPayload(payload, source = null, options = {}) {
+  const sessionId = String(payload?.sessionId ?? '').trim()
+  const allowStoredSession = !!options.allowStoredSession
+  if (!sessionId) return false
+  if (sessionId !== activePurchaseReturnBatchSessionId.value && !allowStoredSession) return false
+  const validation = validateStockOutPurchaseReturnBatchApply({
+    openedWarehouseCode: payload.openedWarehouseCode,
+    currentWarehouseCode: form.warehouseCode,
+    openedSourceOrderNo: payload.openedSourceOrderNo,
+    currentSourceOrderNo: form.sourceOrderNo,
+    openedSupplierCode: payload.openedSupplierCode,
+    currentSupplierCode: form.relatedPartyCode,
+  })
+  if (!validation.ok) {
+    removeStockOutPurchaseReturnBatchResult(sessionId)
+    if (!allowStoredSession) {
+      ElMessage.warning('仓库/采购单/供应商数据已变更，请重新打开批量添加')
+      replyPurchaseReturnBatch(source, { type: STOCK_OUT_PR_BATCH_MSG_REJECTED, sessionId, reason: validation.reason })
+      clearPurchaseReturnBatchSession()
+    }
+    return false
+  }
+  const batchRows = Array.isArray(payload.lines) ? payload.lines : []
+  if (!batchRows.length) {
+    removeStockOutPurchaseReturnBatchResult(sessionId)
+    replyPurchaseReturnBatch(source, { type: STOCK_OUT_PR_BATCH_MSG_REJECTED, sessionId, reason: 'empty-lines' })
+    return false
+  }
+  removeStockOutPurchaseReturnBatchResult(sessionId)
+  applyPurchaseReturnBatchLines(batchRows)
+  replyPurchaseReturnBatch(source, { type: STOCK_OUT_PR_BATCH_MSG_ACCEPTED, sessionId, lineCount: batchRows.length })
+  clearPurchaseReturnBatchSession()
+  return true
+}
+
+function handlePurchaseReturnBatchMessage(event) {
+  if (event.origin !== window.location.origin) return
+  const data = event.data
+  if (!data || data.type !== STOCK_OUT_PR_BATCH_MSG_APPLY) return
+  handlePurchaseReturnBatchPayload(data, event.source)
 }
 
 async function openMaterialPicker() {
   if (!form.outboundType) return ElMessage.warning('请先选择出库类型。')
   if (!form.inTax) return ElMessage.warning('请先选择是否含税。')
   if (!form.warehouseCode) return ElMessage.warning('请先选择仓库。')
-  try {
-    const { data } = await axios.get('/api/stock-out/material-options', { params: { warehouseCode: form.warehouseCode, keyword: materialKeyword.value, excludeOutboundNo: form.outboundNo } })
-    const first = data?.data?.list?.[0]
-    if (!first) return ElMessage.info('当前仓库没有可出库存')
-    form.lines.push({
-      kcaa01: first.materialCode,
-      kcaa02: first.kcaa02 || '',
-      kcaa03: first.kcaa03 || '',
-      kcaa11: first.color || '',
-      location: first.location || '',
-      version: first.version || '',
-      kcaq02: isLinkedType.value ? form.sourceOrderNo || first.materialCode : '',
-      kcaq03: Math.max(0, Number(first.availableQty || 0)),
-      availableQty: Number(first.availableQty || 0),
-      kcaq04: 0,
-      kcaq041: 0,
-      kcaq05: 0,
-      kcaq051: 0,
-      tax: 0,
-      Describe: '',
-    })
-    ElMessage.success('已带入第一条可出库存；更复杂的批量选择窗口后续可继续细化')
-  } catch (err) {
-    ElMessage.error(err?.response?.data?.msg || err.message || '读取可出库存失败')
+  if (form.outboundType === '0') {
+    openOtherBatchWindow()
+    return
   }
+  if (form.outboundType === '1') {
+    if (!form.sourceOrderNo) return ElMessage.warning('请先选择关联采购单号')
+    if (!form.relatedPartyCode) return ElMessage.warning('请先选择供应商')
+    openPurchaseReturnBatchWindow()
+    return
+  }
+  if (form.outboundType === '2') {
+    if (!form.sourceOrderNo) return ElMessage.warning('请先选择关联外协单号')
+    if (!form.relatedPartyCode) return ElMessage.warning('请先选择外协商')
+    if (form.postProcessAssist && !form.workshopCode) return ElMessage.warning('加工后外协须选择本厂加工车间')
+    openAssistIssueBatchWindow()
+    return
+  }
+  return ElMessage.info('当前出库类型的批量添加功能开发中')
 }
 
 function recalcLine(row) {
@@ -643,6 +1812,30 @@ function reverseLine(row) {
 onMounted(() => {
   loadList()
   fetchWarehouses('')
+  window.addEventListener('message', handleOtherBatchMessage)
+  window.addEventListener('message', handlePurchaseReturnBatchMessage)
+  window.addEventListener('message', handleAssistIssueBatchMessage)
+  const storedOtherSession = activeOtherBatchSessionId.value
+  if (storedOtherSession) {
+    const payload = readStockOutBatchResult(storedOtherSession)
+    if (payload) handleOtherBatchPayload(payload, null, { allowStoredSession: true })
+  }
+  const storedPrSession = activePurchaseReturnBatchSessionId.value
+  if (storedPrSession) {
+    const payload = readStockOutPurchaseReturnBatchResult(storedPrSession)
+    if (payload) handlePurchaseReturnBatchPayload(payload, null, { allowStoredSession: true })
+  }
+  const storedAiSession = activeAssistIssueBatchSessionId.value
+  if (storedAiSession) {
+    const payload = readStockOutAssistIssueBatchResult(storedAiSession)
+    if (payload) handleAssistIssueBatchPayload(payload, null, { allowStoredSession: true })
+  }
+})
+
+onUnmounted(() => {
+  window.removeEventListener('message', handleOtherBatchMessage)
+  window.removeEventListener('message', handlePurchaseReturnBatchMessage)
+  window.removeEventListener('message', handleAssistIssueBatchMessage)
 })
 </script>
 
@@ -659,14 +1852,50 @@ onMounted(() => {
   --stock-filter-keyword-width: 420px;
   /* DIY：筛选开关组之间的间隔 */
   --stock-filter-switch-gap: 20px;
+  /* DIY：列表「出库单数据」字号 */
+  --stock-out-data-size: 13px;
+  /* DIY：出库单数据 - 蓝（关联单位/货仓/总项数） */
+  --stock-out-data-color-blue: #1d4ed8;
+  /* DIY：出库单数据 - 紫（含税总价） */
+  --stock-out-data-color-purple: #7c3aed;
+  /* DIY：出库单数据 - 深红（不含税/税点/出库数量） */
+  --stock-out-data-color-danger: #dc2626;
 }
 .stock-out-mode-bar,
 .line-toolbar,
 .form-head {
   display: flex;
-  align-items: center;
-  gap: 8px;
   flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.stock-line-mark-btn {
+  min-width: 56px;
+  color: #e6a23c;
+  border-color: #f3d19e;
+  background: #fdf6ec;
+}
+.stock-line-mark-btn:hover,
+.stock-line-mark-btn:focus {
+  color: #b88230;
+  border-color: #eebe77;
+  background: #faecd8;
+}
+.stock-line-mark-btn--on,
+.stock-line-mark-btn--on:hover,
+.stock-line-mark-btn--on:focus {
+  color: #909399;
+  border-color: #dcdfe6;
+  background: #f4f4f5;
+}
+/* DIY：出库单明细 - 厂款号/PI号、备注列宽约 30 字（stock-out-line-wide-col min-width 420px） */
+.stock-out-line-wide-input {
+  width: 100%;
+}
+.stock-out-lines-table :deep(.stock-out-line-wide-col .cell) {
+  padding-left: 8px;
+  padding-right: 8px;
 }
 .stock-filter-bar {
   display: flex;
@@ -738,6 +1967,33 @@ onMounted(() => {
   margin-top: 12px;
   justify-content: flex-end;
 }
+.stock-out-data {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  line-height: 1.6;
+  font-size: var(--stock-out-data-size, 13px);
+}
+.stock-out-data__line {
+  white-space: normal;
+  word-break: break-all;
+}
+.stock-out-data__blue {
+  color: var(--stock-out-data-color-blue);
+}
+.stock-out-data__purple {
+  color: var(--stock-out-data-color-purple);
+}
+.stock-out-data__danger {
+  color: var(--stock-out-data-color-danger);
+}
+.stock-expand-inner {
+  padding: 12px 14px;
+  background: #f8fafc;
+}
+.stock-expand-lines-table {
+  width: 100%;
+}
 .form-head {
   justify-content: space-between;
   margin-bottom: 12px;
@@ -747,6 +2003,7 @@ onMounted(() => {
 }
 .stock-form--base {
   --stock-base-input-width: 320px;
+  --stock-inline-input-width: 200px;
   --stock-inline-gap: 12px;
   --stock-type-btn-gap: 10px;
   --stock-type-btn-height: 42px;
@@ -756,6 +2013,24 @@ onMounted(() => {
 }
 .stock-unified-input {
   width: var(--stock-base-input-width);
+}
+.stock-inline-input {
+  width: var(--stock-inline-input-width);
+  flex: 0 0 var(--stock-inline-input-width);
+}
+.form-inline-pairs--nowrap {
+  flex-wrap: nowrap;
+}
+.source-picker-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.source-picker-field :deep(.el-input) {
+  flex: 1 1 auto;
+}
+.source-picker-field :deep(.el-button) {
+  flex: 0 0 auto;
 }
 .stock-remark-input {
   width: min(100%, calc(var(--stock-base-input-width) * 2 + var(--stock-inline-gap)));
@@ -791,10 +2066,25 @@ onMounted(() => {
   color: var(--el-text-color-regular);
   white-space: nowrap;
 }
-.line-search {
-  width: 260px;
-}
 .detail-lines {
   margin-top: 12px;
+}
+.assist-party-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.assist-party-row__party {
+  flex: 0 0 var(--stock-base-input-width);
+  width: var(--stock-base-input-width);
+  min-width: var(--stock-base-input-width);
+}
+.assist-party-row__workshop {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 1 auto;
 }
 </style>

@@ -4,6 +4,7 @@ import {
   buildNextStockOutNo,
   calcStockOutAmounts,
   normalizeStockOutHeader,
+  normalizeStockOutLine,
   validateStockOutPayload,
 } from './stockOutSaveLogic.js'
 
@@ -33,12 +34,24 @@ describe('stockOutSaveLogic', () => {
     assert.match(validateStockOutPayload({ header: { outboundType: '1', warehouseCode: 'CK01', inTax: '1', sourceOrderNo: 'PO1', relatedPartyCode: 'S1' }, lines: [{ kcaa01: 'A', kcaq03: 1 }] }), /关联单据/)
   })
 
+  test('明细厂款号/PI号兼容 Reference 物理列名', () => {
+    const line = normalizeStockOutLine({ kcaa01: 'A', kcaq03: 1, Reference: 'PI-2026-001' }, 1, {})
+    assert.equal(line.reference, 'PI-2026-001')
+  })
+
   test('纸质单号与预留单号分别映射 kcap08 kcap09', () => {
     const h = normalizeStockOutHeader({ paperNo: 'PN-1', reserveNo: 'RSV-9', kcap08: 'OLD', kcap09: 'OLD2' })
     assert.equal(h.paperNo, 'PN-1')
     assert.equal(h.reserveNo, 'RSV-9')
     const legacy = normalizeStockOutHeader({ referenceNo: 'PI-88' })
     assert.equal(legacy.paperNo, 'PI-88')
+  })
+
+  test('外协领料 PI 号映射 kcap08，预留单号仍映射 kcap09', () => {
+    const h = normalizeStockOutHeader({ outboundType: '2', piNo: 'PI-1', paperNo: 'PN-IGNORED', reserveNo: 'RSV-2' })
+    assert.equal(h.paperNo, '')
+    assert.equal(h.piNo, 'PI-1')
+    assert.equal(h.reserveNo, 'RSV-2')
   })
 
   test('不含税模式税点只能为 0，金额从不含税单价计算', () => {
@@ -50,4 +63,3 @@ describe('stockOutSaveLogic', () => {
     assert.equal(amount.kcaq051, 22.6)
   })
 })
-

@@ -61,6 +61,7 @@ export function isLinkedOutboundType(type) {
 
 export function normalizeStockOutHeader(input = {}) {
   const outboundType = normalizeOutboundType(input.outboundType ?? input.kcap03)
+  const isAssistIssue = outboundType === '2'
   return {
     systemCode: text(input.systemCode ?? input.systemcode),
     outboundNo: text(input.outboundNo ?? input.kcap01),
@@ -72,8 +73,13 @@ export function normalizeStockOutHeader(input = {}) {
     warehouseCode: text(input.warehouseCode ?? input.kcap06),
     warehouseName: text(input.warehouseName ?? input.ck),
     handlerName: text(input.handlerName ?? input.kcap07),
-    paperNo: text(input.paperNo ?? input.kcap08 ?? input.referenceNo),
+    // 外协领料：kcap08 存 PI；其他类型：纸质单号
+    paperNo: isAssistIssue ? '' : text(input.paperNo ?? input.kcap08 ?? input.referenceNo),
+    piNo: isAssistIssue ? text(input.piNo ?? input.kcap08 ?? input.referenceNo) : '',
     reserveNo: text(input.reserveNo ?? input.kcap09),
+    postProcessAssist: Boolean(input.postProcessAssist ?? text(input.cj ?? input.workshopCode)),
+    workshopCode: text(input.workshopCode ?? input.cj),
+    workshopName: text(input.workshopName ?? input.cjname),
     inTax: text(input.inTax ?? input.in_tax) === '2' ? '2' : '1',
     remark: text(input.remark),
     pass: '0',
@@ -114,7 +120,7 @@ export function normalizeStockOutLine(line = {}, seq = 1, header = {}) {
     kcaq03: qty,
     ...amounts,
     tax,
-    reference: text(line.reference),
+    reference: text(line.reference ?? line.Reference),
     Describe: text(line.Describe ?? line.info ?? line.remark),
     kcaa01: text(line.kcaa01),
     kcaa02: text(line.kcaa02),
@@ -137,6 +143,9 @@ export function validateStockOutPayload(payload = {}) {
   if (['1', '2', '3', '6'].includes(header.outboundType) && !header.relatedPartyCode) return '关联方不能为空'
   if (['4', '5'].includes(header.outboundType) && !header.relatedPartyCode) return '生产车间不能为空'
   if (isLinkedOutboundType(header.outboundType) && !header.sourceOrderNo) return '关联单号不能为空'
+  if (header.outboundType === '2' && header.postProcessAssist && !header.workshopCode) {
+    return '加工后外协须选择本厂加工车间'
+  }
 
   const rawLines = payload.rawLines ?? payload.lines ?? []
   const lines = (payload.lines ?? []).map((line, idx) => normalizeStockOutLine(line, idx + 1, header))
@@ -157,4 +166,3 @@ export function validateStockOutPayload(payload = {}) {
   }
   return null
 }
-

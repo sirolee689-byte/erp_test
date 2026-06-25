@@ -13,6 +13,8 @@ describe('stockOutListQuery', () => {
     const sql = buildStockOutListPagedSql({ whereSql: where.whereSql }).sql
     assert.equal(opts.page, 2)
     assert.equal(opts.pageSize, 20)
+    assert.equal(parseStockOutListQuery({}).pageSize, 10)
+    assert.equal(parseStockOutListQuery({ pageSize: '500' }).pageSize, 200)
     assert.equal(where.params.outboundType, '9')
     assert.equal(where.params.warehouseCode, 'CK01')
     assert.match(sql, /ROW_NUMBER\(\) OVER/i)
@@ -22,7 +24,7 @@ describe('stockOutListQuery', () => {
   })
 
   test('默认列表只查已审核 pass=1', () => {
-    const opts = parseStockOutListQuery({ page: '1', pageSize: '20' })
+    const opts = parseStockOutListQuery({ page: '1' })
     const where = buildStockOutListWhereSql(opts)
     assert.equal(opts.pass, '1')
     assert.equal(where.params.pass, '1')

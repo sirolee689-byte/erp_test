@@ -10,6 +10,8 @@ describe('stock-out permission and action map', () => {
     assert.deepEqual(matchApiPermissionRule('PUT', '/api/stock-out/8'), { menuPath: 'inventory/daily/stock-out', action: 'edit' })
     assert.deepEqual(matchApiPermissionRule('POST', '/api/stock-out/8/audit'), { menuPath: 'inventory/daily/stock-out', action: 'audit' })
     assert.deepEqual(matchApiPermissionRule('DELETE', '/api/stock-out/8/hard'), { menuPath: 'inventory/daily/stock-out', action: 'delete' })
+    assert.deepEqual(matchApiPermissionRule('GET', '/api/stock-out/other-batch-lines'), { menuPath: 'inventory/daily/stock-out', action: 'view' })
+    assert.deepEqual(matchApiPermissionRule('POST', '/api/stock-out/other-batch-prices'), { menuPath: 'inventory/daily/stock-out', action: 'view' })
   })
 
   test('操作日志映射出库单正式物理表', () => {

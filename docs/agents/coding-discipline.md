@@ -1,7 +1,6 @@
 # 写码纪律（coding discipline）
 
-来源：[andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills) 的 `CLAUDE.md`，已与 ERP 项目约定合并。**琐碎任务可酌情放宽。**
-
+来源：[andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills) 四条行为准则的**仓库内唯一全文**（原 `.cursor/rules/karpathy-guidelines.mdc` 已移除，勿再维护副本）。**琐碎任务可酌情放宽。**
 ---
 
 ## 1. 先想清楚再写（Think Before Coding）
@@ -37,10 +36,10 @@
 ## 本项目 override（优先于上文的泛化表述）
 
 1. **测试**：以 issue / PRD / `npm run test:*` 清单为准；**未要求不新增**单元测试或大范围集成测试。
-2. **大需求**：先对齐定稿（`ask-then-execute`、`.scratch` PRD）再动代码；小修小补不必反复盘问。
+2. **大需求**：先对齐定稿（`ask-then-execute` **重档**完整定稿、`.scratch` PRD）再动代码；**轻档**小修小补不必反复盘问；**中档**用轻量定稿即可。档位定义见 `.agents/skills/ask-then-execute` §A。
 3. **标准件模块**：用户明确要求「按标准件/采购报价式」时，权限、审计、回收站等属于**范围内**实现，不算擅自加功能。
 4. **沟通与注释**：全中文、业务注释规则见 [`.cursorrules`](../../.cursorrules) §1；勿与 User Rules 重复维护同一句话。
-5. **后端变更**：修改 `server/**` 或 `apiPermissionGate.js` 后，只提醒用户按 [`.cursorrules`](../../.cursorrules) §16 手动重启 API；Agent 不执行 `taskkill`、不查端口/PID、不运行 `npm run dev:server`、不贴启动指纹，也不得断言「后端已生效」。
+5. **后端变更**：见 [`.cursorrules`](../../.cursorrules) §14（单源；此处不重复禁止项与命令）。
 
 ---
 

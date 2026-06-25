@@ -44,6 +44,8 @@ describe('stockOutLifecycle', () => {
     assert.match(normal.error, /超级管理员/)
     const admin = resolveStockOutLifecycleConfig('hard-delete', { pass: '0', del: '1', closed: '0' }, { isAdmin: true })
     assert.equal(admin.hardDelete, true)
+    const adminByCol = resolveStockOutLifecycleConfig('hard-delete', { pass: '0', del: '1', closed: '0' }, { is_admin: 1 })
+    assert.equal(adminByCol.hardDelete, true)
   })
   test('source writeback SQL adds on audit and floors at zero on unaudit', () => {
     const auditSql = buildStockOutSourceWritebackSql({
