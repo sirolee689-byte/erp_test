@@ -166,7 +166,8 @@ async function onLogin() {
      *
      * 流程说明（从登录到前端读取）：
      * 1) 后端 POST /api/login 在校验通过后，会在 data.user 里返回 UserID/UserCode/UserName/Status，
-     *    以及本阶段新增的 RoleID、RoleName（来自 UB_ERP_User 关联 UB_ERP_System_role）。
+     *    以及本阶段新增的 RoleID、RoleName（来自 UB_ERP_User 关联 UB_ERP_System_role）；
+     *    **is_admin / isAdmin**（超级管理员，供出库单「开料出库配置」等前端门禁）。
      * 2) localStorage 只能存字符串，所以这里用 JSON.stringify(user) 序列化整个 user 对象。
      * 3) 写入的 key 固定为 erp_user（与布局页 ErpLayout 读取的 key 一致）。
      * 4) user.Permissions 为角色在 UB_ERP_System_role.Permissions 中配置的菜单 path JSON 字符串；

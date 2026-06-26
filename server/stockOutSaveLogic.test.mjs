@@ -28,10 +28,28 @@ describe('stockOutSaveLogic', () => {
     assert.equal(validateStockOutPayload({ header: { outboundType: '10', warehouseCode: 'CK01', inTax: '1' }, lines: [{ kcaa01: 'A', kcaq03: 1 }] }), null)
   })
 
+  test('草稿允许空明细保存', () => {
+    assert.equal(
+      validateStockOutPayload({ header: { outboundType: '0', warehouseCode: 'CK01', inTax: '1' }, lines: [] }),
+      null,
+    )
+  })
+
   test('批量添加公共前置字段和明细来源校验', () => {
     assert.match(validateStockOutPayload({ header: { outboundType: '', warehouseCode: 'CK01', inTax: '1' }, lines: [{ kcaa01: 'A', kcaq03: 1 }] }), /出库类型/)
     assert.match(validateStockOutPayload({ header: { outboundType: '0', warehouseCode: '', inTax: '1' }, lines: [{ kcaa01: 'A', kcaq03: 1 }] }), /仓库/)
     assert.match(validateStockOutPayload({ header: { outboundType: '1', warehouseCode: 'CK01', inTax: '1', sourceOrderNo: 'PO1', relatedPartyCode: 'S1' }, lines: [{ kcaa01: 'A', kcaq03: 1 }] }), /关联单据/)
+  })
+
+  test('关联型出库须带 sourceLineCode，不强制前端 kcaq02', () => {
+    assert.match(validateStockOutPayload({
+      header: { outboundType: '2', warehouseCode: 'CK01', inTax: '1', sourceOrderNo: 'WX1', relatedPartyCode: 'S1' },
+      lines: [{ kcaa01: 'A', kcaq03: 1 }],
+    }), /必须来自关联单据/)
+    assert.equal(validateStockOutPayload({
+      header: { outboundType: '2', warehouseCode: 'CK01', inTax: '1', sourceOrderNo: 'WX1', relatedPartyCode: 'S1' },
+      lines: [{ kcaa01: 'A', kcaq03: 1, sourceLineCode: 'WX-LINE-1' }],
+    }), null)
   })
 
   test('明细厂款号/PI号兼容 Reference 物理列名', () => {
@@ -54,6 +72,12 @@ describe('stockOutSaveLogic', () => {
     assert.equal(h.reserveNo, 'RSV-2')
   })
 
+  test('生产领料 PI 号映射 kcap08', () => {
+    const h = normalizeStockOutHeader({ outboundType: '4', piNo: 'PI-PG-1', paperNo: 'PN-IGNORED', relatedPartyCode: 'WS01' })
+    assert.equal(h.paperNo, '')
+    assert.equal(h.piNo, 'PI-PG-1')
+  })
+
   test('不含税模式税点只能为 0，金额从不含税单价计算', () => {
     assert.match(validateStockOutPayload({ header: { outboundType: '0', warehouseCode: 'CK01', inTax: '2' }, lines: [{ kcaa01: 'A', kcaq03: 1, tax: 0.13 }] }), /税点只能为 0/)
     const amount = calcStockOutAmounts({ qty: 2, priceExTax: 10, tax: 0.13 })
@@ -61,5 +85,17 @@ describe('stockOutSaveLogic', () => {
     assert.equal(amount.kcaq041, 11.3)
     assert.equal(amount.kcaq05, 20)
     assert.equal(amount.kcaq051, 22.6)
+  })
+
+  test('出库数量与可出库数量比较前统一三位小数', () => {
+    assert.equal(validateStockOutPayload({
+      header: { outboundType: '2', warehouseCode: 'CK01', inTax: '1', sourceOrderNo: 'WX1', relatedPartyCode: 'S1' },
+      lines: [{
+        kcaa01: 'GB-0004/580',
+        sourceLineCode: 'LINE1',
+        kcaq03: 186.667,
+        availableQty: 186.6666,
+      }],
+    }), null)
   })
 })

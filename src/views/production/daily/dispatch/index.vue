@@ -8,17 +8,37 @@
     </div>
 
     <section v-show="pageMode === 'list'" class="erp-section">
-      <div class="dispatch-toolbar">
-        <el-input v-model="filters.keyword" clearable placeholder="派工单号 / PI / 车间 / 备注" class="filter-keyword" @keyup.enter="loadList" />
-        <el-select v-model="filters.dispatchType" clearable placeholder="派工类型" class="filter-select">
-          <el-option label="本厂" value="0" />
-          <el-option label="大板" value="1" />
-          <el-option label="委外" value="2" />
-        </el-select>
-        <el-switch v-model="showUnaudited" :disabled="showRecycle" active-text="显示未审核" @change="loadList" />
-        <el-switch v-model="showRecycle" active-text="回收站" @change="onRecycleChange" />
-        <el-button type="primary" @click="loadList">查询</el-button>
-        <el-button @click="resetSearch">重置</el-button>
+      <div class="dispatch-filter-bar">
+        <div class="dispatch-filter-row dispatch-filter-row--top">
+          <el-select v-model="filters.dispatchType" clearable placeholder="派工类型" class="dispatch-filter-type">
+            <el-option label="本厂" value="0" />
+            <el-option label="大板" value="1" />
+            <el-option label="委外" value="2" />
+          </el-select>
+        </div>
+        <div class="dispatch-filter-row dispatch-filter-row--bottom">
+          <el-input
+            v-model="filters.keyword"
+            clearable
+            placeholder="派工单号 / PI / 车间 / 备注"
+            class="dispatch-filter-keyword"
+            @keyup.enter="loadList"
+          />
+          <el-button type="primary" size="small" @click="loadList">查询</el-button>
+          <div class="dispatch-filter-divider" aria-hidden="true" />
+          <div class="dispatch-filter-switch">
+            <span class="switch-label">回收站</span>
+            <el-switch v-model="showRecycle" @change="onRecycleChange" />
+          </div>
+          <template v-if="!showRecycle">
+            <div class="dispatch-filter-divider" aria-hidden="true" />
+            <div class="dispatch-filter-switch">
+              <span class="switch-label">显示未审核</span>
+              <el-switch v-model="showUnaudited" @change="loadList" />
+            </div>
+          </template>
+          <el-button size="small" @click="resetSearch">重置</el-button>
+        </div>
       </div>
 
       <el-alert v-if="showRecycle" type="info" show-icon title="当前是回收站：只能查看、恢复或彻底删除。" class="dispatch-alert" />
@@ -805,7 +825,6 @@ onMounted(() => {
   min-height: 100%;
 }
 .dispatch-mode-bar,
-.dispatch-toolbar,
 .form-head,
 .line-toolbar,
 .goods-toolbar {
@@ -814,17 +833,56 @@ onMounted(() => {
   gap: 10px;
   margin-bottom: 12px;
 }
+.dispatch-page {
+  --dispatch-filter-type-width: 160px;
+  --dispatch-filter-keyword-width: 420px;
+  --dispatch-filter-switch-gap: 20px;
+}
+.dispatch-filter-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 12px;
+}
+.dispatch-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+}
+.dispatch-filter-type {
+  width: min(var(--dispatch-filter-type-width, 160px), 100%);
+}
+.dispatch-filter-keyword {
+  flex: 0 1 var(--dispatch-filter-keyword-width, 420px);
+  width: min(var(--dispatch-filter-keyword-width, 420px), 100%);
+}
+.dispatch-filter-divider {
+  width: 1px;
+  height: 22px;
+  margin: 0 var(--dispatch-filter-switch-gap, 20px);
+  background: var(--el-border-color);
+  flex-shrink: 0;
+}
+.dispatch-filter-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.switch-label {
+  color: var(--el-text-color-regular);
+  font-size: 14px;
+  white-space: nowrap;
+}
 .erp-section {
   padding: 12px;
   background: var(--el-bg-color);
   border: 1px solid var(--el-border-color-light);
   border-radius: 6px;
-}
-.filter-keyword {
-  width: 280px;
-}
-.filter-select {
-  width: 130px;
 }
 .dispatch-alert {
   margin-bottom: 12px;

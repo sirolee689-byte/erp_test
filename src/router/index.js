@@ -157,6 +157,13 @@ const stockOutAssistIssueBatchWindowRoute = {
   meta: { title: '外协领料批量添加', permissionPath: '/inventory/daily/stock-out' },
 }
 
+const stockOutProductionIssueBatchWindowRoute = {
+  path: '/inventory/daily/stock-out-production-issue-batch-window',
+  name: 'inventory-daily-stock-out-production-issue-batch-window',
+  component: () => import('@/views/inventory/daily/stock-out/production-issue-batch-window.vue'),
+  meta: { title: '生产领料批量添加', permissionPath: '/inventory/daily/stock-out' },
+}
+
 const childRoutes = [
   ...walkRoutes(menuStructure),
   paperPatternImportPreviewRoute,
@@ -200,6 +207,7 @@ const router = createRouter({
     stockOutOtherBatchWindowRoute,
     stockOutPurchaseReturnBatchWindowRoute,
     stockOutAssistIssueBatchWindowRoute,
+    stockOutProductionIssueBatchWindowRoute,
     {
       path: '/',
       component: ErpLayout,

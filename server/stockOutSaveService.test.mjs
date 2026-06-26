@@ -26,9 +26,11 @@ describe('stockOutSaveService', () => {
     assert.deepEqual(cols, ['kcaq01', 'Reference', 'Tax'])
   })
 
-  test('保存明细时 kcaq02/systemcode 与 BOM.systemcode 一致，remark 抄 BOM.remark', () => {
+  test('保存明细时 kcaq02/GUID/systemcode 与 BOM.systemcode 一致，remark 抄 BOM.remark', () => {
     const result = resolveBomLineWriteValues({ systemcode: 'SC-BOM-001', remark: 'BOM备注A' }, 1)
     assert.deepEqual(result, { systemCode: 'SC-BOM-001', remark: 'BOM备注A' })
+    const fromGuid = resolveBomLineWriteValues({ GUID: 'GUID-BOM-002', remark: '' }, 2)
+    assert.equal(fromGuid.systemCode, 'GUID-BOM-002')
   })
 
   test('BOM 缺少 systemcode 时阻止保存', () => {
@@ -103,14 +105,15 @@ describe('stockOutSaveService', () => {
     assert.match(sql, /pass/)
   })
 
-  test('关联型明细 kcaq02 优先写来源键', () => {
+  test('明细字段映射 kcaq02 与 systemcode 同写 BOM.systemcode', () => {
     const lineCols = new Set(['kcaq02', 'systemcode'])
+    const bomSc = 'BOM-SC-001'
     const writable = buildWritableLineFields({
-      kcaq02: 'WX-LINE-GUID',
-      systemcode: 'BOM-SC-001',
+      kcaq02: bomSc,
+      systemcode: bomSc,
     }, lineCols)
     const map = Object.fromEntries(writable)
-    assert.equal(map.kcaq02, 'WX-LINE-GUID')
-    assert.equal(map.systemcode, 'BOM-SC-001')
+    assert.equal(map.kcaq02, bomSc)
+    assert.equal(map.systemcode, bomSc)
   })
 })

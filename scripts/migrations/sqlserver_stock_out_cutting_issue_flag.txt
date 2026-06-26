@@ -1,0 +1,24 @@
+-- 开料出库配置：UB_ERP_Stocks_material.cutting_issue
+-- SQL Server 2008 R2；列已存在则跳过 ALTER，可重复执行 UPDATE 部分
+-- 执行前请备份；执行后重启 API 并重新登录
+
+IF NOT EXISTS (
+  SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_NAME = N'UB_ERP_Stocks_material' AND COLUMN_NAME = N'cutting_issue'
+)
+BEGIN
+  ALTER TABLE dbo.[UB_ERP_Stocks_material] ADD cutting_issue NVARCHAR(20) NULL;
+END
+GO
+
+UPDATE dbo.[UB_ERP_Stocks_material]
+SET cutting_issue = N'0'
+WHERE cutting_issue IS NULL;
+GO
+
+-- 旧系统默认纳入开料出库的五类物料分类
+UPDATE dbo.[UB_ERP_Stocks_material]
+SET cutting_issue = N'1'
+WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(code, N'')))) IN (N'0008', N'0011', N'0015', N'0017', N'0020')
+  AND ISNULL(del, N'0') IN (N'', N'0');
+GO

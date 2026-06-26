@@ -17,6 +17,9 @@ import {
 } from './stockOutOtherBatchAdd.js'
 import { fetchStockOutPurchaseReturnBatchLines } from './stockOutPurchaseReturnBatchAdd.js'
 import { fetchStockOutAssistIssueBatchLines } from './stockOutAssistIssueBatchAdd.js'
+import { fetchStockOutProductionDispatchSourcePage } from './stockOutProductionDispatchSourcePage.js'
+import { fetchStockOutProductionIssueBatchLines } from './stockOutProductionIssueBatchAdd.js'
+import { fetchCuttingIssueConfig, updateCuttingIssueConfig } from './stockOutCuttingIssueConfig.js'
 import { safeDecimalExpr } from './buyOrderSqlSafe.js'
 
 const HEADER_FROM = 'dbo.[UB_ERP_Stocks_out]'
@@ -204,29 +207,30 @@ function assistLineRemainExpr() {
   return `(${ksum}) - ${used} + ISNULL(${adjust}, 0)`
 }
 
-/** 外协明细已审外协入库数量（选单展示用） */
-function assistLineInboundQtySubquery() {
-  return `ISNULL((
-    SELECT SUM(${safeDecimalExpr('sl', 'kcao03')})
-    FROM ${STOCK_IN_FROM} AS sh
-    INNER JOIN ${STOCK_IN_LINE_FROM} AS sl
-      ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(sl.[kcao01], N''))))
-       = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(sh.[kcan01], N''))))
-    WHERE (ISNULL(sh.[del], N'') = N'' OR sh.[del] = N'0')
-      AND (ISNULL(sl.[del], N'') = N'' OR sl.[del] = N'0')
-      AND LTRIM(RTRIM(ISNULL(sh.[pass], N''))) = N'1'
-      AND LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(sh.[kcan03], N'')))) = N'2'
-      AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(sh.[kcan04], N''))))
-        = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj01], N''))))
-      AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(sl.[kcao02], N''))))
-        = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[wxak02], ISNULL(l.[systemcode], N'')))))
-  ), 0)`
+/** 外协入库数量预聚合：替代逐行关联子查询，选单列表与 COUNT 兜底共用 */
+function buildAssistIssueInboundAggCteSql() {
+  return `
+    inbound_agg AS (
+      SELECT
+        sh.[kcan04] AS sourceOrderNo,
+        sl.[kcao02] AS sourceLineCode,
+        SUM(${safeDecimalExpr('sl', 'kcao03')}) AS inboundQty
+      FROM ${STOCK_IN_FROM} AS sh
+      INNER JOIN ${STOCK_IN_LINE_FROM} AS sl
+        ON sl.[kcao01] = sh.[kcan01]
+      WHERE (ISNULL(sh.[del], N'') = N'' OR sh.[del] = N'0')
+        AND (ISNULL(sl.[del], N'') = N'' OR sl.[del] = N'0')
+        AND LTRIM(RTRIM(ISNULL(sh.[pass], N''))) = N'1'
+        AND LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(sh.[kcan03], N'')))) = N'2'
+      GROUP BY sh.[kcan04], sl.[kcao02]
+    )`
 }
 
 function buildAssistIssueSourceCteSql(supplierWhere = '', keywordWhere = '') {
   const remainExpr = assistLineRemainExpr()
   return `
-    WITH source AS (
+    WITH ${buildAssistIssueInboundAggCteSql()},
+    source AS (
       SELECT
         h.[id] AS headerId,
         LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj01], N'')))) AS sourceOrderNo,
@@ -252,7 +256,7 @@ function buildAssistIssueSourceCteSql(supplierWhere = '', keywordWhere = '') {
         ${safeDecimalExpr('l', 'wxak051')} AS wxak051,
         ${safeDecimalExpr('l', 'Tax')} AS tax,
         ISNULL(${safeDecimalExpr('l', 'wxak08')}, 0) AS outQty,
-        ${assistLineInboundQtySubquery()} AS inboundQty,
+        ISNULL(inb.[inboundQty], 0) AS inboundQty,
         CASE
           WHEN LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa25], N'')))) <> N''
             AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa25], N'')))) <> LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa04], N''))))
@@ -270,11 +274,12 @@ function buildAssistIssueSourceCteSql(supplierWhere = '', keywordWhere = '') {
         ) AS rn
       FROM ${ASSIST_ORDER_FROM} AS h
       INNER JOIN ${ASSIST_ORDER_LINE_FROM} AS l
-        ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[wxak01], N''))))
-         = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj01], N''))))
+        ON l.[wxak01] = h.[wxaj01]
+      LEFT JOIN inbound_agg AS inb
+        ON inb.[sourceOrderNo] = h.[wxaj01]
+       AND inb.[sourceLineCode] = ISNULL(l.[wxak02], l.[systemcode])
       LEFT JOIN ${CURRENCY_FROM} AS c
-        ON LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.[code], N''))))
-         = LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[wxaj07], N''))))
+        ON c.[code] = h.[wxaj07]
       WHERE (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
         AND LTRIM(RTRIM(ISNULL(h.[pass], N''))) = N'1'
         AND LTRIM(RTRIM(ISNULL(h.[closed], N'0'))) = N'0'
@@ -287,6 +292,7 @@ function buildAssistIssueSourceCteSql(supplierWhere = '', keywordWhere = '') {
   `
 }
 
+/** 分页超出且无行时兜底 total（首屏正常走 list 内 totalCount） */
 function buildAssistIssueSourceCountSql(supplierWhere = '', keywordWhere = '') {
   return `${buildAssistIssueSourceCteSql(supplierWhere, keywordWhere)}
     SELECT COUNT(1) AS total
@@ -295,12 +301,23 @@ function buildAssistIssueSourceCountSql(supplierWhere = '', keywordWhere = '') {
 }
 
 function buildAssistIssueSourceListSql(supplierWhere = '', keywordWhere = '') {
-  return `${buildAssistIssueSourceCteSql(supplierWhere, keywordWhere)}
+  return `${buildAssistIssueSourceCteSql(supplierWhere, keywordWhere)},
+    numbered AS (
+      SELECT
+        *,
+        COUNT(1) OVER () AS totalCount
+      FROM source
+    )
     SELECT *
-    FROM source
+    FROM numbered
     WHERE rn BETWEEN @startRow AND @endRow
     ORDER BY rn ASC
   `
+}
+
+function stripAssistIssueSourceListRow(row = {}) {
+  const { totalCount, ...rest } = row
+  return serializeRow(rest)
 }
 
 export function __buildAssistIssueSourceCountSqlForTest(supplierWhere, keywordWhere) {
@@ -421,6 +438,7 @@ export function registerStockOutRoutes(app, deps) {
                  LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([name], N'')))) AS name
           FROM ${WORKSHOP_FROM}
           WHERE (ISNULL([del], N'') = N'' OR [del] = N'0')
+            AND LTRIM(RTRIM(ISNULL([pass], N''))) = N'1'
           ${keyword ? `AND (LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([code], N'')))) LIKE @kw OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([name], N'')))) LIKE @kw)` : ''}
           ORDER BY [code] ASC
         `
@@ -545,22 +563,131 @@ export function registerStockOutRoutes(app, deps) {
       const pool = await getPool()
       const keyword = text(req.query?.keyword)
       const { page, pageSize, startRow, endRow } = parsePageParams(req.query ?? {}, { defaultPageSize: 10, maxPageSize: 200 })
-      const countReq = pool.request()
+      const keywordWhere = buildAssistIssueSourceKeywordWhere(Boolean(keyword))
       const listReq = pool.request()
         .input('startRow', sql.Int, startRow)
         .input('endRow', sql.Int, endRow)
-      const keywordWhere = buildAssistIssueSourceKeywordWhere(Boolean(keyword))
-      if (keyword) {
-        countReq.input('keyword', sql.NVarChar(400), `%${keyword}%`)
-        listReq.input('keyword', sql.NVarChar(400), `%${keyword}%`)
+      if (keyword) listReq.input('keyword', sql.NVarChar(400), `%${keyword}%`)
+
+      const listResult = await listReq.query(buildAssistIssueSourceListSql('', keywordWhere))
+      const rawRows = listResult.recordset ?? []
+
+      let total = 0
+      if (rawRows.length > 0) {
+        total = Number(rawRows[0].totalCount ?? 0)
+      } else if (page === 1) {
+        total = 0
+      } else {
+        const countReq = pool.request()
+        if (keyword) countReq.input('keyword', sql.NVarChar(400), `%${keyword}%`)
+        const countResult = await countReq.query(buildAssistIssueSourceCountSql('', keywordWhere))
+        total = Number(countResult.recordset?.[0]?.total ?? 0)
       }
 
-      const countResult = await countReq.query(buildAssistIssueSourceCountSql('', keywordWhere))
-      const total = Number(countResult.recordset?.[0]?.total ?? 0)
-      const listResult = await listReq.query(buildAssistIssueSourceListSql('', keywordWhere))
-      res.json({ code: 200, msg: 'success', data: { page, pageSize, total, list: listResult.recordset ?? [] } })
+      res.json({
+        code: 200,
+        msg: 'success',
+        data: {
+          page,
+          pageSize,
+          total,
+          list: rawRows.map(stripAssistIssueSourceListRow),
+        },
+      })
     } catch (err) {
       res.status(500).json({ code: 500, msg: `读取外协领料关联外协单失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  /** 生产领料：关联派工单选派（主单级） */
+  app.get('/api/stock-out/production-dispatch-source-page', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const result = await fetchStockOutProductionDispatchSourcePage(pool, req.query ?? {})
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({
+        code: 200,
+        msg: 'success',
+        data: {
+          page: result.page,
+          pageSize: result.pageSize,
+          total: result.total ?? 0,
+          workshopName: result.workshopName ?? '',
+          list: result.list ?? [],
+        },
+      })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取生产领料派工单列表失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  /** 生产领料批量添加：派工明细 PI 成本展开 + 库存/PI 上限 */
+  app.get('/api/stock-out/production-issue-batch-lines', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const result = await fetchStockOutProductionIssueBatchLines(pool, req.query ?? {})
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({
+        code: 200,
+        msg: 'success',
+        data: {
+          page: result.page,
+          pageSize: result.pageSize,
+          total: result.total,
+          sourceOrderNo: result.sourceOrderNo,
+          workshopCode: result.workshopCode,
+          warehouseCode: result.warehouseCode,
+          piNo: result.piNo,
+          piCostHint: result.piCostHint ?? '',
+          batchMode: result.batchMode ?? 'dispatch',
+          list: result.list ?? [],
+        },
+      })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取生产领料批量明细失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  /** 开料出库配置：读取材料分类 cutting_issue 开关 */
+  app.get('/api/stock-out/cutting-issue-config', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const result = await fetchCuttingIssueConfig(pool)
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({ code: 200, msg: 'success', data: { list: result.list ?? [] } })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取开料出库配置失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  /** 开料出库配置：超级管理员批量更新 cutting_issue */
+  app.put('/api/stock-out/cutting-issue-config', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const actor = await getActor(pool, req)
+      const uid = actor.uidInt ?? actor.userId ?? actor.UserID
+      const isAdmin = await resolveSysUserIsAdminByUserId(pool, uid)
+      if (!isAdmin) {
+        res.status(403).json({ code: 403, msg: '只有超级管理员可以修改开料出库配置', data: null })
+        return
+      }
+      const result = await updateCuttingIssueConfig(pool, req.body ?? {})
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({ code: 200, msg: result.msg || '保存成功', data: { updated: result.updated ?? 0 } })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `保存开料出库配置失败：${String(err?.message ?? err)}`, data: null })
     }
   })
 

@@ -42,6 +42,7 @@
 
 ## 6. 模块标准化 (分页与列表)
 - **默认分页**：所有包含数据表格的页面，必须默认实现分页功能（前端 el-pagination + 后端与 **SQL Server 2008 R2** 兼容的分页）。**默认**使用 `ROW_NUMBER() OVER (ORDER BY ...)` 外层筛选（或与 `server/index.js` 中已有「OFFSET 失败则降级 ROW_NUMBER」策略一致）；**不要**在 2008 R2 上把 `OFFSET-FETCH` 当作唯一实现（该语法自 2012 起才有）。
+- **列表 SQL 性能**：新建或改动分页/批量选单后端 SQL 须符合 [`docs/agents/coding-discipline.md`](docs/agents/coding-discipline.md) **§5**（热路径先量后写）；范例见 `server/stockOutOtherBatchAdd.js`、`server/buyOrderBatchAdd.js`。
 - **统一参数**：前端统一使用 `page` 和 `pageSize` 作为参数名，后端统一返回 `total` 和 `list`。
 - **自定义容量**：所有分页组件必须包含 `page-sizes="[10, 20, 50, 100]"`，且默认为 20 条。
 - **标准搜索栏**：

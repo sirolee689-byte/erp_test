@@ -162,8 +162,8 @@ export function buildWritableLineFields(candidates, lineCols) {
 }
 
 export function resolveBomLineWriteValues(bom, rowIndex = 1) {
-  // 业务口径：保存出库明细时，kcaq02/systemcode 统一写 BOM.systemcode；remark 统一抄 BOM.remark
-  const systemCode = text(bom?.systemcode)
+  // 业务口径：按 kcaa01 查 Bom_000，kcaq02/GUID/systemcode 三列统一写 BOM.systemcode；remark 抄 BOM.remark
+  const systemCode = text(bom?.systemcode ?? bom?.GUID)
   if (!systemCode) throw new Error(`第 ${rowIndex} 行物料缺少 systemcode，无法保存`)
   return {
     systemCode,
@@ -261,6 +261,7 @@ export async function resolveRelatedParty(pool, header) {
       FROM ${WORKSHOP_FROM}
       WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([code], N'')))) = @code
         AND (ISNULL([del], N'') = N'' OR [del] = N'0')
+        AND LTRIM(RTRIM(ISNULL([pass], N''))) = N'1'
       ORDER BY [id] ASC
     `)
     const row = r.recordset?.[0]
@@ -372,6 +373,7 @@ async function fetchMaterialSnapshot(pool, materialCode) {
 
 function setHeaderValues({ header, warehouse, related, workshop, actor, now, ip, outboundNo, systemCode, pass }) {
   const isAssistIssue = header.outboundType === '2'
+  const isProductionIssue = header.outboundType === '4'
   const values = {
     systemcode: systemCode,
     kcap01: outboundNo,
@@ -382,7 +384,7 @@ function setHeaderValues({ header, warehouse, related, workshop, actor, now, ip,
     kcap06: warehouse.code,
     ck: warehouse.name,
     kcap07: header.handlerName || actorTruename(actor),
-    kcap08: isAssistIssue ? header.piNo : header.paperNo,
+    kcap08: isAssistIssue || isProductionIssue ? header.piNo : header.paperNo,
     kcap09: header.reserveNo,
     kehu: related.name,
     in_tax: header.inTax,
@@ -434,13 +436,11 @@ async function insertLines(tx, { pool, lineCols, outboundNo, sourceOrderNo, outb
     const bom = await fetchMaterialSnapshot(pool, normalized.kcaa01)
     if (!bom) throw new Error(`第 ${i + 1} 行物料不存在或已删除`)
     const { systemCode: bomSystemCode, remark: bomRemark } = resolveBomLineWriteValues(bom, i + 1)
-    const sourceLineKey = text(normalized.kcaq02)
-    const kcaq02Value = isLinkedOutboundType(outboundType) && sourceLineKey ? sourceLineKey : bomSystemCode
     const line = { ...bom, ...normalized, kcaq01: outboundNo, kcap04: sourceOrderNo, pass, del: '0', seq: i + 1, type: outboundType }
     const candidates = {
       kcaq01: line.kcaq01,
       kcap04: line.kcap04,
-      kcaq02: kcaq02Value,
+      kcaq02: bomSystemCode,
       kcaq03: line.kcaq03,
       kcaq04: line.kcaq04,
       kcaq041: line.kcaq041,
@@ -455,7 +455,7 @@ async function insertLines(tx, { pool, lineCols, outboundNo, sourceOrderNo, outb
       pass,
       type: outboundType,
       systemcode: bomSystemCode,
-      GUID: line.GUID ?? bomSystemCode,
+      GUID: bomSystemCode,
       version: line.version,
       location: line.location,
       sale_price: nullableNumber(line.sale_price),

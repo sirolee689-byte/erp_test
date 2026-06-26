@@ -2,11 +2,14 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   aggregatePiCostChildrenByMaterial,
+  aggregatePiCostOutboundChildren,
   buildAssistIssueLineKey,
   buildAssistIssuePiCostHint,
+  buildPiCostOutboundMergeKey,
   computeAssistIssueDefaultQty,
   computeAssistIssueRequiredQty,
   expandAssistIssueLine,
+  expandAssistIssueLineForOutbound,
   hasPiCostAnchorMatch,
   mergeBomPartsWithPiUsage,
   pickPiCostChildrenForLine,
@@ -191,4 +194,54 @@ test('expandAssistIssueLine Bom_parts 直接子层', () => {
   assert.equal(expanded[0].childKcaa01, 'BN-0008/-')
   assert.equal(expanded[0].unitUsage, 2)
   assert.equal(expanded[0].expandSource, 'bom_parts')
+})
+
+test('buildPiCostOutboundMergeKey 同 kcaa01 不同规格不合并', () => {
+  const a = buildPiCostOutboundMergeKey({ kcaa01: 'BN-0008/-', kcaa03: '规格A' })
+  const b = buildPiCostOutboundMergeKey({ kcaa01: 'BN-0008/-', kcaa03: '规格B' })
+  assert.notEqual(a, b)
+})
+
+test('aggregatePiCostOutboundChildren 同属性累加 kcac06', () => {
+  const out = aggregatePiCostOutboundChildren([
+    { kcaa01: 'BN-0008/-', kcaa03: 'S1', kcac06: 0.3, pq: 'BP-0079/956' },
+    { kcaa01: 'BN-0008/-', kcaa03: 'S1', kcac06: 0.7, pq: 'BP-0079/956' },
+    { kcaa01: 'BN-0008/-', kcaa03: 'S2', kcac06: 1, pq: 'BP-0079/956' },
+  ])
+  assert.equal(out.length, 2)
+  const merged = out.find((r) => r.snapshot?.kcaa03 === 'S1')
+  assert.equal(merged?.unitUsage, 1)
+  assert.equal(merged?.expandSource, 'pi_cost_outbound')
+})
+
+test('expandAssistIssueLineForOutbound pq=外协明细 kcaa01', () => {
+  const piRows = [
+    { sid: 'PI-001', pq: 'BP-0079/956', kcaa01: 'BN-0008/-', kcac06: 2, kcaa02: '子料名' },
+    { sid: 'PI-001', pq: 'BP-0079/956', kcaa01: 'BP-0079/956', kcac06: 1 },
+  ]
+  const assistLine = {
+    kcaa01: 'BP-0079/956',
+    pi: 'PI-001',
+    wxak02: 'GUID-BP',
+    wxak03: 314,
+    Product: 'BAG-001',
+  }
+  const expanded = expandAssistIssueLineForOutbound(assistLine, {
+    piNo: 'PI-001',
+    piCostOutboundRows: piRows,
+  })
+  assert.equal(expanded.length, 2)
+  const bn = expanded.find((r) => r.childKcaa01 === 'BN-0008/-')
+  assert.ok(bn)
+  assert.equal(bn.outsourceKcaa01, 'BP-0079/956')
+  assert.equal(bn.unitUsage, 2)
+  assert.equal(bn.expandSource, 'pi_cost_outbound')
+  assert.equal(bn.childSnapshot.kcaa02, '子料名')
+})
+
+test('buildAssistIssuePiCostHint 订单外发兜底文案', () => {
+  assert.equal(
+    buildAssistIssuePiCostHint('PI-1', [{ expandSource: 'self' }], { assistType: '2' }),
+    '当前 PI 未命中 pi_cost 用量结果，已以外协明细本身兜底',
+  )
 })

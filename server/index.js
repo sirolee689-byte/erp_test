@@ -1096,6 +1096,10 @@ app.post('/api/login', async (req, res) => {
           Status: userRow.Status,
           RoleID: userRow.RoleID != null ? Number(userRow.RoleID) : null,
           RoleName: userRow.RoleName != null ? String(userRow.RoleName) : null,
+          // 超级管理员标记：出库单「开料出库配置」等前端门禁读 localStorage.erp_user
+          is_admin: isAdminFlag ? 1 : 0,
+          isAdmin: isAdminFlag,
+          IsAdmin: isAdminFlag ? 1 : 0,
           // v1.0.7：菜单权限 JSON 字符串（与 UB_ERP_System_role.Permissions 一致）；NULL 表示未配置，前端按「不限制」处理
           Permissions:
             userRow.Permissions != null && userRow.Permissions !== undefined

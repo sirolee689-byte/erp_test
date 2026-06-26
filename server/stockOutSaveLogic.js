@@ -24,6 +24,11 @@ function round(n, digits = 4) {
   return Math.round((Number(n) + Number.EPSILON) * m) / m
 }
 
+/** 出库数量 kcaq03：与前端 roundOutboundQty 一致，统一三位小数 */
+function roundOutboundQty(v) {
+  return round(numberValue(v), 3)
+}
+
 export function buildStockOutNoForDate(saveDate, seq) {
   const n = Number(seq)
   if (!Number.isInteger(n) || n <= 0) throw new Error('出库单流水号无效')
@@ -62,6 +67,8 @@ export function isLinkedOutboundType(type) {
 export function normalizeStockOutHeader(input = {}) {
   const outboundType = normalizeOutboundType(input.outboundType ?? input.kcap03)
   const isAssistIssue = outboundType === '2'
+  const isProductionIssue = outboundType === '4'
+  const usesPiNo = isAssistIssue || isProductionIssue
   return {
     systemCode: text(input.systemCode ?? input.systemcode),
     outboundNo: text(input.outboundNo ?? input.kcap01),
@@ -73,9 +80,9 @@ export function normalizeStockOutHeader(input = {}) {
     warehouseCode: text(input.warehouseCode ?? input.kcap06),
     warehouseName: text(input.warehouseName ?? input.ck),
     handlerName: text(input.handlerName ?? input.kcap07),
-    // 外协领料：kcap08 存 PI；其他类型：纸质单号
-    paperNo: isAssistIssue ? '' : text(input.paperNo ?? input.kcap08 ?? input.referenceNo),
-    piNo: isAssistIssue ? text(input.piNo ?? input.kcap08 ?? input.referenceNo) : '',
+    // 外协领料/生产领料：kcap08 存 PI；其他类型：纸质单号
+    paperNo: usesPiNo ? '' : text(input.paperNo ?? input.kcap08 ?? input.referenceNo),
+    piNo: usesPiNo ? text(input.piNo ?? input.kcap08 ?? input.referenceNo) : '',
     reserveNo: text(input.reserveNo ?? input.kcap09),
     postProcessAssist: Boolean(input.postProcessAssist ?? text(input.cj ?? input.workshopCode)),
     workshopCode: text(input.workshopCode ?? input.cj),
@@ -149,7 +156,7 @@ export function validateStockOutPayload(payload = {}) {
 
   const rawLines = payload.rawLines ?? payload.lines ?? []
   const lines = (payload.lines ?? []).map((line, idx) => normalizeStockOutLine(line, idx + 1, header))
-  if (!lines.length) return '出库单至少需要一条明细'
+  // 业务口径：草稿允许空明细保存；审核前须补明细（见 stockOutLifecycle）
   const linked = isLinkedOutboundType(header.outboundType)
   for (let i = 0; i < lines.length; i += 1) {
     const rawLine = rawLines[i] ?? {}
@@ -158,11 +165,16 @@ export function validateStockOutPayload(payload = {}) {
     if (line.kcaq03 <= 0) return `第 ${i + 1} 行出库数量必须大于 0`
     if (payload.isEdit && text(rawLine.tax ?? rawLine.Tax) === '') return `第 ${i + 1} 行税点不能为空，如无税点，则可以填写0。`
     if (header.inTax === '2' && line.tax > 0) return '不含税模式下税点只能为 0'
-    if (linked && !line.kcaq02) return `第 ${i + 1} 行明细必须来自关联单据`
+    const sourceLineKey = text(rawLine.sourceLineCode ?? rawLine.lineKey ?? line.sourceLineCode ?? line.lineKey)
+    if (linked && !sourceLineKey) return `第 ${i + 1} 行明细必须来自关联单据`
     const availableQty = numberValue(line.availableQty)
     const sourceAvailableQty = numberValue(line.sourceAvailableQty)
     const cap = linked ? Math.min(availableQty || Infinity, sourceAvailableQty || Infinity) : availableQty
-    if (Number.isFinite(cap) && cap > 0 && line.kcaq03 > cap) return `第 ${i + 1} 行出库数量不能大于可出库数量 ${cap}`
+    const qtyRounded = roundOutboundQty(line.kcaq03)
+    const capRounded = roundOutboundQty(cap)
+    if (Number.isFinite(capRounded) && capRounded > 0 && qtyRounded > capRounded) {
+      return `第 ${i + 1} 行出库数量不能大于可出库数量 ${capRounded}`
+    }
   }
   return null
 }

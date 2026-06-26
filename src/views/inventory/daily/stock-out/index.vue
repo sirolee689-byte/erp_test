@@ -3,10 +3,7 @@
     <div class="stock-out-mode-bar">
       <el-button :type="pageMode === 'list' ? 'primary' : 'default'" plain @click="switchList">管理出库单</el-button>
       <el-button v-permission="'add'" :type="pageMode === 'form' && !editId ? 'primary' : 'default'" plain @click="newOrder">出库单添加</el-button>
-      <el-button plain @click="ElMessage.info('搜索出库单请直接使用列表上方查询条件')">搜索出库单</el-button>
-      <el-button plain :type="showRecycle ? 'primary' : 'default'" @click="toggleRecycle">恢复出库单</el-button>
-      <el-button plain @click="showUnaudited = true; showRecycle = false; loadList()">审核申请</el-button>
-      <el-button v-permission="'export'" plain @click="ElMessage.info('真实 Excel 导出待开发，后续由后端生成并遵守价格权限')">导出信息</el-button>
+      <el-button v-if="isSuperAdmin" plain @click="openCuttingIssueConfig">开料出库配置</el-button>
     </div>
 
     <section v-show="pageMode === 'list'" class="erp-section">
@@ -99,7 +96,7 @@
                 </el-table-column>
                 <el-table-column label="单位" prop="kcaa04" width="80" />
                 <el-table-column label="数量" prop="kcaq03" width="110" align="right">
-                  <template #default="{ row: line }">{{ formatExpandDecimal(line.kcaq03) }}</template>
+                  <template #default="{ row: line }">{{ formatOutboundQtyDisplay(line.kcaq03) }}</template>
                 </el-table-column>
                 <template v-if="hasPricePermission">
                   <el-table-column label="单价" prop="kcaq04" width="110" align="right">
@@ -259,6 +256,11 @@
                 <el-button type="primary" plain @click="openAssistSourcePicker">选择</el-button>
                 <el-button plain :disabled="!form.sourceOrderNo" @click="clearSourceOrder">清空</el-button>
               </div>
+              <div v-else-if="isProductionIssuePicker" class="source-picker-field">
+                <el-input :model-value="form.sourceOrderNo" class="stock-unified-input" readonly placeholder="请选择派工单" />
+                <el-button type="primary" plain @click="openProductionDispatchSourcePicker">选择</el-button>
+                <el-button plain :disabled="!form.sourceOrderNo" @click="clearSourceOrder">清空</el-button>
+              </div>
               <el-input
                 v-else-if="isLinkedType"
                 v-model="form.sourceOrderNo"
@@ -295,28 +297,6 @@
                     :value="item.code"
                   />
                 </el-select>
-                <div v-if="form.postProcessAssist" class="assist-party-row__workshop">
-                  <span class="inline-pair__label">加工车间</span>
-                  <el-select
-                    v-model="form.workshopCode"
-                    filterable
-                    remote
-                    reserve-keyword
-                    clearable
-                    class="stock-inline-input"
-                    :remote-method="fetchWorkshopOptions"
-                    @focus="fetchWorkshopOptions('')"
-                    @change="onWorkshopChange"
-                    placeholder="本厂加工车间"
-                  >
-                    <el-option
-                      v-for="item in workshopOptions"
-                      :key="item.code"
-                      :label="`${item.code} ${item.name}`"
-                      :value="item.code"
-                    />
-                  </el-select>
-                </div>
               </div>
               <el-autocomplete
                 v-else-if="form.outboundType === '0'"
@@ -337,6 +317,7 @@
                 class="stock-unified-input"
                 :remote-method="fetchRelatedParties"
                 @focus="fetchRelatedParties('')"
+                @change="onRelatedPartySelectChange"
                 placeholder="请选择关联单位"
               >
                 <el-option
@@ -353,8 +334,8 @@
                   <el-option v-for="item in warehouseOptions" :key="item.code" :label="`${item.code} ${item.name}`" :value="item.code" />
                 </el-select>
                 <div class="inline-pair">
-                  <span class="inline-pair__label">{{ isAssistIssuePicker ? 'PI单号' : '纸质单号' }}</span>
-                  <el-input v-if="isAssistIssuePicker" :model-value="form.piNo" class="stock-inline-input" readonly placeholder="选择外协单后自动带入" />
+                  <span class="inline-pair__label">{{ isAssistIssuePicker || isProductionIssuePicker ? 'PI单号' : '纸质单号' }}</span>
+                  <el-input v-if="isAssistIssuePicker || isProductionIssuePicker" :model-value="form.piNo" class="stock-inline-input" readonly :placeholder="isProductionIssuePicker ? '选择派工单后自动带入' : '选择外协单后自动带入'" />
                   <el-input v-else v-model="form.paperNo" class="stock-inline-input" clearable placeholder="纸质单号" />
                 </div>
                 <div class="inline-pair">
@@ -408,7 +389,7 @@
             <el-table-column label="颜色" prop="kcaa11" min-width="100" show-overflow-tooltip />
             <el-table-column label="单位" prop="kcaa04" width="90" show-overflow-tooltip />
             <el-table-column label="数量" width="130">
-              <template #default="{ row }"><el-input-number v-model="row.kcaq03" :min="0" :precision="4" controls-position="right" /></template>
+              <template #default="{ row }"><el-input-number v-model="row.kcaq03" :min="0" :precision="3" controls-position="right" @change="normalizeLineQty(row)" /></template>
             </el-table-column>
             <template v-if="hasPricePermission">
               <el-table-column label="单价" width="140">
@@ -580,6 +561,121 @@
       />
     </el-dialog>
 
+    <el-dialog
+      v-model="productionDispatchSourceDialog.visible"
+      :title="productionDispatchSourceDialogTitle"
+      width="96%"
+      class="production-dispatch-source-dialog"
+    >
+      <div class="stock-filter-row production-dispatch-toolbar">
+        <span class="production-dispatch-toolbar__label">显示条件</span>
+        <el-radio-group v-model="productionDispatchSourceDialog.displayMode" @change="onProductionDispatchDisplayModeChange">
+          <el-radio-button label="header">只显示派工单号</el-radio-button>
+          <el-radio-button label="full">全部显示</el-radio-button>
+        </el-radio-group>
+      </div>
+      <div class="stock-filter-row production-dispatch-toolbar">
+        <span class="production-dispatch-toolbar__label">查询条件</span>
+        <el-input
+          v-model="productionDispatchSourceDialog.keyword"
+          clearable
+          class="stock-filter-keyword"
+          placeholder="派工单号 / PI号 / 日期 / 货品等"
+          @keyup.enter="searchProductionDispatchSourcePage"
+        />
+        <el-button type="primary" @click="searchProductionDispatchSourcePage">立即查询</el-button>
+        <el-button @click="resetProductionDispatchSourceFilter">重置</el-button>
+        <el-button @click="queryAllProductionDispatchSourcePage">查询全部</el-button>
+        <el-button @click="productionDispatchSourceDialog.visible = false">关闭</el-button>
+      </div>
+      <el-table
+        v-loading="productionDispatchSourceDialog.loading"
+        :data="productionDispatchSourceDialog.list"
+        border
+        stripe
+        height="460"
+      >
+        <el-table-column label="操作" width="100" fixed="left">
+          <template #default="{ row }">
+            <el-button
+              v-if="Number(row.groupRowNo) === 1"
+              type="primary"
+              size="small"
+              @click="chooseProductionDispatchSource(row)"
+            >关联选择</el-button>
+          </template>
+        </el-table-column>
+        <el-table-column label="关联出库单号" min-width="150" show-overflow-tooltip>
+          <template #default="{ row }">{{ Number(row.groupRowNo) === 1 ? (row.relatedOutboundNo || '-') : '' }}</template>
+        </el-table-column>
+        <el-table-column label="派工单号" min-width="150" show-overflow-tooltip>
+          <template #default="{ row }">{{ Number(row.groupRowNo) === 1 ? (row.dispatchNo || '-') : '' }}</template>
+        </el-table-column>
+        <el-table-column label="PI号" min-width="130" show-overflow-tooltip>
+          <template #default="{ row }">{{ Number(row.groupRowNo) === 1 ? (row.piNo || '-') : '' }}</template>
+        </el-table-column>
+        <el-table-column label="派工日期" min-width="120">
+          <template #default="{ row }">{{ Number(row.groupRowNo) === 1 ? formatDate(row.dispatchDate) : '' }}</template>
+        </el-table-column>
+        <el-table-column label="交货日期" min-width="120" show-overflow-tooltip>
+          <template #default="{ row }">{{ Number(row.groupRowNo) === 1 ? formatDate(row.deliveryDate) : '' }}</template>
+        </el-table-column>
+        <el-table-column label="录入时间" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ Number(row.groupRowNo) === 1 ? formatDateTime(row.addtime) : '' }}</template>
+        </el-table-column>
+        <template v-if="productionDispatchSourceDialog.displayMode === 'full'">
+          <el-table-column label="货品编码" prop="kcaa01" min-width="140" show-overflow-tooltip />
+          <el-table-column label="货品名称" prop="kcaa02" min-width="160" show-overflow-tooltip />
+          <el-table-column label="规格" prop="kcaa03" min-width="120" show-overflow-tooltip />
+          <el-table-column label="单位" prop="kcaa04" width="80" show-overflow-tooltip />
+          <el-table-column label="派工数量" prop="dispatchQty" width="100" align="right" />
+          <el-table-column label="已入库数量" prop="inboundQty" width="110" align="right" />
+          <el-table-column label="返修数量" prop="repairQty" width="100" align="right" />
+        </template>
+      </el-table>
+      <el-pagination
+        v-model:current-page="productionDispatchSourceDialog.page"
+        v-model:page-size="productionDispatchSourceDialog.pageSize"
+        :page-sizes="[5, 10, 25, 50, 100, 200]"
+        layout="total, sizes, prev, pager, next, jumper"
+        :total="productionDispatchSourceDialog.total"
+        class="pagination"
+        @size-change="searchProductionDispatchSourcePage"
+        @current-change="loadProductionDispatchSourcePage"
+      />
+    </el-dialog>
+
+    <el-dialog v-model="cuttingIssueConfigDialog.visible" title="开料出库配置" width="720px" destroy-on-close>
+      <p class="cutting-config-desc">
+        勾选纳入开料部（车间 04）生产领料批量添加的物料分类；对应物理表字段 <code>UB_ERP_Stocks_material.cutting_issue</code>。
+      </p>
+      <el-alert
+        v-if="cuttingIssueConfigDialog.errorMsg"
+        :title="cuttingIssueConfigDialog.errorMsg"
+        type="error"
+        show-icon
+        class="cutting-config-alert"
+      />
+      <el-table v-loading="cuttingIssueConfigDialog.loading" :data="cuttingIssueConfigDialog.list" border stripe max-height="420">
+        <el-table-column prop="code" label="分类编码" width="120" />
+        <el-table-column prop="name" label="分类名称" min-width="200" show-overflow-tooltip />
+        <el-table-column label="纳入开料出库" width="140" align="center">
+          <template #default="{ row }">
+            <el-switch
+              v-model="row.cutting_issue"
+              active-value="1"
+              inactive-value="0"
+              :disabled="cuttingIssueConfigDialog.saving"
+            />
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="cuttingIssueConfigDialog.visible = false">取消</el-button>
+        <el-button type="primary" :loading="cuttingIssueConfigDialog.saving" @click="saveCuttingIssueConfig">保存</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="detailVisible" title="出库单详情" width="86%">
       <el-descriptions v-if="detail.header" :column="3" border>
         <el-descriptions-item label="出库单号">{{ detail.header.kcap01 || detail.header.outboundNo }}</el-descriptions-item>
@@ -643,6 +739,22 @@ import {
   validateStockOutAssistIssueBatchApply,
   writeStockOutAssistIssueBatchContext,
 } from '@/utils/stockOutAssistIssueBatchAdd'
+import {
+  STOCK_OUT_PI_BATCH_MSG_APPLY,
+  STOCK_OUT_PI_BATCH_MSG_ACCEPTED,
+  STOCK_OUT_PI_BATCH_MSG_REJECTED,
+  buildStockOutProductionIssueBatchSessionId,
+  readStockOutProductionIssueBatchResult,
+  removeStockOutProductionIssueBatchResult,
+  resolveProductionIssueBatchLineKey,
+  validateStockOutProductionIssueBatchApply,
+  writeStockOutProductionIssueBatchContext,
+} from '@/utils/stockOutProductionIssueBatchAdd'
+import {
+  buildAssistIssueLineKey,
+  buildAssistIssueMaterialDedupKey,
+  resolveAssistIssueBatchLineKey,
+} from '@/utils/stockOutAssistIssueLineKey'
 
 const MENU_PATH = 'inventory/daily/stock-out'
 const OUTBOUND_TYPES = [
@@ -684,6 +796,8 @@ const activePurchaseReturnBatchSessionId = ref('')
 const purchaseReturnBatchChildWindow = ref(null)
 const activeAssistIssueBatchSessionId = ref('')
 const assistIssueBatchChildWindow = ref(null)
+const activeProductionIssueBatchSessionId = ref('')
+const productionIssueBatchChildWindow = ref(null)
 const purchaseSourceDialog = reactive({
   visible: false,
   loading: false,
@@ -703,14 +817,57 @@ const assistSourceDialog = reactive({
   total: 0,
   list: [],
 })
-const workshopOptions = ref([])
+const productionDispatchSourceDialog = reactive({
+  visible: false,
+  loading: false,
+  displayMode: 'header',
+  keyword: '',
+  page: 1,
+  pageSize: 10,
+  total: 0,
+  list: [],
+})
+const prevWorkshopCode = ref('')
+
+/** 超级管理员：开料出库配置按钮（读登录写入的 erp_user；兼容旧会话未带 is_admin 字段） */
+const isSuperAdmin = computed(() => {
+  try {
+    const raw = localStorage.getItem('erp_user')
+    if (!raw) return false
+    const user = JSON.parse(raw)
+    if (
+      Number(user?.is_admin) === 1
+      || Number(user?.IsAdmin) === 1
+      || user?.isAdmin === true
+      || user?.IsAdmin === true
+    ) {
+      return true
+    }
+    // 旧会话：超级管理员登录时 Permissions 为 {"*":["all"]} 或角色名为系统管理员
+    if (String(user?.RoleName ?? '').trim() === '系统管理员') return true
+    const permRaw = String(user?.Permissions ?? '').trim()
+    if (permRaw.includes('"*"') && permRaw.includes('all')) return true
+    return false
+  } catch {
+    return false
+  }
+})
+
+const cuttingIssueConfigDialog = reactive({
+  visible: false,
+  loading: false,
+  saving: false,
+  errorMsg: '',
+  list: [],
+})
 
 const pager = reactive({ page: 1, pageSize: 10, total: 0 })
 const filters = reactive({ outboundType: '', keyword: '', relatedParty: '' })
 const form = reactive(defaultForm())
 
 const outboundTypeOptions = OUTBOUND_TYPES
-const addableOutboundTypes = OUTBOUND_TYPES
+/** 新增页类型按钮：隐藏外协退货(3)、生产返修(5)；历史单编辑仍可读原类型 */
+const addableOutboundTypes = computed(() => OUTBOUND_TYPES.filter((t) => !['3', '5'].includes(t.value)))
 const permissionModel = computed(() => getPermissionModelFromStorage())
 const hasPricePermission = computed(() => hasPageAction(permissionModel.value, MENU_PATH, 'price'))
 const displayOutboundNo = computed(() => form.outboundNo || suggestedNo.value || '保存时生成')
@@ -718,6 +875,11 @@ const isLinkedType = computed(() => ['1', '2', '3', '4', '5', '6'].includes(form
 const isFreeSourceOrder = computed(() => form.outboundType === '0')
 const isPurchaseReturnPicker = computed(() => form.outboundType === '1')
 const isAssistIssuePicker = computed(() => form.outboundType === '2')
+const isProductionIssuePicker = computed(() => form.outboundType === '4')
+const productionDispatchSourceDialogTitle = computed(() => {
+  const name = form.relatedPartyName || form.relatedPartyCode || '—'
+  return `派工单列表(已选生产车间:${name})`
+})
 const selectedLineKeys = computed(() => form.lines.filter((line) => line._lineMarked).map((line) => line.__key))
 const relatedPartyLabel = computed(() => {
   if (['1'].includes(form.outboundType)) return '供应商'
@@ -733,6 +895,7 @@ function formatRelatedPartyOptionLabel(item) {
   const code = String(item?.code ?? '').trim()
   const name = String(item?.name ?? '').trim()
   if (form.outboundType === '0' || form.outboundType === '2') return name ? `${code},${name}` : code
+  if (['4', '5'].includes(form.outboundType)) return name ? `${code},${name},` : `${code},`
   return name ? `${code} ${name}` : code
 }
 
@@ -844,6 +1007,42 @@ function formatDate(value) {
   return String(value ?? '').slice(0, 10) || '-'
 }
 
+function onRelatedPartySelectChange(code) {
+  if (form.outboundType === '4') {
+    onProductionWorkshopChange(code)
+    return
+  }
+  const hit = relatedPartyOptions.value.find((item) => item.code === code)
+  form.relatedPartyName = hit?.name || ''
+}
+
+async function onProductionWorkshopChange(code) {
+  const nextCode = String(code ?? '').trim()
+  const oldCode = String(prevWorkshopCode.value ?? '').trim()
+  const hadData = Boolean(form.sourceOrderNo || form.piNo || form.lines.length)
+  if (oldCode && oldCode !== nextCode && hadData) {
+    try {
+      await ElMessageBox.confirm('更换生产车间将清空已选派工单、PI号及明细，是否继续？', '提示', { type: 'warning' })
+      form.lines = []
+      form.sourceOrderNo = ''
+      form.sourceSystemcodeId = ''
+      form.piNo = ''
+    } catch {
+      form.relatedPartyCode = oldCode
+      return
+    }
+  }
+  const hit = relatedPartyOptions.value.find((item) => item.code === nextCode)
+  form.relatedPartyName = hit?.name || ''
+  if (!nextCode) {
+    form.sourceOrderNo = ''
+    form.sourceSystemcodeId = ''
+    form.piNo = ''
+    form.lines = []
+  }
+  prevWorkshopCode.value = nextCode
+}
+
 function formatCell(value) {
   const text = String(value ?? '').trim()
   return text || '-'
@@ -866,6 +1065,62 @@ function formatNumber(value, precision = 2) {
 
 function formatMoney(value) {
   return toNumber(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+/** 出库数量：界面和提交统一保留三位小数 */
+function roundOutboundQty(value) {
+  const n = toNumber(value)
+  return Math.round(n * 1000) / 1000
+}
+
+/** 生产领料明细：取最紧上限（需出库 / 还需出库 / PI剩余 / 实际库存），批量带回行才有这些字段 */
+function getProductionIssueLineQtyCap(row) {
+  if (!row) return null
+  const sourceLine = String(row.kcaq02 ?? row.sourceLineCode ?? row.scak02 ?? '').trim()
+  if (!sourceLine) return null
+
+  const limits = []
+  const push = (value, label) => {
+    const v = roundOutboundQty(value)
+    if (v > 0) limits.push({ value: v, label })
+  }
+  push(row.sourceDemandQty ?? row.dispatchDemandQty, '需出库数量')
+  push(row.stillNeedQty, '还需出库数量')
+  push(row.piRemainingQty, 'PI剩余可领数量')
+  push(row.kcaq031 ?? row.warehouseActualQty, '实际库存')
+
+  if (!limits.length) return null
+  return limits.reduce((min, item) => (item.value < min.value ? item : min), limits[0])
+}
+
+let productionIssueQtyAlerting = false
+
+async function normalizeLineQty(row) {
+  if (!row) return
+  const qty = roundOutboundQty(row.kcaq03)
+  row.kcaq03 = qty
+
+  if (form.outboundType === '4' && !productionIssueQtyAlerting) {
+    const capInfo = getProductionIssueLineQtyCap(row)
+    if (capInfo && qty > capInfo.value) {
+      productionIssueQtyAlerting = true
+      try {
+        await ElMessageBox.alert(
+          `出库数量不能大于${capInfo.label} ${formatOutboundQtyDisplay(capInfo.value)}`,
+          '提示',
+          { type: 'warning', confirmButtonText: '确定' },
+        )
+      } finally {
+        productionIssueQtyAlerting = false
+      }
+      row.kcaq03 = capInfo.value
+    }
+  }
+  recalcLine(row)
+}
+
+function formatOutboundQtyDisplay(value) {
+  return String(roundOutboundQty(value))
 }
 
 /** 展开明细数值：固定两位小数、不加千分位逗号 */
@@ -913,7 +1168,7 @@ function isFinishedOutbound(row) {
 }
 
 function formatSubtotalQty(n) {
-  return formatExpandDecimal(n)
+  return formatOutboundQtyDisplay(n)
 }
 
 function formatSubtotalUnitPrice(n) {
@@ -1033,6 +1288,54 @@ function toggleRecycle() {
   showRecycle.value = !showRecycle.value
   onRecycleChange()
 }
+
+async function openCuttingIssueConfig() {
+  if (!isSuperAdmin.value) return
+  cuttingIssueConfigDialog.visible = true
+  cuttingIssueConfigDialog.errorMsg = ''
+  cuttingIssueConfigDialog.loading = true
+  try {
+    const { data } = await axios.get('/api/stock-out/cutting-issue-config')
+    if (data?.code !== 200) {
+      cuttingIssueConfigDialog.errorMsg = data?.msg || '读取配置失败'
+      cuttingIssueConfigDialog.list = []
+      return
+    }
+    cuttingIssueConfigDialog.list = (data?.data?.list ?? []).map((row) => ({
+      ...row,
+      cutting_issue: String(row.cutting_issue) === '1' ? '1' : '0',
+    }))
+  } catch (err) {
+    cuttingIssueConfigDialog.errorMsg = err?.response?.data?.msg || err.message || '读取配置失败'
+    cuttingIssueConfigDialog.list = []
+  } finally {
+    cuttingIssueConfigDialog.loading = false
+  }
+}
+
+async function saveCuttingIssueConfig() {
+  if (!isSuperAdmin.value || cuttingIssueConfigDialog.saving) return
+  cuttingIssueConfigDialog.saving = true
+  cuttingIssueConfigDialog.errorMsg = ''
+  try {
+    const items = cuttingIssueConfigDialog.list.map((row) => ({
+      id: row.id,
+      cutting_issue: String(row.cutting_issue) === '1' ? '1' : '0',
+    }))
+    const { data } = await axios.put('/api/stock-out/cutting-issue-config', { items })
+    if (data?.code !== 200) {
+      ElMessage.error(data?.msg || '保存失败')
+      return
+    }
+    ElMessage.success(data?.msg || '保存成功')
+    cuttingIssueConfigDialog.visible = false
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.msg || err.message || '保存失败')
+  } finally {
+    cuttingIssueConfigDialog.saving = false
+  }
+}
+
 function switchList() {
   pageMode.value = 'list'
   loadList()
@@ -1043,6 +1346,7 @@ async function newOrder() {
   Object.assign(form, defaultForm())
   form.lines = []
   otherOutboundRelatedPartyInput.value = ''
+  prevWorkshopCode.value = ''
   pageMode.value = 'form'
   formTab.value = 'base'
   await applyDefaultWarehouse()
@@ -1054,12 +1358,61 @@ async function newOrder() {
   }
 }
 
+/** 生产领料编辑态：按派工单批量接口补齐明细行的数量上限字段（库中不存，仅供前端校验） */
+async function enrichProductionIssueLineQtyCaps() {
+  if (form.outboundType !== '4') return
+  if (!form.sourceOrderNo || !form.warehouseCode || !form.piNo || !form.relatedPartyCode) return
+  if (!form.lines.length) return
+  try {
+    const { data } = await axios.get('/api/stock-out/production-issue-batch-lines', {
+      params: {
+        sourceOrderNo: form.sourceOrderNo,
+        workshopCode: form.relatedPartyCode,
+        warehouseCode: form.warehouseCode,
+        piNo: form.piNo,
+        excludeOutboundNo: editId.value ? form.outboundNo : '',
+        page: 1,
+        pageSize: 200,
+      },
+    })
+    const capByMaterial = new Map()
+    for (const row of data?.data?.list || []) {
+      const key = String(row.kcaa01 ?? '').trim().toLowerCase()
+      if (key) capByMaterial.set(key, row)
+    }
+    if (!capByMaterial.size) return
+    for (const line of form.lines) {
+      const cap = capByMaterial.get(String(line.kcaa01 ?? '').trim().toLowerCase())
+      if (!cap) continue
+      const stockCap = roundOutboundQty(cap.warehouseActualQty ?? cap.kcaq031)
+      const stillNeed = roundOutboundQty(cap.stillNeedQty)
+      const sourceDemand = roundOutboundQty(cap.sourceDemandQty ?? cap.dispatchDemandQty)
+      const piRemaining = roundOutboundQty(cap.piRemainingQty)
+      if (sourceDemand > 0) line.sourceDemandQty = sourceDemand
+      if (stillNeed > 0) line.stillNeedQty = stillNeed
+      if (piRemaining >= 0 && cap.piRemainingQty != null) line.piRemainingQty = piRemaining
+      if (cap.piDemandQty != null) line.piDemandQty = roundOutboundQty(cap.piDemandQty)
+      if (cap.piIssuedQty != null) line.piIssuedQty = roundOutboundQty(cap.piIssuedQty)
+      if (cap.dispatchStillNeedQty != null) line.dispatchStillNeedQty = roundOutboundQty(cap.dispatchStillNeedQty)
+      if (stockCap > 0) {
+        line.kcaq031 = stockCap
+        line.availableQty = stockCap
+      }
+      if (stillNeed > 0) line.sourceAvailableQty = stillNeed
+    }
+  } catch {
+    // 上限补齐失败不阻断编辑；保存时后端仍会校验
+  }
+}
+
 async function editOrder(row) {
   try {
     const { data } = await axios.get(`/api/stock-out/${row.id}`)
     const h = data?.data?.header || {}
     const outboundType = String(h.kcap03 || row.outboundType || '0')
     const isAssist = outboundType === '2'
+    const isProduction = outboundType === '4'
+    const usesPiNo = isAssist || isProduction
     editId.value = row.id
     Object.assign(form, {
       outboundNo: h.kcap01 || row.outboundNo || '',
@@ -1070,22 +1423,37 @@ async function editOrder(row) {
       relatedPartyName: h.kehu || '',
       warehouseCode: h.kcap06 || '',
       handlerName: h.kcap07 || '',
-      paperNo: isAssist ? '' : (h.kcap08 || ''),
-      piNo: isAssist ? (h.kcap08 || '') : '',
+      paperNo: usesPiNo ? '' : (h.kcap08 || ''),
+      piNo: usesPiNo ? (h.kcap08 || '') : '',
       reserveNo: h.kcap09 || '',
-      postProcessAssist: isAssist && !!(h.cj || h.cjname),
-      workshopCode: isAssist ? (h.cj || '') : '',
-      workshopName: isAssist ? (h.cjname || '') : '',
+      postProcessAssist: false,
+      workshopCode: '',
+      workshopName: '',
       sourceSystemcodeId: '',
       inTax: String(h.in_tax || '1'),
       remark: h.remark || '',
-      lines: (data?.data?.lines || []).map((line, idx) => wrapOutboundLine({ ...line, tax: Number(line.tax ?? line.Tax ?? 0) }, idx)),
+      lines: (data?.data?.lines || []).map((line, idx) => {
+        const enriched = { ...line, tax: Number(line.tax ?? line.Tax ?? 0) }
+        if (isAssist) {
+          const sourceLineCode = String(enriched.kcaq02 ?? enriched.sourceLineCode ?? '').trim()
+          enriched.sourceLineCode = sourceLineCode
+          enriched.lineKey = buildAssistIssueLineKey(sourceLineCode, enriched.kcaa01)
+        }
+        if (isProduction) {
+          const sourceLineCode = String(enriched.kcaq02 ?? enriched.sourceLineCode ?? '').trim()
+          enriched.sourceLineCode = sourceLineCode
+          enriched.scak02 = sourceLineCode
+          enriched.lineKey = resolveProductionIssueBatchLineKey(enriched)
+        }
+        return wrapOutboundLine(enriched, idx)
+      }),
     })
     pageMode.value = 'form'
     formTab.value = 'base'
+    prevWorkshopCode.value = String(h.kcap05 || '').trim()
     ensureRelatedPartyOptionSeed()
-    if (form.postProcessAssist) ensureWorkshopOptionSeed()
     syncOtherOutboundRelatedPartyDisplay()
+    if (isProduction) await enrichProductionIssueLineQtyCaps()
   } catch (err) {
     ElMessage.error(err?.response?.data?.msg || err.message || '读取出库单失败')
   }
@@ -1096,6 +1464,7 @@ function resetForm() {
   Object.assign(form, defaultForm())
   form.lines = []
   otherOutboundRelatedPartyInput.value = ''
+  prevWorkshopCode.value = ''
   applyDefaultWarehouse()
 }
 
@@ -1117,23 +1486,10 @@ async function applyDefaultWarehouse() {
 
 function pickOutboundType(type) {
   if (form.outboundType === type) return
-  if (type === '2') {
-    ElMessageBox.confirm('是否需要加工后外协？', '外协领料', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      distinguishCancelAndClose: true,
-      type: 'info',
-    }).then(() => {
-      applyOutboundTypeSwitch(type, { postProcessAssist: true })
-    }).catch((action) => {
-      if (action === 'cancel') applyOutboundTypeSwitch(type, { postProcessAssist: false })
-    })
-    return
-  }
-  applyOutboundTypeSwitch(type, {})
+  applyOutboundTypeSwitch(type)
 }
 
-function applyOutboundTypeSwitch(type, { postProcessAssist = false } = {}) {
+function applyOutboundTypeSwitch(type) {
   form.outboundType = type
   form.sourceOrderNo = ''
   form.sourceSystemcodeId = ''
@@ -1142,9 +1498,10 @@ function applyOutboundTypeSwitch(type, { postProcessAssist = false } = {}) {
   form.piNo = ''
   form.paperNo = ''
   form.reserveNo = ''
-  form.postProcessAssist = type === '2' ? !!postProcessAssist : false
+  form.postProcessAssist = false
   form.workshopCode = ''
   form.workshopName = ''
+  prevWorkshopCode.value = ''
   otherOutboundRelatedPartyInput.value = ''
   form.lines = []
 }
@@ -1163,6 +1520,11 @@ function clearSourceOrder() {
   if (form.outboundType === '1' || form.outboundType === '2') {
     form.relatedPartyCode = ''
     form.relatedPartyName = ''
+    form.sourceSystemcodeId = ''
+    form.piNo = ''
+    form.lines = []
+  }
+  if (form.outboundType === '4') {
     form.sourceSystemcodeId = ''
     form.piNo = ''
     form.lines = []
@@ -1277,26 +1639,84 @@ function chooseAssistSource(row) {
   ElMessage.success('已关联外协单，旧明细已清空')
 }
 
-async function fetchWorkshopOptions(keyword = '') {
-  const { data } = await axios.get('/api/stock-out/related-party-options', {
-    params: { outboundType: '4', keyword },
-  })
-  workshopOptions.value = data?.data?.list || []
-  ensureWorkshopOptionSeed()
+function openProductionDispatchSourcePicker() {
+  if (!form.relatedPartyCode) {
+    return ElMessage.warning('请先选择生产车间!')
+  }
+  productionDispatchSourceDialog.visible = true
+  productionDispatchSourceDialog.keyword = ''
+  productionDispatchSourceDialog.page = 1
+  productionDispatchSourceDialog.pageSize = 10
+  loadProductionDispatchSourcePage()
 }
 
-function ensureWorkshopOptionSeed() {
-  const code = String(form.workshopCode ?? '').trim()
-  const name = String(form.workshopName ?? '').trim()
-  if (!code && !name) return
-  if (!workshopOptions.value.some((item) => item.code === code)) {
-    workshopOptions.value = [{ code, name }, ...workshopOptions.value]
+function onProductionDispatchDisplayModeChange() {
+  productionDispatchSourceDialog.page = 1
+  loadProductionDispatchSourcePage()
+}
+
+async function loadProductionDispatchSourcePage() {
+  if (!form.relatedPartyCode) return
+  productionDispatchSourceDialog.loading = true
+  try {
+    const { data } = await axios.get('/api/stock-out/production-dispatch-source-page', {
+      params: {
+        workshopCode: form.relatedPartyCode,
+        workshopName: form.relatedPartyName || undefined,
+        displayMode: productionDispatchSourceDialog.displayMode,
+        keyword: productionDispatchSourceDialog.keyword || undefined,
+        page: productionDispatchSourceDialog.page,
+        pageSize: productionDispatchSourceDialog.pageSize,
+      },
+    })
+    productionDispatchSourceDialog.list = data?.data?.list || []
+    productionDispatchSourceDialog.total = Number(data?.data?.total || 0)
+    if (data?.data?.workshopName) form.relatedPartyName = data.data.workshopName
+  } catch (err) {
+    productionDispatchSourceDialog.list = []
+    productionDispatchSourceDialog.total = 0
+    ElMessage.error(err?.response?.data?.msg || err.message || '读取派工单列表失败')
+    if (err?.response?.status === 400) {
+      productionDispatchSourceDialog.visible = false
+    }
+  } finally {
+    productionDispatchSourceDialog.loading = false
   }
 }
 
-function onWorkshopChange(code) {
-  const hit = workshopOptions.value.find((item) => item.code === code)
-  form.workshopName = hit?.name || ''
+function searchProductionDispatchSourcePage() {
+  productionDispatchSourceDialog.page = 1
+  loadProductionDispatchSourcePage()
+}
+
+function resetProductionDispatchSourceFilter() {
+  productionDispatchSourceDialog.keyword = ''
+  productionDispatchSourceDialog.page = 1
+  loadProductionDispatchSourcePage()
+}
+
+function queryAllProductionDispatchSourcePage() {
+  productionDispatchSourceDialog.keyword = ''
+  productionDispatchSourceDialog.page = 1
+  loadProductionDispatchSourcePage()
+}
+
+function chooseProductionDispatchSource(row) {
+  if (!row) return
+  const wsCode = String(row.workshopCode ?? '').trim()
+  if (wsCode && form.relatedPartyCode && wsCode !== form.relatedPartyCode) {
+    return ElMessage.error('派工单车间与当前所选生产车间不一致')
+  }
+  form.sourceOrderNo = String(row.dispatchNo ?? '').trim()
+  form.piNo = String(row.piNo ?? '').trim()
+  if (row.workshopCode) form.relatedPartyCode = String(row.workshopCode).trim()
+  if (row.workshopName) form.relatedPartyName = String(row.workshopName).trim()
+  form.sourceSystemcodeId = String(row.sourceSystemcode ?? '').trim()
+  form.lines = []
+  ensureRelatedPartyOptionSeed()
+  prevWorkshopCode.value = form.relatedPartyCode
+  productionDispatchSourceDialog.visible = false
+  ElMessage.success('已关联派工单，旧明细已清空')
 }
 
 function onAssistRelatedPartyChange(code) {
@@ -1342,7 +1762,7 @@ function validateBeforeSave() {
   if (!form.inTax) return '请先选择是否含税。'
   if (!form.warehouseCode) return '请先选择仓库。'
   if (isLinkedType.value && !form.sourceOrderNo) return '关联型出库必须填写关联单号'
-  if (!form.lines.length) return '出库单至少需要一条明细'
+  // 草稿允许空明细保存；审核时后端拦截无明细单据
   const bad = form.lines.findIndex((line) => !line.kcaa01 || Number(line.kcaq03 || 0) <= 0)
   if (bad >= 0) return `第 ${bad + 1} 行请填写材料编码和出库数量`
   return ''
@@ -1353,7 +1773,11 @@ async function saveOrder() {
   if (msg) return ElMessage.warning(msg)
   saving.value = true
   try {
-    const body = { header: { ...form }, lines: form.lines }
+    const lines = form.lines.map((line) => ({ ...line, kcaq03: roundOutboundQty(line.kcaq03) }))
+    const body = {
+      header: { ...form, postProcessAssist: false, workshopCode: '', workshopName: '' },
+      lines,
+    }
     const { data } = editId.value
       ? await axios.put(`/api/stock-out/${editId.value}`, body)
       : await axios.post('/api/stock-out', body)
@@ -1440,17 +1864,15 @@ function buildOtherBatchCurrentLineKeys() {
   return form.lines.map((line) => String(line.kcaa01 ?? '').trim().toLowerCase()).filter(Boolean)
 }
 
-function resolveAssistIssueBatchLineKey(line) {
-  const fromRow = String(line?.lineKey ?? '').trim().toLowerCase()
-  if (fromRow) return fromRow
-  const src = String(line?.sourceLineCode ?? line?.kcaq02 ?? line?.wxak02 ?? '').trim().toLowerCase()
-  const mat = String(line?.kcaa01 ?? '').trim().toLowerCase()
-  if (src && mat) return `${src}|${mat}`
-  return src
-}
-
 function buildAssistIssueBatchCurrentLineKeys() {
-  return form.lines.map((line) => resolveAssistIssueBatchLineKey(line)).filter(Boolean)
+  const keys = []
+  for (const line of form.lines) {
+    const lineKey = resolveAssistIssueBatchLineKey(line)
+    if (lineKey) keys.push(lineKey)
+    const matKey = buildAssistIssueMaterialDedupKey(line.kcaa01)
+    if (matKey) keys.push(matKey)
+  }
+  return [...new Set(keys)]
 }
 
 function openAssistIssueBatchWindow() {
@@ -1494,6 +1916,8 @@ function applyAssistIssueBatchLines(batchRows) {
   const newLines = (batchRows ?? []).filter((row) => {
     const key = String(row.lineKey ?? '').trim().toLowerCase()
       || resolveAssistIssueBatchLineKey(row)
+    const matKey = buildAssistIssueMaterialDedupKey(row.kcaa01 ?? row.materialCode)
+    if (matKey && existing.has(matKey)) return false
     return key && !existing.has(key)
   }).map((row) => makeBatchLine({
     ...row,
@@ -1546,6 +1970,115 @@ function handleAssistIssueBatchMessage(event) {
   const data = event.data
   if (!data || data.type !== STOCK_OUT_AI_BATCH_MSG_APPLY) return
   handleAssistIssueBatchPayload(data, event.source)
+}
+
+function buildProductionIssueBatchCurrentLineKeys() {
+  const keys = []
+  for (const line of form.lines) {
+    const lineKey = resolveProductionIssueBatchLineKey(line)
+    if (lineKey) keys.push(lineKey)
+    const matKey = buildAssistIssueMaterialDedupKey(line.kcaa01)
+    if (matKey) keys.push(matKey)
+  }
+  return [...new Set(keys)]
+}
+
+function openProductionIssueBatchWindow() {
+  const sessionId = buildStockOutProductionIssueBatchSessionId()
+  activeProductionIssueBatchSessionId.value = sessionId
+  writeStockOutProductionIssueBatchContext(sessionId, {
+    sourceOrderNo: form.sourceOrderNo,
+    workshopCode: form.relatedPartyCode,
+    workshopName: form.relatedPartyName,
+    piNo: form.piNo,
+    warehouseCode: form.warehouseCode,
+    warehouseName: resolveWarehouseName(),
+    dispatchSystemcode: form.sourceSystemcodeId,
+    excludeOutboundNo: editId.value ? form.outboundNo : '',
+    inTax: form.inTax,
+    currentLineKeys: buildProductionIssueBatchCurrentLineKeys(),
+    pageSize: 20,
+  })
+  const url = `/inventory/daily/stock-out-production-issue-batch-window?sessionId=${encodeURIComponent(sessionId)}&warehouseCode=${encodeURIComponent(form.warehouseCode)}`
+  const opened = window.open(url, '_blank')
+  productionIssueBatchChildWindow.value = opened || null
+  if (!opened) ElMessage.error('无法打开新窗口，请检查浏览器是否拦截弹窗')
+}
+
+function clearProductionIssueBatchSession() {
+  activeProductionIssueBatchSessionId.value = ''
+  productionIssueBatchChildWindow.value = null
+}
+
+function replyProductionIssueBatch(source, payload) {
+  const target = source && typeof source.postMessage === 'function'
+    ? source
+    : (productionIssueBatchChildWindow.value && !productionIssueBatchChildWindow.value.closed
+      ? productionIssueBatchChildWindow.value
+      : null)
+  if (!target || typeof target.postMessage !== 'function') return
+  target.postMessage(payload, window.location.origin)
+}
+
+function applyProductionIssueBatchLines(batchRows) {
+  const existing = new Set(buildProductionIssueBatchCurrentLineKeys())
+  const newLines = (batchRows ?? []).filter((row) => {
+    const key = String(row.lineKey ?? '').trim().toLowerCase()
+      || resolveProductionIssueBatchLineKey(row)
+    const matKey = buildAssistIssueMaterialDedupKey(row.kcaa01 ?? row.materialCode)
+    if (matKey && existing.has(matKey)) return false
+    return key && !existing.has(key)
+  }).map((row) => makeBatchLine({
+    ...row,
+    lineKey: row.lineKey || resolveProductionIssueBatchLineKey(row),
+  }))
+  if (!newLines.length) return ElMessage.warning('所选明细已在列表中，或未选择新行')
+  form.lines.push(...newLines)
+  ElMessage.success(`已批量添加 ${newLines.length} 条出库明细`)
+}
+
+function handleProductionIssueBatchPayload(payload, source = null, options = {}) {
+  const sessionId = String(payload?.sessionId ?? '').trim()
+  const allowStoredSession = !!options.allowStoredSession
+  if (!sessionId) return false
+  if (sessionId !== activeProductionIssueBatchSessionId.value && !allowStoredSession) return false
+  const validation = validateStockOutProductionIssueBatchApply({
+    openedWarehouseCode: payload.openedWarehouseCode,
+    currentWarehouseCode: form.warehouseCode,
+    openedSourceOrderNo: payload.openedSourceOrderNo,
+    currentSourceOrderNo: form.sourceOrderNo,
+    openedWorkshopCode: payload.openedWorkshopCode,
+    currentWorkshopCode: form.relatedPartyCode,
+    openedPiNo: payload.openedPiNo,
+    currentPiNo: form.piNo,
+  })
+  if (!validation.ok) {
+    removeStockOutProductionIssueBatchResult(sessionId)
+    if (!allowStoredSession) {
+      ElMessage.warning('派工单/车间/仓库/PI 数据已变更，请重新打开批量添加')
+      replyProductionIssueBatch(source, { type: STOCK_OUT_PI_BATCH_MSG_REJECTED, sessionId, reason: validation.reason })
+      clearProductionIssueBatchSession()
+    }
+    return false
+  }
+  const batchRows = Array.isArray(payload.lines) ? payload.lines : []
+  if (!batchRows.length) {
+    removeStockOutProductionIssueBatchResult(sessionId)
+    replyProductionIssueBatch(source, { type: STOCK_OUT_PI_BATCH_MSG_REJECTED, sessionId, reason: 'empty-lines' })
+    return false
+  }
+  removeStockOutProductionIssueBatchResult(sessionId)
+  applyProductionIssueBatchLines(batchRows)
+  replyProductionIssueBatch(source, { type: STOCK_OUT_PI_BATCH_MSG_ACCEPTED, sessionId, lineCount: batchRows.length })
+  clearProductionIssueBatchSession()
+  return true
+}
+
+function handleProductionIssueBatchMessage(event) {
+  if (event.origin !== window.location.origin) return
+  const data = event.data
+  if (!data || data.type !== STOCK_OUT_PI_BATCH_MSG_APPLY) return
+  handleProductionIssueBatchPayload(data, event.source)
 }
 
 function buildPurchaseReturnBatchCurrentLineKeys() {
@@ -1627,17 +2160,35 @@ function replyOtherBatch(source, payload) {
 
 function makeBatchLine(row) {
   const tax = form.inTax === '2' ? 0 : Number(row.tax ?? 0)
-  const qty = Number(row.kcaq03 ?? row.returnableQty ?? row.issueableQty ?? row.actualQty ?? 0)
+  const qty = roundOutboundQty(row.kcaq03 ?? row.returnableQty ?? row.issueableQty ?? row.actualQty ?? 0)
   const ex = Number(row.kcaq04 ?? 0)
   const inc = Number(row.kcaq041 ?? (ex * (1 + tax)))
   const sourceLineCode = String(row.sourceLineCode ?? row.lineKey ?? row.kcak02 ?? row.wxak02 ?? '').trim()
+  const assistLineKey = form.outboundType === '2'
+    ? (row.lineKey || buildAssistIssueLineKey(sourceLineCode, row.kcaa01 || row.materialCode))
+    : form.outboundType === '4'
+      ? (row.lineKey || resolveProductionIssueBatchLineKey(row))
+      : row.lineKey
+  const stockCap = roundOutboundQty(row.kcaq031 ?? row.warehouseActualQty ?? row.availableQty ?? qty)
+  const stillNeedCap = roundOutboundQty(row.stillNeedQty ?? row.sourceAvailableQty ?? qty)
+  const sourceDemandQty = roundOutboundQty(row.sourceDemandQty ?? row.dispatchDemandQty ?? 0)
+  const piRemainingQty = roundOutboundQty(row.piRemainingQty ?? 0)
   const line = wrapOutboundLine({
     ...row,
+    lineKey: assistLineKey,
     kcaa01: row.kcaa01 || row.materialCode,
+    // kcaq02 保存时由后端按 kcaa01 写 BOM.systemcode；前端仅保留 sourceLineCode 供关联校验与去重
     kcaq02: isLinkedType.value ? sourceLineCode : '',
     kcaq03: qty,
-    kcaq031: Number(row.kcaq031 ?? qty),
-    availableQty: Number(row.availableQty ?? row.returnableQty ?? row.issueableQty ?? qty),
+    kcaq031: stockCap,
+    availableQty: form.outboundType === '4' ? stockCap : roundOutboundQty(row.availableQty ?? row.returnableQty ?? row.issueableQty ?? qty),
+    sourceAvailableQty: form.outboundType === '4' ? stillNeedCap : roundOutboundQty(row.sourceAvailableQty ?? row.availableQty ?? qty),
+    sourceDemandQty: sourceDemandQty > 0 ? sourceDemandQty : row.sourceDemandQty,
+    stillNeedQty: stillNeedCap > 0 ? stillNeedCap : row.stillNeedQty,
+    piRemainingQty: row.piRemainingQty != null ? piRemainingQty : row.piRemainingQty,
+    piDemandQty: row.piDemandQty,
+    piIssuedQty: row.piIssuedQty,
+    dispatchStillNeedQty: row.dispatchStillNeedQty,
     kcaq04: ex,
     kcaq041: inc,
     kcaq05: Number(row.kcaq05 ?? (qty * ex).toFixed(2)),
@@ -1784,8 +2335,14 @@ async function openMaterialPicker() {
   if (form.outboundType === '2') {
     if (!form.sourceOrderNo) return ElMessage.warning('请先选择关联外协单号')
     if (!form.relatedPartyCode) return ElMessage.warning('请先选择外协商')
-    if (form.postProcessAssist && !form.workshopCode) return ElMessage.warning('加工后外协须选择本厂加工车间')
     openAssistIssueBatchWindow()
+    return
+  }
+  if (form.outboundType === '4') {
+    if (!form.relatedPartyCode) return ElMessage.warning('请先选择生产车间!')
+    if (!form.sourceOrderNo) return ElMessage.warning('请先选择关联派工单号')
+    if (!form.piNo) return ElMessage.warning('请先带出 PI 号')
+    openProductionIssueBatchWindow()
     return
   }
   return ElMessage.info('当前出库类型的批量添加功能开发中')
@@ -1815,6 +2372,7 @@ onMounted(() => {
   window.addEventListener('message', handleOtherBatchMessage)
   window.addEventListener('message', handlePurchaseReturnBatchMessage)
   window.addEventListener('message', handleAssistIssueBatchMessage)
+  window.addEventListener('message', handleProductionIssueBatchMessage)
   const storedOtherSession = activeOtherBatchSessionId.value
   if (storedOtherSession) {
     const payload = readStockOutBatchResult(storedOtherSession)
@@ -1830,12 +2388,18 @@ onMounted(() => {
     const payload = readStockOutAssistIssueBatchResult(storedAiSession)
     if (payload) handleAssistIssueBatchPayload(payload, null, { allowStoredSession: true })
   }
+  const storedPiSession = activeProductionIssueBatchSessionId.value
+  if (storedPiSession) {
+    const payload = readStockOutProductionIssueBatchResult(storedPiSession)
+    if (payload) handleProductionIssueBatchPayload(payload, null, { allowStoredSession: true })
+  }
 })
 
 onUnmounted(() => {
   window.removeEventListener('message', handleOtherBatchMessage)
   window.removeEventListener('message', handlePurchaseReturnBatchMessage)
   window.removeEventListener('message', handleAssistIssueBatchMessage)
+  window.removeEventListener('message', handleProductionIssueBatchMessage)
 })
 </script>
 
@@ -2081,10 +2645,19 @@ onUnmounted(() => {
   width: var(--stock-base-input-width);
   min-width: var(--stock-base-input-width);
 }
-.assist-party-row__workshop {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex: 0 1 auto;
+.production-dispatch-toolbar {
+  margin-bottom: 10px;
+}
+.production-dispatch-toolbar__label {
+  color: #606266;
+  margin-right: 4px;
+}
+.cutting-config-desc {
+  margin: 0 0 12px;
+  color: #606266;
+  font-size: 14px;
+}
+.cutting-config-alert {
+  margin-bottom: 12px;
 }
 </style>

@@ -18,11 +18,12 @@
 - `customs_code`：海关商品编码（可空）
 - `stocks_in`：入库浮动率（可空，建议字符串存原始录入，如 `0.05` 或 `5%`）
 - `stocks_out`：出库浮动率（可空，建议字符串存原始录入，如 `0.05` 或 `5%`）
+- `cutting_issue`：开料出库开关（`0` 否 / `1` 是；开料部生产领料批量按 `kcaa05` 命中已开启分类）；迁移见 `scripts/migrations/sqlserver_stock_out_cutting_issue_flag.txt`
 - `pass` / `del`：项目约定
 
 ## 数据库说明
 
-- 必备业务列：`id`（主键 `IDENTITY`）、`code`、`name`、`customs_code`、`stocks_in`、`stocks_out`、`pass`、`del`。
+- 必备业务列：`id`（主键 `IDENTITY`）、`code`、`name`、`customs_code`、`stocks_in`、`stocks_out`、`cutting_issue`（开料出库，可选列，见迁移脚本）、`pass`、`del`。
 - 审计列（建议 `NVARCHAR(50)` 存时间串；`uid` 为 `INT`）：`uid`、`uname`、`utruename`、`addtime`、`edittime`、`deltime`。
 - 时间格式与其它基础资料一致，由后端 `formatBomColorcodeTimestamp` 生成（示例 `2026-4-23 11:44:51`）。
 
@@ -35,6 +36,13 @@ ALTER TABLE dbo.[UB_ERP_Stocks_material] ADD utruename NVARCHAR(50) NULL;
 ALTER TABLE dbo.[UB_ERP_Stocks_material] ADD addtime NVARCHAR(50) NULL;
 ALTER TABLE dbo.[UB_ERP_Stocks_material] ADD edittime NVARCHAR(50) NULL;
 ALTER TABLE dbo.[UB_ERP_Stocks_material] ADD deltime NVARCHAR(50) NULL;
+```
+
+开料出库开关（2026-06-25，列已存在则跳过）：
+
+```sql
+-- 见 scripts/migrations/sqlserver_stock_out_cutting_issue_flag.txt
+ALTER TABLE dbo.[UB_ERP_Stocks_material] ADD cutting_issue NVARCHAR(20) NULL;
 ```
 
 ## 权限（按钮级）

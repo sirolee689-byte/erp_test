@@ -22,6 +22,8 @@ const STOCK_IN_FROM = 'dbo.[UB_ERP_Stocks_Storage]'
 const STOCK_IN_LINE_FROM = 'dbo.[UB_ERP_Stocks_Storage_list]'
 const STOCK_OUT_FROM = 'dbo.[UB_ERP_Stocks_out]'
 const STOCK_OUT_LINE_FROM = 'dbo.[UB_ERP_Stocks_out_list]'
+const BUY_HEADER_FROM = 'dbo.[UB_ERP_Buy_order]'
+const BUY_LINE_FROM = 'dbo.[UB_ERP_Buy_order_list]'
 
 const KCAA_COLS = Array.from({ length: 35 }, (_, i) => `kcaa${String(i + 1).padStart(2, '0')}`)
 
@@ -39,8 +41,15 @@ function round(n, p = 4) {
   return Math.round((toNumber(n) + Number.EPSILON) * m) / m
 }
 
+/** 外协领料批量：出库数量口径统一三位小数（与 kcaq03 / 界面展示一致） */
+const ASSIST_ISSUE_QTY_PRECISION = 3
+
 function delActiveSql(alias) {
   return `ISNULL(${alias}.[del], N'0') IN (N'', N'0')`
+}
+
+function passApprovedSql(alias) {
+  return `${nvarcharTextExpr(alias, 'pass', 20)} = N'1'`
 }
 
 /** 外协来源剩余 = 换算外协数量 - 已出 + 退回/调整(wxak07) */
@@ -59,7 +68,7 @@ export function computeAssistSourceDemandQty(params) {
 export function computeAssistStillNeedQty({ sourceDemandQty, sourceApprovedOutQty, sourcePendingOutQty }) {
   const remain = round(
     toNumber(sourceDemandQty) - toNumber(sourceApprovedOutQty) - toNumber(sourcePendingOutQty),
-    4,
+    ASSIST_ISSUE_QTY_PRECISION,
   )
   return remain > 0 ? remain : 0
 }
@@ -68,7 +77,7 @@ export function computeAssistStillNeedQty({ sourceDemandQty, sourceApprovedOutQt
 export function computeAssistIssueableQty({ sourceRemain, pendingIssueOut, warehouseActualQty }) {
   const pool = Math.max(0, toNumber(sourceRemain) - toNumber(pendingIssueOut))
   const stock = Math.max(0, toNumber(warehouseActualQty))
-  return round(Math.min(pool, stock), 4)
+  return round(Math.min(pool, stock), ASSIST_ISSUE_QTY_PRECISION)
 }
 
 export function resolveAssistIssueSelectState({ issueableQty, stillNeedQty, alreadySelected, warehouseActualQty }) {
@@ -85,6 +94,14 @@ export function resolveAssistIssueSelectState({ issueableQty, stillNeedQty, alre
     return { selectState: 'select', selectLabel: '选择', selectable: true }
   }
   return { selectState: 'disabled_stock', selectLabel: '库存不足', selectable: false }
+}
+
+/** 外协单总外协数量：按明细换算后汇总，供批量窗口展示整单口径。 */
+export function computeAssistOrderTotalQty(rows = []) {
+  const list = Array.isArray(rows) ? rows : []
+  return round(list.reduce((sum, row) => (
+    sum + toNumber(computeAssistKsum(row?.wxak03, row?.kcaa26, row?.kcaa27))
+  ), 0), 4)
 }
 
 function formatPendingText(rows, qtyKey = 'qty') {
@@ -123,6 +140,81 @@ function resolveDetailKey(row) {
   return text(row.wxak02 || row.systemcode || row.GUID || row.sourceLineCode)
 }
 
+/** 编辑态兜底：本单已存子料编码去重（kcaq02 与展开 wxak02 不一致时仍拦截） */
+export function buildAssistIssueMaterialDedupKey(materialCode) {
+  const mat = text(materialCode).toLowerCase()
+  return mat ? `*|${mat}` : ''
+}
+
+/** 合并请求 selectedKeys 与本单已存明细键（编辑态 excludeOutboundNo 兜底） */
+export function mergeAssistIssueSelectedKeys(selectedKeysInput, outboundLineKeys = []) {
+  const selectedSet = new Set(
+    text(selectedKeysInput).split(',').map((x) => x.trim().toLowerCase()).filter(Boolean),
+  )
+  for (const key of outboundLineKeys) {
+    const normalized = text(key).toLowerCase()
+    if (normalized) selectedSet.add(normalized)
+  }
+  return selectedSet
+}
+
+function hasSelectedKeysInput(query = {}) {
+  return Object.prototype.hasOwnProperty.call(query, 'selectedKeys')
+}
+
+export function __buildAssistIssueOutboundLineKeysSqlForTest() {
+  return `
+    SELECT
+      ${nvarcharTextExpr('l', 'kcaq02', 200)} AS sourceLineCode,
+      ${nvarcharTextExpr('l', 'kcaa01', 300)} AS materialCode
+    FROM ${STOCK_OUT_LINE_FROM} AS l
+    WHERE ${nvarcharTextExpr('l', 'kcaq01', 200)} = @outboundNo
+      AND ${delActiveSql('l')}
+  `
+}
+
+async function fetchAssistIssueOutboundLineKeys(pool, outboundNo) {
+  const no = text(outboundNo)
+  if (!no) return []
+  const r = await pool.request().input('outboundNo', sql.NVarChar(200), no).query(__buildAssistIssueOutboundLineKeysSqlForTest())
+  const keys = []
+  for (const row of r.recordset ?? []) {
+    const key = buildAssistIssueLineKey(row.sourceLineCode, row.materialCode)
+    if (key) keys.push(key.toLowerCase())
+    const matKey = buildAssistIssueMaterialDedupKey(row.materialCode)
+    if (matKey) keys.push(matKey)
+  }
+  return keys
+}
+
+async function fetchAssistOrderAssistType(pool, sourceOrderNo) {
+  const no = text(sourceOrderNo)
+  if (!no) return ''
+  const r = await pool.request().input('sourceOrderNo', sql.NVarChar(200), no).query(`
+    SELECT TOP 1
+      LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(h.[wxaj03], N'')))) AS assistType
+    FROM ${ASSIST_HEADER_FROM} AS h
+    WHERE ${nvarcharTextExpr('h', 'wxaj01', 200)} = @sourceOrderNo
+      AND ${delActiveSql('h')}
+    ORDER BY h.[id] DESC
+  `)
+  return text(r.recordset?.[0]?.assistType)
+}
+
+function resolveAssistLinePiNo(assistLine, headerPiNo = '') {
+  return text(assistLine?.pi || headerPiNo)
+}
+
+function validateOutboundAssistIssuePi(assistLines, piNo, assistType) {
+  if (text(assistType) !== '2') return null
+  const headerPi = text(piNo)
+  const missing = (assistLines ?? []).some((line) => !resolveAssistLinePiNo(line, headerPi))
+  if (missing && !headerPi) {
+    return '订单外发须有关联 PI 且已完成一键运算'
+  }
+  return null
+}
+
 function buildAssistIssueBatchBaseWhere({ piNo = '' } = {}) {
   return `
       WHERE ${nvarcharTextExpr('l', 'wxak01', 200)} = @sourceOrderNo
@@ -157,7 +249,7 @@ function buildAssistIssueBatchListAllSql({ piNo = '' } = {}) {
 
 export function __buildAssistIssueBatchCountSqlForTest(opts = {}) {
   const keywordWhere = opts.keyword
-    ? `AND (${['kcaa01', 'kcaa02'].map((col) => `${nvarcharTextExpr('l', col)} LIKE @keyword`).join(' OR ')})`
+    ? `AND ${nvarcharTextExpr('l', 'kcaa01')} LIKE @keyword`
     : ''
   return `
     SELECT COUNT(1) AS total
@@ -317,8 +409,81 @@ async function fetchWarehouseStockByMaterial(pool, { warehouseCode, materialCode
   return map
 }
 
+export function __buildAssistIssueLatestPurchasePriceSqlForTest(codeCount) {
+  const n = Math.max(0, Math.floor(Number(codeCount) || 0))
+  if (n <= 0) return ''
+  const inList = Array.from({ length: n }, (_, i) => `@mc${i}`).join(', ')
+  return `
+    WITH latest_price AS (
+      SELECT
+        ${nvarcharTextExpr('l', 'kcaa01', 300)} AS materialCode,
+        ${safeDecimalExpr('l', 'kcak04')} AS kcaq04,
+        ${safeDecimalExpr('l', 'kcak041')} AS kcaq041,
+        ${safeDecimalExpr('l', 'tax', 0)} AS tax,
+        ROW_NUMBER() OVER (
+          PARTITION BY ${nvarcharTextExpr('l', 'kcaa01', 300)}
+          ORDER BY ISNULL(h.[id], 0) DESC, ISNULL(l.[id], 0) DESC
+        ) AS rn
+      FROM ${BUY_HEADER_FROM} AS h
+      INNER JOIN ${BUY_LINE_FROM} AS l
+        ON ${nvarcharTextExpr('l', 'kcak01', 200)} = ${nvarcharTextExpr('h', 'kcaj01', 200)}
+      WHERE ${delActiveSql('h')}
+        AND ${passApprovedSql('h')}
+        AND ${delActiveSql('l')}
+        AND ${passApprovedSql('l')}
+        AND ${nvarcharTextExpr('l', 'kcaa01', 300)} IN (${inList})
+    )
+    SELECT materialCode, kcaq04, kcaq041, tax
+    FROM latest_price
+    WHERE rn = 1
+  `
+}
+
+export async function fetchLatestPurchasePriceByMaterial(pool, materialCodes = []) {
+  const mats = [...new Set((materialCodes ?? []).map((k) => text(k)).filter(Boolean))]
+  if (!mats.length) return new Map()
+  const req = pool.request()
+  mats.forEach((code, i) => {
+    req.input(`mc${i}`, sql.NVarChar(300), code)
+  })
+  const r = await req.query(__buildAssistIssueLatestPurchasePriceSqlForTest(mats.length))
+  const map = new Map()
+  for (const row of r.recordset ?? []) {
+    const key = text(row.materialCode).toLowerCase()
+    if (!key) continue
+    map.set(key, {
+      kcaq04: toNumber(row.kcaq04),
+      kcaq041: toNumber(row.kcaq041),
+      tax: toNumber(row.tax),
+    })
+  }
+  return map
+}
+
+export function resolveAssistIssueLinePrice({ row = {}, mat = {}, materialCode = '', ctx = {} } = {}) {
+  const isOutboundAssist = text(ctx.assistType) === '2'
+  if (isOutboundAssist) {
+    const price = ctx.purchasePriceMap?.get(text(materialCode).toLowerCase())
+    return {
+      tax: round(price?.tax ?? 0, 4),
+      kcaq04: round(price?.kcaq04 ?? 0, 4),
+      kcaq041: round(price?.kcaq041 ?? 0, 4),
+    }
+  }
+
+  const salePrice = toNumber(mat.sale_price)
+  const tax = toNumber(row.tax ?? row.Tax)
+  const kcaq04 = salePrice > 0 ? salePrice : toNumber(row.wxak04)
+  const kcaq041 = toNumber(row.wxak041) || round(kcaq04 * (1 + tax), 4)
+  return {
+    tax,
+    kcaq04,
+    kcaq041,
+  }
+}
+
 function resolveChildMaterialFields(row, bomSnapshot) {
-  const snap = bomSnapshot ?? row.childSnapshot ?? {}
+  const snap = bomSnapshot != null ? bomSnapshot : (row.childSnapshot ?? {})
   const out = {
     kcaa01: text(row.childKcaa01),
     kcaa02: text(snap.kcaa02 ?? row.kcaa02),
@@ -341,7 +506,8 @@ function mapExpandedLineRow(row, ctx) {
   const detailKey = resolveDetailKey(row)
   const materialCode = text(row.childKcaa01)
   const lineKey = buildAssistIssueLineKey(detailKey, materialCode) || `${detailKey}|${materialCode}`
-  const bomSnap = ctx.bomMap.get(materialCode.toLowerCase())
+  const usePiCostSnapshot = text(row.expandSource) === 'pi_cost_outbound'
+  const bomSnap = usePiCostSnapshot ? null : ctx.bomMap.get(materialCode.toLowerCase())
   const mat = resolveChildMaterialFields(row, bomSnap)
 
   const stock = ctx.stockMap.get(materialCode) ?? {}
@@ -354,15 +520,17 @@ function mapExpandedLineRow(row, ctx) {
     kcaa27: row.kcaa27,
     unitUsage: row.unitUsage,
   })
-  const sourceApprovedOutQty = round(sourceOutbound.approvedQty, 4)
-  const sourcePendingOutQty = round(sourceOutbound.pendingQty, 4)
+  const sourceApprovedOutQty = round(sourceOutbound.approvedQty, ASSIST_ISSUE_QTY_PRECISION)
+  const sourcePendingOutQty = round(sourceOutbound.pendingQty, ASSIST_ISSUE_QTY_PRECISION)
   const stillNeedQty = computeAssistStillNeedQty({
     sourceDemandQty,
     sourceApprovedOutQty,
     sourcePendingOutQty,
   })
   const issueableQty = computeAssistIssueDefaultQty({ stillNeedQty, warehouseActualQty })
+  const materialDedupKey = buildAssistIssueMaterialDedupKey(materialCode)
   const alreadySelected = ctx.selectedSet.has(lineKey.toLowerCase())
+    || (materialDedupKey && ctx.selectedSet.has(materialDedupKey))
   const select = resolveAssistIssueSelectState({
     issueableQty,
     stillNeedQty,
@@ -370,10 +538,10 @@ function mapExpandedLineRow(row, ctx) {
     warehouseActualQty,
   })
 
-  const salePrice = toNumber(mat.sale_price)
-  const tax = toNumber(row.tax ?? row.Tax)
-  const kcaq04 = salePrice > 0 ? salePrice : toNumber(row.wxak04)
-  const kcaq041 = toNumber(row.wxak041) || round(kcaq04 * (1 + tax), 4)
+  const price = resolveAssistIssueLinePrice({ row, mat, materialCode, ctx })
+  const tax = price.tax
+  const kcaq04 = price.kcaq04
+  const kcaq041 = price.kcaq041
   const kcaq03 = issueableQty
   const kcaq05 = round(kcaq03 * kcaq04, 2)
   const kcaq051 = round(kcaq03 * kcaq041, 2)
@@ -402,6 +570,7 @@ function mapExpandedLineRow(row, ctx) {
     kcaa11: mat.kcaa11,
     wxak03: toNumber(row.wxak03),
     assistOrderQty,
+    assistOrderTotalQty: toNumber(ctx.assistOrderTotalQty),
     wxak07: toNumber(row.wxak07),
     wxak08: toNumber(row.wxak08),
     returnCode: text(row.Product ?? row.returnCode),
@@ -444,6 +613,93 @@ function mapExpandedLineRow(row, ctx) {
   return out
 }
 
+function joinDistinctText(values = [], fallback = '-') {
+  const list = [...new Set((values ?? []).map((v) => text(v)).filter(Boolean))]
+  if (!list.length) return fallback
+  if (list.length <= 2) return list.join(' / ')
+  return `${list.slice(0, 2).join(' / ')} 等${list.length}项`
+}
+
+/** 批量窗口展示按子料编码合并：同 kcaa01 只显示一行，数量口径累加。 */
+export function __aggregateAssistIssueRowsByMaterialForTest(rows, selectedSet = new Set()) {
+  const groups = new Map()
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const materialCode = text(row.kcaa01)
+    const key = materialCode.toLowerCase()
+    if (!key) continue
+    const existing = groups.get(key)
+    if (!existing) {
+      groups.set(key, {
+        ...row,
+        __sourceLineCodes: [text(row.sourceLineCode || row.kcaq02 || row.wxak02)],
+        __outsourceCodes: [text(row.outsourceKcaa01)],
+        __alreadySelected: row.selectState === 'picked' || row.selectLabel === '已选择',
+      })
+      continue
+    }
+    existing.assistOrderQty = round(toNumber(existing.assistOrderQty) + toNumber(row.assistOrderQty), 4)
+    existing.unitUsage = round(toNumber(existing.unitUsage) + toNumber(row.unitUsage), 6)
+    existing.sourceDemandQty = round(toNumber(existing.sourceDemandQty) + toNumber(row.sourceDemandQty), ASSIST_ISSUE_QTY_PRECISION)
+    // stillNeedQty 不在合并阶段累加：各行已用整单子料维度的已出/未审量计算，累加会重复扣减
+    existing.__sourceLineCodes.push(text(row.sourceLineCode || row.kcaq02 || row.wxak02))
+    existing.__outsourceCodes.push(text(row.outsourceKcaa01))
+    if (row.selectState === 'picked' || row.selectLabel === '已选择') existing.__alreadySelected = true
+  }
+
+  const merged = []
+  for (const item of groups.values()) {
+    const materialCode = text(item.kcaa01)
+    const materialLineKey = `material|${materialCode.toLowerCase()}`
+    const sourceLineCode = text(item.__sourceLineCodes.find(Boolean))
+    const materialDedupKey = buildAssistIssueMaterialDedupKey(materialCode)
+    const alreadySelected = item.__alreadySelected
+      || selectedSet.has(materialLineKey)
+      || selectedSet.has(materialDedupKey)
+
+    const sourceApprovedOutQty = toNumber(item.sourceApprovedOutQty)
+    const sourcePendingOutQty = toNumber(item.sourcePendingOutQty)
+    const stillNeedQty = computeAssistStillNeedQty({
+      sourceDemandQty: item.sourceDemandQty,
+      sourceApprovedOutQty,
+      sourcePendingOutQty,
+    })
+    const issueableQty = computeAssistIssueDefaultQty({
+      stillNeedQty,
+      warehouseActualQty: item.warehouseActualQty,
+    })
+    const select = resolveAssistIssueSelectState({
+      issueableQty,
+      stillNeedQty,
+      alreadySelected,
+      warehouseActualQty: item.warehouseActualQty,
+    })
+
+    const kcaq04 = toNumber(item.kcaq04)
+    const kcaq041 = toNumber(item.kcaq041)
+    const next = {
+      ...item,
+      lineKey: materialLineKey,
+      sourceLineCode,
+      kcaq02: sourceLineCode,
+      wxak02: sourceLineCode,
+      outsourceKcaa01: joinDistinctText(item.__outsourceCodes),
+      stillNeedQty,
+      requiredQty: stillNeedQty,
+      issueableQty,
+      kcaq03: issueableQty,
+      kcaq031: toNumber(item.warehouseActualQty),
+      kcaq05: round(issueableQty * kcaq04, 2),
+      kcaq051: round(issueableQty * kcaq041, 2),
+      ...select,
+    }
+    delete next.__sourceLineCodes
+    delete next.__outsourceCodes
+    delete next.__alreadySelected
+    merged.push(next)
+  }
+  return merged
+}
+
 /**
  * @param {import('mssql').ConnectionPool} pool
  * @param {Record<string, string>} query
@@ -460,9 +716,13 @@ export async function fetchStockOutAssistIssueBatchLines(pool, query = {}) {
   const keyword = text(query.keyword)
   const excludeOutboundNo = text(query.excludeOutboundNo)
   const { page, pageSize } = parsePage(query)
-  const selectedSet = new Set(
-    text(query.selectedKeys).split(',').map((x) => x.trim().toLowerCase()).filter(Boolean),
-  )
+  const hasSelectedKeys = hasSelectedKeysInput(query)
+  const outboundLineKeys = (!hasSelectedKeys && excludeOutboundNo)
+    ? await fetchAssistIssueOutboundLineKeys(pool, excludeOutboundNo)
+    : []
+  const selectedSet = mergeAssistIssueSelectedKeys(query.selectedKeys, outboundLineKeys)
+
+  const assistType = await fetchAssistOrderAssistType(pool, sourceOrderNo)
 
   const listReq = pool.request()
     .input('sourceOrderNo', sql.NVarChar(200), sourceOrderNo)
@@ -471,23 +731,26 @@ export async function fetchStockOutAssistIssueBatchLines(pool, query = {}) {
 
   const listR = await listReq.query(buildAssistIssueBatchListAllSql({ piNo }))
   const assistLines = listR.recordset ?? []
+  const assistOrderTotalQty = computeAssistOrderTotalQty(assistLines)
   if (!assistLines.length) {
-    return { ok: true, list: [], total: 0, page, pageSize, sourceOrderNo, supplierCode, warehouseCode, piNo }
+    return { ok: true, list: [], total: 0, page, pageSize, sourceOrderNo, supplierCode, warehouseCode, piNo, assistType }
   }
 
-  const expandedRaw = await batchExpandAssistIssueLines(pool, assistLines, piNo)
+  const piErr = validateOutboundAssistIssuePi(assistLines, piNo, assistType)
+  if (piErr) {
+    return { ok: false, status: 400, msg: piErr }
+  }
+
+  const expandedRaw = await batchExpandAssistIssueLines(pool, assistLines, piNo, { assistType })
   const filtered = filterExpandedAssistIssueRows(expandedRaw, keyword)
-  const total = filtered.length
-  const start = (page - 1) * pageSize
-  const pageRows = filtered.slice(start, start + pageSize)
-
-  if (!pageRows.length) {
-    return { ok: true, list: [], total, page, pageSize, sourceOrderNo, supplierCode, warehouseCode, piNo }
+  if (!filtered.length) {
+    return { ok: true, list: [], total: 0, page, pageSize, sourceOrderNo, supplierCode, warehouseCode, piNo, assistType }
   }
 
-  const materialCodes = [...new Set(pageRows.map((row) => text(row.childKcaa01)).filter(Boolean))]
+  const materialCodes = [...new Set(filtered.map((row) => text(row.childKcaa01)).filter(Boolean))]
 
-  const [sourceOutboundResult, stockMap, bomMap] = await Promise.all([
+  const skipBomSnapshot = text(assistType) === '2'
+  const [sourceOutboundResult, stockMap, bomMap, purchasePriceMap] = await Promise.all([
     fetchSourceOutboundByChildMaterial(pool, {
       sourceOrderNo,
       warehouseCode,
@@ -495,17 +758,27 @@ export async function fetchStockOutAssistIssueBatchLines(pool, query = {}) {
       excludeOutboundNo,
     }),
     fetchWarehouseStockByMaterial(pool, { warehouseCode, materialCodes, excludeOutboundNo }),
-    fetchBom000SnapshotsByKcaa01(pool, materialCodes),
+    skipBomSnapshot ? Promise.resolve(new Map()) : fetchBom000SnapshotsByKcaa01(pool, materialCodes),
+    skipBomSnapshot ? fetchLatestPurchasePriceByMaterial(pool, materialCodes) : Promise.resolve(new Map()),
   ])
 
   const ctx = {
+    assistType,
     sourceOutboundMap: sourceOutboundResult.aggMap,
     sourcePendingDocMap: sourceOutboundResult.pendingDocMap,
     stockMap,
     bomMap,
+    purchasePriceMap,
     selectedSet,
+    assistOrderTotalQty,
   }
-  const list = pageRows.map((row) => mapExpandedLineRow(row, ctx))
+  const mergedRows = __aggregateAssistIssueRowsByMaterialForTest(
+    filtered.map((row) => mapExpandedLineRow(row, ctx)),
+    selectedSet,
+  )
+  const total = mergedRows.length
+  const start = (page - 1) * pageSize
+  const list = mergedRows.slice(start, start + pageSize)
 
   return {
     ok: true,
@@ -517,6 +790,7 @@ export async function fetchStockOutAssistIssueBatchLines(pool, query = {}) {
     supplierCode,
     warehouseCode,
     piNo,
-    piCostHint: buildAssistIssuePiCostHint(piNo, expandedRaw),
+    assistType,
+    piCostHint: buildAssistIssuePiCostHint(piNo, expandedRaw, { assistType }),
   }
 }

@@ -11,6 +11,8 @@
 | 改后端重启 API | [`.cursorrules`](../../.cursorrules) §14 | 指针 |
 | 库表文档同步 | [`.cursorrules`](../../.cursorrules) §13 | 指针 |
 | 写码纪律（先想再写、最小 diff） | [coding-discipline.md](./coding-discipline.md) | 指针 |
+| 列表/SQL 性能自检（热路径先量后写） | [coding-discipline.md](./coding-discipline.md) §5 | 指针 |
+| SQL 慢查询测时与方案 | [`.cursor/skills/sql-performance-profile`](../../.cursor/skills/sql-performance-profile/SKILL.md) | 指针 |
 | 定稿节奏、轻/中/重、执行口令 | [`.agents/skills/ask-then-execute`](../../.agents/skills/ask-then-execute/SKILL.md) | 指针 |
 | 业务术语、模块定稿、pass/del 详述 | [`CONTEXT.md`](../../CONTEXT.md) | 指针 |
 | 表/字段映射 | [`docs/sql/database_map.md`](../sql/database_map.md) | 指针 |

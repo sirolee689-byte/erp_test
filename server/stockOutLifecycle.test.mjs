@@ -4,6 +4,7 @@ import {
   buildStockOutSourceWritebackSql,
   buildStockOutLifecycleSetSql,
   resolveStockOutLifecycleConfig,
+  validateStockOutAuditLineCount,
 } from './stockOutLifecycle.js'
 
 describe('stockOutLifecycle', () => {
@@ -14,6 +15,11 @@ describe('stockOutLifecycle', () => {
 
   test('已结案单据不可操作', () => {
     assert.match(resolveStockOutLifecycleConfig('audit', { pass: '0', closed: '1' }).error, /已结案/)
+  })
+
+  test('无明细出库单不能审核', () => {
+    assert.match(validateStockOutAuditLineCount(0), /至少需要一条明细才能审核/)
+    assert.equal(validateStockOutAuditLineCount(1), null)
   })
 
   test('审核和反审核会同步主表与明细 pass', () => {

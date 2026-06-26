@@ -123,19 +123,39 @@ async function fetchExistingOrder(pool, id) {
   return r.recordset?.[0] ?? null
 }
 
+/**
+ * 已派工数量统计范围：本厂/大板按 PI+车间独立池；委外保留旧系统特殊口径。
+ */
+export function buildDispatchAvailabilityScope({ dispatchType, workshopCode, workshopName }) {
+  const type = String(dispatchType ?? '0')
+  if (type === '2') {
+    if (String(workshopName ?? '').indexOf('生产') >= 0) {
+      return {
+        dispatchScope: `AND LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[cj], N'')))) LIKE N'%生产%'`,
+        bindWorkshopCode: false,
+      }
+    }
+    return {
+      dispatchScope: `AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[scaj05], N'')))) = @workshopCode`,
+      bindWorkshopCode: true,
+    }
+  }
+  // 本厂(0)/大板(1)：同一 PI+货品在各生产车间互不占用可派工数量
+  return {
+    dispatchScope: `AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[scaj04], N'')))) = @pi
+        AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[scaj05], N'')))) = @workshopCode`,
+    bindWorkshopCode: true,
+  }
+}
+
 export async function fetchDispatchAvailability(pool, { dispatchType, workshopCode, workshopName, pi, kcaa01, excludeOrderNo = '' }) {
   const req = pool.request()
     .input('pi', sql.NVarChar(200), pi)
     .input('kcaa01', sql.NVarChar(200), kcaa01)
     .input('excludeOrderNo', sql.NVarChar(200), excludeOrderNo || '')
-  let dispatchScope = `AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[scaj04], N'')))) = @pi`
-  if (String(dispatchType) === '2') {
-    if (String(workshopName ?? '').indexOf('生产') >= 0) {
-      dispatchScope = `AND LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[cj], N'')))) LIKE N'%生产%'`
-    } else {
-      req.input('workshopCode', sql.NVarChar(200), workshopCode)
-      dispatchScope = `AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[scaj05], N'')))) = @workshopCode`
-    }
+  const { dispatchScope, bindWorkshopCode } = buildDispatchAvailabilityScope({ dispatchType, workshopCode, workshopName })
+  if (bindWorkshopCode) {
+    req.input('workshopCode', sql.NVarChar(200), workshopCode)
   }
   const r = await req.query(`
     SELECT TOP 1

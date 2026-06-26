@@ -71,6 +71,12 @@ export function buildStockOutSourceWritebackSql({ tableName, writebackField, key
   `
 }
 
+/** 审核前校验：草稿可空明细保存，过账须至少一条有效明细 */
+export function validateStockOutAuditLineCount(lineCount) {
+  if (Number(lineCount) > 0) return null
+  return '出库单至少需要一条明细才能审核'
+}
+
 export function resolveStockOutLifecycleConfig(action, row = {}, actor = {}) {
   const audited = isOne(row.pass)
   const deleted = isOne(row.del)
@@ -177,6 +183,16 @@ async function fetchOrder(pool, id) {
   return r.recordset?.[0] ?? null
 }
 
+async function countActiveLines(poolOrTx, outboundNo) {
+  const r = await new sql.Request(poolOrTx).input('outboundNo', sql.NVarChar(200), outboundNo).query(`
+    SELECT COUNT(1) AS cnt
+    FROM ${LINE_FROM}
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([kcaq01], N'')))) = @outboundNo
+      AND (ISNULL([del], N'') = N'' OR [del] = N'0')
+  `)
+  return Number(r.recordset?.[0]?.cnt ?? 0)
+}
+
 async function fetchLinesForWriteback(tx, outboundNo) {
   const r = await new sql.Request(tx).input('outboundNo', sql.NVarChar(200), outboundNo).query(`
     SELECT
@@ -222,6 +238,10 @@ export async function applyStockOutLifecycleAction({ pool, id, action, actor }) 
   if (!row) return { ok: false, status: 404, msg: '出库单不存在' }
   const config = resolveStockOutLifecycleConfig(action, row, actor)
   if (config.error) return { ok: false, status: 400, msg: config.error }
+  if (action === 'audit') {
+    const auditErr = validateStockOutAuditLineCount(await countActiveLines(pool, row.outboundNo))
+    if (auditErr) return { ok: false, status: 400, msg: auditErr }
+  }
   const info = buildStockOutLogInfo({ outboundNo: row.outboundNo, sourceOrderNo: row.sourceOrderNo, actor })
   const tx = new sql.Transaction(pool)
   await tx.begin()

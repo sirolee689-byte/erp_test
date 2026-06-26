@@ -754,6 +754,9 @@ export function matchApiPermissionRule(method, path, body, params) {
       '/api/stock-out/purchase-return-source-page',
       '/api/stock-out/purchase-return-batch-lines',
       '/api/stock-out/assist-issue-source-page',
+      '/api/stock-out/production-dispatch-source-page',
+      '/api/stock-out/production-issue-batch-lines',
+      '/api/stock-out/cutting-issue-config',
       '/api/stock-out/assist-issue-batch-lines',
       '/api/stock-out/source-lines',
       '/api/stock-out/print-data',
@@ -769,6 +772,9 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'inventory/daily/stock-out', action: 'add' }
   }
   if (m === 'POST' && path === '/api/stock-out/other-batch-prices') {
+    return { menuPath: 'inventory/daily/stock-out', action: 'view' }
+  }
+  if (m === 'PUT' && path === '/api/stock-out/cutting-issue-config') {
     return { menuPath: 'inventory/daily/stock-out', action: 'view' }
   }
   if (m === 'PUT' && /^\/api\/stock-out\/\d+$/.test(path)) {
