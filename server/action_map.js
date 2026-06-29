@@ -33,6 +33,8 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   { method: 'GET', path: '/api/stock-out/purchase-return-batch-lines', action: '查询采购退货批量添加明细', targetTable: 'UB_ERP_Buy_order_list' },
   { method: 'GET', path: '/api/stock-out/assist-issue-source-page', action: '查询外协领料关联外协单分页', targetTable: 'UB_ERP_assist_order,UB_ERP_assist_order_list' },
   { method: 'GET', path: '/api/stock-out/production-dispatch-source-page', action: '查询生产领料关联派工单分页', targetTable: 'UB_ERP_Dispatch_order,UB_ERP_Dispatch_order_list' },
+  { method: 'GET', path: '/api/stock-out/finished-goods-source-page', action: '查询成品出库关联销售订单分页', targetTable: 'UB_ERP_Sales_order,UB_ERP_Sales_order_list' },
+  { method: 'GET', path: '/api/stock-out/finished-goods-batch-lines', action: '查询成品出库批量添加明细', targetTable: 'UB_ERP_Sales_order,UB_ERP_Sales_order_list,UB_ERP_Stocks_out,UB_ERP_Stocks_out_list' },
   { method: 'GET', path: '/api/stock-out/production-issue-batch-lines', action: '查询生产领料批量添加明细', targetTable: 'UB_ERP_Dispatch_order_list,UB_ERP_Bom_pi_cost,UB_ERP_Bom_000,UB_ERP_Stocks_material' },
   { method: 'GET', path: '/api/stock-out/cutting-issue-config', action: '查询开料出库配置', targetTable: 'UB_ERP_Stocks_material' },
   { method: 'PUT', path: '/api/stock-out/cutting-issue-config', action: '保存开料出库配置', targetTable: 'UB_ERP_Stocks_material' },

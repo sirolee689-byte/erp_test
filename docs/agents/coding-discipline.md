@@ -65,7 +65,8 @@
 2. **大需求**：先对齐定稿（`ask-then-execute` **重档**完整定稿、`.scratch` PRD）再动代码；**轻档**小修小补不必反复盘问；**中档**用轻量定稿即可。档位定义见 `.agents/skills/ask-then-execute` §A。
 3. **标准件模块**：用户明确要求「按标准件/采购报价式」时，权限、审计、回收站等属于**范围内**实现，不算擅自加功能。
 4. **沟通与注释**：全中文、业务注释规则见 [`.cursorrules`](../../.cursorrules) §1；勿与 User Rules 重复维护同一句话。
-5. **后端变更**：见 [`.cursorrules`](../../.cursorrules) §14（单源；此处不重复禁止项与命令）。
+5. **界面数值展示**：数量/单价/金额等**展示**须四舍五入后去掉末尾无意义的 0（如 `80.000→80`、`54.540→54.54`）；单源 [`src/utils/erpNumberDisplay.js`](../../src/utils/erpNumberDisplay.js)，细则见 [`.cursor/rules/erp-number-display.mdc`](../../.cursor/rules/erp-number-display.mdc)。
+6. **后端变更**：见 [`.cursorrules`](../../.cursorrules) §14（单源；此处不重复禁止项与命令）。
 
 ---
 

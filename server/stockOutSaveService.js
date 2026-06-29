@@ -1,6 +1,7 @@
 import { sql } from './db.js'
 import { formatSalesOrderAuditTime } from './salesOrderPiBom.js'
 import { getRequestIp } from './operationAuditMiddleware.js'
+import { safeDecimalExpr } from './buyOrderSqlSafe.js'
 import {
   buildNextStockOutNo,
   buildStockOutSystemCode,
@@ -8,9 +9,10 @@ import {
   normalizeStockOutLine,
   validateStockOutPayload,
   isLinkedOutboundType,
+  isSupplementProductionIssueType,
 } from './stockOutSaveLogic.js'
 import { STOCK_OUT_HEADER_TABLE, STOCK_OUT_LINE_TABLE } from './stockOutListQuery.js'
-import { buildStockOutLogInfo, writeStockOutOperationLog } from './stockOutOperationLog.js'
+import { buildStockOutSaveLogPayload, writeStockOutOperationLog } from './stockOutOperationLog.js'
 
 const HEADER_FROM = `dbo.[${STOCK_OUT_HEADER_TABLE}]`
 const LINE_FROM = `dbo.[${STOCK_OUT_LINE_TABLE}]`
@@ -22,6 +24,8 @@ const CUSTOMER_FROM = 'dbo.[UB_ERP_Customer]'
 const SALES_CUSTOMER_FROM = 'dbo.[UB_ERP_System_sales_customer]'
 const ASSIST_HEADER_FROM = 'dbo.[UB_ERP_assist_order]'
 const BUY_HEADER_FROM = 'dbo.[UB_ERP_Buy_order]'
+const SALES_HEADER_FROM = 'dbo.[UB_ERP_Sales_order]'
+const SALES_LINE_FROM = 'dbo.[UB_ERP_Sales_order_list]'
 
 function text(v) {
   return String(v ?? '').trim()
@@ -212,12 +216,15 @@ async function resolveWarehouse(pool, warehouseCode) {
 }
 
 export async function resolveRelatedParty(pool, header) {
-  if (header.outboundType === '0') {
+  if (header.outboundType === '0' || header.outboundType === '6') {
     const code = text(header.relatedPartyCode)
     const name = text(header.relatedPartyName)
-    if (!code && !name) return { ok: true, code: '', name: '' }
+    if (!code && !name && header.outboundType === '0') return { ok: true, code: '', name: '' }
     // 手填关联单位：仅写 kehu，kcap05 留空
-    if (!code) return { ok: true, code: '', name }
+    if (!code) {
+      if (header.outboundType === '6') return { ok: false, msg: '销售客户不存在或不可用' }
+      return { ok: true, code: '', name }
+    }
     const r = await pool.request().input('code', sql.NVarChar(200), code).query(`
       SELECT TOP 1
         LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([s_code], N'')))) AS code,
@@ -230,7 +237,7 @@ export async function resolveRelatedParty(pool, header) {
     `)
     const row = r.recordset?.[0]
     if (row?.code) return { ok: true, code: row.code, name: row.name ?? '' }
-    if (name) return { ok: true, code: '', name }
+    if (header.outboundType === '0' && name) return { ok: true, code: '', name }
     return { ok: false, msg: '销售客户不存在或不可用' }
   }
   if (header.outboundType === '9') return { ok: true, code: '', name: '' }
@@ -253,7 +260,7 @@ export async function resolveRelatedParty(pool, header) {
     if (!row?.code) return { ok: false, msg: header.outboundType === '2' ? '外协商不存在或不可用' : '供应商/外协客户不存在或不可用' }
     return { ok: true, code: row.code, name: row.name ?? '' }
   }
-  if (['4', '5'].includes(header.outboundType)) {
+  if (['4', '5'].includes(header.outboundType) || isSupplementProductionIssueType(header.outboundType)) {
     const r = await pool.request().input('code', sql.NVarChar(200), header.relatedPartyCode).query(`
       SELECT TOP 1
         LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([code], N'')))) AS code,
@@ -325,12 +332,34 @@ export function buildValidateStockOutSourceOrderSql(outboundType) {
         AND LTRIM(RTRIM(ISNULL(h.[closed], N'0'))) = N'0'
     `
   }
+  if (t === '6') {
+    const remainingExpr = `ISNULL(${safeDecimalExpr('l', 'xsak03')}, 0) - ISNULL(${safeDecimalExpr('l', 'xsak06')}, 0)`
+    return `
+      SELECT TOP 1 h.[id]
+      FROM ${SALES_HEADER_FROM} AS h
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj01], N'')))) = @sourceNo
+        AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj05], N'')))) = @partyCode
+        AND (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
+        AND LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), h.[pass]), N''))) = N'1'
+        AND LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), h.[closed]), N'0'))) = N'0'
+        AND EXISTS (
+          SELECT 1
+          FROM ${SALES_LINE_FROM} AS l
+          WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[xsak01], N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj01], N''))))
+            AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
+            AND LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), l.[pass]), N''))) = N'1'
+            AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[xsak02], N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[GUID], N''))))
+            AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[xsak02], N'')))) <> N''
+            AND ${remainingExpr} > 0
+        )
+    `
+  }
   return ''
 }
 
 async function validateSourceOrder(pool, header, related) {
   if (!isLinkedOutboundType(header.outboundType) || !header.sourceOrderNo) return { ok: true }
-  if (!['1', '2', '3'].includes(header.outboundType)) return { ok: true }
+  if (!['1', '2', '3', '6'].includes(header.outboundType)) return { ok: true }
   const sqlText = buildValidateStockOutSourceOrderSql(header.outboundType)
   if (!sqlText) return { ok: true }
   const r = await pool.request()
@@ -374,6 +403,8 @@ async function fetchMaterialSnapshot(pool, materialCode) {
 function setHeaderValues({ header, warehouse, related, workshop, actor, now, ip, outboundNo, systemCode, pass }) {
   const isAssistIssue = header.outboundType === '2'
   const isProductionIssue = header.outboundType === '4'
+  const usesPiNo = isAssistIssue || isProductionIssue
+    || (isSupplementProductionIssueType(header.outboundType) && text(header.sourceOrderNo) && text(header.piNo))
   const values = {
     systemcode: systemCode,
     kcap01: outboundNo,
@@ -384,7 +415,7 @@ function setHeaderValues({ header, warehouse, related, workshop, actor, now, ip,
     kcap06: warehouse.code,
     ck: warehouse.name,
     kcap07: header.handlerName || actorTruename(actor),
-    kcap08: isAssistIssue || isProductionIssue ? header.piNo : header.paperNo,
+    kcap08: usesPiNo ? header.piNo : header.paperNo,
     kcap09: header.reserveNo,
     kehu: related.name,
     in_tax: header.inTax,
@@ -436,16 +467,24 @@ async function insertLines(tx, { pool, lineCols, outboundNo, sourceOrderNo, outb
     const bom = await fetchMaterialSnapshot(pool, normalized.kcaa01)
     if (!bom) throw new Error(`第 ${i + 1} 行物料不存在或已删除`)
     const { systemCode: bomSystemCode, remark: bomRemark } = resolveBomLineWriteValues(bom, i + 1)
+    const isFinishedGoods = outboundType === '6'
+    // 成品出库：kcaq02/GUID/systemcode 写销售明细键，供审核回写 xsak06
+    const salesLineKey = text(normalized.kcaq02 || normalized.sourceLineCode || normalized.systemcode || normalized.GUID)
+    const lineSourceKey = isFinishedGoods ? salesLineKey : bomSystemCode
+    if (isFinishedGoods && !lineSourceKey) {
+      throw new Error(`第 ${i + 1} 行缺少销售订单明细标识，无法保存`)
+    }
     const line = { ...bom, ...normalized, kcaq01: outboundNo, kcap04: sourceOrderNo, pass, del: '0', seq: i + 1, type: outboundType }
     const candidates = {
       kcaq01: line.kcaq01,
       kcap04: line.kcap04,
-      kcaq02: bomSystemCode,
+      kcaq02: lineSourceKey,
       kcaq03: line.kcaq03,
       kcaq04: line.kcaq04,
       kcaq041: line.kcaq041,
       kcaq05: line.kcaq05,
       kcaq051: line.kcaq051,
+      kcaq08: nullableNumber(line.kcaq08),
       tax: line.tax ?? line.Tax,
       reference: text(line.reference ?? line.Reference),
       Describe: line.Describe,
@@ -454,8 +493,8 @@ async function insertLines(tx, { pool, lineCols, outboundNo, sourceOrderNo, outb
       del: '0',
       pass,
       type: outboundType,
-      systemcode: bomSystemCode,
-      GUID: bomSystemCode,
+      systemcode: lineSourceKey,
+      GUID: lineSourceKey,
       version: line.version,
       location: line.location,
       sale_price: nullableNumber(line.sale_price),
@@ -531,12 +570,20 @@ async function saveStockOut({ pool, body, req: httpReq, actor, id = null }) {
       actor,
       now,
     })
+    const saveLog = buildStockOutSaveLogPayload({
+      action: id ? 'edit' : 'create',
+      outboundType: header.outboundType,
+      outboundNo,
+      actor,
+      now,
+    })
     await writeStockOutOperationLog(tx, {
-      actName: id ? '修改出库单' : '新增出库单',
-      info: buildStockOutLogInfo({ outboundNo, sourceOrderNo: header.sourceOrderNo, actor }),
+      actName: saveLog.actName,
+      info: saveLog.info,
       actor: { ...actor, ip },
       outboundNo,
       systemCode,
+      now,
     })
     await tx.commit()
     return { ok: true, id, outboundNo, systemCode, pass }

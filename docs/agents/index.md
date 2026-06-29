@@ -18,6 +18,7 @@
 | 表/字段映射 | [`docs/sql/database_map.md`](../sql/database_map.md) | 指针 |
 | 模块页面行为、接口一览 | `src/views/<模块>/README.md` | 指针 |
 | 浏览器验收 | [`.cursor/rules/ironbee-devtools-use.mdc`](../../.cursor/rules/ironbee-devtools-use.mdc) | 指针 |
+| 界面数值展示（去末尾 0） | [`src/utils/erpNumberDisplay.js`](../../src/utils/erpNumberDisplay.js) + [`.cursor/rules/erp-number-display.mdc`](../../.cursor/rules/erp-number-display.mdc) | 指针 |
 | 代码探索（CodeGraph MCP） | MCP 工具 `codegraph_explore`（v1.1+ 单工具；用法由 MCP 服务自动下发） | 勿维护过时的多工具规则文件 |
 
 ## 文档地图

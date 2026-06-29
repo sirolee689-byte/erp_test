@@ -1,5 +1,6 @@
 import { sql } from './db.js'
 import { getActorAuditTripletFromReq } from './businessAuditFields.js'
+import { getRequestIp } from './operationAuditMiddleware.js'
 import { resolveSysUserIsAdminByUserId } from './sysUsersDb.js'
 import {
   buildStockOutListPagedSql,
@@ -16,8 +17,10 @@ import {
   fetchStockOutOtherBatchPrices,
 } from './stockOutOtherBatchAdd.js'
 import { fetchStockOutPurchaseReturnBatchLines } from './stockOutPurchaseReturnBatchAdd.js'
+import { fetchStockOutFinishedGoodsBatchLines } from './stockOutFinishedGoodsBatchAdd.js'
 import { fetchStockOutAssistIssueBatchLines } from './stockOutAssistIssueBatchAdd.js'
 import { fetchStockOutProductionDispatchSourcePage } from './stockOutProductionDispatchSourcePage.js'
+import { fetchStockOutFinishedGoodsSourcePage } from './stockOutFinishedGoodsSourcePage.js'
 import { fetchStockOutProductionIssueBatchLines } from './stockOutProductionIssueBatchAdd.js'
 import { fetchCuttingIssueConfig, updateCuttingIssueConfig } from './stockOutCuttingIssueConfig.js'
 import { safeDecimalExpr } from './buyOrderSqlSafe.js'
@@ -432,7 +435,7 @@ export function registerStockOutRoutes(app, deps) {
           ${keyword ? `AND (LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([s_code], N'')))) LIKE @kw OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(NULLIF([s_name], N''), [name])))) LIKE @kw)` : ''}
           ORDER BY [s_code] ASC
         `
-      } else if (['4', '5'].includes(type)) {
+      } else if (['4', '5', '7', '8'].includes(type)) {
         sqlText = `
           SELECT TOP 100 LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([code], N'')))) AS code,
                  LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([name], N'')))) AS name
@@ -442,7 +445,7 @@ export function registerStockOutRoutes(app, deps) {
           ${keyword ? `AND (LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([code], N'')))) LIKE @kw OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([name], N'')))) LIKE @kw)` : ''}
           ORDER BY [code] ASC
         `
-      } else if (type === '0') {
+      } else if (type === '0' || type === '6') {
         // 其他出库：关联单位实际为销售客户（非供应商）
         sqlText = `
           SELECT TOP 100
@@ -557,6 +560,36 @@ export function registerStockOutRoutes(app, deps) {
     }
   })
 
+  /** 成品出库批量添加：销售订单明细 + 已出/未出占用计算可出货数量 */
+  app.get('/api/stock-out/finished-goods-batch-lines', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const result = await fetchStockOutFinishedGoodsBatchLines(pool, req.query ?? {})
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({
+        code: 200,
+        msg: 'success',
+        data: {
+          page: result.page,
+          pageSize: result.pageSize,
+          total: result.total,
+          sourceOrderNo: result.sourceOrderNo,
+          customerCode: result.customerCode,
+          sourceSystemcodeId: result.sourceSystemcodeId,
+          warehouseCode: result.warehouseCode,
+          currencyName: result.currencyName,
+          currencyRate: result.currencyRate,
+          list: result.list ?? [],
+        },
+      })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取成品出库批量明细失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
   /** 外协领料：关联外协单分页（主从同屏） */
   app.get('/api/stock-out/assist-issue-source-page', async (req, res) => {
     try {
@@ -621,6 +654,31 @@ export function registerStockOutRoutes(app, deps) {
       })
     } catch (err) {
       res.status(500).json({ code: 500, msg: `读取生产领料派工单列表失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  /** 生产领料批量添加：派工明细 PI 成本展开 + 库存/PI 上限 */
+  /** 成品出库：关联销售订单分页（只显示还有可出货明细的销售订单） */
+  app.get('/api/stock-out/finished-goods-source-page', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const result = await fetchStockOutFinishedGoodsSourcePage(pool, req.query ?? {})
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({
+        code: 200,
+        msg: 'success',
+        data: {
+          page: result.page,
+          pageSize: result.pageSize,
+          total: result.total ?? 0,
+          list: result.list ?? [],
+        },
+      })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取成品出库关联销售订单失败：${String(err?.message ?? err)}`, data: null })
     }
   })
 
@@ -843,8 +901,14 @@ export function registerStockOutRoutes(app, deps) {
       const id = normalizeId(req.params?.id)
       if (!id) return res.status(400).json({ code: 400, msg: '出库单参数无效', data: null })
       const pool = await getPool()
-      const actor = await getActor(pool, req)
-      const result = await applyStockOutLifecycleAction({ pool, id, action, actor })
+      const actor = { ...(await getActor(pool, req)), ip: getRequestIp(req) }
+      const result = await applyStockOutLifecycleAction({
+        pool,
+        id,
+        action,
+        actor,
+        reason: text(req.body?.reason ?? req.body?.unauditReason ?? req.body?.remark),
+      })
       if (!result.ok) return res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
       res.json({ code: 200, msg: result.msg, data: result })
     } catch (err) {

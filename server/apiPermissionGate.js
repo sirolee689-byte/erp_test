@@ -755,6 +755,8 @@ export function matchApiPermissionRule(method, path, body, params) {
       '/api/stock-out/purchase-return-batch-lines',
       '/api/stock-out/assist-issue-source-page',
       '/api/stock-out/production-dispatch-source-page',
+      '/api/stock-out/finished-goods-source-page',
+      '/api/stock-out/finished-goods-batch-lines',
       '/api/stock-out/production-issue-batch-lines',
       '/api/stock-out/cutting-issue-config',
       '/api/stock-out/assist-issue-batch-lines',

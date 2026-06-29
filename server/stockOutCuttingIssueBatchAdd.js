@@ -20,6 +20,8 @@ import {
   resolveProductionIssueDualQtyCaps,
   resolveProductionIssueLinePrice,
   resolveProductionIssueSelectState,
+  parseProductionIssueBatchPaging,
+  sliceProductionIssueBatchList,
 } from './stockOutProductionIssueBatchAdd.js'
 import { PRODUCTION_ISSUE_QTY_PRECISION } from './stockOutProductionIssueBomExpand.js'
 
@@ -42,13 +44,6 @@ function toNumber(v) {
 function round(n, p = 4) {
   const m = 10 ** p
   return Math.round((toNumber(n) + Number.EPSILON) * m) / m
-}
-
-function parsePage(query = {}) {
-  const page = Math.max(1, Number.parseInt(query.page, 10) || 1)
-  const rawPageSize = Number.parseInt(query.pageSize, 10) || 20
-  const pageSize = Math.min(200, Math.max(1, rawPageSize))
-  return { page, pageSize }
 }
 
 function hasSelectedKeysInput(query = {}) {
@@ -305,7 +300,7 @@ export async function fetchCuttingIssueBatchLines(pool, query = {}) {
 
   const keyword = text(query.keyword)
   const excludeOutboundNo = text(query.excludeOutboundNo)
-  const { page, pageSize } = parsePage(query)
+  const paging = parseProductionIssueBatchPaging(query)
   const hasSelectedKeys = hasSelectedKeysInput(query)
   const outboundLineKeys = (!hasSelectedKeys && excludeOutboundNo)
     ? await fetchProductionIssueOutboundLineKeys(pool, excludeOutboundNo)
@@ -325,8 +320,8 @@ export async function fetchCuttingIssueBatchLines(pool, query = {}) {
       ok: true,
       list: [],
       total: 0,
-      page,
-      pageSize,
+      page: paging.page,
+      pageSize: paging.pageSize,
       sourceOrderNo,
       workshopCode,
       warehouseCode,
@@ -345,8 +340,8 @@ export async function fetchCuttingIssueBatchLines(pool, query = {}) {
       ok: true,
       list: [],
       total: 0,
-      page,
-      pageSize,
+      page: paging.page,
+      pageSize: paging.pageSize,
       sourceOrderNo,
       workshopCode,
       warehouseCode,
@@ -381,16 +376,15 @@ export async function fetchCuttingIssueBatchLines(pool, query = {}) {
     selectedSet,
   }
   const mappedRows = filtered.map((row) => mapCuttingIssueLineRow(row, ctx))
-  const total = mappedRows.length
-  const start = (page - 1) * pageSize
-  const list = mappedRows.slice(start, start + pageSize)
+  const sliced = sliceProductionIssueBatchList(mappedRows, paging)
 
   return {
     ok: true,
-    list,
-    total,
-    page,
-    pageSize,
+    list: sliced.list,
+    total: sliced.total,
+    page: sliced.page,
+    pageSize: sliced.pageSize,
+    fetchAll: paging.fetchAll,
     sourceOrderNo,
     workshopCode,
     warehouseCode,

@@ -1,7 +1,7 @@
 <template>
   <div class="stock-out-pi-batch-window">
     <header class="stock-out-pi-batch-header">
-      <h1 class="stock-out-pi-batch-title">生产领料批量添加</h1>
+      <h1 class="stock-out-pi-batch-title">{{ batchWindowTitle }}</h1>
       <p class="stock-out-pi-batch-subtitle">
         派工单号：{{ sourceOrderNo || '-' }}　生产车间：{{ workshopCode }} {{ workshopName }}　PI：{{ piNo || '-' }}　仓库：{{ warehouseName || warehouseCode || '-' }}
         <span v-if="batchMode === 'cutting'" class="stock-out-pi-batch-mode-tag">（开料部模式）</span>
@@ -14,11 +14,10 @@
         v-model="keyword"
         clearable
         class="stock-out-pi-batch-query-input"
-        placeholder="材料编码"
-        @keyup.enter="reload"
+        placeholder="材料编码（输入即筛选）"
       />
-      <el-button type="primary" @click="reload">查询</el-button>
-      <el-button @click="queryAll">查询全部</el-button>
+      <el-button type="primary" :loading="loading" @click="refreshAllRows">刷新数据</el-button>
+      <el-button @click="queryAll">显示全部</el-button>
       <el-button type="primary" :disabled="!selectedCount || saving || submitted" :loading="saving" @click="saveSelected">
         {{ submitted ? '已提交' : '保存已选数据' }}
       </el-button>
@@ -32,7 +31,8 @@
 
     <el-skeleton :loading="loading" animated :rows="10">
       <template #default>
-        <el-empty v-if="!rows.length && !loading" :description="errorMsg || emptyText" />
+        <el-empty v-if="!loading && !allRowsCache.length" :description="errorMsg || emptyText" />
+        <el-empty v-else-if="!loading && !rows.length" description="没有匹配的材料编码" />
         <div v-else class="stock-out-pi-batch-table-wrap">
           <table class="stock-out-pi-batch-table">
             <colgroup>
@@ -116,7 +116,7 @@
             layout="total, sizes, prev, pager, next, jumper"
             small
             background
-            @current-change="loadRows"
+            @current-change="onPageChange"
             @size-change="onPageSizeChange"
           />
         </div>
@@ -126,7 +126,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
@@ -158,10 +158,10 @@ const keyword = ref('')
 const loading = ref(false)
 const saving = ref(false)
 const errorMsg = ref('')
-const rows = ref([])
+/** 首屏从接口拉齐的全量行，搜索框仅本地筛选此缓存 */
+const allRowsCache = ref([])
 const page = ref(1)
 const pageSize = ref(20)
-const total = ref(0)
 const pickedKeys = ref(new Set())
 const pickedRows = ref(new Map())
 const closeHint = ref('')
@@ -169,8 +169,35 @@ const piCostHint = ref('')
 const batchMode = ref('dispatch')
 const submitted = ref(false)
 
+const outboundType = ref('4')
+const batchWindowTitle = computed(() => {
+  if (String(outboundType.value) === '7') return '生产领料（计划外）批量添加'
+  if (String(outboundType.value) === '8') return '生产领料（补数）批量添加'
+  return '生产领料批量添加'
+})
 const emptyText = '该派工单下暂无可选材料'
 const selectedCount = computed(() => pickedKeys.value.size)
+
+/** 本地按材料编码模糊筛 */
+const filteredRows = computed(() => {
+  const kw = String(keyword.value ?? '').trim().toLowerCase()
+  const list = allRowsCache.value
+  if (!kw) return list
+  return list.filter((row) => String(row.kcaa01 ?? '').toLowerCase().includes(kw))
+})
+
+const total = computed(() => filteredRows.value.length)
+
+/** 当前页展示行（本地分页） */
+const rows = computed(() => {
+  const list = filteredRows.value
+  const start = (page.value - 1) * pageSize.value
+  return list.slice(start, start + pageSize.value)
+})
+
+watch(keyword, () => {
+  page.value = 1
+})
 
 function formatNum(v) {
   const n = Number(v)
@@ -256,7 +283,7 @@ function resetSelection() {
   pickedRows.value = new Map()
 }
 
-async function loadRows() {
+async function fetchAllRowsFromServer() {
   if (!sourceOrderNo.value || !workshopCode.value || !warehouseCode.value || !piNo.value) return
   loading.value = true
   errorMsg.value = ''
@@ -270,38 +297,38 @@ async function loadRows() {
         piNo: piNo.value,
         dispatchSystemcode: dispatchSystemcode.value || undefined,
         excludeOutboundNo: excludeOutboundNo.value || undefined,
-        keyword: keyword.value || undefined,
-        page: page.value,
-        pageSize: pageSize.value,
+        fetchAll: '1',
         selectedKeys: mergedSelected.join(','),
       },
     })
-    rows.value = data?.data?.list ?? []
-    total.value = Number(data?.data?.total ?? 0)
+    allRowsCache.value = data?.data?.list ?? []
     piCostHint.value = String(data?.data?.piCostHint ?? '').trim()
     batchMode.value = String(data?.data?.batchMode ?? 'dispatch').trim() || 'dispatch'
+    const maxPage = Math.max(1, Math.ceil(filteredRows.value.length / pageSize.value) || 1)
+    if (page.value > maxPage) page.value = maxPage
   } catch (err) {
     errorMsg.value = err?.response?.data?.msg || err.message || '加载失败'
-    rows.value = []
-    total.value = 0
+    allRowsCache.value = []
   } finally {
     loading.value = false
   }
 }
 
-function reload() {
-  page.value = 1
-  loadRows()
+function refreshAllRows() {
+  fetchAllRowsFromServer()
 }
 
 function queryAll() {
   keyword.value = ''
-  reload()
+  page.value = 1
+}
+
+function onPageChange() {
+  // 本地分页，v-model 已更新 page
 }
 
 function onPageSizeChange() {
   page.value = 1
-  loadRows()
 }
 
 function closeWindow() {
@@ -409,6 +436,7 @@ onMounted(() => {
     errorMsg.value = '会话已失效，请从出库单页面重新打开批量添加'
     return
   }
+  outboundType.value = String(ctx.outboundType ?? '4').trim()
   sourceOrderNo.value = String(ctx.sourceOrderNo ?? '').trim()
   workshopCode.value = String(ctx.workshopCode ?? '').trim()
   workshopName.value = String(ctx.workshopName ?? '').trim()
@@ -431,7 +459,7 @@ onMounted(() => {
     errorMsg.value = '缺少派工单/车间/仓库/PI 信息，请从出库单页面重新打开'
     return
   }
-  loadRows()
+  fetchAllRowsFromServer()
 })
 </script>
 

@@ -1,6 +1,13 @@
 import { sql } from './db.js'
+import { formatSalesOrderAuditTime } from './salesOrderPiBom.js'
 import { STOCK_OUT_HEADER_TABLE, STOCK_OUT_LINE_TABLE } from './stockOutListQuery.js'
-import { buildStockOutLogInfo, writeStockOutOperationLog } from './stockOutOperationLog.js'
+import {
+  buildStockOutAuditLogPayload,
+  buildStockOutDeleteLogPayload,
+  buildStockOutRestoreLogPayload,
+  buildStockOutUnauditLogPayload,
+  writeStockOutOperationLog,
+} from './stockOutOperationLog.js'
 
 const HEADER_FROM = `dbo.[${STOCK_OUT_HEADER_TABLE}]`
 const LINE_FROM = `dbo.[${STOCK_OUT_LINE_TABLE}]`
@@ -12,6 +19,10 @@ const SOURCE_WRITEBACK_BY_TYPE = {
   4: { tableName: 'UB_ERP_Dispatch_order_list', writebackField: 'scak04', convertUnit: false },
   5: { tableName: 'UB_ERP_Dispatch_order_list', writebackField: 'scak05', convertUnit: false },
   6: { tableName: 'UB_ERP_Sales_order_list', writebackField: 'xsak06', convertUnit: false },
+}
+
+export function resolveStockOutSourceWritebackConfig(type) {
+  return SOURCE_WRITEBACK_BY_TYPE[String(type ?? '').trim()] ?? null
 }
 
 function isOne(v) {
@@ -26,26 +37,19 @@ function isAdminActor(actor = {}) {
   return actor.isAdmin === true || actor.is_admin === 1 || actor.is_admin === '1' || actor.isAdmin === 1 || actor.role === 'admin'
 }
 
-function numeric(value, fallback = 0) {
-  const n = Number(value)
-  return Number.isFinite(n) ? n : fallback
-}
-
-function sourceWritebackQty(line, convertUnit) {
-  const qty = numeric(line.qty, 0)
-  if (!convertUnit) return qty
-  const rate = numeric(line.unitRate, 0)
-  if (rate <= 0) return qty
-  return String(line.unitDirection ?? '').trim() === '1' ? qty * rate : qty / rate
-}
+const columnSetCache = new Map()
 
 async function fetchColumnSet(pool, tableName) {
+  const cacheKey = String(tableName ?? '').trim().toLowerCase()
+  if (columnSetCache.has(cacheKey)) return columnSetCache.get(cacheKey)
   const r = await pool.request().input('tableName', sql.NVarChar(128), tableName).query(`
     SELECT LOWER([name]) AS name
     FROM sys.columns
     WHERE [object_id] = OBJECT_ID(N'dbo.[${tableName}]')
   `)
-  return new Set((r.recordset ?? []).map((row) => String(row.name ?? '').toLowerCase()))
+  const cols = new Set((r.recordset ?? []).map((row) => String(row.name ?? '').toLowerCase()))
+  columnSetCache.set(cacheKey, cols)
+  return cols
 }
 
 function chooseSourceKeyColumn(cols) {
@@ -57,17 +61,46 @@ function chooseSourceKeyColumn(cols) {
 
 export function buildStockOutSourceWritebackSql({ tableName, writebackField, keyColumn, direction }) {
   const from = `dbo.[${tableName}]`
+  const qtyExpr = `
+        CASE
+          WHEN @convertUnit = 1 AND ISNULL(src.[kcaa26], 0) > 0 AND LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(src.[kcaa27], N'')))) = N'1'
+            THEN ISNULL(src.[kcaq03], 0) * ISNULL(src.[kcaa26], 0)
+          WHEN @convertUnit = 1 AND ISNULL(src.[kcaa26], 0) > 0 AND LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(src.[kcaa27], N'')))) = N'0'
+            THEN ISNULL(src.[kcaq03], 0) / ISNULL(src.[kcaa26], 0)
+          ELSE ISNULL(src.[kcaq03], 0)
+        END`
+  const sourceAggSql = `
+    SELECT
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(src.[kcaq02], N'')))) AS sourceLineCode,
+      SUM(ABS(${qtyExpr})) AS delta
+    FROM ${LINE_FROM} AS src
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(src.[kcaq01], N'')))) = @outboundNo
+      AND (ISNULL(src.[del], N'') = N'' OR src.[del] = N'0')
+      AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(src.[kcaq02], N'')))) <> N''
+    GROUP BY LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(src.[kcaq02], N''))))
+  `
+  const keyJoinSql = String(keyColumn ?? '').toLowerCase() === 'id'
+    ? `LTRIM(RTRIM(CONVERT(nvarchar(200), tgt.[${keyColumn}]))) = agg.[sourceLineCode]`
+    : `tgt.[${keyColumn}] = agg.[sourceLineCode]`
   if (direction < 0) {
     return `
-      UPDATE ${from}
-      SET [${writebackField}] = CASE WHEN ISNULL([${writebackField}], 0) - @delta < 0 THEN 0 ELSE ISNULL([${writebackField}], 0) - @delta END
-      WHERE [${keyColumn}] = @sourceLineCode
+      UPDATE tgt
+      SET [${writebackField}] = CASE WHEN ISNULL(tgt.[${writebackField}], 0) - agg.[delta] < 0 THEN 0 ELSE ISNULL(tgt.[${writebackField}], 0) - agg.[delta] END
+      FROM ${from} AS tgt
+      INNER JOIN (
+        ${sourceAggSql}
+      ) AS agg
+        ON ${keyJoinSql}
     `
   }
   return `
-    UPDATE ${from}
-    SET [${writebackField}] = ISNULL([${writebackField}], 0) + @delta
-    WHERE [${keyColumn}] = @sourceLineCode
+    UPDATE tgt
+    SET [${writebackField}] = ISNULL(tgt.[${writebackField}], 0) + agg.[delta]
+    FROM ${from} AS tgt
+    INNER JOIN (
+      ${sourceAggSql}
+    ) AS agg
+      ON ${keyJoinSql}
   `
 }
 
@@ -87,28 +120,28 @@ export function resolveStockOutLifecycleConfig(action, row = {}, actor = {}) {
   if (action === 'audit') {
     if (deleted) return { error: '回收站里的出库单不能审核' }
     if (audited) return { error: '出库单已审核' }
-    return { nextPass: '1', actName: '审核出库单', msg: '审核成功' }
+    return { nextPass: '1', msg: '审核成功' }
   }
   if (action === 'unaudit') {
     if (deleted) return { error: '回收站里的出库单不能反审核' }
     if (!audited) return { error: '未审核出库单不能反审核' }
-    return { nextPass: '0', actName: '反审核出库单', msg: '反审核成功' }
+    return { nextPass: '0', msg: '反审核成功' }
   }
   if (action === 'delete') {
     if (deleted) return { error: '出库单已在回收站' }
     if (audited) return { error: '已审核出库单不能删除，请先反审核' }
-    return { nextDel: '1', actName: '删除出库单', msg: '删除成功' }
+    return { nextDel: '1', msg: '删除成功' }
   }
   if (action === 'restore') {
     if (!deleted) return { error: '只有回收站里的出库单可以恢复' }
     if (audited) return { error: '已审核出库单请恢复后先确认状态' }
-    return { nextDel: '0', actName: '恢复出库单', msg: '恢复成功' }
+    return { nextDel: '0', msg: '恢复成功' }
   }
   if (action === 'hard-delete') {
     if (!isAdminActor(actor)) return { error: '只有超级管理员可以彻底删除出库单' }
     if (!deleted) return { error: '只有回收站里的出库单可以彻底删除' }
     if (audited) return { error: '已审核出库单不能彻底删除，请先反审核' }
-    return { hardDelete: true, actName: '彻底删除出库单', msg: '彻底删除成功' }
+    return { hardDelete: true, msg: '彻底删除成功' }
   }
   return { error: '不支持的出库单操作' }
 }
@@ -193,22 +226,8 @@ async function countActiveLines(poolOrTx, outboundNo) {
   return Number(r.recordset?.[0]?.cnt ?? 0)
 }
 
-async function fetchLinesForWriteback(tx, outboundNo) {
-  const r = await new sql.Request(tx).input('outboundNo', sql.NVarChar(200), outboundNo).query(`
-    SELECT
-      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([kcaq02], N'')))) AS sourceLineCode,
-      ISNULL([kcaq03], 0) AS qty,
-      ISNULL([kcaa26], 0) AS unitRate,
-      LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL([kcaa27], N'')))) AS unitDirection
-    FROM ${LINE_FROM}
-    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([kcaq01], N'')))) = @outboundNo
-      AND (ISNULL([del], N'') = N'' OR [del] = N'0')
-  `)
-  return r.recordset ?? []
-}
-
 async function applyStockOutSourceWriteback({ pool, tx, row, direction }) {
-  const cfg = SOURCE_WRITEBACK_BY_TYPE[String(row.outboundType ?? '').trim()]
+  const cfg = resolveStockOutSourceWritebackConfig(row.outboundType)
   if (!cfg) return
 
   const cols = await fetchColumnSet(pool, cfg.tableName)
@@ -216,33 +235,36 @@ async function applyStockOutSourceWriteback({ pool, tx, row, direction }) {
   const keyColumn = chooseSourceKeyColumn(cols)
   if (!keyColumn) return
 
-  const lines = await fetchLinesForWriteback(tx, row.outboundNo)
-  for (const line of lines) {
-    const sourceLineCode = String(line.sourceLineCode ?? '').trim()
-    const delta = Math.abs(sourceWritebackQty(line, cfg.convertUnit))
-    if (!sourceLineCode || delta <= 0) continue
-    await new sql.Request(tx)
-      .input('sourceLineCode', sql.NVarChar(200), sourceLineCode)
-      .input('delta', sql.Decimal(18, 6), delta)
-      .query(buildStockOutSourceWritebackSql({
-        tableName: cfg.tableName,
-        writebackField: cfg.writebackField,
-        keyColumn,
-        direction,
-      }))
-  }
+  await new sql.Request(tx)
+    .input('outboundNo', sql.NVarChar(200), row.outboundNo)
+    .input('convertUnit', sql.Int, cfg.convertUnit ? 1 : 0)
+    .query(buildStockOutSourceWritebackSql({
+      tableName: cfg.tableName,
+      writebackField: cfg.writebackField,
+      keyColumn,
+      direction,
+    }))
 }
 
-export async function applyStockOutLifecycleAction({ pool, id, action, actor }) {
+function buildLifecycleLogPayload({ action, row, actor, now, reason }) {
+  if (action === 'audit') return buildStockOutAuditLogPayload({ outboundNo: row.outboundNo, outboundType: row.outboundType, actor, now })
+  if (action === 'unaudit') return buildStockOutUnauditLogPayload({ outboundNo: row.outboundNo, outboundType: row.outboundType, actor, now, reason })
+  if (action === 'restore') return buildStockOutRestoreLogPayload({ systemCode: row.systemCode, now })
+  return buildStockOutDeleteLogPayload({ outboundNo: row.outboundNo, actor, now })
+}
+
+export async function applyStockOutLifecycleAction({ pool, id, action, actor, reason = '' }) {
   const row = await fetchOrder(pool, id)
   if (!row) return { ok: false, status: 404, msg: '出库单不存在' }
   const config = resolveStockOutLifecycleConfig(action, row, actor)
   if (config.error) return { ok: false, status: 400, msg: config.error }
+  if (action === 'unaudit' && !String(reason ?? '').trim()) return { ok: false, status: 400, msg: '请填写反审原因' }
   if (action === 'audit') {
     const auditErr = validateStockOutAuditLineCount(await countActiveLines(pool, row.outboundNo))
     if (auditErr) return { ok: false, status: 400, msg: auditErr }
   }
-  const info = buildStockOutLogInfo({ outboundNo: row.outboundNo, sourceOrderNo: row.sourceOrderNo, actor })
+  const now = formatSalesOrderAuditTime()
+  const logPayload = buildLifecycleLogPayload({ action, row, actor, now, reason })
   const tx = new sql.Transaction(pool)
   await tx.begin()
 
@@ -252,7 +274,14 @@ export async function applyStockOutLifecycleAction({ pool, id, action, actor }) 
         DELETE FROM ${LINE_FROM} WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([kcaq01], N'')))) = @outboundNo;
         DELETE FROM ${HEADER_FROM} WHERE [id] = @id;
       `)
-      await writeStockOutOperationLog(tx, { actName: config.actName, info, actor, outboundNo: row.outboundNo, systemCode: row.systemCode })
+      await writeStockOutOperationLog(tx, {
+        actName: logPayload.actName,
+        info: logPayload.info,
+        actor,
+        outboundNo: row.outboundNo,
+        systemCode: row.systemCode,
+        now,
+      })
       await tx.commit()
       return { ok: true, msg: config.msg, id, outboundNo: row.outboundNo }
     } catch (err) {
@@ -280,7 +309,14 @@ export async function applyStockOutLifecycleAction({ pool, id, action, actor }) 
       for (const [key, value] of Object.entries(params)) lreq.input(key, sql.NVarChar(200), value)
       await lreq.query(`UPDATE ${LINE_FROM} SET ${lineSetSql} WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([kcaq01], N'')))) = @outboundNo`)
     }
-    await writeStockOutOperationLog(tx, { actName: config.actName, info, actor, outboundNo: row.outboundNo, systemCode: row.systemCode })
+    await writeStockOutOperationLog(tx, {
+      actName: logPayload.actName,
+      info: logPayload.info,
+      actor,
+      outboundNo: row.outboundNo,
+      systemCode: row.systemCode,
+      now,
+    })
     await tx.commit()
     return { ok: true, msg: config.msg, id, outboundNo: row.outboundNo }
   } catch (err) {

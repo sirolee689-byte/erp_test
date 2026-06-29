@@ -53,16 +53,20 @@ describe('stockOutLifecycle', () => {
     const adminByCol = resolveStockOutLifecycleConfig('hard-delete', { pass: '0', del: '1', closed: '0' }, { is_admin: 1 })
     assert.equal(adminByCol.hardDelete, true)
   })
-  test('source writeback SQL adds on audit and floors at zero on unaudit', () => {
+  test('source writeback SQL batches source updates by outbound line source key', () => {
     const auditSql = buildStockOutSourceWritebackSql({
       tableName: 'UB_ERP_Buy_order_list',
       writebackField: 'kcak07',
       keyColumn: 'systemcode',
       direction: 1,
     })
-    assert.match(auditSql, /UPDATE dbo\.\[UB_ERP_Buy_order_list\]/)
-    assert.match(auditSql, /\[kcak07\] = ISNULL\(\[kcak07\], 0\) \+ @delta/)
-    assert.match(auditSql, /\[systemcode\] = @sourceLineCode/)
+    assert.match(auditSql, /UPDATE tgt/i)
+    assert.match(auditSql, /FROM dbo\.\[UB_ERP_Buy_order_list\] AS tgt/i)
+    assert.match(auditSql, /UB_ERP_Stocks_out_list/i)
+    assert.match(auditSql, /GROUP BY[\s\S]*kcaq02/i)
+    assert.match(auditSql, /\[kcak07\] = ISNULL\(tgt\.\[kcak07\], 0\) \+ agg\.\[delta\]/)
+    assert.match(auditSql, /tgt\.\[systemcode\] = agg\.\[sourceLineCode\]/)
+    assert.doesNotMatch(auditSql, /@sourceLineCode/i)
 
     const unauditSql = buildStockOutSourceWritebackSql({
       tableName: 'UB_ERP_Buy_order_list',
@@ -70,6 +74,29 @@ describe('stockOutLifecycle', () => {
       keyColumn: 'systemcode',
       direction: -1,
     })
-    assert.match(unauditSql, /CASE WHEN ISNULL\(\[kcak07\], 0\) - @delta < 0 THEN 0/)
+    assert.match(unauditSql, /CASE WHEN ISNULL\(tgt\.\[kcak07\], 0\) - agg\.\[delta\] < 0 THEN 0/)
+  })
+
+  test('source writeback SQL keeps unit conversion behind convertUnit flag', () => {
+    const sql = buildStockOutSourceWritebackSql({
+      tableName: 'UB_ERP_assist_order_list',
+      writebackField: 'wxak08',
+      keyColumn: 'systemcode',
+      direction: 1,
+    })
+    assert.match(sql, /@convertUnit = 1[\s\S]*kcaa27[\s\S]*= N'1'[\s\S]*kcaq03[\s\S]*\*[\s\S]*kcaa26/i)
+    assert.match(sql, /@convertUnit = 1[\s\S]*kcaa27[\s\S]*= N'0'[\s\S]*kcaq03[\s\S]*\/[\s\S]*kcaa26/i)
+    assert.match(sql, /SUM\(ABS\(/i)
+  })
+
+  test('source writeback SQL can join numeric id source keys without per-line updates', () => {
+    const sql = buildStockOutSourceWritebackSql({
+      tableName: 'UB_ERP_Dispatch_order_list',
+      writebackField: 'scak04',
+      keyColumn: 'id',
+      direction: 1,
+    })
+    assert.match(sql, /CONVERT\(nvarchar\(200\), tgt\.\[id\]\)/i)
+    assert.doesNotMatch(sql, /WHERE \[id\] = @sourceLineCode/i)
   })
 })

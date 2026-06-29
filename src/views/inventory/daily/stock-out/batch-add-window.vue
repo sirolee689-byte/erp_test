@@ -1,8 +1,8 @@
 <template>
   <div class="stock-out-batch-window">
     <header class="stock-out-batch-header">
-      <h1 class="stock-out-batch-title">其他出库批量选材</h1>
-      <p class="stock-out-batch-subtitle">当前仓库：{{ warehouseName || warehouseCode || '-' }}</p>
+      <h1 class="stock-out-batch-title">{{ batchWindowTitle }}</h1>
+      <p class="stock-out-batch-subtitle">{{ batchWindowSubtitle }}</p>
     </header>
 
     <section class="stock-out-batch-toolbar">
@@ -143,6 +143,26 @@ const pickedRows = ref(new Map())
 const closeHint = ref('')
 const submitted = ref(false)
 
+const outboundType = ref('0')
+const batchWindowTitle = computed(() => {
+  if (String(outboundType.value) === '7') return '生产领料（计划外）批量选材'
+  if (String(outboundType.value) === '8') return '生产领料（补数）批量选材'
+  if (String(outboundType.value) === '10') return '销售出库批量选材'
+  return '其他出库批量选材'
+})
+const batchWindowSubtitle = computed(() => {
+  const warehouse = warehouseName.value || warehouseCode.value || '-'
+  if (String(outboundType.value) === '7') {
+    return `计划外领料 · 无派工单来源　当前仓库：${warehouse}`
+  }
+  if (String(outboundType.value) === '8') {
+    return `补数领料 · 无派工单来源　当前仓库：${warehouse}`
+  }
+  if (String(outboundType.value) === '10') {
+    return `未关联销售订单，按当前仓库库存选材　当前仓库：${warehouse}`
+  }
+  return `当前仓库：${warehouse}`
+})
 const emptyText = '查询结果：没有查询到相关信息'
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value) || 1))
 const selectedCount = computed(() => pickedRows.value.size)
@@ -348,6 +368,7 @@ onMounted(() => {
     errorMsg.value = '会话已失效，请从出库单页面重新打开批量添加'
     return
   }
+  outboundType.value = String(ctx.outboundType ?? '0').trim()
   warehouseCode.value = String(ctx.warehouseCode ?? '').trim()
   warehouseName.value = String(ctx.warehouseName ?? '').trim()
   excludeOutboundNo.value = String(ctx.excludeOutboundNo ?? '').trim()

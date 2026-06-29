@@ -64,17 +64,24 @@ export function isLinkedOutboundType(type) {
   return ['1', '2', '3', '4', '5', '6'].includes(text(type))
 }
 
+export function isSupplementProductionIssueType(type) {
+  return ['7', '8'].includes(text(type))
+}
+
 export function normalizeStockOutHeader(input = {}) {
   const outboundType = normalizeOutboundType(input.outboundType ?? input.kcap03)
   const isAssistIssue = outboundType === '2'
   const isProductionIssue = outboundType === '4'
-  const usesPiNo = isAssistIssue || isProductionIssue
+  const isSupplementProductionIssue = isSupplementProductionIssueType(outboundType)
+  const sourceOrderNo = text(input.sourceOrderNo ?? input.kcap04)
+  const piNoText = text(input.piNo ?? input.kcap08 ?? input.referenceNo)
+  const usesPiNo = isAssistIssue || isProductionIssue || (isSupplementProductionIssue && sourceOrderNo && piNoText)
   return {
     systemCode: text(input.systemCode ?? input.systemcode),
     outboundNo: text(input.outboundNo ?? input.kcap01),
     outboundDate: text(input.outboundDate ?? input.kcap02),
     outboundType,
-    sourceOrderNo: text(input.sourceOrderNo ?? input.kcap04),
+    sourceOrderNo,
     relatedPartyCode: text(input.relatedPartyCode ?? input.kcap05),
     relatedPartyName: text(input.relatedPartyName ?? input.kehu),
     warehouseCode: text(input.warehouseCode ?? input.kcap06),
@@ -129,6 +136,7 @@ export function normalizeStockOutLine(line = {}, seq = 1, header = {}) {
     tax,
     reference: text(line.reference ?? line.Reference),
     Describe: text(line.Describe ?? line.info ?? line.remark),
+    kcaq08: numberValue(line.kcaq08),
     kcaa01: text(line.kcaa01),
     kcaa02: text(line.kcaa02),
     kcaa03: text(line.kcaa03),
@@ -148,7 +156,9 @@ export function validateStockOutPayload(payload = {}) {
   if (!text(payload.header?.inTax ?? payload.header?.in_tax ?? payload.inTax ?? payload.in_tax)) return '请先选择是否含税。'
   if (!header.warehouseCode) return '请先选择仓库。'
   if (['1', '2', '3', '6'].includes(header.outboundType) && !header.relatedPartyCode) return '关联方不能为空'
-  if (['4', '5'].includes(header.outboundType) && !header.relatedPartyCode) return '生产车间不能为空'
+  if (['4', '5'].includes(header.outboundType) || isSupplementProductionIssueType(header.outboundType)) {
+    if (!header.relatedPartyCode) return '生产车间不能为空'
+  }
   if (isLinkedOutboundType(header.outboundType) && !header.sourceOrderNo) return '关联单号不能为空'
   if (header.outboundType === '2' && header.postProcessAssist && !header.workshopCode) {
     return '加工后外协须选择本厂加工车间'

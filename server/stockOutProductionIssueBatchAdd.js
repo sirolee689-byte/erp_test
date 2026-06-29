@@ -53,11 +53,33 @@ function passApprovedSql(alias) {
   return `${nvarcharTextExpr(alias, 'pass', 20)} = N'1'`
 }
 
-function parsePage(query = {}) {
+/** 批量列表分页；fetchAll=1 时返回全量（供前端本地搜编码，不受 200 条上限） */
+export function parseProductionIssueBatchPaging(query = {}) {
+  const fetchAll = ['1', 'true', 'yes'].includes(String(query.fetchAll ?? '').trim().toLowerCase())
   const page = Math.max(1, Number.parseInt(query.page, 10) || 1)
   const rawPageSize = Number.parseInt(query.pageSize, 10) || 20
-  const pageSize = Math.min(200, Math.max(1, rawPageSize))
-  return { page, pageSize }
+  const pageSize = fetchAll
+    ? Number.MAX_SAFE_INTEGER
+    : Math.min(200, Math.max(1, rawPageSize))
+  return { page, pageSize, fetchAll }
+}
+
+/** 对合并后的批量行切片；fetchAll 时不截断 */
+export function sliceProductionIssueBatchList(list, paging) {
+  const rows = Array.isArray(list) ? list : []
+  const total = rows.length
+  const { fetchAll } = paging ?? {}
+  if (fetchAll) {
+    return { list: rows, total, page: 1, pageSize: total > 0 ? total : 1 }
+  }
+  const page = Math.max(1, paging?.page ?? 1)
+  const pageSize = Math.max(1, paging?.pageSize ?? 20)
+  const start = (page - 1) * pageSize
+  return { list: rows.slice(start, start + pageSize), total, page, pageSize }
+}
+
+function parsePage(query = {}) {
+  return parseProductionIssueBatchPaging(query)
 }
 
 /** 明细有效行：scak02 与 GUID 一致 */
@@ -757,7 +779,8 @@ export async function fetchStockOutProductionIssueBatchLines(pool, query = {}) {
 
   const keyword = text(query.keyword)
   const excludeOutboundNo = text(query.excludeOutboundNo)
-  const { page, pageSize } = parsePage(query)
+  const paging = parseProductionIssueBatchPaging(query)
+  const { page, pageSize } = paging
   const hasSelectedKeys = hasSelectedKeysInput(query)
   const outboundLineKeys = (!hasSelectedKeys && excludeOutboundNo)
     ? await fetchProductionIssueOutboundLineKeys(pool, excludeOutboundNo)
@@ -836,16 +859,15 @@ export async function fetchStockOutProductionIssueBatchLines(pool, query = {}) {
   }
   const mappedRows = filtered.map((row) => mapProductionIssueLineRow(row, ctx))
   const mergedRows = __aggregateProductionIssueRowsByMaterialForTest(mappedRows, selectedSet, ctx)
-  const total = mergedRows.length
-  const start = (page - 1) * pageSize
-  const list = mergedRows.slice(start, start + pageSize)
+  const sliced = sliceProductionIssueBatchList(mergedRows, paging)
 
   return {
     ok: true,
-    list,
-    total,
-    page,
-    pageSize,
+    list: sliced.list,
+    total: sliced.total,
+    page: sliced.page,
+    pageSize: sliced.pageSize,
+    fetchAll: paging.fetchAll,
     sourceOrderNo,
     workshopCode,
     warehouseCode,

@@ -23,6 +23,8 @@ import {
   resolveProductionIssueDualQtyCaps,
   resolveProductionIssueSelectState,
   resolveProductionIssueLinePrice,
+  parseProductionIssueBatchPaging,
+  sliceProductionIssueBatchList,
 } from './stockOutProductionIssueBatchAdd.js'
 
 describe('stockOutProductionIssueBomExpand', () => {
@@ -441,5 +443,25 @@ describe('stockOutProductionIssueBatchAdd', () => {
   test('派工明细 SQL 要求 scak02=GUID', () => {
     const sql = __buildProductionDispatchBatchListSqlForTest()
     assert.match(sql, /scak02.*GUID/is)
+  })
+
+  test('fetchAll=1 时 slice 返回全量不受 200 条限制', () => {
+    const paging = parseProductionIssueBatchPaging({ fetchAll: '1', pageSize: 20 })
+    assert.equal(paging.fetchAll, true)
+    const rows = Array.from({ length: 250 }, (_, i) => ({ kcaa01: `M-${i}` }))
+    const sliced = sliceProductionIssueBatchList(rows, paging)
+    assert.equal(sliced.list.length, 250)
+    assert.equal(sliced.total, 250)
+    assert.equal(sliced.pageSize, 250)
+  })
+
+  test('无 fetchAll 时仍按 pageSize 上限 200 切片', () => {
+    const paging = parseProductionIssueBatchPaging({ page: 2, pageSize: 500 })
+    assert.equal(paging.pageSize, 200)
+    const rows = Array.from({ length: 250 }, (_, i) => ({ kcaa01: `M-${i}` }))
+    const sliced = sliceProductionIssueBatchList(rows, paging)
+    assert.equal(sliced.list.length, 50)
+    assert.equal(sliced.total, 250)
+    assert.equal(sliced.page, 2)
   })
 })

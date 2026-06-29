@@ -23,9 +23,42 @@ describe('stockOutSaveLogic', () => {
     assert.equal(h.outboundType, '0')
   })
 
-  test('类型 7 8 10 允许校验通过（与普通过账类型一致）', () => {
-    assert.equal(validateStockOutPayload({ header: { outboundType: '7', warehouseCode: 'CK01', inTax: '1' }, lines: [{ kcaa01: 'A', kcaq03: 1 }] }), null)
+  test('类型 7 计划外领料：无关联单号可保存，但须生产车间', () => {
+    assert.equal(validateStockOutPayload({
+      header: { outboundType: '7', warehouseCode: 'CK01', inTax: '1', relatedPartyCode: 'WS01' },
+      lines: [{ kcaa01: 'A', kcaq03: 1 }],
+    }), null)
+    assert.equal(validateStockOutPayload({
+      header: { outboundType: '7', warehouseCode: 'CK01', inTax: '1', sourceOrderNo: '' },
+      lines: [{ kcaa01: 'A', kcaq03: 1 }],
+    }), '生产车间不能为空')
+    assert.equal(validateStockOutPayload({
+      header: { outboundType: '7', warehouseCode: 'CK01', inTax: '1', relatedPartyCode: 'WS01', sourceOrderNo: 'PG01' },
+      lines: [{ kcaa01: 'A', kcaq03: 1 }],
+    }), null)
+  })
+
+  test('类型 10 允许校验通过（与普通过账类型一致）', () => {
     assert.equal(validateStockOutPayload({ header: { outboundType: '10', warehouseCode: 'CK01', inTax: '1' }, lines: [{ kcaa01: 'A', kcaq03: 1 }] }), null)
+    assert.equal(validateStockOutPayload({
+      header: { outboundType: '10', warehouseCode: 'CK01', inTax: '1', sourceOrderNo: '手填单号' },
+      lines: [{ kcaa01: 'A', kcaq03: 1 }],
+    }), null)
+  })
+
+  test('类型 9 盘亏出库：关联单号可空，仍需仓库和是否含税', () => {
+    assert.equal(validateStockOutPayload({
+      header: { outboundType: '9', warehouseCode: 'CK01', inTax: '1', sourceOrderNo: '' },
+      lines: [{ kcaa01: 'A', kcaq03: 1 }],
+    }), null)
+    assert.equal(validateStockOutPayload({
+      header: { outboundType: '9', warehouseCode: '', inTax: '1', sourceOrderNo: '' },
+      lines: [{ kcaa01: 'A', kcaq03: 1 }],
+    }), '请先选择仓库。')
+    assert.equal(validateStockOutPayload({
+      header: { outboundType: '9', warehouseCode: 'CK01', inTax: '', sourceOrderNo: '' },
+      lines: [{ kcaa01: 'A', kcaq03: 1 }],
+    }), '请先选择是否含税。')
   })
 
   test('草稿允许空明细保存', () => {
@@ -55,6 +88,11 @@ describe('stockOutSaveLogic', () => {
   test('明细厂款号/PI号兼容 Reference 物理列名', () => {
     const line = normalizeStockOutLine({ kcaa01: 'A', kcaq03: 1, Reference: 'PI-2026-001' }, 1, {})
     assert.equal(line.reference, 'PI-2026-001')
+  })
+
+  test('成品出库报关单价 kcaq08 在 normalize 中保留', () => {
+    const line = normalizeStockOutLine({ kcaa01: 'A', kcaq03: 1, kcaq08: 9.8765 }, 1, {})
+    assert.equal(line.kcaq08, 9.8765)
   })
 
   test('纸质单号与预留单号分别映射 kcap08 kcap09', () => {
