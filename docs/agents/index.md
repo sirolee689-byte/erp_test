@@ -41,6 +41,6 @@
 
 ## Skills 入口
 
-使用 `to-issues`、`to-prd`、`triage`、`diagnose`、`tdd` 等 engineering skills 前，先读本目录与 `CONTEXT.md`。
+使用 `to-issues`、`to-prd`、`triage`、`diagnosing-bugs`、`tdd`、`codebase-design`、`domain-modeling` 等 engineering skills 前，先读本目录与 `CONTEXT.md`。
 
 先定稿再执行时，遵循 `.agents/skills/ask-then-execute`（Cursor 经 junction 读同目录）。联接丢失时：`npm run link:skill:ask-then-execute`。

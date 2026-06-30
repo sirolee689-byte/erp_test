@@ -286,7 +286,7 @@
               />
             </el-form-item>
             <el-form-item :label="relatedPartyLabel">
-              <span v-if="form.outboundType === '9'" class="muted">盘亏出库不强制关联单位；关联单号可空且可直接批量添加</span>
+              <span v-if="form.outboundType === '9'" class="muted">盘亏出库不强制关联单位；</span>
               <div v-else-if="form.outboundType === '2'" class="assist-party-row">
                 <el-select
                   v-model="form.relatedPartyCode"

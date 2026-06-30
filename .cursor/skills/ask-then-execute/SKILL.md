@@ -281,6 +281,6 @@ L1 模块 README 细则见 `.cursorrules` §5；`database_map` 细则见 §13。
 ### D4. 与其它 Skill 配合
 
 - **browser-native-page**：定稿必须包含「原生新页 / 独立路由 / 无左侧栏 / 权限沿用原页面」等边界
-- **diagnose**：用户报告 bug 时可结合；**重档**仍先定稿再执行，轻档可先复现再小改
+- **diagnosing-bugs**：用户报告 bug 时可结合；**重档**仍先定稿再执行，轻档可先复现再小改
 - **tdd**：先用本 Skill 定稿，再进入 tdd 的红绿重构流程
 - **grill-with-docs**：按其规则更积极追问术语和边界；业务术语定下来后可讨论中同步 CONTEXT.md，但仍遵守「各文件写什么/不写什么」约束

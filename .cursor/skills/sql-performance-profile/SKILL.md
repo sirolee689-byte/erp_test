@@ -165,7 +165,7 @@ node .cursor/skills/sql-performance-profile/scripts/profile-query.mjs --label "Q
 | [`scripts/profile-query.mjs`](scripts/profile-query.mjs) | 单条 SQL 测时，默认 30s 超时 |
 | [`examples.md`](examples.md) | 出库「其他出库批量选材」实测样例 |
 
-## 与 diagnose Skill 的分工
+## 与 diagnosing-bugs Skill 的分工
 
-- **diagnose**：通用 bug/性能，先建可重复反馈环
+- **diagnosing-bugs**：通用 bug/性能，先建可重复反馈环
 - **本 Skill**：聚焦 **SQL Server 慢查询**，强制连库计时 + 30s 中止 + 方案实测 + 定稿闸门

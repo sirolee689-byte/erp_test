@@ -14,4 +14,4 @@
 
 ## 相关 skill
 
-- `improve-codebase-architecture`、`diagnose`、`tdd`、`grill-with-docs`（`.agents/skills/`）
+- `improve-codebase-architecture`、`diagnosing-bugs`、`tdd`、`grill-with-docs`、`domain-modeling`（`.agents/skills/`）；`tdd` / `improve-codebase-architecture` 依赖 `codebase-design`
