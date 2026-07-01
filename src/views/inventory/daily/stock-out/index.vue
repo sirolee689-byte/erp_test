@@ -3,6 +3,7 @@
     <div class="stock-out-mode-bar">
       <el-button :type="pageMode === 'list' ? 'primary' : 'default'" plain @click="switchList">管理出库单</el-button>
       <el-button v-permission="'add'" :type="pageMode === 'form' && !editId ? 'primary' : 'default'" plain @click="newOrder">出库单添加</el-button>
+      <el-button :type="pageMode === 'material-trace' ? 'primary' : 'default'" plain @click="switchMaterialTrace">转向物料查询</el-button>
       <el-button v-if="isSuperAdmin" plain @click="openCuttingIssueConfig">开料出库配置</el-button>
     </div>
 
@@ -41,6 +42,7 @@
             @keyup.enter="onSearch"
           />
           <el-button type="primary" size="small" @click="onSearch">查询</el-button>
+          <el-button size="small" @click="resetSearch">重置</el-button>
           <div class="stock-filter-divider" aria-hidden="true" />
           <div class="stock-filter-switch">
             <span class="switch-label">回收站</span>
@@ -52,8 +54,15 @@
               <span class="switch-label">显示未审核</span>
               <el-switch v-model="showUnaudited" @change="onSearch" />
             </div>
+            <div class="stock-filter-divider stock-filter-divider--print" aria-hidden="true" />
+            <div class="stock-print-actions">
+              <el-select v-model="printMode" size="small" class="stock-print-mode" aria-label="打印类型">
+                <el-option label="打印汇总" value="2" />
+                <el-option label="打印明细" value="1" />
+              </el-select>
+              <el-button size="small" type="primary" plain @click="openSelectedPrint">打印出库单</el-button>
+            </div>
           </template>
-          <el-button size="small" @click="resetSearch">重置</el-button>
         </div>
       </div>
 
@@ -133,7 +142,14 @@
           <template #default="{ row }">
             <div class="row-actions">
               <el-button size="small" plain @click="viewOrder(row)">查看</el-button>
-              <el-button size="small" plain @click="printOrder(row)">打印</el-button>
+              <el-button
+                size="small"
+                :type="isPrintSelected(row) ? 'primary' : 'default'"
+                plain
+                @click="togglePrintSelect(row)"
+              >
+                {{ isPrintSelected(row) ? '已选择' : '打印选择' }}
+              </el-button>
               <template v-if="!showRecycle">
                 <el-button v-if="canEdit(row)" v-permission="'edit'" size="small" type="primary" plain @click="editOrder(row)">编辑</el-button>
                 <el-button v-if="canAudit(row)" v-permission="'audit'" size="small" plain :loading="row.__op === 'audit'" @click="runAction(row, 'audit')">审核</el-button>
@@ -202,6 +218,10 @@
         @size-change="loadList"
         @current-change="loadList"
       />
+    </section>
+
+    <section v-if="pageMode === 'material-trace'" class="erp-section">
+      <StockOutMaterialTracePanel />
     </section>
 
     <section v-show="pageMode === 'form'" class="erp-section">
@@ -889,6 +909,7 @@ import {
   validateStockOutFinishedGoodsBatchApply,
   writeStockOutFinishedGoodsBatchContext,
 } from '@/utils/stockOutFinishedGoodsBatchAdd'
+import StockOutMaterialTracePanel from './material-trace-panel.vue'
 
 const MENU_PATH = 'inventory/daily/stock-out'
 const OUTBOUND_TYPES = [
@@ -908,6 +929,8 @@ const pageMode = ref('list')
 const formTab = ref('base')
 const showRecycle = ref(false)
 const showUnaudited = ref(false)
+const printMode = ref('2')
+const printSelectedSystemcodes = ref(new Set())
 const listTableRef = ref(null)
 const linesTableRef = ref(null)
 const expandedRowKeys = ref([])
@@ -1424,6 +1447,7 @@ async function loadList() {
     list.value = data?.data?.list || []
     pager.total = Number(data?.data?.total || 0)
     expandedRowKeys.value = []
+    reconcilePrintSelection()
   } catch (err) {
     ElMessage.error(err?.response?.data?.msg || err.message || '读取出库单列表失败')
   } finally {
@@ -1433,6 +1457,7 @@ async function loadList() {
 
 function onSearch() {
   pager.page = 1
+  printSelectedSystemcodes.value = new Set()
   loadList()
 }
 function resetSearch() {
@@ -1440,11 +1465,18 @@ function resetSearch() {
   filterRelatedParties.value = []
   showUnaudited.value = false
   showRecycle.value = false
+  printSelectedSystemcodes.value = new Set()
   pager.page = 1
   loadList()
 }
+
+function switchMaterialTrace() {
+  pageMode.value = 'material-trace'
+}
+
 function onRecycleChange() {
   showUnaudited.value = false
+  printSelectedSystemcodes.value = new Set()
   onSearch()
 }
 function toggleRecycle() {
@@ -2052,17 +2084,62 @@ async function viewOrder(row) {
   }
 }
 
-function printOrder(row) {
-  window.open(`/api/stock-out/print-data?id=${encodeURIComponent(row.id)}`, '_blank')
+function printKey(row) {
+  return String(row?.systemcode ?? row?.systemCode ?? '').trim()
+}
+
+function reconcilePrintSelection() {
+  const visibleKeys = new Set((list.value || []).map((row) => printKey(row)).filter(Boolean))
+  const next = new Set()
+  for (const key of printSelectedSystemcodes.value) {
+    if (visibleKeys.has(key)) next.add(key)
+  }
+  printSelectedSystemcodes.value = next
+}
+
+function isPrintSelected(row) {
+  const key = printKey(row)
+  return !!key && printSelectedSystemcodes.value.has(key)
+}
+
+function togglePrintSelect(row) {
+  const key = printKey(row)
+  if (!key) {
+    ElMessage.warning('该出库单缺少 systemcode，不能加入打印')
+    return
+  }
+  const next = new Set(printSelectedSystemcodes.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  printSelectedSystemcodes.value = next
+}
+
+function openSelectedPrint() {
+  const selected = (list.value || []).filter((row) => isPrintSelected(row)).map((row) => printKey(row))
+  if (!selected.length) {
+    ElMessage.warning('请先选择要打印的出库单')
+    return
+  }
+  const query = new URLSearchParams({
+    p_sum: selected.join(','),
+    print_cn: printMode.value || '2',
+  })
+  window.open(`/inventory/daily/stock-out-print?${query.toString()}`, '_blank')
 }
 
 function removeListRow(row) {
   const id = row?.id
+  const key = printKey(row)
   const before = list.value.length
   list.value = list.value.filter((item) => item.id !== id)
   if (list.value.length !== before) {
     pager.total = Math.max(0, Number(pager.total || 0) - 1)
     expandedRowKeys.value = expandedRowKeys.value.filter((key) => key !== id)
+    if (key && printSelectedSystemcodes.value.has(key)) {
+      const next = new Set(printSelectedSystemcodes.value)
+      next.delete(key)
+      printSelectedSystemcodes.value = next
+    }
   }
 }
 
@@ -2964,10 +3041,22 @@ onUnmounted(() => {
   background: var(--el-border-color);
   flex-shrink: 0;
 }
+.stock-filter-divider--print {
+  margin-left: 28px;
+  margin-right: 16px;
+}
 .stock-filter-switch {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+.stock-print-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.stock-print-mode {
+  width: 112px;
 }
 .erp-section {
   background: var(--el-bg-color);

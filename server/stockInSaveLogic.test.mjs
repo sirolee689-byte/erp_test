@@ -19,7 +19,7 @@ describe('stockInSaveLogic', () => {
     assert.equal(no, 'R26061703')
   })
 
-  test('类型 4 生产入库必须有关联派工单，类型 5 生产退料允许为空', () => {
+  test('类型 4 生产入库和类型 5 生产退料都必须有关联派工单', () => {
     const base = {
       header: { inboundType: '4', inboundDate: '2026-06-17', warehouseCode: 'WH', relatedPartyCode: 'CJ01', paperNo: 'PI-1' },
       lines: [{ kcaa01: 'M-1', kcao03: 1, kcao02: 'SRC-LINE' }],
@@ -30,7 +30,13 @@ describe('stockInSaveLogic', () => {
       header: { inboundType: '5', inboundDate: '2026-06-17', warehouseCode: 'WH', relatedPartyCode: 'CJ01', paperNo: 'PI-1' },
       lines: [{ kcaa01: 'M-1', kcao03: 1 }],
     }
-    assert.equal(validateStockInPayload(ret), null)
+    assert.match(validateStockInPayload(ret), /生产退料必须选择派工单/)
+
+    const okRet = {
+      header: { inboundType: '5', inboundDate: '2026-06-17', warehouseCode: 'WH', relatedPartyCode: 'CJ01', sourceOrderNo: 'PG-1', paperNo: 'PI-1' },
+      lines: [{ kcaa01: 'M-1', kcao02: 'SCAK-1', kcao03: 1, kcao031: 10 }],
+    }
+    assert.equal(validateStockInPayload(okRet), null)
   })
 
   test('关联型入库不允许无来源明细，其他入库允许手工明细', () => {

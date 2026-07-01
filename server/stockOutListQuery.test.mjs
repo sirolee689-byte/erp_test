@@ -21,6 +21,7 @@ describe('stockOutListQuery', () => {
     assert.doesNotMatch(sql, /OFFSET/i)
     assert.match(sql, /UB_ERP_Stocks_out/i)
     assert.match(sql, /UB_ERP_Stocks_out_list/i)
+    assert.match(sql, /AS systemcode/i)
   })
 
   test('默认列表只查已审核 pass=1', () => {

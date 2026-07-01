@@ -18,6 +18,7 @@ import { resolveSysUserIsAdminByUserId } from './sysUsersDb.js'
 import { fetchStockInPurchaseBatchLines } from './stockInPurchaseBatchAdd.js'
 import { fetchStockInAssistBatchLines } from './stockInAssistBatchAdd.js'
 import { fetchStockInProductionBatchLines } from './stockInProductionBatchAdd.js'
+import { safeDecimalExpr, safeIntExpr, nvarcharTextExpr } from './buyOrderSqlSafe.js'
 import { fetchStockInProductionDispatchPickPage } from './stockInProductionDispatchPick.js'
 import {
   fetchStockInAssistReturnBatchLines,
@@ -31,6 +32,9 @@ const BOM_FROM = 'dbo.[UB_ERP_Bom_000]'
 const SUPPLIER_FROM = 'dbo.[UB_ERP_System_supplier]'
 const WORKSHOP_FROM = 'dbo.[UB_ERP_Stocks_workshop]'
 const CUSTOMER_FROM = 'dbo.[UB_ERP_Customer]'
+const STOCK_OUT_FROM = 'dbo.[UB_ERP_Stocks_out]'
+const STOCK_OUT_LINE_FROM = 'dbo.[UB_ERP_Stocks_out_list]'
+const CURRENCY_FROM = 'dbo.[UB_ERP_Finance_currency]'
 
 function bindListParams(req, params) {
   for (const [key, value] of Object.entries(params ?? {})) req.input(key, sql.NVarChar(500), value)
@@ -103,6 +107,42 @@ export function __buildSourceOrderCountSqlForTest(inboundType, meta, keywordSql 
   return buildSourceOrderCountSql(inboundType, meta, keywordSql, hasKeyword, partyFilterSql)
 }
 
+export function __buildPurchaseSourceDetailCountSqlForTest(keywordSql = '') {
+  return buildPurchaseSourceDetailCountSqlOptimized(keywordSql)
+}
+
+export function __buildPurchaseSourceDetailListSqlForTest(keywordSql = '') {
+  return buildPurchaseSourceDetailListSqlOptimized(keywordSql)
+}
+
+export function __buildPurchaseSourceDetailKeywordSqlForTest(keyword = '') {
+  return buildPurchaseSourceDetailKeywordSqlOptimized(keyword)
+}
+
+export function __buildAssistSourceDetailKeywordSqlForTest(hasKeyword = false) {
+  return buildAssistSourceDetailKeywordSql(hasKeyword)
+}
+
+export function __buildAssistSourceDetailListSqlForTest(options = {}) {
+  return buildAssistSourceDetailListSql(options)
+}
+
+export function __buildAssistSourceDetailCountSqlForTest(options = {}) {
+  return buildAssistSourceDetailCountSql(options)
+}
+
+export function __buildAssistSourceInboundStatsSqlForTest(pairSql = 'AND 1 = 1') {
+  return buildAssistSourceInboundStatsSql(pairSql)
+}
+
+export function __classifyAssistSourceKeywordForTest(keyword = '') {
+  return classifyAssistSourceKeyword(keyword)
+}
+
+export function __classifyPurchaseSourceKeywordForTest(keyword = '') {
+  return classifyPurchaseSourceKeyword(keyword)
+}
+
 export function __buildSourceOrderPartyFilterSqlForTest(meta) {
   return buildSourceOrderPartyFilterSql(meta)
 }
@@ -145,6 +185,14 @@ function buildSourceOrderKeywordSql(inboundType, meta) {
     `
   }
   let extra = ''
+  if (t === '1') {
+    extra = `
+      OR ${trimHeaderCol('h', 'kcaj04', 500)} LIKE @kw
+      OR ${trimHeaderCol('h', 'kehu', 500)} LIKE @kw
+      OR ${trimHeaderCol('sk', 's_name', 500)} LIKE @kw
+      OR ${trimHeaderCol('sk', 'name', 500)} LIKE @kw
+    `
+  }
   if (['2', '3', '8'].includes(t)) {
     extra = `OR ${trimHeaderCol('h', 'wxaj04')} LIKE @kw`
   }
@@ -157,7 +205,459 @@ function buildSourceOrderKeywordSql(inboundType, meta) {
   `
 }
 
+function buildPurchaseSourceOrderKeywordJoinSql() {
+  return `
+    LEFT JOIN ${SUPPLIER_FROM} AS sk
+      ON ${trimHeaderCol('sk', 's_code')} = ${trimHeaderCol('h', 'kcaj05')}
+  `
+}
+
+function purchaseSourceConvertedQtyExpr(alias = 'l') {
+  const qty = safeDecimalExpr(alias, 'kcak03')
+  const ratio = safeDecimalExpr(alias, 'kcaa26')
+  const dir = nvarcharTextExpr(alias, 'kcaa27', 20)
+  return `
+    CASE
+      WHEN ${ratio} > 0 AND ${dir} = N'1' THEN ${qty} / ${ratio}
+      WHEN ${ratio} > 0 AND ${dir} = N'0' THEN ${qty} * ${ratio}
+      ELSE ${qty}
+    END
+  `
+}
+
+function purchaseSourceConvertedPriceExpr(alias, priceCol, rateExpr) {
+  const price = safeDecimalExpr(alias, priceCol)
+  const ratio = safeDecimalExpr(alias, 'kcaa26')
+  const dir = nvarcharTextExpr(alias, 'kcaa27', 20)
+  const unitPrice = `
+    CASE
+      WHEN ${ratio} > 0 AND ${dir} = N'1' THEN ${price} * ${ratio}
+      WHEN ${ratio} > 0 AND ${dir} = N'0' THEN ${price} / ${ratio}
+      ELSE ${price}
+    END
+  `
+  return `CASE WHEN ${rateExpr} > 0 THEN (${unitPrice}) / ${rateExpr} ELSE (${unitPrice}) END`
+}
+
+function buildPurchaseSourceDetailKeywordSql(hasKeyword) {
+  if (!hasKeyword) return ''
+  return `
+    AND (
+      ${nvarcharTextExpr('h', 'kcaj01', 200)} LIKE @kw
+      OR ${nvarcharTextExpr('h', 'kcaj02', 200)} LIKE @kw
+      OR ${nvarcharTextExpr('h', 'kcaj03', 200)} LIKE @kw
+      OR ${nvarcharTextExpr('h', 'kcaj04', 500)} LIKE @kw
+      OR ${nvarcharTextExpr('h', 'kcaj05', 200)} LIKE @kw
+      OR ${nvarcharTextExpr('h', 'kcaj06', 200)} LIKE @kw
+      OR ${nvarcharTextExpr('h', 'kcaj08', 500)} LIKE @kw
+      OR ${nvarcharTextExpr('h', 'rmb', 200)} LIKE @kw
+      OR ${nvarcharTextExpr('l', 'kcaa01', 300)} LIKE @kw
+      OR ${nvarcharTextExpr('l', 'kcaa02', 500)} LIKE @kw
+      OR ${nvarcharTextExpr('l', 'kcaa03', 500)} LIKE @kw
+    )
+  `
+}
+
+function buildPurchaseSourceDetailCteSql(keywordSql = '') {
+  const rateExpr = `ISNULL(NULLIF(${nvarcharTextExpr('c', 'rate', 50)}, N''), ISNULL(NULLIF(${nvarcharTextExpr('h', 'rmb_hl', 50)}, N''), N'1'))`
+  const decimalRateExpr = `CASE WHEN ${safeDecimalExpr('c', 'rate')} > 0 THEN ${safeDecimalExpr('c', 'rate')} WHEN ${safeDecimalExpr('h', 'rmb_hl')} > 0 THEN ${safeDecimalExpr('h', 'rmb_hl')} ELSE 1 END`
+  const convertedQtyExpr = purchaseSourceConvertedQtyExpr('l')
+  const priceExpr = purchaseSourceConvertedPriceExpr('l', 'kcak04', decimalRateExpr)
+  const taxPriceExpr = purchaseSourceConvertedPriceExpr('l', 'kcak041', decimalRateExpr)
+  return `
+    WITH source AS (
+      SELECT
+        h.[id] AS headerId,
+        ${nvarcharTextExpr('h', 'kcaj01', 200)} AS sourceOrderNo,
+        ${nvarcharTextExpr('h', 'kcaj05', 200)} AS relatedPartyCode,
+        ISNULL(LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(NULLIF(s.[s_name], N''), s.[name])))), ${nvarcharTextExpr('h', 'kehu', 500)}) AS relatedPartyName,
+        ${nvarcharTextExpr('h', 'systemcode', 500)} AS sourceSystemcode,
+        LTRIM(RTRIM(ISNULL(h.[pass], N'0'))) AS pass,
+        ${nvarcharTextExpr('h', 'rmb', 200)} AS currencyName,
+        ${rateExpr} AS exchangeRate,
+        l.[id] AS lineId,
+        ${nvarcharTextExpr('l', 'kcak02', 200)} AS sourceLineCode,
+        ${nvarcharTextExpr('l', 'kcaa01', 300)} AS kcaa01,
+        ${nvarcharTextExpr('l', 'kcaa02', 500)} AS kcaa02,
+        ${nvarcharTextExpr('l', 'kcaa03', 500)} AS kcaa03,
+        ${nvarcharTextExpr('l', 'kcaa04', 100)} AS kcaa04,
+        ${nvarcharTextExpr('l', 'kcaa25', 100)} AS kcaa25,
+        ${safeDecimalExpr('l', 'kcaa26')} AS kcaa26,
+        ${nvarcharTextExpr('l', 'kcaa27', 20)} AS kcaa27,
+        SUM(${convertedQtyExpr}) AS orderQty,
+        MAX(${priceExpr}) AS unitPrice,
+        MAX(${taxPriceExpr}) AS unitPriceTax,
+        SUM(CASE WHEN ${decimalRateExpr} > 0 THEN ${safeDecimalExpr('l', 'kcak05')} / ${decimalRateExpr} ELSE ${safeDecimalExpr('l', 'kcak05')} END) AS amount,
+        SUM(CASE WHEN ${decimalRateExpr} > 0 THEN ${safeDecimalExpr('l', 'kcak051')} / ${decimalRateExpr} ELSE ${safeDecimalExpr('l', 'kcak051')} END) AS amountTax,
+        MIN(${safeIntExpr('l', 'seq')}) AS minSeq,
+        MIN(l.[id]) AS minLineId
+      FROM dbo.[UB_ERP_Buy_order] AS h
+      INNER JOIN dbo.[UB_ERP_Buy_order_list] AS l
+        ON ${nvarcharTextExpr('l', 'kcak01', 200)} = ${nvarcharTextExpr('h', 'kcaj01', 200)}
+      LEFT JOIN ${SUPPLIER_FROM} AS s
+        ON ${nvarcharTextExpr('s', 's_code', 200)} = ${nvarcharTextExpr('h', 'kcaj05', 200)}
+      LEFT JOIN ${CURRENCY_FROM} AS c
+        ON ${nvarcharTextExpr('c', 'code', 100)} = ${nvarcharTextExpr('h', 'kcaj07', 100)}
+      WHERE (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
+        AND LTRIM(RTRIM(ISNULL(h.[pass], N''))) = N'1'
+        AND LTRIM(RTRIM(ISNULL(h.[closed], N'0'))) = N'0'
+        AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
+        ${keywordSql}
+      GROUP BY
+        h.[id],
+        ${nvarcharTextExpr('h', 'kcaj01', 200)},
+        ${nvarcharTextExpr('h', 'kcaj05', 200)},
+        ISNULL(LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(NULLIF(s.[s_name], N''), s.[name])))), ${nvarcharTextExpr('h', 'kehu', 500)}),
+        ${nvarcharTextExpr('h', 'systemcode', 500)},
+        LTRIM(RTRIM(ISNULL(h.[pass], N'0'))),
+        ${nvarcharTextExpr('h', 'rmb', 200)},
+        ${rateExpr},
+        l.[id],
+        ${nvarcharTextExpr('l', 'kcak02', 200)},
+        ${nvarcharTextExpr('l', 'kcaa01', 300)},
+        ${nvarcharTextExpr('l', 'kcaa02', 500)},
+        ${nvarcharTextExpr('l', 'kcaa03', 500)},
+        ${nvarcharTextExpr('l', 'kcaa04', 100)},
+        ${nvarcharTextExpr('l', 'kcaa25', 100)},
+        ${safeDecimalExpr('l', 'kcaa26')},
+        ${nvarcharTextExpr('l', 'kcaa27', 20)}
+    ),
+    inbound_agg AS (
+      SELECT
+        ${nvarcharTextExpr('h', 'kcan04', 200)} AS sourceOrderNo,
+        ${nvarcharTextExpr('l', 'kcao02', 200)} AS sourceLineCode,
+        SUM(CASE WHEN ${nvarcharTextExpr('h', 'pass', 20)} = N'1' THEN ${safeDecimalExpr('l', 'kcao03')} ELSE 0 END) AS approvedInQty,
+        SUM(CASE WHEN ${nvarcharTextExpr('h', 'pass', 20)} <> N'1' THEN ${safeDecimalExpr('l', 'kcao03')} ELSE 0 END) AS pendingInQty
+      FROM ${HEADER_FROM} AS h
+      INNER JOIN ${LINE_FROM} AS l
+        ON ${nvarcharTextExpr('l', 'kcao01', 200)} = ${nvarcharTextExpr('h', 'kcan01', 200)}
+      WHERE (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
+        AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
+        AND ${nvarcharTextExpr('h', 'kcan03', 20)} = N'1'
+      GROUP BY ${nvarcharTextExpr('h', 'kcan04', 200)}, ${nvarcharTextExpr('l', 'kcao02', 200)}
+    ),
+    return_agg AS (
+      SELECT
+        ${nvarcharTextExpr('o', 'kcap04', 200)} AS sourceOrderNo,
+        ${nvarcharTextExpr('ol', 'kcaa01', 300)} AS kcaa01,
+        SUM(${safeDecimalExpr('ol', 'kcaq03')}) AS returnQty
+      FROM ${STOCK_OUT_FROM} AS o
+      INNER JOIN ${STOCK_OUT_LINE_FROM} AS ol
+        ON ${nvarcharTextExpr('ol', 'kcaq01', 200)} = ${nvarcharTextExpr('o', 'kcap01', 200)}
+      WHERE (ISNULL(o.[del], N'') = N'' OR o.[del] = N'0')
+        AND (ISNULL(ol.[del], N'') = N'' OR ol.[del] = N'0')
+        AND ${nvarcharTextExpr('o', 'kcap03', 20)} = N'1'
+        AND ${nvarcharTextExpr('o', 'pass', 20)} = N'1'
+      GROUP BY ${nvarcharTextExpr('o', 'kcap04', 200)}, ${nvarcharTextExpr('ol', 'kcaa01', 300)}
+    ),
+    enriched AS (
+      SELECT
+        source.*,
+        ISNULL(inbound_agg.pendingInQty, 0) AS pendingInboundQty,
+        ISNULL(inbound_agg.approvedInQty, 0) AS approvedInboundQty,
+        ISNULL(return_agg.returnQty, 0) AS returnQty,
+        CASE
+          WHEN source.orderQty - ISNULL(inbound_agg.pendingInQty, 0) - ISNULL(inbound_agg.approvedInQty, 0) + ISNULL(return_agg.returnQty, 0) > 0
+          THEN source.orderQty - ISNULL(inbound_agg.pendingInQty, 0) - ISNULL(inbound_agg.approvedInQty, 0) + ISNULL(return_agg.returnQty, 0)
+          ELSE 0
+        END AS diffQty,
+        CASE
+          WHEN ISNULL(source.kcaa25, N'') = N'' OR source.kcaa25 = source.kcaa04 THEN N'否'
+          ELSE source.kcaa25 + N' / ' + CASE WHEN source.kcaa27 = N'1' THEN N'使用->采购' ELSE N'采购->使用' END
+            + N' / ' + CONVERT(nvarchar(50), source.kcaa26)
+            + N' / ' + CONVERT(nvarchar(50), source.orderQty)
+        END AS unitConvertText,
+        ROW_NUMBER() OVER (PARTITION BY source.sourceOrderNo ORDER BY source.minSeq, source.minLineId) AS groupRowNo,
+        ROW_NUMBER() OVER (ORDER BY source.headerId DESC, source.minSeq, source.minLineId) AS rn
+      FROM source
+      LEFT JOIN inbound_agg
+        ON inbound_agg.sourceOrderNo = source.sourceOrderNo
+       AND inbound_agg.sourceLineCode = source.sourceLineCode
+      LEFT JOIN return_agg
+        ON return_agg.sourceOrderNo = source.sourceOrderNo
+       AND return_agg.kcaa01 = source.kcaa01
+    )
+  `
+}
+
+function buildPurchaseSourceDetailCountSql(keywordSql = '') {
+  return `${buildPurchaseSourceDetailCteSql(keywordSql)}
+    SELECT COUNT(1) AS total FROM enriched
+  `
+}
+
+function buildPurchaseSourceDetailListSql(keywordSql = '') {
+  return `${buildPurchaseSourceDetailCteSql(keywordSql)}
+    SELECT *
+    FROM enriched
+    WHERE rn BETWEEN @startRow AND @endRow
+    ORDER BY rn ASC
+  `
+}
+
 /** 派工类型带 keyword 时：LEFT JOIN 明细 PI，避免 EXISTS + ROW_NUMBER 触发全表嵌套扫描 */
+function classifyPurchaseSourceKeyword(keyword = '') {
+  const kw = text(keyword).toUpperCase()
+  if (!kw) return 'none'
+  if (/^ZY-\d{3,}/.test(kw)) return 'order'
+  if (/^[A-Z]{1,5}-\d{2,}/.test(kw)) return 'material'
+  return 'full'
+}
+
+function buildPurchaseSourceDetailKeywordSqlOptimized(keywordOrHasKeyword) {
+  if (!keywordOrHasKeyword) return ''
+  const mode = typeof keywordOrHasKeyword === 'boolean' ? 'full' : classifyPurchaseSourceKeyword(keywordOrHasKeyword)
+  if (mode === 'none') return ''
+  if (mode === 'order') {
+    return `
+      AND (
+        h.[kcaj01] = @kwExact
+        OR h.[kcaj01] LIKE @kwPrefix
+      )
+    `
+  }
+  if (mode === 'material') {
+    return `
+      AND (
+        l.[kcaa01] = @kwExact
+        OR l.[kcaa01] LIKE @kwPrefix
+      )
+    `
+  }
+  return buildPurchaseSourceDetailKeywordSql(true)
+}
+
+function buildPurchaseSourceBaseCteSql(keywordSql = '') {
+  const rateExpr = `ISNULL(NULLIF(${nvarcharTextExpr('c', 'rate', 50)}, N''), ISNULL(NULLIF(${nvarcharTextExpr('h', 'rmb_hl', 50)}, N''), N'1'))`
+  const decimalRateExpr = `CASE WHEN ${safeDecimalExpr('c', 'rate')} > 0 THEN ${safeDecimalExpr('c', 'rate')} WHEN ${safeDecimalExpr('h', 'rmb_hl')} > 0 THEN ${safeDecimalExpr('h', 'rmb_hl')} ELSE 1 END`
+  const convertedQtyExpr = purchaseSourceConvertedQtyExpr('l')
+  const priceExpr = purchaseSourceConvertedPriceExpr('l', 'kcak04', decimalRateExpr)
+  const taxPriceExpr = purchaseSourceConvertedPriceExpr('l', 'kcak041', decimalRateExpr)
+  return `
+    source AS (
+      SELECT
+        h.[id] AS headerId,
+        ${nvarcharTextExpr('h', 'kcaj01', 200)} AS sourceOrderNo,
+        ${nvarcharTextExpr('h', 'kcaj05', 200)} AS relatedPartyCode,
+        ISNULL(LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(NULLIF(s.[s_name], N''), s.[name])))), ${nvarcharTextExpr('h', 'kehu', 500)}) AS relatedPartyName,
+        ${nvarcharTextExpr('h', 'systemcode', 500)} AS sourceSystemcode,
+        LTRIM(RTRIM(ISNULL(h.[pass], N'0'))) AS pass,
+        ${nvarcharTextExpr('h', 'rmb', 200)} AS currencyName,
+        ${rateExpr} AS exchangeRate,
+        l.[id] AS lineId,
+        ${nvarcharTextExpr('l', 'kcak02', 200)} AS sourceLineCode,
+        ${nvarcharTextExpr('l', 'kcaa01', 300)} AS kcaa01,
+        ${nvarcharTextExpr('l', 'kcaa02', 500)} AS kcaa02,
+        ${nvarcharTextExpr('l', 'kcaa03', 500)} AS kcaa03,
+        ${nvarcharTextExpr('l', 'kcaa04', 100)} AS kcaa04,
+        ${nvarcharTextExpr('l', 'kcaa25', 100)} AS kcaa25,
+        ${safeDecimalExpr('l', 'kcaa26')} AS kcaa26,
+        ${nvarcharTextExpr('l', 'kcaa27', 20)} AS kcaa27,
+        SUM(${convertedQtyExpr}) AS orderQty,
+        MAX(${priceExpr}) AS unitPrice,
+        MAX(${taxPriceExpr}) AS unitPriceTax,
+        SUM(CASE WHEN ${decimalRateExpr} > 0 THEN ${safeDecimalExpr('l', 'kcak05')} / ${decimalRateExpr} ELSE ${safeDecimalExpr('l', 'kcak05')} END) AS amount,
+        SUM(CASE WHEN ${decimalRateExpr} > 0 THEN ${safeDecimalExpr('l', 'kcak051')} / ${decimalRateExpr} ELSE ${safeDecimalExpr('l', 'kcak051')} END) AS amountTax,
+        MIN(${safeIntExpr('l', 'seq')}) AS minSeq,
+        MIN(l.[id]) AS minLineId
+      FROM dbo.[UB_ERP_Buy_order] AS h
+      INNER JOIN dbo.[UB_ERP_Buy_order_list] AS l
+        ON ${nvarcharTextExpr('l', 'kcak01', 200)} = ${nvarcharTextExpr('h', 'kcaj01', 200)}
+      LEFT JOIN ${SUPPLIER_FROM} AS s
+        ON ${nvarcharTextExpr('s', 's_code', 200)} = ${nvarcharTextExpr('h', 'kcaj05', 200)}
+      LEFT JOIN ${CURRENCY_FROM} AS c
+        ON ${nvarcharTextExpr('c', 'code', 100)} = ${nvarcharTextExpr('h', 'kcaj07', 100)}
+      WHERE (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
+        AND LTRIM(RTRIM(ISNULL(h.[pass], N''))) = N'1'
+        AND LTRIM(RTRIM(ISNULL(h.[closed], N'0'))) = N'0'
+        AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
+        ${keywordSql}
+      GROUP BY
+        h.[id],
+        ${nvarcharTextExpr('h', 'kcaj01', 200)},
+        ${nvarcharTextExpr('h', 'kcaj05', 200)},
+        ISNULL(LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(NULLIF(s.[s_name], N''), s.[name])))), ${nvarcharTextExpr('h', 'kehu', 500)}),
+        ${nvarcharTextExpr('h', 'systemcode', 500)},
+        LTRIM(RTRIM(ISNULL(h.[pass], N'0'))),
+        ${nvarcharTextExpr('h', 'rmb', 200)},
+        ${rateExpr},
+        l.[id],
+        ${nvarcharTextExpr('l', 'kcak02', 200)},
+        ${nvarcharTextExpr('l', 'kcaa01', 300)},
+        ${nvarcharTextExpr('l', 'kcaa02', 500)},
+        ${nvarcharTextExpr('l', 'kcaa03', 500)},
+        ${nvarcharTextExpr('l', 'kcaa04', 100)},
+        ${nvarcharTextExpr('l', 'kcaa25', 100)},
+        ${safeDecimalExpr('l', 'kcaa26')},
+        ${nvarcharTextExpr('l', 'kcaa27', 20)}
+    )`
+}
+
+function buildPurchaseSourceDetailCountSqlOptimized(keywordSql = '') {
+  return `
+    WITH ${buildPurchaseSourceBaseCteSql(keywordSql)}
+    SELECT COUNT(1) AS total
+    FROM source
+  `
+}
+
+function buildPurchaseSourceDetailListSqlOptimized(keywordSql = '') {
+  return `
+    WITH ${buildPurchaseSourceBaseCteSql(keywordSql)},
+    numbered AS (
+      SELECT
+        source.*,
+        ROW_NUMBER() OVER (PARTITION BY source.sourceOrderNo ORDER BY source.minSeq, source.minLineId) AS groupRowNo,
+        ROW_NUMBER() OVER (ORDER BY source.headerId DESC, source.minSeq, source.minLineId) AS rn
+      FROM source
+    )
+    SELECT
+      *
+    FROM numbered
+    WHERE rn BETWEEN @startRow AND @endRow
+    ORDER BY rn ASC
+  `
+}
+
+function assistSourceLineCodeExpr(alias = 'l') {
+  return `ISNULL(NULLIF(${nvarcharTextExpr(alias, 'wxak02', 200)}, N''), ISNULL(NULLIF(${nvarcharTextExpr(alias, 'systemcode', 200)}, N''), ${nvarcharTextExpr(alias, 'GUID', 200)}))`
+}
+
+function classifyAssistSourceKeyword(keyword = '') {
+  const kw = text(keyword).toUpperCase()
+  if (!kw) return 'none'
+  if (/^WX[\w-]{3,}/.test(kw)) return 'order'
+  return 'full'
+}
+
+function assistSourceConvertedQtyExpr(alias = 'l') {
+  const qty = safeDecimalExpr(alias, 'wxak03')
+  const ratio = safeDecimalExpr(alias, 'kcaa26')
+  const dir = nvarcharTextExpr(alias, 'kcaa27', 20)
+  return `
+    CASE
+      WHEN ${ratio} > 0 AND ${dir} = N'1' THEN ${qty} / ${ratio}
+      WHEN ${ratio} > 0 AND ${dir} = N'0' THEN ${qty} * ${ratio}
+      ELSE ${qty}
+    END
+  `
+}
+
+function buildAssistSourceDetailKeywordSql(keywordOrHasKeyword) {
+  if (!keywordOrHasKeyword) return ''
+  const mode = typeof keywordOrHasKeyword === 'boolean' ? 'full' : classifyAssistSourceKeyword(keywordOrHasKeyword)
+  if (mode === 'none') return ''
+  if (mode === 'order') {
+    return `
+      AND (
+        ${nvarcharTextExpr('h', 'wxaj01', 200)} = @kwExact
+        OR ${nvarcharTextExpr('h', 'wxaj01', 200)} LIKE @kwPrefix
+      )
+    `
+  }
+  return `
+    AND (
+      ${nvarcharTextExpr('h', 'wxaj01', 200)} LIKE @kw
+      OR ${nvarcharTextExpr('h', 'wxaj02', 200)} LIKE @kw
+      OR ${nvarcharTextExpr('h', 'wxaj03', 200)} LIKE @kw
+      OR ${nvarcharTextExpr('h', 'wxaj04', 500)} LIKE @kw
+      OR ${nvarcharTextExpr('h', 'wxaj05', 200)} LIKE @kw
+      OR ${nvarcharTextExpr('h', 'wxaj06', 200)} LIKE @kw
+      OR ${nvarcharTextExpr('h', 'wxaj08', 500)} LIKE @kw
+      OR ${nvarcharTextExpr('h', 'rmb', 200)} LIKE @kw
+    )
+  `
+}
+
+function buildAssistSourceBaseCteSql({ keywordSql = '', supplierFilterSql = '', includeUnaudited = false } = {}) {
+  const convertedQtyExpr = assistSourceConvertedQtyExpr('l')
+  const sourceLineCodeExpr = assistSourceLineCodeExpr('l')
+  const assistDateExpr = `CONVERT(nvarchar(10), h.[wxaj02], 120)`
+  const passFilterSql = includeUnaudited ? '' : `AND LTRIM(RTRIM(ISNULL(h.[pass], N''))) = N'1'`
+  return `
+    source AS (
+      SELECT
+        h.[id] AS headerId,
+        ${nvarcharTextExpr('h', 'wxaj01', 200)} AS sourceOrderNo,
+        ${assistDateExpr} AS assistDate,
+        ${nvarcharTextExpr('h', 'wxaj05', 200)} AS relatedPartyCode,
+        ${nvarcharTextExpr('h', 'kehu', 500)} AS relatedPartyName,
+        ${nvarcharTextExpr('h', 'wxaj04', 500)} AS referenceNo,
+        ${nvarcharTextExpr('h', 'wxaj06', 20)} AS inTax,
+        ${nvarcharTextExpr('h', 'remark', 1000)} AS remark,
+        ${nvarcharTextExpr('h', 'systemcode', 500)} AS sourceSystemcode,
+        LTRIM(RTRIM(ISNULL(h.[pass], N'0'))) AS pass,
+        MIN(l.[id]) AS lineId,
+        ${sourceLineCodeExpr} AS sourceLineCode,
+        ${nvarcharTextExpr('l', 'kcaa01', 300)} AS kcaa01,
+        ${nvarcharTextExpr('l', 'kcaa02', 500)} AS kcaa02,
+        ${nvarcharTextExpr('l', 'kcaa03', 500)} AS kcaa03,
+        ${nvarcharTextExpr('l', 'kcaa04', 100)} AS kcaa04,
+        ${nvarcharTextExpr('l', 'kcaa25', 100)} AS kcaa25,
+        ${safeDecimalExpr('l', 'kcaa26')} AS kcaa26,
+        ${nvarcharTextExpr('l', 'kcaa27', 20)} AS kcaa27,
+        SUM(${convertedQtyExpr}) AS orderQty,
+        SUM(${safeDecimalExpr('l', 'wxak08')}) AS outboundQty,
+        MIN(${safeIntExpr('l', 'seq')}) AS minSeq,
+        MIN(l.[id]) AS minLineId
+      FROM dbo.[UB_ERP_assist_order] AS h
+      INNER JOIN dbo.[UB_ERP_assist_order_list] AS l
+        ON ${nvarcharTextExpr('h', 'wxaj01', 200)} = ${nvarcharTextExpr('l', 'wxak01', 200)}
+      LEFT JOIN ${CURRENCY_FROM} AS c
+        ON ${nvarcharTextExpr('c', 'code', 100)} = ${nvarcharTextExpr('h', 'wxaj07', 100)}
+      WHERE (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
+        AND LTRIM(RTRIM(ISNULL(h.[closed], N'0'))) = N'0'
+        ${passFilterSql}
+        AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
+        ${supplierFilterSql}
+        ${keywordSql}
+      GROUP BY
+        h.[id],
+        ${nvarcharTextExpr('h', 'wxaj01', 200)},
+        ${assistDateExpr},
+        ${nvarcharTextExpr('h', 'wxaj05', 200)},
+        ${nvarcharTextExpr('h', 'kehu', 500)},
+        ${nvarcharTextExpr('h', 'wxaj04', 500)},
+        ${nvarcharTextExpr('h', 'wxaj06', 20)},
+        ${nvarcharTextExpr('h', 'remark', 1000)},
+        ${nvarcharTextExpr('h', 'systemcode', 500)},
+        LTRIM(RTRIM(ISNULL(h.[pass], N'0'))),
+        ${sourceLineCodeExpr},
+        ${nvarcharTextExpr('l', 'kcaa01', 300)},
+        ${nvarcharTextExpr('l', 'kcaa02', 500)},
+        ${nvarcharTextExpr('l', 'kcaa03', 500)},
+        ${nvarcharTextExpr('l', 'kcaa04', 100)},
+        ${nvarcharTextExpr('l', 'kcaa25', 100)},
+        ${safeDecimalExpr('l', 'kcaa26')},
+        ${nvarcharTextExpr('l', 'kcaa27', 20)}
+    )`
+}
+
+function buildAssistSourceDetailCountSql(options = {}) {
+  return `
+    WITH ${buildAssistSourceBaseCteSql(options)}
+    SELECT COUNT(1) AS total
+    FROM source
+  `
+}
+
+function buildAssistSourceDetailListSql(options = {}) {
+  return `
+    WITH ${buildAssistSourceBaseCteSql(options)},
+    numbered AS (
+      SELECT
+        source.*,
+        ROW_NUMBER() OVER (PARTITION BY source.sourceOrderNo ORDER BY source.minSeq, source.minLineId) AS groupRowNo,
+        ROW_NUMBER() OVER (ORDER BY source.headerId DESC, source.minSeq, source.minLineId) AS rn
+      FROM source
+    )
+    SELECT *
+    FROM numbered
+    WHERE rn BETWEEN @startRow AND @endRow
+    ORDER BY rn ASC
+  `
+}
+
 function buildDispatchSourceOrderKeywordJoinSql(meta) {
   return `
     LEFT JOIN ${meta.line} AS lk
@@ -179,6 +679,14 @@ function buildSourceOrderPartyFilterSql(meta) {
 function buildSourceOrderCountSql(inboundType, meta, keywordSql, hasKeyword, partyFilterSql = '') {
   const t = text(inboundType)
   const baseWhere = sourceOrderBaseWhereSql(`${partyFilterSql}${keywordSql}`)
+  if (hasKeyword && t === '1') {
+    return `
+      SELECT COUNT(1) AS total
+      FROM ${meta.header} AS h
+      ${buildPurchaseSourceOrderKeywordJoinSql()}
+      ${baseWhere}
+    `
+  }
   if (hasKeyword && isDispatchInboundType(t)) {
     return `
       SELECT COUNT(DISTINCT h.[id]) AS total
@@ -201,7 +709,13 @@ function buildSourceOrderListSql(inboundType, meta, baseWhere, hasKeyword = fals
   const orderNoExpr = trimHeaderCol('h', meta.noCol)
   const partyCodeExpr = trimHeaderCol('h', meta.partyCol)
   const innerExtraCols = []
-  if (['2', '3', '8'].includes(t)) {
+  if (t === '1') {
+    innerExtraCols.push(`${trimHeaderCol('h', 'kcaj04', 500)} AS referenceNo`)
+    innerExtraCols.push(`h.[kcaj02] AS buyDate`)
+    innerExtraCols.push(`N'' AS deliveryDate`)
+    innerExtraCols.push(`${trimHeaderCol('h', 'utruename', 200)} AS purchaserName`)
+    innerExtraCols.push(`${trimHeaderCol('h', 'systemcode', 500)} AS sourceSystemcode`)
+  } else if (['2', '3', '8'].includes(t)) {
     innerExtraCols.push(`${trimHeaderCol('h', 'wxaj04')} AS referenceNo`)
   } else if (['4', '5'].includes(t)) {
     innerExtraCols.push(`${trimHeaderCol('h', 'scaj04')} AS headerPi`)
@@ -211,7 +725,13 @@ function buildSourceOrderListSql(inboundType, meta, baseWhere, hasKeyword = fals
   const innerExtraSelect = innerExtraCols.length ? `,\n            ${innerExtraCols.join(',\n            ')}` : ''
   const srcPassThroughCols = []
   if (['4', '5'].includes(t)) srcPassThroughCols.push('src.headerPi')
-  if (['2', '3', '8', '6'].includes(t)) srcPassThroughCols.push('src.referenceNo')
+  if (['1', '2', '3', '8', '6'].includes(t)) srcPassThroughCols.push('src.referenceNo')
+  if (t === '1') {
+    srcPassThroughCols.push('src.buyDate')
+    srcPassThroughCols.push('src.deliveryDate')
+    srcPassThroughCols.push('src.purchaserName')
+    srcPassThroughCols.push('src.sourceSystemcode')
+  }
   const srcPassThroughSelect = srcPassThroughCols.length ? `,\n             ${srcPassThroughCols.join(',\n             ')}` : ''
 
   let outerSelect = `N'' AS relatedPartyName`
@@ -226,7 +746,9 @@ function buildSourceOrderListSql(inboundType, meta, baseWhere, hasKeyword = fals
       LEFT JOIN ${SUPPLIER_FROM} AS s
         ON ${trimHeaderCol('s', 's_code')} = ${pageAlias}.relatedPartyCode
     `
-    if (['2', '3', '8'].includes(t)) {
+    if (t === '1') {
+      referenceSelect = `${pageAlias}.referenceNo`
+    } else if (['2', '3', '8'].includes(t)) {
       referenceSelect = `${pageAlias}.referenceNo`
     }
   } else if (['4', '5'].includes(t)) {
@@ -259,7 +781,9 @@ function buildSourceOrderListSql(inboundType, meta, baseWhere, hasKeyword = fals
 
   const keywordJoinSql = hasKeyword && isDispatchInboundType(t)
     ? buildDispatchSourceOrderKeywordJoinSql(meta)
-    : ''
+    : hasKeyword && t === '1'
+      ? buildPurchaseSourceOrderKeywordJoinSql()
+      : ''
 
   const matchedSourceSql = hasKeyword && isDispatchInboundType(t)
     ? `
@@ -281,6 +805,7 @@ function buildSourceOrderListSql(inboundType, meta, baseWhere, hasKeyword = fals
                LTRIM(RTRIM(ISNULL(h.[pass], N'0'))) AS pass
                ${innerExtraSelect}
         FROM ${meta.header} AS h
+        ${keywordJoinSql}
         ${baseWhere}
       `
 
@@ -292,7 +817,8 @@ function buildSourceOrderListSql(inboundType, meta, baseWhere, hasKeyword = fals
                matched.relatedPartyCode,
                matched.pass
                ${['4', '5'].includes(t) ? ', matched.headerPi' : ''}
-               ${['2', '3', '8', '6'].includes(t) ? ', matched.referenceNo' : ''}
+               ${['1', '2', '3', '8', '6'].includes(t) ? ', matched.referenceNo' : ''}
+               ${t === '1' ? ', matched.buyDate, matched.deliveryDate, matched.purchaserName, matched.sourceSystemcode' : ''}
         FROM (${matchedSourceSql}) AS matched
       `
     : matchedSourceSql
@@ -305,6 +831,10 @@ function buildSourceOrderListSql(inboundType, meta, baseWhere, hasKeyword = fals
       ${pageAlias}.relatedPartyCode,
       ${outerSelect},
       ${referenceSelect} AS referenceNo,
+      ${t === '1' ? `${pageAlias}.buyDate,
+      ${pageAlias}.deliveryDate,
+      ${pageAlias}.purchaserName,
+      ${pageAlias}.sourceSystemcode,` : ''}
       ${pageAlias}.pass
     FROM (
       SELECT src.rn,
@@ -377,6 +907,159 @@ function sourceOrderSelectExpressions(inboundType, meta) {
 function toNumber(v) {
   const n = Number(v)
   return Number.isFinite(n) ? n : 0
+}
+
+function purchaseSourceStatKey(orderNo, itemKey) {
+  return `${text(orderNo)}\x1f${text(itemKey)}`
+}
+
+function bindPurchaseSourceStatPairs(req, pairs, orderParamPrefix, itemParamPrefix, orderExpr, itemExpr) {
+  const clauses = []
+  pairs.forEach((pair, index) => {
+    const orderParam = `${orderParamPrefix}${index}`
+    const itemParam = `${itemParamPrefix}${index}`
+    req.input(orderParam, sql.NVarChar(200), pair.orderNo)
+    req.input(itemParam, sql.NVarChar(300), pair.itemKey)
+    clauses.push(`(${orderExpr} = @${orderParam} AND ${itemExpr} = @${itemParam})`)
+  })
+  return clauses.length ? `AND (${clauses.join(' OR ')})` : 'AND 1 = 0'
+}
+
+function uniquePurchaseSourcePairs(rows, itemField) {
+  const seen = new Set()
+  const pairs = []
+  for (const row of rows) {
+    const orderNo = text(row.sourceOrderNo)
+    const itemKey = text(row[itemField])
+    if (!orderNo || !itemKey) continue
+    const key = purchaseSourceStatKey(orderNo, itemKey)
+    if (seen.has(key)) continue
+    seen.add(key)
+    pairs.push({ orderNo, itemKey })
+  }
+  return pairs
+}
+
+async function fetchPurchaseSourceInboundStats(pool, rows) {
+  const pairs = uniquePurchaseSourcePairs(rows, 'sourceLineCode')
+  if (!pairs.length) return new Map()
+  const req = pool.request()
+  const pairSql = bindPurchaseSourceStatPairs(req, pairs, 'inOrder', 'inLine', 'h.[kcan04]', 'l.[kcao02]')
+  const r = await req.query(`
+    SELECT
+      h.[kcan04] AS sourceOrderNo,
+      l.[kcao02] AS sourceLineCode,
+      SUM(CASE WHEN LTRIM(RTRIM(ISNULL(h.[pass], N''))) = N'1' THEN ${safeDecimalExpr('l', 'kcao03')} ELSE 0 END) AS approvedInboundQty,
+      SUM(CASE WHEN LTRIM(RTRIM(ISNULL(h.[pass], N''))) <> N'1' THEN ${safeDecimalExpr('l', 'kcao03')} ELSE 0 END) AS pendingInboundQty
+    FROM ${HEADER_FROM} AS h
+    INNER JOIN ${LINE_FROM} AS l
+      ON l.[kcao01] = h.[kcan01]
+    WHERE (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
+      AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
+      AND h.[kcan03] = 1
+      ${pairSql}
+    GROUP BY h.[kcan04], l.[kcao02]
+  `)
+  return new Map((r.recordset ?? []).map((row) => [purchaseSourceStatKey(row.sourceOrderNo, row.sourceLineCode), row]))
+}
+
+async function fetchPurchaseSourceReturnStats(pool, rows) {
+  const pairs = uniquePurchaseSourcePairs(rows, 'kcaa01')
+  if (!pairs.length) return new Map()
+  const req = pool.request()
+  const pairSql = bindPurchaseSourceStatPairs(req, pairs, 'outOrder', 'outMaterial', 'o.[kcap04]', 'ol.[kcaa01]')
+  const r = await req.query(`
+    SELECT
+      o.[kcap04] AS sourceOrderNo,
+      ol.[kcaa01] AS kcaa01,
+      SUM(${safeDecimalExpr('ol', 'kcaq03')}) AS returnQty
+    FROM ${STOCK_OUT_FROM} AS o
+    INNER JOIN ${STOCK_OUT_LINE_FROM} AS ol
+      ON ol.[kcaq01] = o.[kcap01]
+    WHERE (ISNULL(o.[del], N'') = N'' OR o.[del] = N'0')
+      AND (ISNULL(ol.[del], N'') = N'' OR ol.[del] = N'0')
+      AND o.[kcap03] = 1
+      AND LTRIM(RTRIM(ISNULL(o.[pass], N''))) = N'1'
+      ${pairSql}
+    GROUP BY o.[kcap04], ol.[kcaa01]
+  `)
+  return new Map((r.recordset ?? []).map((row) => [purchaseSourceStatKey(row.sourceOrderNo, row.kcaa01), row]))
+}
+
+async function enrichPurchaseSourceRows(pool, rows) {
+  if (!rows.length) return []
+  const [inboundMap, returnMap] = await Promise.all([
+    fetchPurchaseSourceInboundStats(pool, rows),
+    fetchPurchaseSourceReturnStats(pool, rows),
+  ])
+  return rows.map((row) => {
+    const inbound = inboundMap.get(purchaseSourceStatKey(row.sourceOrderNo, row.sourceLineCode)) || {}
+    const returns = returnMap.get(purchaseSourceStatKey(row.sourceOrderNo, row.kcaa01)) || {}
+    const pendingInboundQty = toNumber(inbound.pendingInboundQty)
+    const approvedInboundQty = toNumber(inbound.approvedInboundQty)
+    const returnQty = toNumber(returns.returnQty)
+    const orderQty = toNumber(row.orderQty)
+    const diffQty = Math.max(orderQty - pendingInboundQty - approvedInboundQty + returnQty, 0)
+    const useUnit = text(row.kcaa04)
+    const buyUnit = text(row.kcaa25)
+    const unitConvertText = !buyUnit || buyUnit === useUnit
+      ? '否'
+      : `${buyUnit} / ${text(row.kcaa27) === '1' ? '使用->采购' : '采购->使用'} / ${row.kcaa26} / ${row.orderQty}`
+    return serializeRow({
+      ...row,
+      pendingInboundQty,
+      approvedInboundQty,
+      returnQty,
+      diffQty,
+      unitConvertText,
+    })
+  })
+}
+
+async function fetchAssistSourceInboundStats(pool, rows) {
+  const pairs = uniquePurchaseSourcePairs(rows, 'sourceLineCode')
+  if (!pairs.length) return new Map()
+  const req = pool.request()
+  const pairSql = bindPurchaseSourceStatPairs(req, pairs, 'assistInOrder', 'assistInLine', 'h.[kcan04]', 'l.[kcao02]')
+  const r = await req.query(buildAssistSourceInboundStatsSql(pairSql))
+  return new Map((r.recordset ?? []).map((row) => [purchaseSourceStatKey(row.sourceOrderNo, row.sourceLineCode), row]))
+}
+
+function buildAssistSourceInboundStatsSql(pairSql) {
+  return `
+    SELECT
+      h.[kcan04] AS sourceOrderNo,
+      l.[kcao02] AS sourceLineCode,
+      SUM(${safeDecimalExpr('l', 'kcao03')}) AS approvedInboundQty
+    FROM ${HEADER_FROM} AS h
+    INNER JOIN ${LINE_FROM} AS l
+      ON l.[kcao01] = h.[kcan01]
+    WHERE (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
+      AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
+      AND h.[kcan03] = 2
+      AND LTRIM(RTRIM(ISNULL(h.[pass], N''))) = N'1'
+      ${pairSql}
+    GROUP BY h.[kcan04], l.[kcao02]
+  `
+}
+
+async function enrichAssistSourceRows(pool, rows) {
+  if (!rows.length) return []
+  const inboundMap = await fetchAssistSourceInboundStats(pool, rows)
+  return rows.map((row) => {
+    const inbound = inboundMap.get(purchaseSourceStatKey(row.sourceOrderNo, row.sourceLineCode)) || {}
+    const approvedInboundQty = toNumber(inbound.approvedInboundQty)
+    const useUnit = text(row.kcaa04)
+    const buyUnit = text(row.kcaa25)
+    const unitConvertText = !buyUnit || buyUnit === useUnit
+      ? '否'
+      : `${buyUnit} / ${text(row.kcaa27) === '1' ? '使用->采购' : '采购->使用'} / ${row.kcaa26} / ${row.orderQty}`
+    return serializeRow({
+      ...row,
+      approvedInboundQty,
+      unitConvertText,
+    })
+  })
 }
 
 function round(n, p = 4) {
@@ -601,13 +1284,24 @@ export function registerStockInRoutes(app, deps) {
         ? `AND (LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([code], N'')))) LIKE @kw OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([name], N'')))) LIKE @kw)`
         : ''
       let sqlText = ''
-      if (['1', '2', '3'].includes(type)) {
+      if (type === '1') {
         sqlText = `
           SELECT TOP 100 LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([s_code], N'')))) AS code,
                  LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(NULLIF([s_name], N''), [name])))) AS name
           FROM ${SUPPLIER_FROM}
           WHERE (ISNULL([del], N'') = N'' OR [del] = N'0')
             AND LTRIM(RTRIM(ISNULL([pass], N''))) = N'1'
+          ${keyword ? `AND (LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([s_code], N'')))) LIKE @kw OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(NULLIF([s_name], N''), [name])))) LIKE @kw)` : ''}
+          ORDER BY [s_code] ASC
+        `
+      } else if (['2', '3'].includes(type)) {
+        sqlText = `
+          SELECT TOP 100 LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([s_code], N'')))) AS code,
+                 LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(NULLIF([s_name], N''), [name])))) AS name
+          FROM ${SUPPLIER_FROM}
+          WHERE (ISNULL([del], N'') = N'' OR [del] = N'0')
+            AND LTRIM(RTRIM(ISNULL([pass], N''))) = N'1'
+            AND LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL([s_lb], N'')))) IN (N'外协', N'共用')
           ${keyword ? `AND (LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([s_code], N'')))) LIKE @kw OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(NULLIF([s_name], N''), [name])))) LIKE @kw)` : ''}
           ORDER BY [s_code] ASC
         `
@@ -732,6 +1426,64 @@ export function registerStockInRoutes(app, deps) {
       }
       const keyword = text(req.query?.keyword)
       const { page, pageSize, startRow, endRow } = sourceOrderPageParams(req.query ?? {})
+      if (inboundType === '1') {
+        const prefetchPages = Math.min(3, Math.max(1, Number.parseInt(req.query?.prefetchPages, 10) || 1))
+        const requestedEndRow = startRow + pageSize * prefetchPages - 1
+        const fetchEndRow = requestedEndRow + 1
+        const keywordSql = buildPurchaseSourceDetailKeywordSqlOptimized(keyword)
+        const listReq = pool.request()
+          .input('startRow', sql.Int, startRow)
+          .input('endRow', sql.Int, fetchEndRow)
+        if (keyword) {
+          listReq.input('kwExact', sql.NVarChar(400), keyword)
+          listReq.input('kwPrefix', sql.NVarChar(400), `${keyword}%`)
+          listReq.input('kw', sql.NVarChar(400), `%${keyword}%`)
+        }
+        const r = await listReq.query(buildPurchaseSourceDetailListSqlOptimized(keywordSql))
+        const rawList = r.recordset ?? []
+        const hasMore = rawList.length > pageSize * prefetchPages
+        const list = await enrichPurchaseSourceRows(pool, rawList.slice(0, pageSize * prefetchPages))
+        const loadedUntilPage = page + Math.max(0, Math.ceil(list.length / pageSize) - 1)
+        const loadedRows = Math.max(0, startRow - 1 + list.length)
+        const total = hasMore ? loadedRows + pageSize : loadedRows
+        res.json({
+          code: 200,
+          msg: 'success',
+          data: { page, pageSize, total, list, hasMore, loadedUntilPage, loadedRows },
+        })
+        return
+      }
+      if (inboundType === '2') {
+        const prefetchPages = Math.min(3, Math.max(1, Number.parseInt(req.query?.prefetchPages, 10) || 1))
+        const requestedEndRow = startRow + pageSize * prefetchPages - 1
+        const fetchEndRow = requestedEndRow + 1
+        const includeUnaudited = ['1', 'true', 'yes'].includes(text(req.query?.includeUnaudited).toLowerCase())
+        const supplierCode = text(req.query?.assistSupplierCode || req.query?.relatedPartyCode)
+        const keywordSql = buildAssistSourceDetailKeywordSql(keyword)
+        const supplierFilterSql = supplierCode ? `AND ${nvarcharTextExpr('h', 'wxaj05', 200)} = @assistSupplierCode` : ''
+        const listReq = pool.request()
+          .input('startRow', sql.Int, startRow)
+          .input('endRow', sql.Int, fetchEndRow)
+        if (keyword) {
+          listReq.input('kwExact', sql.NVarChar(400), keyword)
+          listReq.input('kwPrefix', sql.NVarChar(400), `${keyword}%`)
+          listReq.input('kw', sql.NVarChar(400), `%${keyword}%`)
+        }
+        if (supplierCode) listReq.input('assistSupplierCode', sql.NVarChar(200), supplierCode)
+        const r = await listReq.query(buildAssistSourceDetailListSql({ keywordSql, supplierFilterSql, includeUnaudited }))
+        const rawList = r.recordset ?? []
+        const hasMore = rawList.length > pageSize * prefetchPages
+        const list = await enrichAssistSourceRows(pool, rawList.slice(0, pageSize * prefetchPages))
+        const loadedUntilPage = page + Math.max(0, Math.ceil(list.length / pageSize) - 1)
+        const loadedRows = Math.max(0, startRow - 1 + list.length)
+        const total = hasMore ? loadedRows + pageSize : loadedRows
+        res.json({
+          code: 200,
+          msg: 'success',
+          data: { page, pageSize, total, list, hasMore, loadedUntilPage, loadedRows },
+        })
+        return
+      }
       const countReq = pool.request()
       let keywordSql = ''
       let partyFilterSql = ''
@@ -811,7 +1563,7 @@ export function registerStockInRoutes(app, deps) {
   app.get('/api/stock-in/production-batch-lines', async (req, res) => {
     try {
       const pool = await getPool()
-      const query = { ...(req.query ?? {}), inboundType: '4' }
+      const query = { ...(req.query ?? {}), inboundType: text(req.query?.inboundType) === '5' ? '5' : '4' }
       const result = await fetchStockInProductionBatchLines(pool, query)
       if (!result.ok) {
         res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
@@ -828,7 +1580,8 @@ export function registerStockInRoutes(app, deps) {
         },
       })
     } catch (err) {
-      res.status(500).json({ code: 500, msg: `读取生产入库批量明细失败：${String(err?.message ?? err)}`, data: null })
+      const actionText = text(req.query?.inboundType) === '5' ? '生产退料' : '生产入库'
+      res.status(500).json({ code: 500, msg: `读取${actionText}批量明细失败：${String(err?.message ?? err)}`, data: null })
     }
   })
 

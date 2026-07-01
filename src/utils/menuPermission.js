@@ -110,17 +110,29 @@ export function isPathVisibleForMenu(path, model) {
  * 4) map 后用 filter(Boolean) 去掉 null。
  */
 export function filterMenuTreeByPermission(nodes, model, base = '') {
-  if (model.mode === 'full') {
-    return nodes
-  }
   return nodes
     .map((n) => {
+      if (n.hideInMenu) {
+        return null
+      }
       const path = base ? `${base}/${n.name}` : n.name
+      const permissionPath = String(n.permissionPath || path).trim()
       const rawChildren = n.children?.length ? n.children : null
       const filteredChildren = rawChildren
         ? filterMenuTreeByPermission(rawChildren, model, path)
         : []
-      const selfOk = isPathVisibleForMenu(path, model)
+      if (model.mode === 'full') {
+        const next = { ...n }
+        if (filteredChildren.length > 0) {
+          next.children = filteredChildren
+        } else {
+          delete next.children
+        }
+        return next
+      }
+      const selfOk =
+        isPathVisibleForMenu(path, model) ||
+        (permissionPath !== path && isPathVisibleForMenu(permissionPath, model))
       if (!selfOk && filteredChildren.length === 0) {
         return null
       }

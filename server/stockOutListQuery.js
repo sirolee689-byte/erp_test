@@ -116,6 +116,7 @@ export function buildStockOutListPagedSql(opts) {
       SELECT
         h.[id],
         LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[systemcode], N'')))) AS systemCode,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[systemcode], N'')))) AS systemcode,
         LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcap01], N'')))) AS outboundNo,
         h.[kcap02] AS outboundDate,
         LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(h.[kcap03], N'')))) AS outboundType,

@@ -100,6 +100,21 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'GET' && path === '/api/sys/logs') {
     return { menuPath: 'system/logs', action: 'view' }
   }
+  if (m === 'GET' && path === '/api/system/kernel/mail-config') {
+    return { menuPath: 'system/kernel/erp-core', action: 'view' }
+  }
+  if (m === 'PUT' && path === '/api/system/kernel/mail-config') {
+    return { menuPath: 'system/kernel/erp-core', action: 'edit' }
+  }
+  if (m === 'GET' && path === '/api/system/kernel/print-config') {
+    return { menuPath: 'system/kernel/erp-core', action: 'view' }
+  }
+  if (m === 'PUT' && path === '/api/system/kernel/print-config') {
+    return { menuPath: 'system/kernel/erp-core', action: 'edit' }
+  }
+  if (m === 'POST' && path === '/api/system/kernel/print-image') {
+    return { menuPath: 'system/kernel/erp-core', action: 'edit' }
+  }
 
   /* v1.0.8：人力资源 — 部门资料（菜单 path与 erp_structure_dump 一致：hr/files/department） */
   if (m === 'GET' && path === '/api/hr/departments') {
@@ -763,6 +778,7 @@ export function matchApiPermissionRule(method, path, body, params) {
       '/api/stock-out/source-lines',
       '/api/stock-out/print-data',
       '/api/stock-out/inventory-summary',
+      '/api/stock-out/material-trace/list',
     ].includes(path)
   ) {
     return { menuPath: 'inventory/daily/stock-out', action: 'view' }

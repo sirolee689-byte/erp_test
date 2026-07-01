@@ -9,6 +9,7 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import multer from 'multer'
 import { getPool, sql } from './db.js'
 import crypto from 'node:crypto'
@@ -52,6 +53,8 @@ import { registerBuyOrderRoutes } from './buyOrderHandlers.js'
 import { registerDispatchOrderRoutes } from './dispatchOrderHandlers.js'
 import { registerStockInRoutes } from './stockInHandlers.js'
 import { registerStockOutRoutes } from './stockOutHandlers.js'
+import { registerSystemMailConfigRoutes } from './systemMailConfigHandlers.js'
+import { registerSystemPrintConfigRoutes } from './systemPrintConfigHandlers.js'
 import { registerBomRoutes } from './bom/registerBomRoutes.js'
 import {
   BOM_COST_TABLE,
@@ -75,14 +78,29 @@ import { handlePostPaperPatternImportCommitBom000 } from './paperPatternImportCo
 import { handlePostPaperPatternImportDeleteBomTree } from './paperPatternImportDeleteBomTree.js'
 import { decodePaperPatternUploadFileName } from './paperPatternUploadFileName.js'
 import { parsePaperPatternImportTreeFromBuffer } from './paperPatternImportParse.js'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+// 后端可能从仓库根目录、server 目录或服务器进程管理器启动：
+// 1. 先读启动目录 .env，兼容部署脚本；
+// 2. 再读代码所在项目根目录 .env，兼容本地误从 server 目录启动；
+// dotenv 默认不覆盖已经存在的系统环境变量，服务器上直接注入的密钥优先保留。
 dotenv.config()
+dotenv.config({ path: path.resolve(__dirname, '../.env') })
 
 const app = express()
+const systemKernelImageDir = path.resolve(
+  process.env.ERP_PRINT_IMAGE_DIR || path.resolve(__dirname, '../public/system-kernel-images'),
+)
+const systemKernelImageUrlPrefix =
+  String(process.env.ERP_PRINT_IMAGE_URL_PREFIX || '').trim() || '/system-kernel-images'
 
 // 说明：
 // - 开发阶段前端通过 Vite 代理 /api，不会跨域
 // - 但如果你单独访问后端，保留 cors 也更稳妥
 app.use(cors())
+// 系统内核图片预览：默认落在 public/system-kernel-images，也可用 .env 指到服务器固定 LOGO 目录。
+app.use(systemKernelImageUrlPrefix, express.static(systemKernelImageDir))
 // v1.1.2：批量更新需要上传 Excel（base64），默认 100kb 不够用
 app.use(express.json({ limit: '20mb' }))
 
@@ -12056,6 +12074,8 @@ registerBuyOrderRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerDispatchOrderRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerStockInRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerStockOutRoutes(app, { getPool, getActorAuditTripletFromReq })
+registerSystemMailConfigRoutes(app, { getPool })
+registerSystemPrintConfigRoutes(app, { getPool })
 registerPiBomDataRoutes(app, { getPool })
 registerBomRoutes(app, {
   escapeSqlLikePattern,
@@ -12126,8 +12146,10 @@ app.listen(port, () => {
   console.log(`StockIn-Detail-TaxMap-v1.1.1 ${bootAt} 明细 Tax→tax；外协退料 kcan08 可空`)
   console.log(`StockIn-CustomerSupply-v1.1.2 ${bootAt} 明细 Customer_supply 整型落库；批量添加展示 customerSupplyLabel`)
   console.log(`StockIn-ProductionBatch-v1.1.2 ${bootAt} stock-line-meta-kcaq02-outbound`)
+  console.log(`StockIn-SaveAutoAudit-v1.1.3 ${bootAt} edit-save-pass1-all-types`)
   console.log(`StockIn-SourceOrderPage-v1.0.3 ${bootAt} GET /api/stock-in/source-order-page -> fix-purchase-double-as-referenceNo`)
-  console.log(`StockIn-ProductionDispatchPick-v1.2.0 ${bootAt} qual-lines-reverse-join`)
+  console.log(`StockIn-ProductionDispatchPick-v1.2.1 ${bootAt} kw-headers-count-over-no-return-agg-type4`)
+  console.log(`StockIn-WarehouseDefault+ProductionReturnBatch-v1.2.2 ${bootAt} type4-fg-warehouse-type5-batch-legacy-msgs`)
   console.log(`Electric-Days-Weight-v1.1.9-Active ${bootAt}`)
   console.log(`Electric-Report-Force-Display-Fixed-v1.1.6 ${bootAt}`)
   console.log(`[启动指纹] v1.1.3-ElectricFee-Fix bootAt=${bootAt}`)

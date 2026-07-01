@@ -24,7 +24,7 @@ function walkRoutes(nodes, base = '') {
         path: full,
         name: full.replace(/\//g, '-'),
         component: comp,
-        meta: { title: n.title },
+        meta: { title: n.title, ...(n.permissionPath ? { permissionPath: n.permissionPath } : {}) },
       })
     }
     if (n.children?.length) {
@@ -171,6 +171,20 @@ const stockOutFinishedGoodsBatchWindowRoute = {
   meta: { title: '成品出库批量添加', permissionPath: '/inventory/daily/stock-out' },
 }
 
+const stockOutMaterialTraceWindowRoute = {
+  path: '/inventory/daily/stock-out-material-trace-window',
+  name: 'inventory-daily-stock-out-material-trace-window',
+  component: () => import('@/views/inventory/daily/stock-out/material-trace-window.vue'),
+  meta: { title: '出库单转向物料查询', permissionPath: '/inventory/daily/stock-out' },
+}
+
+const stockOutPrintRoute = {
+  path: '/inventory/daily/stock-out-print',
+  name: 'inventory-daily-stock-out-print',
+  component: () => import('@/views/inventory/daily/stock-out/print.vue'),
+  meta: { title: '打印出库单', permissionPath: '/inventory/daily/stock-out' },
+}
+
 const childRoutes = [
   ...walkRoutes(menuStructure),
   paperPatternImportPreviewRoute,
@@ -216,6 +230,8 @@ const router = createRouter({
     stockOutAssistIssueBatchWindowRoute,
     stockOutProductionIssueBatchWindowRoute,
     stockOutFinishedGoodsBatchWindowRoute,
+    stockOutMaterialTraceWindowRoute,
+    stockOutPrintRoute,
     {
       path: '/',
       component: ErpLayout,

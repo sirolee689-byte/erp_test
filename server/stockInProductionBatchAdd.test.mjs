@@ -10,7 +10,7 @@ import {
   validateProductionDispatchHeader,
 } from './stockInProductionBatchAdd.js'
 
-function fakePool(headerRow) {
+function fakePool(headerRow, options = {}) {
   const calls = []
   const header = headerRow ?? {
     scaj01: 'PG-001',
@@ -20,6 +20,7 @@ function fakePool(headerRow) {
     pass: '1',
     systemcode: 'SYS-001',
   }
+  const lineTotal = options.lineTotal ?? 1
   return {
     calls,
     request() {
@@ -48,10 +49,11 @@ function fakePool(headerRow) {
             return { recordset: [] }
           }
           if (/UB_ERP_Dispatch_order/i.test(sqlText) && /TOP 1/i.test(sqlText)) {
+            if (options.headerMissing) return { recordset: [] }
             return { recordset: [header] }
           }
           if (/COUNT\(1\)/i.test(sqlText)) {
-            return { recordset: [{ total: 1 }] }
+            return { recordset: [{ total: lineTotal }] }
           }
           if (/WITH base AS/i.test(sqlText)) {
             return {
@@ -169,6 +171,76 @@ describe('stockInProductionBatchAdd', () => {
     assert.equal(result.list[0].kcao04, 0)
     assert.equal(result.list[0].tax, 0)
     assert.equal(result.list[0].selectable, true)
+  })
+
+  test('fetchStockInProductionBatchLines uses inbound type 5 for production return', async () => {
+    const pool = fakePool()
+    const result = await fetchStockInProductionBatchLines(pool, {
+      inboundType: '5',
+      sourceOrderNo: 'PG-001',
+      workshopCode: 'CJ01',
+      dispatchSystemcode: 'SYS-001',
+      page: '1',
+      pageSize: '20',
+    })
+    assert.equal(result.ok, true)
+    assert.equal(result.list[0].kcao02, 'SCAK-001')
+    assert.equal(result.list[0].actualReturnQty, 30)
+    assert.ok(pool.calls.some((call) => call.inputs?.inboundType === '5'), '生产退料批量添加应按 kcan03=5 统计已退料')
+  })
+
+  test('fetchStockInProductionBatchLines type 5 requires dispatchSystemcode', async () => {
+    const pool = fakePool()
+    const result = await fetchStockInProductionBatchLines(pool, {
+      inboundType: '5',
+      sourceOrderNo: 'PG-001',
+      workshopCode: 'CJ01',
+      page: '1',
+      pageSize: '20',
+    })
+    assert.equal(result.ok, false)
+    assert.equal(result.msg, '参数错误！')
+  })
+
+  test('fetchStockInProductionBatchLines type 5 returns legacy message when header missing', async () => {
+    const pool = fakePool(null, { headerMissing: true })
+    const result = await fetchStockInProductionBatchLines(pool, {
+      inboundType: '5',
+      sourceOrderNo: 'PG-001',
+      workshopCode: 'CJ01',
+      dispatchSystemcode: 'SYS-001',
+      page: '1',
+      pageSize: '20',
+    })
+    assert.equal(result.ok, false)
+    assert.equal(result.msg, '数据不存在,请联系IT部检查!')
+  })
+
+  test('fetchStockInProductionBatchLines type 5 returns legacy message when no dispatch lines', async () => {
+    const pool = fakePool(null, { lineTotal: 0 })
+    const result = await fetchStockInProductionBatchLines(pool, {
+      inboundType: '5',
+      sourceOrderNo: 'PG-001',
+      workshopCode: 'CJ01',
+      dispatchSystemcode: 'SYS-001',
+      page: '1',
+      pageSize: '20',
+    })
+    assert.equal(result.ok, false)
+    assert.equal(result.msg, '此订单无清单数据,请检查订单数据!')
+  })
+
+  test('fetchStockInProductionBatchLines type 4 still works without dispatchSystemcode', async () => {
+    const pool = fakePool()
+    const result = await fetchStockInProductionBatchLines(pool, {
+      inboundType: '4',
+      sourceOrderNo: 'PG-001',
+      workshopCode: 'CJ01',
+      page: '1',
+      pageSize: '20',
+    })
+    assert.equal(result.ok, true)
+    assert.equal(result.list.length, 1)
   })
 
   test('fetchStockInProductionBatchLines requires workshop', async () => {

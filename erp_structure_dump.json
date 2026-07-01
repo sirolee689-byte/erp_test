@@ -1,5 +1,5 @@
 [
-  {
+  { 
     "name": "system",
     "title": "系统管理",
     "children": [
@@ -7,23 +7,24 @@
       { "name": "role", "title": "角色管理" },
       { "name": "logs", "title": "操作日志" },
       { 
-        "name": "related", 
-        "title": "系统相关", 
+        "name": "related",
+        "title": "系统相关",
         "children": [
           { "name": "features", "title": "系统功能" },
           { "name": "forms", "title": "系统表单" }
         ]
       },
       { 
-        "name": "kernel", 
-        "title": "系统内核", 
+        "name": "kernel",
+        "title": "系统内核",
         "children": [
-          { "name": "erp-core", "title": "ERP内核" }
+          { "name": "erp-core", "title": "ERP内核" },
+          { "name": "print-setting", "title": "打印设定", "permissionPath": "system/kernel/erp-core", "hideInMenu": true }
         ]
       }
     ]
   },
-  {
+  { 
     "name": "canteen",
     "title": "智能饭堂",
     "children": [
@@ -34,11 +35,11 @@
       { "name": "reports", "title": "统计报表" }
     ]
   },
-  {
+  { 
     "name": "supply-chain",
     "title": "销售/采购/外协管理",
     "children": [
-      {
+      { 
         "name": "basic",
         "title": "基本资料",
         "children": [
@@ -47,7 +48,7 @@
           { "name": "customers", "title": "销售客户" }
         ]
       },
-      {
+      { 
         "name": "daily",
         "title": "日常工作",
         "children": [
@@ -60,7 +61,7 @@
           { "name": "sales-order", "title": "销售订单" }
         ]
       },
-      {
+      { 
         "name": "analysis",
         "title": "统计分析",
         "children": [
@@ -74,11 +75,11 @@
       }
     ]
   },
-  {
+  { 
     "name": "inventory",
     "title": "库存管理",
     "children": [
-      {
+      { 
         "name": "basic",
         "title": "基本资料",
         "children": [
@@ -92,7 +93,7 @@
           { "name": "workshop-dept", "title": "车间与部门编码" }
         ]
       },
-      {
+      { 
         "name": "daily",
         "title": "日常工作",
         "children": [
@@ -102,7 +103,7 @@
           { "name": "transfer", "title": "调拨单" }
         ]
       },
-      {
+      { 
         "name": "analysis",
         "title": "统计分析",
         "children": [
@@ -113,11 +114,11 @@
       }
     ]
   },
-  {
+  { 
     "name": "production",
     "title": "生产管理",
     "children": [
-      {
+      { 
         "name": "daily",
         "title": "日常工作",
         "children": [
@@ -128,7 +129,7 @@
           { "name": "work-hour-report", "title": "工时汇报" }
         ]
       },
-      {
+      { 
         "name": "analysis",
         "title": "统计分析",
         "children": [
@@ -143,11 +144,11 @@
       }
     ]
   },
-  {
+  { 
     "name": "hr",
     "title": "人力资源管理",
     "children": [
-      {
+      { 
         "name": "files",
         "title": "档案管理",
         "children": [
@@ -155,7 +156,7 @@
           { "name": "employee-files", "title": "员工档案资料" }
         ]
       },
-      {
+      { 
         "name": "dormitory",
         "title": "宿舍管理",
         "children": [
@@ -164,7 +165,7 @@
           { "name": "electric-report", "title": "宿舍电费情况统计报表" }
         ]
       },
-      {
+      { 
         "name": "attendance",
         "title": "考勤管理",
         "children": [
@@ -175,7 +176,7 @@
       }
     ]
   },
-  {
+  { 
     "name": "paper-pattern",
     "title": "纸格资料",
     "children": [

@@ -240,9 +240,9 @@ async function validateSourceOrder(pool, header, related) {
   return { ok: true }
 }
 
-export function __resolveStockInSaveApprovalForTest(id = null) {
-  const autoApprove = !id
-  return { autoApprove, pass: autoApprove ? '1' : '0' }
+/** 入库单保存一律自动审核（新增与待审核编辑相同口径） */
+export function __resolveStockInSaveApprovalForTest() {
+  return { autoApprove: true, pass: '1' }
 }
 
 async function fetchMaterialSnapshot(pool, materialCode) {
@@ -347,7 +347,7 @@ async function saveStockIn({ pool, body, req: httpReq, actor, id = null }) {
   const source = await validateSourceOrder(pool, header, related)
   if (!source.ok) return { ok: false, status: 400, msg: source.msg }
 
-  const { autoApprove, pass } = __resolveStockInSaveApprovalForTest(id)
+  const { autoApprove, pass } = __resolveStockInSaveApprovalForTest()
   const saveDate = new Date()
   const receiptNo = id ? existing.receiptNo : await resolveFinalReceiptNo(pool, saveDate)
   const systemCode = id ? existing.systemCode : buildStockInSystemCode(actor, saveDate)
@@ -382,6 +382,10 @@ async function saveStockIn({ pool, body, req: httpReq, actor, id = null }) {
         UPDATE ${HEADER_FROM}
         SET [kcan02]=@kcan02, [kcan03]=@kcan03, [kcan04]=@kcan04, [kcan05]=@kcan05, [kcan06]=@kcan06,
             [ck]=@ck, [kcan07]=@kcan07, [kcan08]=@kcan08, [kehu]=@kehu, [in_tax]=@in_tax, [remark]=@remark,
+            [pass]=@pass,
+            [passuid]=CASE WHEN @pass=N'1' THEN @uid ELSE NULL END,
+            [passuname]=CASE WHEN @pass=N'1' THEN @uname ELSE NULL END,
+            [shtime]=CASE WHEN @pass=N'1' THEN @now ELSE NULL END,
             [uid]=@uid, [uname]=@uname, [utruename]=@utruename, [edittime]=@now, [ip]=@ip
         WHERE [id]=@id
       `)
@@ -407,7 +411,9 @@ async function saveStockIn({ pool, body, req: httpReq, actor, id = null }) {
     }
     await insertLines(tx, { pool, receiptNo, sourceOrderNo: header.sourceOrderNo, pass, lines, actor, ip })
     await writeStockInOperationLog(tx, {
-      actName: id ? '修改入库单' : autoApprove ? '新增入库单并自动审核' : '新增入库单',
+      actName: id
+        ? (autoApprove ? '修改入库单并自动审核' : '修改入库单')
+        : (autoApprove ? '新增入库单并自动审核' : '新增入库单'),
       info: buildStockInLogInfo({ receiptNo, sourceOrderNo: header.sourceOrderNo, actor }),
       actor: { ...actor, ip },
       receiptNo,

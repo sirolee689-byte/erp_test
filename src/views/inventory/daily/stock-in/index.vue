@@ -5,10 +5,6 @@
       <el-button v-permission="'add'" :type="pageMode === 'form' && !editId ? 'primary' : 'default'" plain @click="newReceipt">
         入库单添加
       </el-button>
-      <el-button plain @click="showTodo('搜索入库单请直接使用列表上方查询条件')">搜索入库单</el-button>
-      <el-button plain :type="showRecycle ? 'primary' : 'default'" @click="toggleRecycle">恢复入库单</el-button>
-      <el-button plain @click="showUnaudited = true; showRecycle = false; loadList()">审核申请</el-button>
-      <el-button v-permission="'export'" plain @click="showTodo('真实 Excel 导出待开发，后续由后端生成并遵守价格权限')">导出信息</el-button>
       <el-button plain @click="showTodo('超量入库配置待开发，第一版默认严控超量')">超量入库配置</el-button>
     </div>
 
@@ -35,7 +31,7 @@
             />
           </el-select>
           <el-select v-model="filters.inboundType" clearable class="stock-filter-type" placeholder="入库类型">
-            <el-option v-for="opt in inboundTypeOptions" :key="opt.value" :label="opt.label" :value="opt.value" :disabled="opt.value === '8'" />
+            <el-option v-for="opt in filterInboundTypeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
           </el-select>
         </div>
         <div class="stock-filter-row stock-filter-row--bottom">
@@ -115,13 +111,25 @@
                 <el-table-column label="规格" prop="kcaa03" min-width="140" show-overflow-tooltip />
                 <el-table-column label="颜色" prop="kcaa11" min-width="100" show-overflow-tooltip />
                 <el-table-column label="单位" prop="kcaa04" width="80" />
-                <el-table-column label="入库数量" prop="kcao03" width="110" align="right" />
+                <el-table-column label="入库数量" prop="kcao03" width="110" align="right">
+                  <template #default="{ row: line }">{{ formatTrimNumber(line.kcao03) }}</template>
+                </el-table-column>
                 <template v-if="hasPricePermission">
-                  <el-table-column label="单价" prop="kcao04" width="110" align="right" />
-                  <el-table-column label="单价（含税）" prop="kcao041" width="130" align="right" />
-                  <el-table-column label="金额" prop="kcao05" width="110" align="right" />
-                  <el-table-column label="金额（含税）" prop="kcao051" width="130" align="right" />
-                  <el-table-column label="税点" prop="tax" width="100" align="right" />
+                  <el-table-column label="单价" prop="kcao04" width="110" align="right">
+                    <template #default="{ row: line }">{{ formatTrimNumber(line.kcao04) }}</template>
+                  </el-table-column>
+                  <el-table-column label="单价（含税）" prop="kcao041" width="130" align="right">
+                    <template #default="{ row: line }">{{ formatTrimNumber(line.kcao041) }}</template>
+                  </el-table-column>
+                  <el-table-column label="金额" prop="kcao05" width="110" align="right">
+                    <template #default="{ row: line }">{{ formatLineAmount(line.kcao05, row.inboundType) }}</template>
+                  </el-table-column>
+                  <el-table-column label="金额（含税）" prop="kcao051" width="130" align="right">
+                    <template #default="{ row: line }">{{ formatLineAmount(line.kcao051, row.inboundType) }}</template>
+                  </el-table-column>
+                  <el-table-column label="税点" prop="tax" width="100" align="right">
+                    <template #default="{ row: line }">{{ formatTrimNumber(line.tax) }}</template>
+                  </el-table-column>
                 </template>
                 <el-table-column label="PO/PI" prop="reference" min-width="120" show-overflow-tooltip />
                 <el-table-column label="备注" prop="Describe" min-width="180" show-overflow-tooltip />
@@ -319,7 +327,15 @@
             <el-button type="danger" plain :disabled="!lines.length" @click="removeAllLines">删除全部明细</el-button>
           </div>
 
-          <el-table :data="lines" border stripe row-key="__key" class="erp-list-table">
+          <el-table
+            ref="linesTableRef"
+            v-erp-list-h-scroll
+            :data="lines"
+            border
+            stripe
+            row-key="__key"
+            class="erp-list-table stock-form-lines-table"
+          >
             <el-table-column label="选择" fixed="left" width="90" align="center" class-name="erp-col-actions">
               <template #default="{ row }">
                 <el-button
@@ -338,31 +354,31 @@
             <el-table-column label="规格" prop="kcaa03" min-width="140" show-overflow-tooltip />
             <el-table-column label="颜色" prop="kcaa11" min-width="100" show-overflow-tooltip />
             <el-table-column label="单位" prop="kcaa04" width="80" />
-            <el-table-column label="可入库" width="110" align="right">
-              <template #default="{ row }">{{ row.availableQty ?? '—' }}</template>
-            </el-table-column>
             <el-table-column label="入库数量" width="130">
               <template #default="{ row }">
-                <el-input-number v-model="row.kcao03" :min="0" :precision="2" controls-position="right" @change="recalcLine(row)" />
+                <el-input-number v-model="row.kcao03" :min="0" :formatter="formatTrimNumber" :parser="parseTrimNumber" controls-position="right" @change="recalcLine(row)" />
               </template>
             </el-table-column>
             <template v-if="hasPricePermission">
-              <el-table-column label="不含税单价" width="140">
-                <template #default="{ row }"><el-input-number v-model="row.kcao04" :precision="4" controls-position="right" @change="recalcLine(row)" /></template>
+              <el-table-column label="单价" width="140">
+                <template #default="{ row }"><el-input-number v-model="row.kcao04" :formatter="formatTrimNumber" :parser="parseTrimNumber" controls-position="right" @change="recalcLine(row)" /></template>
               </el-table-column>
               <el-table-column label="税点" width="120">
-                <template #default="{ row }"><el-input-number v-model="row.tax" :min="0" :precision="4" controls-position="right" @change="recalcLine(row)" /></template>
+                <template #default="{ row }"><el-input-number v-model="row.tax" :min="0" :formatter="formatTrimNumber" :parser="parseTrimNumber" controls-position="right" @change="recalcLine(row)" /></template>
               </el-table-column>
-              <el-table-column label="含税单价" width="140">
-                <template #default="{ row }"><el-input-number v-model="row.kcao041" :precision="4" controls-position="right" @change="recalcLineFromTaxPrice(row)" /></template>
+              <el-table-column label="单价（含税）" width="140">
+                <template #default="{ row }"><el-input-number v-model="row.kcao041" :formatter="formatTrimNumber" :parser="parseTrimNumber" controls-position="right" @change="recalcLineFromTaxPrice(row)" /></template>
               </el-table-column>
-              <el-table-column label="不含税金额" prop="kcao05" width="120" align="right" />
-              <el-table-column label="含税金额" prop="kcao051" width="120" align="right" />
+              <el-table-column label="金额" prop="kcao05" width="120" align="right">
+                <template #default="{ row }">{{ formatLineAmount(row.kcao05, form.inboundType) }}</template>
+              </el-table-column>
+              <el-table-column label="金额（含税）" prop="kcao051" width="120" align="right">
+                <template #default="{ row }">{{ formatLineAmount(row.kcao051, form.inboundType) }}</template>
+              </el-table-column>
             </template>
-            <el-table-column label="库位" width="130">
-              <template #default="{ row }"><el-input v-model="row.location" /></template>
+            <el-table-column label="PO/PI" width="140">
+              <template #default="{ row }"><el-input v-model="row.reference" /></template>
             </el-table-column>
-            <el-table-column label="版本" prop="version" width="110" show-overflow-tooltip />
             <el-table-column label="备注" min-width="180">
               <template #default="{ row }"><el-input v-model="row.info" /></template>
             </el-table-column>
@@ -390,10 +406,16 @@
           <el-table-column label="规格" prop="kcaa03" min-width="140" />
           <el-table-column label="颜色" prop="kcaa11" width="100" />
           <el-table-column label="单位" prop="kcaa04" width="80" />
-          <el-table-column label="数量" prop="kcao03" width="100" align="right" />
+          <el-table-column label="数量" prop="kcao03" width="100" align="right">
+            <template #default="{ row }">{{ formatTrimNumber(row.kcao03) }}</template>
+          </el-table-column>
           <template v-if="hasPricePermission">
-            <el-table-column label="不含税单价" prop="kcao04" width="120" align="right" />
-            <el-table-column label="含税金额" prop="kcao051" width="120" align="right" />
+            <el-table-column label="单价" prop="kcao04" width="120" align="right">
+              <template #default="{ row }">{{ formatTrimNumber(row.kcao04) }}</template>
+            </el-table-column>
+            <el-table-column label="金额（含税）" prop="kcao051" width="120" align="right">
+              <template #default="{ row }">{{ formatLineAmount(row.kcao051, detail.header?.kcan03) }}</template>
+            </el-table-column>
           </template>
           <el-table-column label="库位" prop="location" width="120" />
           <el-table-column label="备注" prop="Describe" min-width="160" />
@@ -427,13 +449,35 @@
     <el-dialog
       v-model="sourceDialog.visible"
       :title="sourceDialogTitle"
-      :width="isProductionDispatchPick ? '96%' : '920px'"
+      :width="sourceDialogWidth"
       class="source-order-dialog"
       :class="{ 'source-order-dialog--production': isProductionDispatchPick }"
     >
       <div class="source-order-toolbar">
-        <el-input v-model="sourceDialog.keyword" clearable :placeholder="sourceDialogSearchPlaceholder" @keyup.enter="searchSourceOrders" />
-        <el-button type="primary" @click="searchSourceOrders">查询</el-button>
+        <el-select
+          v-if="isAssistSourcePick"
+          v-model="sourceDialog.assistSupplierCode"
+          filterable
+          remote
+          clearable
+          :remote-method="loadSourceDialogAssistSuppliers"
+          :loading="sourceDialog.assistSupplierLoading"
+          :disabled="sourceDialog.loading"
+          placeholder="外协商"
+          class="source-order-supplier-select"
+          @change="onSourceOrderAssistSupplierChange"
+        >
+          <el-option v-for="item in sourceDialog.assistSupplierOptions" :key="item.code" :label="`${item.code} ${item.name}`" :value="item.code" />
+        </el-select>
+        <el-input v-model="sourceDialog.keyword" clearable :disabled="sourceDialog.loading" :placeholder="sourceDialogSearchPlaceholder" @keyup.enter="searchSourceOrders" />
+        <el-switch
+          v-if="isAssistSourcePick"
+          v-model="sourceDialog.includeUnaudited"
+          :disabled="sourceDialog.loading"
+          active-text="显示未审"
+          @change="onSourceOrderAssistIncludeUnauditedChange"
+        />
+        <el-button type="primary" :loading="sourceDialog.loading" :disabled="sourceDialog.loading" @click="searchSourceOrders">查询</el-button>
       </div>
       <div v-if="isWorkshopPickType && form.relatedPartyCode && !isProductionDispatchPick" class="source-order-workshop-hint">
         当前车间：{{ form.relatedPartyCode }} {{ form.relatedPartyName }}
@@ -446,6 +490,7 @@
         stripe
         max-height="calc(100vh - 280px)"
         class="production-dispatch-pick-table"
+        :empty-text="form.inboundType === '4' && !String(sourceDialog.keyword || '').trim() ? '请输入派工单号或PI号后查询' : '暂无数据'"
       >
         <el-table-column label="操作" width="110" align="center" fixed="left">
           <template #default="{ row }">
@@ -473,8 +518,109 @@
         <el-table-column label="规格" prop="kcaa03" min-width="120" show-overflow-tooltip />
         <el-table-column label="单位" prop="kcaa04" width="80" show-overflow-tooltip />
         <el-table-column label="派工数量" prop="dispatchQty" width="100" align="right" />
-        <el-table-column label="已入库数量" prop="inboundQty" width="110" align="right" />
+        <el-table-column :label="productionPickQtyLabel" prop="inboundQty" width="110" align="right">
+          <template #default="{ row }">{{ form.inboundType === '5' ? row.returnedQty : row.inboundQty }}</template>
+        </el-table-column>
         <el-table-column label="返修数量" prop="repairQty" width="100" align="right" />
+      </el-table>
+      <el-table
+        v-else-if="isPurchaseSourcePick"
+        v-loading="sourceDialog.loading"
+        :data="sourceDialog.list"
+        border
+        stripe
+        max-height="calc(100vh - 280px)"
+        class="purchase-source-detail-table"
+      >
+        <el-table-column label="操作" width="100" align="center" fixed="left">
+          <template #default="{ row }">
+            <el-button v-if="Number(row.groupRowNo) === 1" size="small" type="primary" plain @click="chooseSourceOrder(row)">关联选择</el-button>
+          </template>
+        </el-table-column>
+        <el-table-column label="采购单号" min-width="150" fixed="left" show-overflow-tooltip>
+          <template #default="{ row }">{{ Number(row.groupRowNo) === 1 ? row.sourceOrderNo : '' }}</template>
+        </el-table-column>
+        <el-table-column label="材料编码" prop="kcaa01" min-width="150" show-overflow-tooltip />
+        <el-table-column label="材料名称" prop="kcaa02" min-width="150" show-overflow-tooltip />
+        <el-table-column label="规格" prop="kcaa03" min-width="120" show-overflow-tooltip />
+        <el-table-column label="采购数量" prop="orderQty" width="110" align="right">
+          <template #default="{ row }">{{ formatTrimNumber(row.orderQty) }}</template>
+        </el-table-column>
+        <template v-if="hasPricePermission">
+          <el-table-column label="单价" prop="unitPrice" width="110" align="right">
+            <template #default="{ row }">{{ formatTrimNumber(row.unitPrice) }}</template>
+          </el-table-column>
+          <el-table-column label="单价(含税)" prop="unitPriceTax" width="120" align="right">
+            <template #default="{ row }">{{ formatTrimNumber(row.unitPriceTax) }}</template>
+          </el-table-column>
+          <el-table-column label="金额" prop="amount" width="110" align="right">
+            <template #default="{ row }">{{ formatTrimNumber(row.amount) }}</template>
+          </el-table-column>
+          <el-table-column label="金额(含税)" prop="amountTax" width="120" align="right">
+            <template #default="{ row }">{{ formatTrimNumber(row.amountTax) }}</template>
+          </el-table-column>
+        </template>
+        <el-table-column label="入库单未审数" prop="pendingInboundQty" width="120" align="right">
+          <template #default="{ row }">{{ formatTrimNumber(row.pendingInboundQty) }}</template>
+        </el-table-column>
+        <el-table-column label="已入库数量" prop="approvedInboundQty" width="120" align="right">
+          <template #default="{ row }">{{ formatTrimNumber(row.approvedInboundQty) }}</template>
+        </el-table-column>
+        <el-table-column label="退货数量" prop="returnQty" width="110" align="right">
+          <template #default="{ row }">{{ formatTrimNumber(row.returnQty) }}</template>
+        </el-table-column>
+        <el-table-column label="差数" prop="diffQty" width="100" align="right">
+          <template #default="{ row }">
+            <span :class="{ 'source-diff-positive': Number(row.diffQty || 0) > 0 }">{{ formatTrimNumber(row.diffQty) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="是否存在转换数据" prop="unitConvertText" min-width="190" show-overflow-tooltip />
+      </el-table>
+      <el-table
+        v-else-if="isAssistSourcePick"
+        v-loading="sourceDialog.loading"
+        :data="sourceDialog.list"
+        border
+        stripe
+        max-height="calc(100vh - 280px)"
+        class="assist-source-detail-table"
+      >
+        <el-table-column label="操作" width="100" align="center" fixed="left">
+          <template #default="{ row }">
+            <el-button v-if="Number(row.groupRowNo) === 1 && row.pass === '1'" size="small" type="primary" plain @click="chooseSourceOrder(row)">关联选择</el-button>
+            <el-tag v-else-if="Number(row.groupRowNo) === 1" type="warning" size="small">未审</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="外协单号" min-width="150" fixed="left" show-overflow-tooltip>
+          <template #default="{ row }">{{ Number(row.groupRowNo) === 1 ? row.sourceOrderNo : '' }}</template>
+        </el-table-column>
+        <el-table-column label="外协日期" min-width="110" show-overflow-tooltip>
+          <template #default="{ row }">{{ formatDate(row.assistDate) }}</template>
+        </el-table-column>
+        <el-table-column label="供应商" min-width="190" show-overflow-tooltip>
+          <template #default="{ row }">{{ Number(row.groupRowNo) === 1 ? row.relatedPartyName || '' : '' }}</template>
+        </el-table-column>
+        <el-table-column label="关联单号" prop="referenceNo" min-width="140" show-overflow-tooltip />
+        <el-table-column label="是否含税" width="90" align="center">
+          <template #default="{ row }">
+            <span v-if="String(row.inTax || '').trim() === '1'" class="source-tax-yes">√</span>
+            <span v-else>×</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="备注" prop="remark" min-width="150" show-overflow-tooltip />
+        <el-table-column label="材料编码" prop="kcaa01" min-width="150" show-overflow-tooltip />
+        <el-table-column label="材料名称" prop="kcaa02" min-width="150" show-overflow-tooltip />
+        <el-table-column label="规格" prop="kcaa03" min-width="120" show-overflow-tooltip />
+        <el-table-column label="外协数量" prop="orderQty" width="110" align="right">
+          <template #default="{ row }">{{ formatTrimNumber(row.orderQty) }}</template>
+        </el-table-column>
+        <el-table-column label="入库数量" prop="approvedInboundQty" width="110" align="right">
+          <template #default="{ row }">{{ formatTrimNumber(row.approvedInboundQty) }}</template>
+        </el-table-column>
+        <el-table-column label="出库数量" prop="outboundQty" width="110" align="right">
+          <template #default="{ row }">{{ formatTrimNumber(row.outboundQty) }}</template>
+        </el-table-column>
+        <el-table-column label="是否存在转换数据" prop="unitConvertText" min-width="190" show-overflow-tooltip />
       </el-table>
       <el-table v-else v-loading="sourceDialog.loading" :data="sourceDialog.list" border stripe>
         <el-table-column label="操作" width="100" align="center" fixed="left">
@@ -489,13 +635,20 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="单号" prop="sourceOrderNo" min-width="170" show-overflow-tooltip />
+        <el-table-column :label="sourceOrderLabel" prop="sourceOrderNo" min-width="170" show-overflow-tooltip />
         <el-table-column label="PI号" prop="referenceNo" min-width="150" show-overflow-tooltip />
         <el-table-column :label="relatedLabel" min-width="220" show-overflow-tooltip>
           <template #default="{ row }">
             {{ row.relatedPartyCode }} {{ row.relatedPartyName }}
           </template>
         </el-table-column>
+        <el-table-column v-if="isPurchaseSourcePick" label="采购日期" min-width="120" show-overflow-tooltip>
+          <template #default="{ row }">{{ formatDate(row.buyDate) }}</template>
+        </el-table-column>
+        <el-table-column v-if="isPurchaseSourcePick" label="交货日期" min-width="120" show-overflow-tooltip>
+          <template #default="{ row }">{{ formatDate(row.deliveryDate) }}</template>
+        </el-table-column>
+        <el-table-column v-if="isPurchaseSourcePick" label="采购员" prop="purchaserName" min-width="120" show-overflow-tooltip />
       </el-table>
       <el-pagination
         v-model:current-page="sourceDialog.page"
@@ -504,8 +657,8 @@
         layout="total, sizes, prev, pager, next, jumper"
         :total="sourceDialog.total"
         class="source-order-pagination"
-        @size-change="loadSourceOrderPage"
-        @current-change="loadSourceOrderPage"
+        @size-change="onSourceOrderSizeChange"
+        @current-change="onSourceOrderPageChange"
       />
     </el-dialog>
 
@@ -532,8 +685,8 @@
           <tbody>
             <tr v-for="(line, idx) in printData.lines" :key="idx">
               <td>{{ idx + 1 }}</td><td>{{ line.kcaa01 }}</td><td>{{ line.kcaa02 }}</td><td>{{ line.kcaa03 }}</td>
-              <td>{{ line.kcaa11 }}</td><td>{{ line.kcaa04 }}</td><td class="num">{{ line.kcao03 }}</td>
-              <td v-if="hasPricePermission" class="num">{{ line.kcao04 }}</td><td v-if="hasPricePermission" class="num">{{ line.kcao051 }}</td>
+              <td>{{ line.kcaa11 }}</td><td>{{ line.kcaa04 }}</td><td class="num">{{ formatTrimNumber(line.kcao03) }}</td>
+              <td v-if="hasPricePermission" class="num">{{ formatTrimNumber(line.kcao04) }}</td><td v-if="hasPricePermission" class="num">{{ formatLineAmount(line.kcao051, printData.header?.kcan03) }}</td>
             </tr>
           </tbody>
         </table>
@@ -547,10 +700,11 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
+import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
 import {
   STOCK_BATCH_MSG_ACCEPTED,
   STOCK_BATCH_MSG_APPLY,
@@ -574,14 +728,15 @@ const inboundTypeOptions = [
   { value: '0', label: '其他入库' },
   { value: '1', label: '采购入库' },
   { value: '2', label: '外协入库' },
-  { value: '3', label: '外协退料' },
   { value: '4', label: '生产入库' },
   { value: '5', label: '生产退料' },
-  { value: '6', label: '销售退货' },
   { value: '7', label: '盘盈入库' },
   { value: '8', label: '加工入库' },
+  { value: '3', label: '外协退料' },
+  { value: '6', label: '销售退货' },
 ]
-const addableInboundTypes = inboundTypeOptions.filter((x) => x.value !== '8')
+const filterInboundTypeOptions = inboundTypeOptions
+const addableInboundTypes = inboundTypeOptions.filter((x) => !['3', '6', '8'].includes(x.value))
 
 const pageMode = ref('list')
 const loading = ref(false)
@@ -590,6 +745,7 @@ const showUnaudited = ref(false)
 const showUnreviewed = ref(false)
 const showRecycle = ref(false)
 const listTableRef = ref(null)
+const linesTableRef = ref(null)
 const expandedRowKeys = ref([])
 const list = ref([])
 const pager = reactive({ page: 1, pageSize: 10, total: 0 })
@@ -610,7 +766,25 @@ const prevWorkshopCode = ref('')
 
 const detailVisible = ref(false)
 const detail = reactive({ header: null, lines: [] })
-const sourceDialog = reactive({ visible: false, loading: false, keyword: '', page: 1, pageSize: 10, total: 0, list: [] })
+const PURCHASE_SOURCE_PREFETCH_PAGES = 3
+const sourceDialog = reactive({
+  visible: false,
+  loading: false,
+  keyword: '',
+  page: 1,
+  pageSize: 10,
+  total: 0,
+  list: [],
+  cacheKey: '',
+  pageCache: {},
+  loadedUntilPage: 0,
+  loadedRows: 0,
+  hasMore: false,
+  assistSupplierCode: '',
+  assistSupplierOptions: [],
+  assistSupplierLoading: false,
+  includeUnaudited: false,
+})
 const batchVisible = ref(false)
 const batchLoading = ref(false)
 const batchKeyword = ref('')
@@ -623,9 +797,12 @@ const printData = reactive({ header: null, lines: [] })
 
 const isFreeType = computed(() => ['0', '7'].includes(form.inboundType))
 const isWorkshopPickType = computed(() => ['4', '5'].includes(form.inboundType))
-const isProductionDispatchPick = computed(() => form.inboundType === '4')
+const isProductionDispatchPick = computed(() => ['4', '5'].includes(form.inboundType))
+const isPurchaseSourcePick = computed(() => form.inboundType === '1')
+const isAssistSourcePick = computed(() => form.inboundType === '2')
+const isPrefetchSourcePick = computed(() => isPurchaseSourcePick.value || isAssistSourcePick.value)
 const needsSourceOrder = computed(() => ['1', '2', '3', '4', '5', '6'].includes(form.inboundType))
-const canManualAdd = computed(() => isFreeType.value || (form.inboundType === '5' && !form.sourceOrderNo))
+const canManualAdd = computed(() => isFreeType.value)
 const formReadOnly = computed(() => false)
 const selectedLineKeys = computed(() => lines.value.filter((line) => line._lineMarked).map((line) => line.__key))
 const relatedLabel = computed(() => {
@@ -645,17 +822,24 @@ const sourceOrderLabel = computed(() => {
 const paperNoLabel = computed(() => (form.inboundType === '4' || form.inboundType === '5' ? 'PI号' : form.inboundType === '6' ? 'PO号' : ['1', '2', '3'].includes(form.inboundType) ? '来货单号' : '纸质单号'))
 const batchTitle = computed(() => (canManualAdd.value ? '手工选择物料' : '从关联单据批量添加'))
 const displayReceiptNo = computed(() => (editId.value ? form.receiptNo : suggestedNo.value || '保存后生成最终单号'))
+const productionPickQtyLabel = computed(() => (form.inboundType === '5' ? '已退料数量' : '已入库数量'))
 const sourceDialogSearchPlaceholder = computed(() => {
-  if (isProductionDispatchPick.value) return '派工单号 / PI号 / 日期 / 备注'
+  if (isProductionDispatchPick.value) return '派工单号 / PI号'
   if (isWorkshopPickType.value) return `${sourceOrderLabel.value} / PI号`
   return `${sourceOrderLabel.value} / PI号 / ${relatedLabel.value}`
 })
 const sourceDialogTitle = computed(() => {
   if (isProductionDispatchPick.value) {
     const name = form.relatedPartyName || form.relatedPartyCode || '—'
-    return `派工单列表（已选：${name}）`
+    return `${form.inboundType === '5' ? '生产退料派工单列表' : '派工单列表'}（已选：${name}）`
   }
   return `选择${sourceOrderLabel.value}`
+})
+const sourceDialogWidth = computed(() => {
+  if (isProductionDispatchPick.value) return '96%'
+  if (isPurchaseSourcePick.value) return '96%'
+  if (isAssistSourcePick.value) return '96%'
+  return '920px'
 })
 /** 生产入库选派工：同派工单号仅首行显示「关联选择」与单号（对齐旧系统 s_search4） */
 const productionDispatchPickDisplayList = computed(() => {
@@ -682,6 +866,7 @@ function defaultForm() {
     inTax: '1',
     paperNo: '',
     dispatchSystemcode: '',
+    sourceSystemcodeId: '',
     remark: '',
   }
 }
@@ -703,7 +888,25 @@ function formatDateTime(v) {
 
 function formatDate(v) {
   if (!v) return '—'
-  return String(v).replace('T', ' ').slice(0, 10)
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    const year = v.getFullYear()
+    const month = String(v.getMonth() + 1).padStart(2, '0')
+    const day = String(v.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+  const text = String(v).trim()
+  const isoMatch = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/)
+  if (isoMatch) {
+    return `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}-${isoMatch[3].padStart(2, '0')}`
+  }
+  const parsed = new Date(text)
+  if (!Number.isNaN(parsed.getTime())) {
+    const year = parsed.getFullYear()
+    const month = String(parsed.getMonth() + 1).padStart(2, '0')
+    const day = String(parsed.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+  return text.replace('T', ' ').slice(0, 10)
 }
 
 function formatCell(v) {
@@ -720,6 +923,39 @@ function round(n, d = 2) {
 function toNumber(v) {
   const n = Number(v)
   return Number.isFinite(n) ? n : 0
+}
+
+function trimTrailingZeros(text) {
+  if (!text.includes('.')) return text
+  return text.replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '')
+}
+
+function formatTrimNumber(value) {
+  if (value === null || value === undefined || value === '') return ''
+  const raw = String(value).trim().replace(/,/g, '')
+  if (!raw) return ''
+  const num = Number(raw)
+  if (!Number.isFinite(num)) return String(value)
+  if (/e/i.test(raw)) return trimTrailingZeros(num.toString())
+  return trimTrailingZeros(raw)
+}
+
+function amountPrecisionByInboundType(type = form.inboundType) {
+  return String(type ?? '') === '2' ? 4 : 2
+}
+
+function formatLineAmount(value, inboundType = form.inboundType) {
+  if (value === null || value === undefined || value === '') return ''
+  const raw = String(value).trim().replace(/,/g, '')
+  if (!raw) return ''
+  const num = Number(raw)
+  if (!Number.isFinite(num)) return String(value)
+  return trimTrailingZeros(num.toFixed(amountPrecisionByInboundType(inboundType)))
+}
+
+function parseTrimNumber(value) {
+  const num = Number(String(value ?? '').replace(/,/g, '').trim())
+  return Number.isFinite(num) ? num : 0
 }
 
 function formatNumber(v, precision = 2) {
@@ -884,7 +1120,6 @@ function getStatusTags(row) {
 
 function isQuantityLimitedType(type = form.inboundType, sourceOrderNo = form.sourceOrderNo) {
   const t = String(type ?? '')
-  if (t === '5' && !String(sourceOrderNo ?? '').trim()) return false
   return ['1', '2', '3', '4', '5', '6'].includes(t)
 }
 
@@ -931,9 +1166,10 @@ function recalcLine(row, options = {}) {
   const qty = Number(row.kcao03 || 0)
   const ex = Number(row.kcao04 || 0)
   const tax = Number(row.tax || 0)
+  const amountPrecision = amountPrecisionByInboundType()
   row.kcao041 = round(ex * (1 + tax), 4)
-  row.kcao05 = round(qty * ex, 2)
-  row.kcao051 = round(qty * row.kcao041, 2)
+  row.kcao05 = round(qty * ex, amountPrecision)
+  row.kcao051 = round(qty * row.kcao041, amountPrecision)
 }
 
 function recalcLineFromTaxPrice(row, options = {}) {
@@ -988,11 +1224,6 @@ function switchList() {
   pageMode.value = 'list'
   editId.value = null
   loadList()
-}
-
-function toggleRecycle() {
-  showRecycle.value = !showRecycle.value
-  onRecycleChange()
 }
 
 function onRecycleChange() {
@@ -1127,8 +1358,14 @@ function isDefaultWarehouse(row) {
   return name === '\u8d27\u4ed3' || code === '\u8d27\u4ed3'
 }
 
-async function applyDefaultWarehouse() {
-  if (form.warehouseCode) return
+function isProductionDefaultWarehouse(row) {
+  const name = String(row?.name ?? '').trim()
+  const code = String(row?.code ?? '').trim()
+  return name === '成品仓' || code === '成品仓'
+}
+
+async function applyGeneralWarehouseDefault({ force = false } = {}) {
+  if (!force && form.warehouseCode) return
   if (!warehouses.value.some(isDefaultWarehouse)) {
     await loadWarehouses('\u8d27\u4ed3')
   }
@@ -1138,10 +1375,35 @@ async function applyDefaultWarehouse() {
   form.warehouseName = target.name || ''
 }
 
+/** 新建单首次填仓库：仅当仓库为空时默认货仓 */
+async function applyDefaultWarehouse() {
+  await applyGeneralWarehouseDefault({ force: false })
+}
+
+/** 切换入库类型后按类型重设仓库：仅生产入库(4)默认成品仓，其余默认货仓 */
+async function applyWarehouseForInboundType(inboundType = form.inboundType) {
+  if (String(inboundType) === '4') {
+    await applyProductionInboundWarehouseDefault()
+    return
+  }
+  await applyGeneralWarehouseDefault({ force: true })
+}
+
+async function applyProductionInboundWarehouseDefault() {
+  if (!warehouses.value.some(isProductionDefaultWarehouse)) {
+    await loadWarehouses('成品仓')
+  }
+  const target = warehouses.value.find(isProductionDefaultWarehouse)
+  if (!target) return
+  form.warehouseCode = target.code || ''
+  form.warehouseName = target.name || ''
+}
+
 async function loadRelatedParties(keyword = '') {
   if (isFreeType.value) return
   const res = await axios.get('/api/stock-in/related-party-options', { params: { inboundType: form.inboundType, keyword } })
   relatedParties.value = res.data?.data?.list || []
+  return relatedParties.value
 }
 
 async function loadSourceOrders(keyword = '') {
@@ -1152,36 +1414,174 @@ async function loadSourceOrders(keyword = '') {
   sourceOrders.value = res.data?.data?.list || []
 }
 
+async function loadSourceDialogAssistSuppliers(keyword = '') {
+  if (!isAssistSourcePick.value) return
+  sourceDialog.assistSupplierLoading = true
+  try {
+    const res = await axios.get('/api/stock-in/related-party-options', { params: { inboundType: '2', keyword } })
+    sourceDialog.assistSupplierOptions = res.data?.data?.list || []
+    if (sourceDialog.assistSupplierCode && !sourceDialog.assistSupplierOptions.some((item) => item.code === sourceDialog.assistSupplierCode)) {
+      sourceDialog.assistSupplierOptions.unshift({ code: sourceDialog.assistSupplierCode, name: form.relatedPartyName || sourceDialog.assistSupplierCode })
+    }
+  } finally {
+    sourceDialog.assistSupplierLoading = false
+  }
+}
+
 function ensureWorkshopOptionVisible() {
   if (!isWorkshopPickType.value || !form.relatedPartyCode) return
   if (relatedParties.value.some((p) => p.code === form.relatedPartyCode)) return
   relatedParties.value.unshift({ code: form.relatedPartyCode, name: form.relatedPartyName || form.relatedPartyCode })
 }
 
+function findProductionDefaultWorkshop() {
+  return relatedParties.value.find((row) => {
+    const name = String(row?.name ?? '').trim()
+    const code = String(row?.code ?? '').trim()
+    return name === '包装部' || code === '包装部'
+  })
+}
+
+async function applyProductionInboundWorkshopDefault() {
+  if (form.relatedPartyCode) return
+  if (!relatedParties.value.some((row) => String(row?.name ?? '').trim() === '包装部' || String(row?.code ?? '').trim() === '包装部')) {
+    await loadRelatedParties('包装部')
+  }
+  const target = findProductionDefaultWorkshop()
+  if (!target) return
+  form.relatedPartyCode = target.code || ''
+  form.relatedPartyName = target.name || ''
+  prevWorkshopCode.value = form.relatedPartyCode
+}
+
+async function applyProductionInboundDefaults() {
+  if (editId.value || form.inboundType !== '4') return
+  await Promise.all([
+    applyProductionInboundWarehouseDefault(),
+    applyProductionInboundWorkshopDefault(),
+  ])
+}
+
+async function ensureWorkshopValidBeforePick() {
+  if (!isWorkshopPickType.value) return true
+  const code = String(form.relatedPartyCode ?? '').trim()
+  if (!code) {
+    ElMessage.warning('请先选择生产车间')
+    return false
+  }
+  if (!relatedParties.value.some((p) => p.code === code)) {
+    await loadRelatedParties(code)
+  }
+  const selected = relatedParties.value.find((p) => p.code === code)
+  if (!selected) {
+    ElMessage.warning('生产车间选择错误,请重新选择!')
+    return false
+  }
+  form.relatedPartyName = selected.name || form.relatedPartyName || code
+  return true
+}
+
 async function openSourceOrderDialog() {
+  if (!form.inboundType) return ElMessage.warning('请先选择入库类型.')
   if (isFreeType.value) return
-  if (isWorkshopPickType.value && !form.relatedPartyCode) {
-    return ElMessage.warning('请先选择生产车间')
+  if (isWorkshopPickType.value) {
+    const ok = await ensureWorkshopValidBeforePick()
+    if (!ok) return
   }
   sourceDialog.visible = true
   sourceDialog.keyword = ''
   sourceDialog.page = 1
   sourceDialog.pageSize = 10
+  sourceDialog.includeUnaudited = false
+  sourceDialog.assistSupplierCode = isAssistSourcePick.value ? form.relatedPartyCode || '' : ''
+  sourceDialog.assistSupplierOptions = []
+  resetSourceOrderCache()
+  if (isAssistSourcePick.value) await loadSourceDialogAssistSuppliers(form.relatedPartyName || form.relatedPartyCode || '')
+  if (form.inboundType === '4') {
+    sourceDialog.list = []
+    sourceDialog.total = 0
+    return
+  }
   await loadSourceOrderPage()
 }
 
 function searchSourceOrders() {
+  if (sourceDialog.loading) return
   sourceDialog.page = 1
+  resetSourceOrderCache()
+  loadSourceOrderPage()
+}
+
+function sourceOrderCacheKey() {
+  return [
+    form.inboundType,
+    sourceDialog.pageSize,
+    String(sourceDialog.keyword ?? '').trim(),
+    isAssistSourcePick.value ? sourceDialog.assistSupplierCode || '' : '',
+    isAssistSourcePick.value ? (sourceDialog.includeUnaudited ? '1' : '0') : '',
+  ].join('|')
+}
+
+function resetSourceOrderCache() {
+  sourceDialog.cacheKey = sourceOrderCacheKey()
+  sourceDialog.pageCache = {}
+  sourceDialog.loadedUntilPage = 0
+  sourceDialog.loadedRows = 0
+  sourceDialog.hasMore = false
+}
+
+function cacheSourceOrderRows(startPage, rows = []) {
+  const pageSize = Number(sourceDialog.pageSize || 10)
+  const nextCache = { ...sourceDialog.pageCache }
+  const pageCount = Math.ceil(rows.length / pageSize)
+  for (let i = 0; i < pageCount; i += 1) {
+    const page = startPage + i
+    const pageRows = rows.slice(i * pageSize, (i + 1) * pageSize)
+    if (pageRows.length) nextCache[page] = pageRows
+  }
+  sourceDialog.pageCache = nextCache
+  sourceDialog.list = nextCache[sourceDialog.page] || []
+}
+
+function onSourceOrderSizeChange() {
+  sourceDialog.page = 1
+  resetSourceOrderCache()
+  loadSourceOrderPage()
+}
+
+function onSourceOrderPageChange() {
+  loadSourceOrderPage()
+}
+
+function onSourceOrderAssistSupplierChange() {
+  sourceDialog.page = 1
+  resetSourceOrderCache()
+  loadSourceOrderPage()
+}
+
+function onSourceOrderAssistIncludeUnauditedChange() {
+  sourceDialog.page = 1
+  resetSourceOrderCache()
   loadSourceOrderPage()
 }
 
 async function loadSourceOrderPage() {
   if (isFreeType.value) return
+  if (isPrefetchSourcePick.value) {
+    const cacheKey = sourceOrderCacheKey()
+    if (sourceDialog.cacheKey !== cacheKey) resetSourceOrderCache()
+    const cachedRows = sourceDialog.pageCache[sourceDialog.page]
+    if (cachedRows) {
+      sourceDialog.list = cachedRows
+      return
+    }
+  }
   sourceDialog.loading = true
   try {
     if (isProductionDispatchPick.value) {
       const params = {
         workshopCode: form.relatedPartyCode,
+        inboundType: form.inboundType,
         keyword: sourceDialog.keyword,
         page: sourceDialog.page,
         pageSize: sourceDialog.pageSize,
@@ -1190,6 +1590,46 @@ async function loadSourceOrderPage() {
       sourceDialog.list = res.data?.data?.list || []
       sourceDialog.total = Number(res.data?.data?.total || 0)
       if (res.data?.data?.workshopName) form.relatedPartyName = res.data.data.workshopName
+      return
+    }
+    if (isPurchaseSourcePick.value) {
+      const cacheKey = sourceOrderCacheKey()
+      if (sourceDialog.cacheKey !== cacheKey) resetSourceOrderCache()
+      const params = {
+        inboundType: form.inboundType,
+        keyword: sourceDialog.keyword,
+        page: sourceDialog.page,
+        pageSize: sourceDialog.pageSize,
+        prefetchPages: PURCHASE_SOURCE_PREFETCH_PAGES,
+      }
+      const res = await axios.get('/api/stock-in/source-order-page', { params })
+      const data = res.data?.data || {}
+      cacheSourceOrderRows(sourceDialog.page, data.list || [])
+      sourceDialog.total = Number(data.total || 0)
+      sourceDialog.loadedUntilPage = Number(data.loadedUntilPage || sourceDialog.page)
+      sourceDialog.loadedRows = Number(data.loadedRows || 0)
+      sourceDialog.hasMore = Boolean(data.hasMore)
+      return
+    }
+    if (isAssistSourcePick.value) {
+      const cacheKey = sourceOrderCacheKey()
+      if (sourceDialog.cacheKey !== cacheKey) resetSourceOrderCache()
+      const params = {
+        inboundType: form.inboundType,
+        keyword: sourceDialog.keyword,
+        page: sourceDialog.page,
+        pageSize: sourceDialog.pageSize,
+        prefetchPages: PURCHASE_SOURCE_PREFETCH_PAGES,
+        assistSupplierCode: sourceDialog.assistSupplierCode || '',
+        includeUnaudited: sourceDialog.includeUnaudited ? '1' : '0',
+      }
+      const res = await axios.get('/api/stock-in/source-order-page', { params })
+      const data = res.data?.data || {}
+      cacheSourceOrderRows(sourceDialog.page, data.list || [])
+      sourceDialog.total = Number(data.total || 0)
+      sourceDialog.loadedUntilPage = Number(data.loadedUntilPage || sourceDialog.page)
+      sourceDialog.loadedRows = Number(data.loadedRows || 0)
+      sourceDialog.hasMore = Boolean(data.hasMore)
       return
     }
     const params = {
@@ -1228,6 +1668,7 @@ async function onWorkshopChange(v) {
       lines.value = []
       form.sourceOrderNo = ''
       form.dispatchSystemcode = ''
+      form.sourceSystemcodeId = ''
       if (isWorkshopPickType.value) form.paperNo = ''
       sourceOrders.value = []
     } catch {
@@ -1239,6 +1680,7 @@ async function onWorkshopChange(v) {
   if (!nextCode) {
     form.sourceOrderNo = ''
     form.dispatchSystemcode = ''
+    form.sourceSystemcodeId = ''
     if (isWorkshopPickType.value) form.paperNo = ''
     sourceOrders.value = []
   }
@@ -1249,18 +1691,24 @@ async function onWorkshopChange(v) {
 function onRelatedPartyChange(v) {
   form.relatedPartyName = relatedParties.value.find((p) => p.code === v)?.name || ''
   form.sourceOrderNo = ''
+  form.sourceSystemcodeId = ''
   sourceOrders.value = []
   loadSourceOrders()
 }
 
 function applySourceOrder(selected) {
   if (!selected) return
+  const nextSourceOrderNo = selected.sourceOrderNo || ''
+  const shouldClearPurchaseLines = form.inboundType === '1' && lines.value.length > 0 && form.sourceOrderNo !== nextSourceOrderNo
+  const shouldClearAssistLines = form.inboundType === '2' && lines.value.length > 0 && form.sourceOrderNo !== nextSourceOrderNo
   form.sourceOrderNo = selected.sourceOrderNo || ''
+  form.sourceSystemcodeId = selected.sourceSystemcode || selected.sourceSystemcodeId || selected.systemCode || ''
   if (!isWorkshopPickType.value) {
     form.relatedPartyCode = selected.relatedPartyCode || ''
     form.relatedPartyName = selected.relatedPartyName || ''
   }
   if (form.inboundType === '4' && selected.referenceNo) form.paperNo = selected.referenceNo
+  if (shouldClearPurchaseLines || shouldClearAssistLines) lines.value = []
 }
 
 function onSourceOrderChange(v) {
@@ -1269,6 +1717,7 @@ function onSourceOrderChange(v) {
       form.relatedPartyCode = ''
       if (!isFreeType.value) form.relatedPartyName = ''
     }
+    form.sourceSystemcodeId = ''
     if (['4', '5'].includes(form.inboundType)) form.paperNo = ''
     return
   }
@@ -1287,6 +1736,7 @@ function chooseProductionDispatchPick(row) {
   form.paperNo = row.piNo || ''
   if (row.workshopName) form.relatedPartyName = row.workshopName
   form.dispatchSystemcode = row.dispatchSystemcode || ''
+  form.sourceSystemcodeId = row.dispatchSystemcode || ''
   lines.value = []
   sourceDialog.visible = false
 }
@@ -1300,6 +1750,7 @@ function chooseSourceOrder(row) {
 function clearSourceOrder() {
   form.sourceOrderNo = ''
   form.dispatchSystemcode = ''
+  form.sourceSystemcodeId = ''
   if (!isWorkshopPickType.value) {
     form.relatedPartyCode = ''
     if (!isFreeType.value) form.relatedPartyName = ''
@@ -1317,10 +1768,13 @@ async function onInboundTypeChange() {
   form.sourceOrderNo = ''
   form.paperNo = ''
   form.dispatchSystemcode = ''
+  form.sourceSystemcodeId = ''
   prevWorkshopCode.value = ''
   relatedParties.value = []
   sourceOrders.value = []
-  loadRelatedParties()
+  await loadRelatedParties()
+  await applyProductionInboundDefaults()
+  await applyWarehouseForInboundType()
 }
 
 async function pickInboundType(nextType) {
@@ -1373,10 +1827,12 @@ async function openBatchDialog() {
   if (!form.inboundType) return ElMessage.warning('请先选择入库类型')
   if (!form.inTax) return ElMessage.warning('请先选择是否含税')
   if (!form.warehouseCode) return ElMessage.warning('请先选择仓库')
-  if (form.inboundType === '4' && !form.relatedPartyCode) return ElMessage.warning('请先选择生产车间')
-  if (form.inboundType === '5' && form.sourceOrderNo && !form.relatedPartyCode) return ElMessage.warning('请先选择生产车间')
-  if (needsSourceOrder.value && !form.sourceOrderNo) return ElMessage.warning(form.inboundType === '4' ? '请先选择派工单' : '请先选择关联单号')
-  if (!isFreeType.value && form.inboundType !== '5' && !form.relatedPartyCode) return ElMessage.warning(`请先选择${relatedLabel.value}`)
+  if (['4', '5'].includes(form.inboundType) && !form.relatedPartyCode) return ElMessage.warning('请先选择生产车间')
+  if (needsSourceOrder.value && !form.sourceOrderNo) return ElMessage.warning(['4', '5'].includes(form.inboundType) ? '请先选择派工单' : '请先选择关联单号')
+  if (form.inboundType === '5' && !String(form.dispatchSystemcode ?? '').trim()) {
+    return ElMessage.warning('请先通过「选择」关联派工单后再批量添加')
+  }
+  if (!isFreeType.value && !form.relatedPartyCode) return ElMessage.warning(`请先选择${relatedLabel.value}`)
   if (form.inboundType === '1') {
     openPurchaseBatchWindow()
     return
@@ -1389,7 +1845,7 @@ async function openBatchDialog() {
     openAssistReturnBatchWindow()
     return
   }
-  if (form.inboundType === '4') {
+  if (['4', '5'].includes(form.inboundType)) {
     openProductionBatchWindow()
     return
   }
@@ -1476,9 +1932,10 @@ function openAssistReturnBatchWindow() {
 function openProductionBatchWindow() {
   const sessionId = buildStockBatchSessionId()
   activePurchaseBatchSessionId.value = sessionId
+  const isProductionReturn = form.inboundType === '5'
   writeStockBatchContext(sessionId, {
-    batchType: 'production',
-    inboundType: '4',
+    batchType: isProductionReturn ? 'production-return' : 'production',
+    inboundType: isProductionReturn ? '5' : '4',
     sourceOrderNo: form.sourceOrderNo,
     supplierCode: form.relatedPartyCode,
     supplierName: form.relatedPartyName,
@@ -1536,7 +1993,7 @@ function handlePurchaseBatchPayload(payload, source = null, options = {}) {
     if (allowStoredSession) return false
     if (validation.reason === STOCK_BATCH_REJECT_SOURCE_MISMATCH) ElMessage.warning('采购单号已变更，批量添加已取消')
     else if (validation.reason === STOCK_BATCH_REJECT_SUPPLIER_MISMATCH) {
-      ElMessage.warning(form.inboundType === '4' ? '生产车间已变更，请重新打开批量添加' : '供应商已变更，请重新打开批量添加')
+      ElMessage.warning(['4', '5'].includes(form.inboundType) ? '生产车间已变更，请重新打开批量添加' : '供应商已变更，请重新打开批量添加')
     }
     replyPurchaseBatch(source, { type: STOCK_BATCH_MSG_REJECTED, sessionId, reason: validation.reason })
     clearPurchaseBatchSession()
@@ -1603,7 +2060,7 @@ function batchLineSelectLabel(row) {
 
 function makeLine(row, options = {}) {
   const isAssistReturn = options.batchType === 'assist-return' || form.inboundType === '3'
-  const isProduction = options.batchType === 'production'
+  const isProduction = options.batchType === 'production' || options.batchType === 'production-return'
   const needQty = Number(row.tempx ?? row.needQty ?? row.availableQty ?? 0)
   const overflowCap = isAssistReturn ? 100000 : Number(row.kcao031 ?? row.overflowCap ?? 0)
   const defaultQty = isAssistReturn ? 0 : (needQty > 0 ? needQty : (overflowCap > 0 ? overflowCap : 1))
@@ -1661,6 +2118,18 @@ function applyBatchLines() {
   batchVisible.value = false
 }
 
+async function refreshLinesTableHScroll() {
+  await nextTick()
+  linesTableRef.value?.doLayout?.()
+  const el = linesTableRef.value?.$el
+  if (el) refreshErpTableViewportHScroll(el)
+}
+
+watch([formTab, () => lines.value.length], ([tab]) => {
+  if (tab !== 'lines') return
+  refreshLinesTableHScroll()
+})
+
 function validateLineBeforeSave() {
   for (let i = 0; i < lines.value.length; i += 1) {
     const row = lines.value[i]
@@ -1702,6 +2171,16 @@ async function validateHeaderBeforeSave() {
   if (form.inboundType !== '3' && !String(form.paperNo ?? '').trim()) {
     ElMessage.warning(`${paperNoLabel.value}不能为空`)
     await focusPaperNoInput()
+    return false
+  }
+  if (['4', '5'].includes(form.inboundType) && !String(form.relatedPartyCode ?? '').trim()) {
+    formTab.value = 'base'
+    ElMessage.warning('请先选择生产车间')
+    return false
+  }
+  if (['4', '5'].includes(form.inboundType) && !String(form.sourceOrderNo ?? '').trim()) {
+    formTab.value = 'base'
+    ElMessage.warning(form.inboundType === '5' ? '生产退料必须选择派工单' : '生产入库必须选择派工单')
     return false
   }
   return true
@@ -2058,6 +2537,9 @@ onUnmounted(() => {
 .source-order-toolbar :deep(.el-input) {
   width: 320px;
 }
+.source-order-supplier-select {
+  width: 260px;
+}
 .source-order-pagination {
   margin-top: 12px;
   justify-content: flex-start;
@@ -2067,6 +2549,20 @@ onUnmounted(() => {
 }
 .production-dispatch-pick-table {
   min-width: 1200px;
+}
+.purchase-source-detail-table {
+  min-width: 1680px;
+}
+.assist-source-detail-table {
+  min-width: 1580px;
+}
+.source-diff-positive {
+  color: #dc2626;
+  font-weight: 600;
+}
+.source-tax-yes {
+  color: #dc2626;
+  font-weight: 700;
 }
 .stock-type-buttons {
   display: flex;

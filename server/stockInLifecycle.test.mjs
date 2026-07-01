@@ -16,13 +16,24 @@ describe('stockInLifecycle', () => {
     const cfg = resolveStockInLifecycleConfig('review', { pass: '1', sp_flag: '0', del: '0', closed: '0', inboundType: '1' })
     assert.equal(cfg.nextSpFlag, '1')
     const headerCols = new Set(['sp_flag'])
+    const lineCols = new Set(['sp_flag'])
     const sql = buildStockInLifecycleSetSql({
       config: { nextSpFlag: '1' },
       actor: { uid: 1, uname: 'fin' },
       headerCols,
-      lineCols: new Set(),
+      lineCols,
     })
     assert.match(sql.headerSetSql, /\[sp_flag\]=N'1'/)
+    assert.match(sql.lineSetSql, /\[sp_flag\]=N'1'/)
+
+    const unreviewSql = buildStockInLifecycleSetSql({
+      config: { nextSpFlag: '0' },
+      actor: { uid: 1, uname: 'fin' },
+      headerCols,
+      lineCols,
+    })
+    assert.match(unreviewSql.headerSetSql, /\[sp_flag\]=N'0'/)
+    assert.match(unreviewSql.lineSetSql, /\[sp_flag\]=N'0'/)
   })
 
   test('已复核、已结案、类型 8 都只读不可操作', () => {

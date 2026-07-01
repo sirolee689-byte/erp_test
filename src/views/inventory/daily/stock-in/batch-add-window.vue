@@ -45,13 +45,13 @@
                 <th>规格</th>
                 <th>颜色</th>
                 <th>单位</th>
-                <th class="col-num col-need">可入库数量</th>
+                <th class="col-num col-need">{{ productionNeedQtyHeader }}</th>
                 <th class="col-num">RMB单价</th>
                 <th class="col-num">RMB金额</th>
                 <th class="col-num">派工数量</th>
-                <th>未审入库情况</th>
+                <th>{{ productionPendingHeader }}</th>
                 <th>未审出库情况</th>
-                <th class="col-num">实际已入数量</th>
+                <th class="col-num">{{ productionActualHeader }}</th>
                 <th class="col-num">返工数量</th>
               </tr>
             </thead>
@@ -99,7 +99,7 @@
                 <td class="col-num">{{ formatNum(row.orderQty) }}</td>
                 <td class="col-pending">{{ row.pendingInboundText || '-' }}</td>
                 <td class="col-pending">{{ row.pendingOutboundText || '-' }}</td>
-                <td class="col-num">{{ formatNum(row.actualInboundQty) }}</td>
+                <td class="col-num">{{ formatNum(isProductionReturnBatch ? row.actualReturnQty : row.actualInboundQty) }}</td>
                 <td class="col-num">{{ formatNum(row.reworkQty ?? row.actualOutboundQty) }}</td>
               </tr>
             </tbody>
@@ -197,12 +197,14 @@ const pickedRows = ref(new Map())
 const closeHint = ref('')
 const submitted = ref(false)
 
-const isProductionBatch = computed(() => batchType.value === 'production')
+const isProductionBatch = computed(() => batchType.value === 'production' || batchType.value === 'production-return')
+const isProductionReturnBatch = computed(() => batchType.value === 'production-return')
 const isAssistBatch = computed(() => batchType.value === 'assist')
 const isPurchaseBatch = computed(() => !isAssistBatch.value && !isProductionBatch.value)
 const selectedCount = computed(() => pickedKeys.value.size)
 const totalPages = computed(() => Math.max(1, Math.ceil(Number(total.value || 0) / Number(pageSize.value || 20))))
 const windowTitle = computed(() => {
+  if (isProductionReturnBatch.value) return '生产退料批量添加明细'
   if (isProductionBatch.value) return '生产入库批量添加明细'
   if (isAssistBatch.value) return '外协入库批量添加明细'
   return '采购入库批量添加明细'
@@ -218,6 +220,7 @@ const partyLabel = computed(() => {
   return '供应商'
 })
 const emptyText = computed(() => {
+  if (isProductionReturnBatch.value) return '该派工单下暂无可退料明细'
   if (isProductionBatch.value) return '该派工单下暂无可选明细'
   if (isAssistBatch.value) return '该外协单下暂无可选明细'
   return '该采购单下暂无可选明细'
@@ -227,6 +230,9 @@ const needQtyHeader = computed(() => (isAssistBatch.value ? '可入数量' : '�
 const orderQtyHeader = computed(() => (isAssistBatch.value ? '外协数量' : '采购数量'))
 const pendingOutHeader = computed(() => (isAssistBatch.value ? '未审出库情况' : '未审退货情况'))
 const actualOutHeader = computed(() => (isAssistBatch.value ? '实际出库数量' : '退货数量'))
+const productionNeedQtyHeader = computed(() => (isProductionReturnBatch.value ? '可退料数量' : '可入库数量'))
+const productionPendingHeader = computed(() => (isProductionReturnBatch.value ? '未审退料情况' : '未审入库情况'))
+const productionActualHeader = computed(() => (isProductionReturnBatch.value ? '实际已退数量' : '实际已入数量'))
 
 function formatNum(v) {
   const n = Number(v)
@@ -435,10 +441,11 @@ onMounted(() => {
     return
   }
   const bt = String(ctx.batchType ?? 'purchase').trim()
-  if (bt === 'production') batchType.value = 'production'
+  if (bt === 'production-return') batchType.value = 'production-return'
+  else if (bt === 'production') batchType.value = 'production'
   else if (bt === 'assist') batchType.value = 'assist'
   else batchType.value = 'purchase'
-  inboundType.value = String(ctx.inboundType ?? (batchType.value === 'production' ? '4' : batchType.value === 'assist' ? '2' : '1')).trim()
+  inboundType.value = String(ctx.inboundType ?? (batchType.value === 'production-return' ? '5' : batchType.value === 'production' ? '4' : batchType.value === 'assist' ? '2' : '1')).trim()
   sourceOrderNo.value = String(ctx.sourceOrderNo ?? route.query?.sourceOrderNo ?? '').trim()
   supplierCode.value = String(ctx.supplierCode ?? '').trim()
   supplierName.value = String(ctx.supplierName ?? '').trim()
@@ -446,6 +453,10 @@ onMounted(() => {
   dispatchSystemcode.value = String(ctx.dispatchSystemcode ?? '').trim()
   selectedKeysFromParent.value = Array.isArray(ctx.currentLineKeys) ? ctx.currentLineKeys : []
   pageSize.value = Number(ctx.pageSize) > 0 ? Number(ctx.pageSize) : 20
+  if (isProductionReturnBatch.value && !dispatchSystemcode.value) {
+    closeWindowAfterError('参数错误！')
+    return
+  }
   loadRows()
 })
 </script>

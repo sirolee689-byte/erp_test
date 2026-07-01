@@ -27,7 +27,7 @@ triage: ready-for-agent
 5. As an 外协管理员, I want to create outsourcing return-material receipts from outsourcing orders, so that returned materials can be recorded correctly.
 6. As a 生产主管, I want to create production inbound receipts from dispatch orders, so that finished production goods can be received into warehouse.
 7. As a 生产主管, I want production inbound to require a dispatch order, so that finished-goods inbound has a clear production source.
-8. As a 生产主管, I want production return to allow empty dispatch order, so that material returns without a dispatch order can still be recorded.
+8. As a 生产主管, I want production return to select an audited open dispatch order by workshop first, so that returned production materials keep a clear dispatch source.
 9. As a 销售售后人员, I want to create sales return inbound receipts from sales orders, so that returned customer goods can enter stock again.
 10. As a data-entry user, I want the page to show only fields relevant to the selected inbound type, so that I do not fill unrelated supplier, customer, workshop, or order fields.
 11. As a data-entry user, I want changing inbound type to clear incompatible details with a clear warning, so that wrong source materials are not mixed into the receipt.
@@ -44,7 +44,7 @@ triage: ready-for-agent
 22. As a data-entry user, I want batch add to import details from purchase, outsourcing, dispatch, or sales orders, so that I do not manually retype source material rows.
 23. As a data-entry user, I want linked inbound types to reject source-less manual material rows, so that receipt details always trace back to the related order.
 24. As a data-entry user, I want other inbound and surplus inbound to allow manual material selection, so that receipts without source orders can still be entered.
-25. As a data-entry user, I want production return without dispatch order to allow manual or warehouse-filtered material selection, so that return materials can still be recorded.
+25. As a data-entry user, I want production return details to come from the selected dispatch order, so that return materials can still be traced to production source lines.
 26. As a data-entry user, I want each linked detail row to show available inbound quantity, so that I know the maximum quantity I can receive.
 27. As a data-entry user, I want the system to block over-receipt by default, so that users cannot receive more than the available source quantity.
 28. As a data-entry user, I want non-linked inbound details to require quantity greater than zero, so that meaningless zero rows cannot be saved.
@@ -153,7 +153,7 @@ triage: ready-for-agent
 - Linked inbound types use batch add from source orders.
 - Purchase inbound, outsourcing inbound, outsourcing return, production inbound, and sales return details must come from linked source documents.
 - Other inbound and surplus inbound allow manual material selection.
-- Production return allows no dispatch order; without dispatch order, it may filter by warehouse or manually select material.
+- Production return requires a production workshop first, then selects an audited, undeleted, open dispatch order from dispatch-order details.
 - Detail rows must preserve material snapshot fields from material master.
 - The server re-queries material master by material code when saving.
 - Business input fields such as quantity, price, remark, and related-order detail key must not be overwritten by material master lookup.
@@ -167,7 +167,7 @@ triage: ready-for-agent
 - Linked inbound details cannot exceed available inbound quantity by default.
 - First version does not implement supplier-specific over-receipt exemption.
 - Future over-receipt exemption must be configurable, not hard-coded by supplier name.
-- Other inbound, surplus inbound, and production return without dispatch order require quantity greater than zero.
+- Other inbound and surplus inbound require quantity greater than zero; production return details must come from the selected dispatch order.
 - Quantity cap validation must be enforced on the server, not only on the page.
 - No-tax mode `in_tax=2` requires tax point `0`.
 
@@ -189,7 +189,7 @@ triage: ready-for-agent
 - `2` 外协入库: source is outsourcing order, outsourcing customer must match, details come from outsourcing order.
 - `3` 外协退料: source is outsourcing order, outsourcing customer must match, details come from outsourcing order.
 - `4` 生产入库: source is dispatch order, production workshop must match, dispatch order is required.
-- `5` 生产退料: dispatch order may be empty; when empty, details may be selected by warehouse/manual material rules.
+- `5` 生产退料: dispatch order is required in the first version; selection is filtered by production workshop and details come from dispatch-order lines.
 - `6` 销售退货: source is sales order, customer must match, details come from sales order.
 - `7` 盘盈入库: no source order, free-text related party, manual material details.
 - `8` 加工入库: hidden historical type; first version does not allow add or edit, only read-only display.
@@ -283,7 +283,7 @@ Detail table: `UB_ERP_Stocks_Storage_list`.
 
 - Good tests should verify external business behavior, not internal implementation details.
 - Number generation needs tests for same-day sequence, save-day prefix, concurrent save behavior, and non-editable `kcan01`.
-- Save validation needs tests for required warehouse, required related order by type, production inbound requiring dispatch order, production return allowing empty dispatch order, source-party mismatch, empty details, invalid quantity, over-receipt, and no-tax tax-point validation.
+- Save validation needs tests for required warehouse, required related order by type, production inbound and production return requiring dispatch order, source-party mismatch, empty details, invalid quantity, over-receipt, and no-tax tax-point validation.
 - Detail mapping needs tests for `kcao02` as source detail key, `kcao031` original quantity, `Describe` remark mapping, and corrected `location` behavior.
 - Price permission needs tests for page payload, save protection, print visibility, and reserved export behavior.
 - Audit and reverse audit need tests confirming header/detail status sync and inventory inclusion/exclusion.

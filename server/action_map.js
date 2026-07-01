@@ -22,7 +22,13 @@ export const DEFAULT_UNKNOWN_TARGET_TABLE = 'ERP'
  * @type {OperationAuditRouteRule[]}
  */
 export const OPERATION_AUDIT_ROUTE_RULES = [
+  { method: 'GET', path: '/api/system/kernel/mail-config', action: '查询系统EMAIL配置', targetTable: 'UB_ERP_System_mail' },
+  { method: 'PUT', path: '/api/system/kernel/mail-config', action: '保存系统EMAIL配置', targetTable: 'UB_ERP_System_mail' },
+  { method: 'GET', path: '/api/system/kernel/print-config', action: '查询打印设定', targetTable: 'UB_ERP_System_Head' },
+  { method: 'PUT', path: '/api/system/kernel/print-config', action: '保存打印设定', targetTable: 'UB_ERP_System_Head' },
+  { method: 'POST', path: '/api/system/kernel/print-image', action: '上传打印设定图片', targetTable: 'UB_ERP_System_Head' },
   { method: 'GET', path: '/api/stock-out/list', action: '查询出库单列表', targetTable: 'UB_ERP_Stocks_out' },
+  { method: 'GET', path: '/api/stock-out/material-trace/list', action: '查询出库转向物料列表', targetTable: 'UB_ERP_Stocks_out_list,UB_ERP_Stocks_out' },
   { method: 'GET', path: '/api/stock-out/suggest-doc-no', action: '获取出库单建议单号', targetTable: 'UB_ERP_Stocks_out' },
   { method: 'GET', path: '/api/stock-out/warehouse-options', action: '查询出库仓库候选', targetTable: 'UB_ERP_Stocks_Warehouse' },
   { method: 'GET', path: '/api/stock-out/list-related-party-options', action: '查询出库列表供应商候选', targetTable: 'UB_ERP_System_supplier' },

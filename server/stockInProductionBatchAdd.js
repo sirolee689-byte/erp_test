@@ -1,5 +1,5 @@
 /**
- * Stock-in production batch add (inbound type 4).
+ * Stock-in production batch add (inbound type 4/5).
  *
  * Quantity rules align with legacy production inbound:
  * tempx = converted dispatch qty - approved inbound - pending inbound.
@@ -42,17 +42,53 @@ function round(n, p = 4) {
   return Math.round((toNumber(n) + Number.EPSILON) * m) / m
 }
 
+function normalizeProductionBatchInboundType(v) {
+  return text(v) === '5' ? '5' : '4'
+}
+
 /** 生产入库可入数量：允许负数展示（超入时显示负值），选择按钮仍只看 tempx>0 */
 export function computeProductionTempx(ksum, approvedInboundQty, pendingInboundQty) {
   return round(toNumber(ksum) - toNumber(approvedInboundQty) - toNumber(pendingInboundQty), 4)
 }
 
+const LEGACY_RETURN_HEADER_MISSING_MSG = '数据不存在,请联系IT部检查!'
+const LEGACY_RETURN_NO_LINES_MSG = '此订单无清单数据,请检查订单数据!'
+const LEGACY_RETURN_PARAM_ERROR_MSG = '参数错误！'
+
 /**
- * 批量添加前校验派工主表（对齐旧系统）；dispatchSystemcode 有值时才校验 systemcode。
+ * 批量添加前校验派工主表。
+ * 类型 4：按派工单号查主表；dispatchSystemcode 有值时才校验 systemcode。
+ * 类型 5：按车间 + dispatchSystemcode 查主表，并与派工单号交叉校验（对齐旧系统）。
  */
-export async function validateProductionDispatchHeader(pool, { sourceOrderNo, workshopCode, dispatchSystemcode }) {
+export async function validateProductionDispatchHeader(pool, {
+  sourceOrderNo,
+  workshopCode,
+  dispatchSystemcode,
+  inboundType = '4',
+}) {
+  const isReturn = normalizeProductionBatchInboundType(inboundType) === '5'
   try {
-    const req = pool.request().input('sourceOrderNo', sql.NVarChar(200), sourceOrderNo)
+    const req = pool.request()
+    let whereSql = ''
+    if (isReturn) {
+      const expectSystemcode = text(dispatchSystemcode)
+      if (!expectSystemcode) {
+        return { ok: false, status: 400, msg: LEGACY_RETURN_PARAM_ERROR_MSG }
+      }
+      req
+        .input('dispatchSystemcode', sql.NVarChar(200), expectSystemcode)
+        .input('workshopCode', sql.NVarChar(200), workshopCode)
+      whereSql = `
+        ${nvarcharTextExpr('h', 'systemcode', 200)} = @dispatchSystemcode
+        AND ${nvarcharTextExpr('h', 'scaj05', 200)} = @workshopCode
+        AND ${nvarcharTextExpr('h', 'del', 20)} IN (N'', N'0')
+        AND ${nvarcharTextExpr('h', 'pass', 20)} = N'1'
+        AND ${nvarcharTextExpr('h', 'closed', 20)} IN (N'', N'0')
+      `
+    } else {
+      req.input('sourceOrderNo', sql.NVarChar(200), sourceOrderNo)
+      whereSql = `${nvarcharTextExpr('h', 'scaj01', 200)} = @sourceOrderNo`
+    }
     const r = await req.query(`
       SELECT TOP 1
         ${nvarcharTextExpr('h', 'scaj01', 200)} AS scaj01,
@@ -62,27 +98,37 @@ export async function validateProductionDispatchHeader(pool, { sourceOrderNo, wo
         ${nvarcharTextExpr('h', 'pass', 20)} AS pass,
         ${nvarcharTextExpr('h', 'systemcode', 200)} AS systemcode
       FROM ${DISPATCH_HEADER_FROM} AS h
-      WHERE ${nvarcharTextExpr('h', 'scaj01', 200)} = @sourceOrderNo
+      WHERE ${whereSql}
     `)
     const row = r.recordset?.[0]
     if (!row || !text(row.scaj01)) {
-      return { ok: false, status: 400, msg: `派工单「${sourceOrderNo}」不存在或已删除` }
+      return {
+        ok: false,
+        status: 400,
+        msg: isReturn ? LEGACY_RETURN_HEADER_MISSING_MSG : `派工单「${sourceOrderNo}」不存在或已删除`,
+      }
     }
-    if (!['', '0'].includes(text(row.del))) {
-      return { ok: false, status: 400, msg: `派工单「${sourceOrderNo}」已删除，无法批量添加` }
+    if (!isReturn) {
+      if (!['', '0'].includes(text(row.del))) {
+        return { ok: false, status: 400, msg: `派工单「${sourceOrderNo}」已删除，无法批量添加` }
+      }
+      if (text(row.pass) !== '1') {
+        return { ok: false, status: 400, msg: `派工单「${sourceOrderNo}」未审核，无法批量添加` }
+      }
+      if (!['', '0'].includes(text(row.closed))) {
+        return { ok: false, status: 400, msg: `派工单「${sourceOrderNo}」已结案，无法批量添加` }
+      }
+      if (text(row.scaj05) !== text(workshopCode)) {
+        return { ok: false, status: 400, msg: '派工单车间与当前所选生产车间不一致，请重新选择派工单' }
+      }
+      const expectSystemcode = text(dispatchSystemcode)
+      if (expectSystemcode && text(row.systemcode) !== expectSystemcode) {
+        return { ok: false, status: 400, msg: '派工单标识与当前所选不一致，请重新选择派工单' }
+      }
+      return { ok: true }
     }
-    if (text(row.pass) !== '1') {
-      return { ok: false, status: 400, msg: `派工单「${sourceOrderNo}」未审核，无法批量添加` }
-    }
-    if (!['', '0'].includes(text(row.closed))) {
-      return { ok: false, status: 400, msg: `派工单「${sourceOrderNo}」已结案，无法批量添加` }
-    }
-    if (text(row.scaj05) !== text(workshopCode)) {
-      return { ok: false, status: 400, msg: '派工单车间与当前所选生产车间不一致，请重新选择派工单' }
-    }
-    const expectSystemcode = text(dispatchSystemcode)
-    if (expectSystemcode && text(row.systemcode) !== expectSystemcode) {
-      return { ok: false, status: 400, msg: '派工单标识与当前所选不一致，请重新选择派工单' }
+    if (text(row.scaj01) !== text(sourceOrderNo)) {
+      return { ok: false, status: 400, msg: LEGACY_RETURN_HEADER_MISSING_MSG }
     }
     return { ok: true }
   } catch (err) {
@@ -143,7 +189,7 @@ function kcaaSelectSql() {
   `).join(', ')
 }
 
-async function fetchInboundAggByDetailKey(pool, { sourceOrderNo, detailKeys, excludeReceiptNo, inMeta }) {
+async function fetchInboundAggByDetailKey(pool, { sourceOrderNo, detailKeys, excludeReceiptNo, inMeta, inboundType = '4' }) {
   const keys = (detailKeys ?? []).map((k) => text(k)).filter(Boolean)
   if (!keys.length) return new Map()
   const lineDocCol = text(inMeta?.lineDocCol) || 'kcao01'
@@ -153,7 +199,7 @@ async function fetchInboundAggByDetailKey(pool, { sourceOrderNo, detailKeys, exc
   const excludeSql = exclude ? `AND ${nvarcharTextExpr('h', 'kcan01', 200)} <> @excludeReceiptNo` : ''
   const req = pool.request()
     .input('sourceOrderNo', sql.NVarChar(200), sourceOrderNo)
-    .input('inboundType', sql.NVarChar(20), '4')
+    .input('inboundType', sql.NVarChar(20), normalizeProductionBatchInboundType(inboundType))
   if (exclude) req.input('excludeReceiptNo', sql.NVarChar(200), exclude)
   const inList = keys.map((k, i) => {
     const p = `dk${i}`
@@ -183,7 +229,7 @@ async function fetchInboundAggByDetailKey(pool, { sourceOrderNo, detailKeys, exc
   return map
 }
 
-async function fetchInboundPendingDocs(pool, { sourceOrderNo, detailKeys, excludeReceiptNo, inMeta }) {
+async function fetchInboundPendingDocs(pool, { sourceOrderNo, detailKeys, excludeReceiptNo, inMeta, inboundType = '4' }) {
   const keys = (detailKeys ?? []).map((k) => text(k)).filter(Boolean)
   if (!keys.length) return new Map()
   const lineDocCol = text(inMeta?.lineDocCol) || 'kcao01'
@@ -193,7 +239,7 @@ async function fetchInboundPendingDocs(pool, { sourceOrderNo, detailKeys, exclud
   const excludeSql = exclude ? `AND ${nvarcharTextExpr('h', 'kcan01', 200)} <> @excludeReceiptNo` : ''
   const req = pool.request()
     .input('sourceOrderNo', sql.NVarChar(200), sourceOrderNo)
-    .input('inboundType', sql.NVarChar(20), '4')
+    .input('inboundType', sql.NVarChar(20), normalizeProductionBatchInboundType(inboundType))
   if (exclude) req.input('excludeReceiptNo', sql.NVarChar(200), exclude)
   const inList = keys.map((k, i) => {
     const p = `dk${i}`
@@ -335,6 +381,7 @@ function mapProductionLineRow(row, ctx) {
     pendingInboundText: formatPendingText(ctx.pendingInboundMap.get(detailKey)),
     pendingOutboundText: formatPendingText(ctx.pendingOutboundMap.get(detailKey)),
     actualInboundQty: round(inbound.approvedQty, 4),
+    actualReturnQty: round(inbound.approvedQty, 4),
     actualOutboundQty: round(outbound.approvedQty, 4),
     reworkQty: round(outbound.approvedQty, 4),
     approvedInboundQty: inbound.approvedQty,
@@ -377,14 +424,21 @@ export async function fetchStockInProductionBatchLines(pool, query = {}) {
     return { ok: false, status: 400, msg: '请先选择生产车间' }
   }
   const excludeReceiptNo = text(query.excludeReceiptNo)
+  const inboundType = normalizeProductionBatchInboundType(query.inboundType)
   const dispatchSystemcode = text(query.dispatchSystemcode)
   const keyword = text(query.keyword)
   const { page, pageSize, startRow, endRow } = parsePage(query)
+  const isReturn = inboundType === '5'
+
+  if (isReturn && !dispatchSystemcode) {
+    return { ok: false, status: 400, msg: LEGACY_RETURN_PARAM_ERROR_MSG }
+  }
 
   const headerCheck = await validateProductionDispatchHeader(pool, {
     sourceOrderNo,
     workshopCode,
     dispatchSystemcode,
+    inboundType,
   })
   if (!headerCheck.ok) return headerCheck
   const selectedSet = new Set(
@@ -416,6 +470,9 @@ export async function fetchStockInProductionBatchLines(pool, query = {}) {
       ${buildKeywordWhere(keyword)}
   `)
   const total = Number(countR.recordset?.[0]?.total ?? 0)
+  if (isReturn && total <= 0) {
+    return { ok: false, status: 400, msg: LEGACY_RETURN_NO_LINES_MSG }
+  }
 
   const listReq = pool.request()
     .input('sourceOrderNo', sql.NVarChar(200), sourceOrderNo)
@@ -473,8 +530,8 @@ export async function fetchStockInProductionBatchLines(pool, query = {}) {
     getStockOutLineMeta(pool),
   ])
   const [inboundMap, pendingInboundMap, outboundResult, floatMap] = await Promise.all([
-    fetchInboundAggByDetailKey(pool, { sourceOrderNo, detailKeys, excludeReceiptNo, inMeta }),
-    fetchInboundPendingDocs(pool, { sourceOrderNo, detailKeys, excludeReceiptNo, inMeta }),
+    fetchInboundAggByDetailKey(pool, { sourceOrderNo, detailKeys, excludeReceiptNo, inMeta, inboundType }),
+    fetchInboundPendingDocs(pool, { sourceOrderNo, detailKeys, excludeReceiptNo, inMeta, inboundType }),
     fetchOutboundAggByDetailKey(pool, { sourceOrderNo, detailKeys, outMeta }),
     fetchFloatRates(pool, categoryCodes),
   ])
@@ -486,6 +543,7 @@ export async function fetchStockInProductionBatchLines(pool, query = {}) {
     pendingOutboundMap: outboundResult.pendingMap,
     floatMap,
     selectedSet,
+    inboundType,
   }
   return { ok: true, list: rawRows.map((row) => mapProductionLineRow(row, ctx)), total, page, pageSize }
 }

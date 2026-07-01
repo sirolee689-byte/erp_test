@@ -127,8 +127,10 @@ export function buildStockInLifecycleSetSql({ config, actor, headerCols, lineCol
     headerSet.push("[del]=N'0'")
   } else if (config.nextSpFlag === '1') {
     headerSet.push("[sp_flag]=N'1'")
+    lineSet.push("[sp_flag]=N'1'")
   } else if (config.nextSpFlag === '0') {
     headerSet.push("[sp_flag]=N'0'")
+    lineSet.push("[sp_flag]=N'0'")
   }
 
   return { headerSetSql: headerSet.join(', '), lineSetSql: lineSet.join(', '), params }
@@ -177,7 +179,7 @@ export async function applyStockInLifecycleAction({ pool, id, action, actor }) {
   const req = pool.request().input('id', sql.Int, id)
   for (const [key, value] of Object.entries(params)) req.input(key, sql.NVarChar(200), value)
   await req.query(`UPDATE ${HEADER_FROM} SET ${headerSetSql} WHERE [id] = @id`)
-  if (config.nextPass) {
+  if (config.nextPass || config.nextSpFlag) {
     const lreq = pool.request().input('receiptNo', sql.NVarChar(200), row.receiptNo)
     for (const [key, value] of Object.entries(params)) lreq.input(key, sql.NVarChar(200), value)
     await lreq.query(`UPDATE ${LINE_FROM} SET ${lineSetSql} WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([kcao01], N'')))) = @receiptNo`)

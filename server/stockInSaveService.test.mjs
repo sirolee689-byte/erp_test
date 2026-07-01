@@ -21,9 +21,9 @@ describe('stockInSaveService', () => {
     assert.doesNotMatch(sqlText, /cgad01|cgad05/i)
   })
 
-  test('new stock-in save is auto-approved by default', () => {
-    assert.deepEqual(__resolveStockInSaveApprovalForTest(null), { autoApprove: true, pass: '1' })
-    assert.deepEqual(__resolveStockInSaveApprovalForTest(12), { autoApprove: false, pass: '0' })
+  test('stock-in save is always auto-approved for create and edit', () => {
+    assert.deepEqual(__resolveStockInSaveApprovalForTest(), { autoApprove: true, pass: '1' })
+    assert.deepEqual(__resolveStockInSaveApprovalForTest(12), { autoApprove: true, pass: '1' })
   })
 
   test('stock-in line save includes the required BOM snapshot fields', () => {

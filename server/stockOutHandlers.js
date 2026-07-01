@@ -23,6 +23,8 @@ import { fetchStockOutProductionDispatchSourcePage } from './stockOutProductionD
 import { fetchStockOutFinishedGoodsSourcePage } from './stockOutFinishedGoodsSourcePage.js'
 import { fetchStockOutProductionIssueBatchLines } from './stockOutProductionIssueBatchAdd.js'
 import { fetchCuttingIssueConfig, updateCuttingIssueConfig } from './stockOutCuttingIssueConfig.js'
+import { fetchStockOutMaterialTrace } from './stockOutMaterialTrace.js'
+import { fetchStockOutPrintDocuments } from './stockOutPrintData.js'
 import { safeDecimalExpr } from './buyOrderSqlSafe.js'
 
 const HEADER_FROM = 'dbo.[UB_ERP_Stocks_out]'
@@ -353,6 +355,16 @@ export function registerStockOutRoutes(app, deps) {
       res.json({ code: 200, msg: 'success', data: { total, list: (listResult.recordset ?? []).map(serializeRow) } })
     } catch (err) {
       res.status(500).json({ code: 500, msg: `读取出库单列表失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  app.get('/api/stock-out/material-trace/list', async (req, res) => {
+    try {
+      const result = await fetchStockOutMaterialTrace(await getPool(), req.query ?? {})
+      if (!result.ok) return res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+      res.json({ code: 200, msg: 'success', data: result })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取出库转向物料失败：${String(err?.message ?? err?.originalError?.message ?? err)}`, data: null })
     }
   })
 
@@ -852,6 +864,28 @@ export function registerStockOutRoutes(app, deps) {
   })
 
   app.get('/api/stock-out/print-data', async (req, res) => {
+    if (text(req.query?.p_sum)) {
+      try {
+        const pool = await getPool()
+        const result = await fetchStockOutPrintDocuments(pool, {
+          pSum: req.query?.p_sum,
+          printMode: req.query?.print_cn,
+          actor: req.user ?? req.session?.user ?? {},
+        })
+        if (!result.ok) {
+          res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+          return
+        }
+        res.json({
+          code: 200,
+          msg: 'success',
+          data: { list: result.list, printMode: result.printMode, printConfig: result.printConfig },
+        })
+      } catch (err) {
+        res.status(500).json({ code: 500, msg: `读取出库单打印数据失败：${String(err?.message ?? err)}`, data: null })
+      }
+      return
+    }
     req.params = { id: req.query?.id }
     return detail(req, res, true)
   })

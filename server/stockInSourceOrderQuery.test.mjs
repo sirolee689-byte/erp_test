@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
+  __buildAssistSourceDetailCountSqlForTest,
+  __buildAssistSourceDetailKeywordSqlForTest,
+  __buildAssistSourceDetailListSqlForTest,
+  __buildAssistSourceInboundStatsSqlForTest,
+  __classifyAssistSourceKeywordForTest,
+  __buildPurchaseSourceDetailKeywordSqlForTest,
+  __buildPurchaseSourceDetailCountSqlForTest,
+  __buildPurchaseSourceDetailListSqlForTest,
+  __classifyPurchaseSourceKeywordForTest,
   __buildSourceOrderCountSqlForTest,
   __buildSourceOrderKeywordSqlForTest,
   __buildSourceOrderListSqlForTest,
@@ -20,20 +29,20 @@ function sourceOrderBaseWhereSql(extraKeywordSql = '') {
 const FORBIDDEN_2012 = /\b(TRY_CONVERT|TRY_CAST|FORMAT|IIF|OFFSET\s+FETCH)\b/i
 
 function assertSql2008(sqlText) {
-  assert.ok(!FORBIDDEN_2012.test(sqlText), `SQL 2008 基线违规: ${sqlText.slice(0, 120)}`)
+  assert.ok(!FORBIDDEN_2012.test(sqlText), `SQL 2008 baseline violation: ${sqlText.slice(0, 120)}`)
 }
 
 describe('stockIn source-order-page SQL', () => {
-  it('派工类型关键字不含 referenceExpr 标量子查询', () => {
+  it('dispatch keyword search uses a detail LEFT JOIN instead of scalar subqueries', () => {
     const meta = __stockInSourceMetaForTest('4')
     const kwSql = __buildSourceOrderKeywordSqlForTest('4', meta)
-    assert.ok(kwSql.includes('lk.[id] IS NOT NULL'), 'PI 搜索应走 LEFT JOIN 命中')
-    assert.ok(kwSql.includes('scaj04'), '头表 PI 应可直接搜')
-    assert.ok(!kwSql.includes('SELECT TOP 1'), 'WHERE 禁止 TOP 1 标量子查询')
-    assert.ok(!kwSql.includes('EXISTS'), 'WHERE 禁止 EXISTS 与 ROW_NUMBER 组合')
+    assert.ok(kwSql.includes('lk.[id] IS NOT NULL'))
+    assert.ok(kwSql.includes('scaj04'))
+    assert.ok(!kwSql.includes('SELECT TOP 1'))
+    assert.ok(!kwSql.includes('EXISTS'))
   })
 
-  it('派工带关键字 COUNT 使用 COUNT DISTINCT', () => {
+  it('dispatch keyword COUNT uses COUNT DISTINCT', () => {
     const meta = __stockInSourceMetaForTest('4')
     const kwSql = __buildSourceOrderKeywordSqlForTest('4', meta)
     const countSql = __buildSourceOrderCountSqlForTest('4', meta, kwSql, true)
@@ -41,7 +50,7 @@ describe('stockIn source-order-page SQL', () => {
     assert.ok(countSql.includes('LEFT JOIN'))
   })
 
-  it('派工带关键字列表先 DISTINCT 再分页', () => {
+  it('dispatch keyword list de-duplicates before pagination', () => {
     const meta = __stockInSourceMetaForTest('4')
     const kwSql = __buildSourceOrderKeywordSqlForTest('4', meta)
     const baseWhere = sourceOrderBaseWhereSql(kwSql)
@@ -51,37 +60,166 @@ describe('stockIn source-order-page SQL', () => {
     assertSql2008(listSql)
   })
 
-  it('派工列表 SQL 先分页再 OUTER APPLY PI', () => {
+  it('dispatch list paginates before OUTER APPLY PI lookup', () => {
     const meta = __stockInSourceMetaForTest('4')
     const listSql = __buildSourceOrderListSqlForTest('4', meta)
     const applyPos = listSql.indexOf('OUTER APPLY')
     const pageFilterPos = listSql.indexOf('WHERE src.rn BETWEEN @startRow AND @endRow')
     const rnBetweenPos = listSql.lastIndexOf('WHERE src.rn BETWEEN @startRow AND @endRow')
-    assert.ok(applyPos > 0, '应有 OUTER APPLY')
-    assert.ok(pageFilterPos > 0 && pageFilterPos < applyPos, '应先按 rn 分页再 APPLY')
-    assert.ok(rnBetweenPos === pageFilterPos, '分页条件应只出现一次')
-    assert.ok(listSql.includes('UB_ERP_Stocks_workshop'), '车间名应 LEFT JOIN')
+    assert.ok(applyPos > 0)
+    assert.ok(pageFilterPos > 0 && pageFilterPos < applyPos)
+    assert.equal(rnBetweenPos, pageFilterPos)
+    assert.ok(listSql.includes('UB_ERP_Stocks_workshop'))
     assertSql2008(listSql)
   })
 
-  it('采购入库列表 SQL 不出现 referenceNo 重复 AS', () => {
-    const meta = __stockInSourceMetaForTest('1')
-    const listSql = __buildSourceOrderListSqlForTest('1', meta)
-    assert.ok(!listSql.includes('AS referenceNo AS'), 'referenceSelect 与外层别名不得重复 AS')
-    assert.ok(listSql.includes('AS referenceNo'), '应保留 referenceNo 列别名')
-    assert.ok(listSql.includes('UB_ERP_Buy_order'), '应查采购单头表')
-    assert.ok(listSql.includes('UB_ERP_System_supplier'), '应 JOIN 供应商取名称')
+  it('purchase source picker is a purchase order detail summary', () => {
+    const listSql = __buildPurchaseSourceDetailListSqlForTest('')
+    assert.ok(listSql.includes('UB_ERP_Buy_order'))
+    assert.ok(listSql.includes('UB_ERP_Buy_order_list'))
+    assert.ok(listSql.includes('UB_ERP_Finance_currency'))
+    assert.ok(!listSql.includes('UB_ERP_Stocks_Storage'))
+    assert.ok(!listSql.includes('UB_ERP_Stocks_out'))
+    assert.ok(listSql.includes('groupRowNo'))
+    assert.ok(listSql.includes("h.[closed], N'0'"))
+    assert.ok(listSql.includes("h.[pass], N''"))
+    assert.ok(listSql.includes("l.[del], N''"))
     assertSql2008(listSql)
   })
 
-  it('外协类型关键字可搜 wxaj04', () => {
+  it('purchase source picker fetches the source page before inventory statistics are enriched in Node', () => {
+    const listSql = __buildPurchaseSourceDetailListSqlForTest('')
+    const numberedPos = listSql.indexOf('numbered AS')
+    const pageFilterPos = listSql.indexOf('WHERE rn BETWEEN @startRow AND @endRow')
+    assert.ok(numberedPos > 0)
+    assert.ok(pageFilterPos > numberedPos)
+    assert.ok(!listSql.includes('inbound_agg AS'))
+    assert.ok(!listSql.includes('return_agg AS'))
+    assertSql2008(listSql)
+  })
+
+  it('purchase source keyword search chooses the narrowest useful predicate', () => {
+    assert.equal(__classifyPurchaseSourceKeywordForTest('ZY-260904'), 'order')
+    assert.equal(__classifyPurchaseSourceKeywordForTest('OA-10431'), 'material')
+    assert.equal(__classifyPurchaseSourceKeywordForTest('Piquadro'), 'full')
+
+    const orderSql = __buildPurchaseSourceDetailKeywordSqlForTest('ZY-260904')
+    assert.ok(orderSql.includes('h.[kcaj01] = @kwExact'))
+    assert.ok(orderSql.includes('h.[kcaj01] LIKE @kwPrefix'))
+    assert.ok(!orderSql.includes('l.[kcaa01]'))
+
+    const materialSql = __buildPurchaseSourceDetailKeywordSqlForTest('OA-10431')
+    assert.ok(materialSql.includes('l.[kcaa01] = @kwExact'))
+    assert.ok(materialSql.includes('l.[kcaa01] LIKE @kwPrefix'))
+    assert.ok(!materialSql.includes('h.[kcaj04]'))
+
+    const fullSql = __buildPurchaseSourceDetailKeywordSqlForTest('supplier')
+    assert.ok(fullSql.includes('kcaj04'))
+    assert.ok(fullSql.includes('kcaa02'))
+    assertSql2008(orderSql)
+    assertSql2008(materialSql)
+    assertSql2008(fullSql)
+  })
+
+  it('purchase source picker keyword covers purchase fields, PI text, material fields, and currency', () => {
+    const keywordSql = `
+      AND (
+        h.[kcaj01] LIKE @kw
+        OR h.[kcaj02] LIKE @kw
+        OR h.[kcaj03] LIKE @kw
+        OR h.[kcaj04] LIKE @kw
+        OR h.[kcaj05] LIKE @kw
+        OR h.[kcaj06] LIKE @kw
+        OR h.[kcaj08] LIKE @kw
+        OR h.[rmb] LIKE @kw
+        OR l.[kcaa01] LIKE @kw
+      )
+    `
+    const countSql = __buildPurchaseSourceDetailCountSqlForTest(keywordSql)
+    const listSql = __buildPurchaseSourceDetailListSqlForTest(keywordSql)
+    for (const col of ['kcaj01', 'kcaj02', 'kcaj03', 'kcaj04', 'kcaj05', 'kcaj06', 'kcaj08', 'rmb', 'kcaa01']) {
+      assert.ok(countSql.includes(col), `${col} should be searchable`)
+    }
+    assert.ok(countSql.includes('UB_ERP_Buy_order_list'))
+    assert.ok(listSql.includes('GROUP BY'))
+    assert.ok(countSql.includes("h.[closed], N'0'"))
+    assert.ok(countSql.includes("h.[pass], N''"))
+    assertSql2008(countSql)
+    assertSql2008(listSql)
+  })
+
+  it('assist type keyword searches wxaj04', () => {
     const meta = __stockInSourceMetaForTest('2')
     const kwSql = __buildSourceOrderKeywordSqlForTest('2', meta)
     assert.ok(kwSql.includes('wxaj04'))
     assertSql2008(kwSql)
   })
 
-  it('派工类型按生产车间 scaj05 过滤', () => {
+  it('assist source picker is an assist order detail summary by default approved only', () => {
+    const listSql = __buildAssistSourceDetailListSqlForTest()
+    const countSql = __buildAssistSourceDetailCountSqlForTest()
+    assert.ok(listSql.includes('UB_ERP_assist_order'))
+    assert.ok(listSql.includes('UB_ERP_assist_order_list'))
+    assert.ok(listSql.includes('UB_ERP_Finance_currency'))
+    assert.ok(listSql.includes('wxak01'))
+    assert.ok(listSql.includes('wxaj01'))
+    assert.ok(listSql.includes('CONVERT(nvarchar(10), h.[wxaj02], 120) AS assistDate'))
+    assert.ok(listSql.includes('wxak08'))
+    assert.ok(listSql.includes('groupRowNo'))
+    assert.ok(listSql.includes('MIN(l.[id]) AS lineId'))
+    assert.ok(!listSql.includes('GROUP BY\n        h.[id],\n        l.[id]'))
+    assert.ok(listSql.includes("h.[closed], N'0'"))
+    assert.ok(listSql.includes("h.[pass], N''"))
+    assert.ok(listSql.includes("l.[del], N''"))
+    assert.ok(!listSql.includes(' AS unitPrice'))
+    assert.ok(!listSql.includes(' AS unitPriceTax'))
+    assert.ok(!listSql.includes(' AS amount'))
+    assert.ok(!listSql.includes(' AS amountTax'))
+    assert.ok(countSql.includes('COUNT(1) AS total'))
+    assertSql2008(listSql)
+    assertSql2008(countSql)
+  })
+
+  it('assist source picker can include unaudited rows for disabled display', () => {
+    const listSql = __buildAssistSourceDetailListSqlForTest({ includeUnaudited: true })
+    assert.ok(!listSql.includes("LTRIM(RTRIM(ISNULL(h.[pass], N''))) = N'1'"))
+    assert.ok(listSql.includes('AS pass'))
+    assertSql2008(listSql)
+  })
+
+  it('assist source picker keyword covers assist fields and currency', () => {
+    assert.equal(__classifyAssistSourceKeywordForTest('wx26042102'), 'order')
+    assert.equal(__classifyAssistSourceKeywordForTest('supplier'), 'full')
+
+    const orderSql = __buildAssistSourceDetailKeywordSqlForTest('wx26042102')
+    assert.ok(orderSql.includes('wxaj01'))
+    assert.ok(orderSql.includes('@kwExact'))
+    assert.ok(orderSql.includes('@kwPrefix'))
+    assert.ok(!orderSql.includes('@kw\n'))
+    assertSql2008(orderSql)
+
+    const keywordSql = __buildAssistSourceDetailKeywordSqlForTest(true)
+    const listSql = __buildAssistSourceDetailListSqlForTest({ keywordSql, supplierFilterSql: 'AND h.[wxaj05] = @assistSupplierCode' })
+    for (const col of ['wxaj01', 'wxaj02', 'wxaj03', 'wxaj04', 'wxaj05', 'wxaj06', 'wxaj08', 'rmb']) {
+      assert.ok(keywordSql.includes(col), `${col} should be searchable`)
+    }
+    assert.ok(listSql.includes('@assistSupplierCode'))
+    assertSql2008(keywordSql)
+    assertSql2008(listSql)
+  })
+
+  it('assist source picker inbound quantity counts approved stock-in rows only', () => {
+    const statsSql = __buildAssistSourceInboundStatsSqlForTest('AND h.[kcan04] = @orderNo AND l.[kcao02] = @lineKey')
+    assert.ok(statsSql.includes('UB_ERP_Stocks_Storage'))
+    assert.ok(statsSql.includes('UB_ERP_Stocks_Storage_list'))
+    assert.ok(statsSql.includes('h.[kcan03] = 2'))
+    assert.ok(statsSql.includes("h.[pass], N''))) = N'1'"))
+    assert.ok(statsSql.includes('l.[kcao02]'))
+    assert.ok(!statsSql.includes("<> N'1'"))
+    assertSql2008(statsSql)
+  })
+
+  it('dispatch type filters by workshop scaj05', () => {
     const meta = __stockInSourceMetaForTest('4')
     const partySql = __buildSourceOrderPartyFilterSqlForTest(meta)
     const baseWhere = sourceOrderBaseWhereSql(partySql)

@@ -57,7 +57,6 @@ export function normalizeInboundType(v) {
 
 export function isLinkedInboundType(type, sourceOrderNo = '') {
   const t = normalizeInboundType(type)
-  if (t === '5' && !text(sourceOrderNo)) return false
   return ['1', '2', '3', '4', '5', '6'].includes(t)
 }
 
@@ -157,9 +156,10 @@ export function validateStockInPayload(payload = {}) {
   // 外协退料（类型 3）来货单号 kcan08 允许为空
   if (!header.paperNo && header.inboundType !== '3') return '来货单号不能为空'
   if (['1', '2', '3', '6'].includes(header.inboundType) && !header.relatedPartyCode) return '关联方不能为空'
-  if (header.inboundType === '4' && !header.relatedPartyCode) return '生产入库必须选择生产车间'
+  if (['4', '5'].includes(header.inboundType) && !header.relatedPartyCode) return '生产退料/入库必须选择生产车间'
   if (['1', '2', '3', '6'].includes(header.inboundType) && !header.sourceOrderNo) return '关联单号不能为空'
   if (header.inboundType === '4' && !header.sourceOrderNo) return '生产入库必须选择派工单'
+  if (header.inboundType === '5' && !header.sourceOrderNo) return '生产退料必须选择派工单'
 
   const rawLines = payload.rawLines ?? payload.lines ?? []
   const lines = (payload.lines ?? []).map((line, idx) => normalizeStockInLine(line, idx + 1, header))
