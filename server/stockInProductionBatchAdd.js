@@ -16,6 +16,11 @@ import {
 } from './stockInAssistBatchAdd.js'
 import { customerSupplyLabel } from './stockInSaveLogic.js'
 import { getStockInLineMeta, getStockOutLineMeta } from './stockInBatchLineMeta.js'
+import {
+  batchExpandProductionDispatchLines,
+  PRODUCTION_ISSUE_QTY_PRECISION,
+} from './stockOutProductionIssueBomExpand.js'
+import { fetchBom000Kcaa02ByMaterialBatch } from './stockOutAssistIssueBomExpand.js'
 
 const DISPATCH_HEADER_FROM = 'dbo.[UB_ERP_Dispatch_order]'
 const DISPATCH_LINE_FROM = 'dbo.[UB_ERP_Dispatch_order_list]'
@@ -160,6 +165,24 @@ function parsePage(query = {}) {
   const rawPageSize = Number.parseInt(query.pageSize, 10) || 20
   const pageSize = Math.min(100, Math.max(1, rawPageSize))
   return { page, pageSize, startRow: (page - 1) * pageSize + 1, endRow: page * pageSize }
+}
+
+function parseProductionReturnPaging(query = {}) {
+  const fetchAll = ['1', 'true', 'yes'].includes(String(query.fetchAll ?? '').trim().toLowerCase())
+  const page = Math.max(1, Number.parseInt(query.page, 10) || 1)
+  const rawPageSize = Number.parseInt(query.pageSize, 10) || 20
+  const pageSize = fetchAll ? Number.MAX_SAFE_INTEGER : Math.min(200, Math.max(1, rawPageSize))
+  return { page, pageSize, fetchAll }
+}
+
+function sliceProductionReturnRows(list, paging) {
+  const rows = Array.isArray(list) ? list : []
+  const total = rows.length
+  if (paging?.fetchAll) return { list: rows, total, page: 1, pageSize: total > 0 ? total : 1 }
+  const page = Math.max(1, paging?.page ?? 1)
+  const pageSize = Math.max(1, paging?.pageSize ?? 20)
+  const start = (page - 1) * pageSize
+  return { list: rows.slice(start, start + pageSize), total, page, pageSize }
 }
 
 function buildKeywordWhere(keyword) {
@@ -316,6 +339,93 @@ async function fetchOutboundAggByDetailKey(pool, { sourceOrderNo, detailKeys, ou
   return { aggMap, pendingMap }
 }
 
+async function fetchProductionIssueQtyByMaterial(pool, { sourceOrderNo, warehouseCode, materialCodes }) {
+  const mats = (materialCodes ?? []).map((k) => text(k)).filter(Boolean)
+  if (!mats.length) return { aggMap: new Map(), pendingMap: new Map() }
+  const req = pool.request()
+    .input('sourceOrderNo', sql.NVarChar(200), sourceOrderNo)
+    .input('warehouseCode', sql.NVarChar(200), warehouseCode)
+  const inList = mats.map((k, i) => {
+    const p = `mc${i}`
+    req.input(p, sql.NVarChar(300), k)
+    return `@${p}`
+  }).join(', ')
+  const r = await req.query(`
+    SELECT
+      ${nvarcharTextExpr('l', 'kcaa01', 300)} AS materialCode,
+      ${nvarcharTextExpr('h', 'kcap01', 200)} AS docNo,
+      ${nvarcharTextExpr('h', 'pass', 20)} AS pass,
+      ${safeDecimalExpr('l', 'kcaq03')} AS qty
+    FROM ${STOCK_OUT_FROM} AS h
+    INNER JOIN ${STOCK_OUT_LINE_FROM} AS l
+      ON ${nvarcharTextExpr('l', 'kcaq01', 200)} = ${nvarcharTextExpr('h', 'kcap01', 200)}
+    WHERE ${nvarcharTextExpr('h', 'del', 20)} IN (N'', N'0')
+      AND ${nvarcharTextExpr('l', 'del', 20)} IN (N'', N'0')
+      AND ${nvarcharTextExpr('h', 'kcap03', 20)} = N'4'
+      AND ${nvarcharTextExpr('h', 'kcap04', 200)} = @sourceOrderNo
+      AND ${nvarcharTextExpr('h', 'kcap06', 200)} = @warehouseCode
+      AND ${nvarcharTextExpr('l', 'kcaa01', 300)} IN (${inList})
+  `)
+  const aggMap = new Map()
+  const pendingMap = new Map()
+  for (const row of r.recordset ?? []) {
+    const key = text(row.materialCode)
+    if (!aggMap.has(key)) aggMap.set(key, { approvedQty: 0, pendingQty: 0 })
+    const item = aggMap.get(key)
+    if (text(row.pass) === '1') item.approvedQty += toNumber(row.qty)
+    else {
+      item.pendingQty += toNumber(row.qty)
+      if (!pendingMap.has(key)) pendingMap.set(key, [])
+      pendingMap.get(key).push({ docNo: text(row.docNo), qty: toNumber(row.qty) })
+    }
+  }
+  return { aggMap, pendingMap }
+}
+
+async function fetchProductionReturnQtyByMaterial(pool, { sourceOrderNo, materialCodes, excludeReceiptNo }) {
+  const mats = (materialCodes ?? []).map((k) => text(k)).filter(Boolean)
+  if (!mats.length) return { aggMap: new Map(), pendingMap: new Map() }
+  const exclude = text(excludeReceiptNo)
+  const excludeSql = exclude ? `AND ${nvarcharTextExpr('h', 'kcan01', 200)} <> @excludeReceiptNo` : ''
+  const req = pool.request().input('sourceOrderNo', sql.NVarChar(200), sourceOrderNo)
+  if (exclude) req.input('excludeReceiptNo', sql.NVarChar(200), exclude)
+  const inList = mats.map((k, i) => {
+    const p = `mc${i}`
+    req.input(p, sql.NVarChar(300), k)
+    return `@${p}`
+  }).join(', ')
+  const r = await req.query(`
+    SELECT
+      ${nvarcharTextExpr('l', 'kcaa01', 300)} AS materialCode,
+      ${nvarcharTextExpr('h', 'kcan01', 200)} AS docNo,
+      ${nvarcharTextExpr('h', 'pass', 20)} AS pass,
+      ${safeDecimalExpr('l', 'kcao03')} AS qty
+    FROM ${STOCK_IN_FROM} AS h
+    INNER JOIN ${STOCK_IN_LINE_FROM} AS l
+      ON ${nvarcharTextExpr('l', 'kcao01', 200)} = ${nvarcharTextExpr('h', 'kcan01', 200)}
+    WHERE ${nvarcharTextExpr('h', 'del', 20)} IN (N'', N'0')
+      AND ${nvarcharTextExpr('l', 'del', 20)} IN (N'', N'0')
+      AND ${nvarcharTextExpr('h', 'kcan03', 20)} = N'5'
+      AND ${nvarcharTextExpr('h', 'kcan04', 200)} = @sourceOrderNo
+      ${excludeSql}
+      AND ${nvarcharTextExpr('l', 'kcaa01', 300)} IN (${inList})
+  `)
+  const aggMap = new Map()
+  const pendingMap = new Map()
+  for (const row of r.recordset ?? []) {
+    const key = text(row.materialCode)
+    if (!aggMap.has(key)) aggMap.set(key, { approvedQty: 0, pendingQty: 0 })
+    const item = aggMap.get(key)
+    if (text(row.pass) === '1') item.approvedQty += toNumber(row.qty)
+    else {
+      item.pendingQty += toNumber(row.qty)
+      if (!pendingMap.has(key)) pendingMap.set(key, [])
+      pendingMap.get(key).push({ docNo: text(row.docNo), qty: toNumber(row.qty) })
+    }
+  }
+  return { aggMap, pendingMap }
+}
+
 async function fetchFloatRates(pool, categoryCodes) {
   const codes = (categoryCodes ?? []).map((k) => text(k)).filter(Boolean)
   if (!codes.length) return new Map()
@@ -414,6 +524,245 @@ function mapProductionLineRow(row, ctx) {
   return out
 }
 
+function resolveProductionReturnMaterialSnapshot(row) {
+  const snap = row.snapshot ?? {}
+  const out = {
+    kcaa01: text(row.childKcaa01),
+    kcaa02: text(snap.kcaa02),
+    kcaa03: text(snap.kcaa03),
+    kcaa04: text(snap.kcaa04),
+    kcaa11: text(snap.kcaa11),
+    kcaa25: text(snap.kcaa25),
+    kcaa26: snap.kcaa26,
+    kcaa27: text(snap.kcaa27),
+    kcaa05: text(snap.kcaa05),
+    location: text(snap.location),
+    sale_price: snap.sale_price,
+    cost_price: snap.cost_price,
+    Customer_Name: text(snap.Customer_Name),
+    Customer_supply: snap.Customer_supply,
+    remark: text(snap.remark),
+    kpname: text(snap.kpname),
+    kcaa02_en: text(snap.kcaa02_en),
+    version: text(snap.version),
+    systemcode: text(snap.systemcode || snap.GUID),
+    GUID: text(snap.GUID || snap.systemcode),
+  }
+  for (const col of KCAA_COLS) {
+    if (snap[col] != null && snap[col] !== '') out[col] = snap[col]
+  }
+  return out
+}
+
+function joinDistinctText(values = [], fallback = '-') {
+  const list = [...new Set((values ?? []).map((v) => text(v)).filter(Boolean))]
+  if (!list.length) return fallback
+  if (list.length <= 2) return list.join(' / ')
+  return `${list.slice(0, 2).join(' / ')} 等${list.length}项`
+}
+
+function joinProductionReturnProductNames(names = []) {
+  const list = [...new Set((names ?? []).map((v) => text(v)).filter(Boolean))]
+  return list.join(' / ')
+}
+
+function resolveProductionReturnDispatchName(dispatchKcaa01, fallbackName = '', dispatchProductNameMap) {
+  const code = text(dispatchKcaa01).toLowerCase()
+  const fromBom = code ? text(dispatchProductNameMap?.get(code)) : ''
+  return fromBom || text(fallbackName)
+}
+
+function resolveProductionReturnSelectState({ returnableQty, alreadySelected }) {
+  if (alreadySelected) return { selectable: false, selectState: 'picked', selectLabel: '已选择' }
+  if (toNumber(returnableQty) > 0) return { selectable: true, selectState: 'available', selectLabel: '选择' }
+  return { selectable: false, selectState: 'unavailable', selectLabel: '不可选' }
+}
+
+function isProductionReturnCuttingWorkshop(workshopCode) {
+  return text(workshopCode) === '04'
+}
+
+function mapProductionReturnExpandedRow(row, ctx) {
+  const materialCode = text(row.childKcaa01)
+  const scak02 = text(row.scak02 || row.sourceLineCode)
+  const mat = resolveProductionReturnMaterialSnapshot(row)
+  const issued = ctx.issueMap.get(materialCode) ?? { approvedQty: 0, pendingQty: 0 }
+  const returned = ctx.returnMap.get(materialCode) ?? { approvedQty: 0, pendingQty: 0 }
+  const issuedQty = round(toNumber(issued.approvedQty) + toNumber(issued.pendingQty), PRODUCTION_ISSUE_QTY_PRECISION)
+  const returnedQty = round(toNumber(returned.approvedQty) + toNumber(returned.pendingQty), PRODUCTION_ISSUE_QTY_PRECISION)
+  const returnableQty = Math.max(0, round(issuedQty - returnedQty, PRODUCTION_ISSUE_QTY_PRECISION))
+  const dispatchKcaa01 = text(row.dispatchKcaa01)
+  const dispatchProductName = resolveProductionReturnDispatchName(dispatchKcaa01, row.dispatchKcaa02, ctx.dispatchProductNameMap)
+  return {
+    mergeKey: text(row.mergeKey),
+    sourceLineCode: scak02,
+    kcao02: scak02,
+    scak02,
+    dispatchKcaa01,
+    dispatchKcaa02: dispatchProductName,
+    dispatchQty: round(row.scak03, PRODUCTION_ISSUE_QTY_PRECISION),
+    sourceDemandQty: round(row.dispatchDemandQty, PRODUCTION_ISSUE_QTY_PRECISION),
+    issuedQty,
+    issuedApprovedQty: round(issued.approvedQty, PRODUCTION_ISSUE_QTY_PRECISION),
+    issuedPendingQty: round(issued.pendingQty, PRODUCTION_ISSUE_QTY_PRECISION),
+    returnedQty,
+    returnedApprovedQty: round(returned.approvedQty, PRODUCTION_ISSUE_QTY_PRECISION),
+    returnedPendingQty: round(returned.pendingQty, PRODUCTION_ISSUE_QTY_PRECISION),
+    returnableQty,
+    tempx: returnableQty,
+    needQty: returnableQty,
+    availableQty: returnableQty,
+    kcao031: returnableQty,
+    overflowCap: returnableQty,
+    orderQty: issuedQty,
+    orderQtyRaw: issuedQty,
+    pendingOutboundText: formatPendingText(ctx.issuePendingMap.get(materialCode)),
+    pendingInboundText: formatPendingText(ctx.returnPendingMap.get(materialCode)),
+    actualOutboundQty: round(issued.approvedQty, PRODUCTION_ISSUE_QTY_PRECISION),
+    actualReturnQty: round(returned.approvedQty, PRODUCTION_ISSUE_QTY_PRECISION),
+    actualInboundQty: round(returned.approvedQty, PRODUCTION_ISSUE_QTY_PRECISION),
+    reworkQty: round(issued.approvedQty, PRODUCTION_ISSUE_QTY_PRECISION),
+    kcao04: 0,
+    kcao041: 0,
+    kcao05: 0,
+    kcao051: 0,
+    tax: 0,
+    reference: text(ctx.piNo),
+    info: dispatchProductName,
+    Describe: dispatchProductName,
+    customerSupplyLabel: customerSupplyLabel(mat.Customer_supply) || '-',
+    rmbUnitPrice: 0,
+    rmbAmount: 0,
+    ...mat,
+  }
+}
+
+function mapCuttingIssueRowToProductionReturn(row, selectedSet = new Set(), ctx = {}) {
+  const materialCode = text(row.kcaa01 || row.childKcaa01)
+  const sourceLineCode = text(row.sourceLineCode || row.scak02) || (materialCode ? `CUT|${materialCode}` : '')
+  const issued = ctx.issueMap?.get(materialCode) ?? {}
+  const returned = ctx.returnMap?.get(materialCode) ?? { approvedQty: 0, pendingQty: 0 }
+  const issuedApprovedQty = round(issued.approvedQty ?? row.sourceApprovedOutQty ?? row.dispatchApprovedOutQty, PRODUCTION_ISSUE_QTY_PRECISION)
+  const issuedPendingQty = round(issued.pendingQty ?? row.sourcePendingOutQty ?? row.dispatchPendingOutQty, PRODUCTION_ISSUE_QTY_PRECISION)
+  const issuedQty = round(issuedApprovedQty + issuedPendingQty, PRODUCTION_ISSUE_QTY_PRECISION)
+  const returnedQty = round(toNumber(returned.approvedQty) + toNumber(returned.pendingQty), PRODUCTION_ISSUE_QTY_PRECISION)
+  const returnableQty = Math.max(0, round(issuedQty - returnedQty, PRODUCTION_ISSUE_QTY_PRECISION))
+  const materialLineKey = `material|${materialCode.toLowerCase()}`
+  const alreadySelected = selectedSet.has(materialLineKey) || selectedSet.has(sourceLineCode.toLowerCase())
+  const select = resolveProductionReturnSelectState({ returnableQty, alreadySelected })
+  const info = text(row.info || row.Describe || row.dispatchKcaa02 || row.kcaa02)
+  return {
+    ...row,
+    lineKey: materialLineKey,
+    sourceLineCode,
+    kcao02: sourceLineCode,
+    scak02: sourceLineCode,
+    issuedQty,
+    issuedApprovedQty,
+    issuedPendingQty,
+    returnedQty,
+    returnedApprovedQty: round(returned.approvedQty, PRODUCTION_ISSUE_QTY_PRECISION),
+    returnedPendingQty: round(returned.pendingQty, PRODUCTION_ISSUE_QTY_PRECISION),
+    returnableQty,
+    tempx: returnableQty,
+    needQty: returnableQty,
+    availableQty: returnableQty,
+    kcao031: returnableQty,
+    overflowCap: returnableQty,
+    orderQty: issuedQty,
+    actualOutboundQty: issuedApprovedQty,
+    actualReturnQty: round(returned.approvedQty, PRODUCTION_ISSUE_QTY_PRECISION),
+    actualInboundQty: round(returned.approvedQty, PRODUCTION_ISSUE_QTY_PRECISION),
+    pendingOutboundText: formatPendingText(ctx.issuePendingMap?.get(materialCode)) || text(row.pendingOutboundText) || '-',
+    pendingInboundText: formatPendingText(ctx.returnPendingMap?.get(materialCode)),
+    kcao03: returnableQty,
+    kcao04: 0,
+    kcao041: 0,
+    kcao05: 0,
+    kcao051: 0,
+    tax: 0,
+    reference: text(ctx.piNo),
+    info,
+    Describe: info,
+    expandSource: text(row.expandSource) || 'pi_cost_cutting',
+    ...select,
+  }
+}
+
+export function aggregateProductionReturnRowsByMaterial(rows, selectedSet = new Set(), ctx = {}) {
+  const groups = new Map()
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const materialCode = text(row.kcaa01)
+    const key = materialCode.toLowerCase()
+    if (!key) continue
+    const existing = groups.get(key)
+    if (!existing) {
+      groups.set(key, {
+        ...row,
+        __dispatchCodes: [text(row.dispatchKcaa01)],
+        __dispatchProductNames: [text(row.info) || text(row.dispatchKcaa02)],
+        __scak02List: [text(row.scak02 || row.sourceLineCode)],
+      })
+      continue
+    }
+    existing.sourceDemandQty = round(toNumber(existing.sourceDemandQty) + toNumber(row.sourceDemandQty), PRODUCTION_ISSUE_QTY_PRECISION)
+    existing.dispatchQty = round(toNumber(existing.dispatchQty) + toNumber(row.dispatchQty), PRODUCTION_ISSUE_QTY_PRECISION)
+    existing.__dispatchCodes.push(text(row.dispatchKcaa01))
+    existing.__dispatchProductNames.push(text(row.info) || text(row.dispatchKcaa02))
+    existing.__scak02List.push(text(row.scak02 || row.sourceLineCode))
+  }
+
+  const merged = []
+  for (const item of groups.values()) {
+    const materialCode = text(item.kcaa01)
+    const materialLineKey = `material|${materialCode.toLowerCase()}`
+    const sourceLineCode = text(item.__scak02List.find(Boolean))
+    const issued = ctx.issueMap?.get(materialCode) ?? { approvedQty: item.issuedApprovedQty, pendingQty: item.issuedPendingQty }
+    const returned = ctx.returnMap?.get(materialCode) ?? { approvedQty: item.returnedApprovedQty, pendingQty: item.returnedPendingQty }
+    const issuedQty = round(toNumber(issued.approvedQty) + toNumber(issued.pendingQty), PRODUCTION_ISSUE_QTY_PRECISION)
+    const returnedQty = round(toNumber(returned.approvedQty) + toNumber(returned.pendingQty), PRODUCTION_ISSUE_QTY_PRECISION)
+    const returnableQty = Math.max(0, round(issuedQty - returnedQty, PRODUCTION_ISSUE_QTY_PRECISION))
+    const alreadySelected = selectedSet.has(materialLineKey) || selectedSet.has(sourceLineCode.toLowerCase())
+    const select = resolveProductionReturnSelectState({ returnableQty, alreadySelected })
+    const info = joinProductionReturnProductNames(item.__dispatchProductNames)
+    const next = {
+      ...item,
+      lineKey: materialLineKey,
+      sourceLineCode,
+      kcao02: sourceLineCode,
+      scak02: sourceLineCode,
+      dispatchKcaa01: joinDistinctText(item.__dispatchCodes),
+      dispatchKcaa02: info,
+      info,
+      Describe: info,
+      issuedQty,
+      issuedApprovedQty: round(issued.approvedQty, PRODUCTION_ISSUE_QTY_PRECISION),
+      issuedPendingQty: round(issued.pendingQty, PRODUCTION_ISSUE_QTY_PRECISION),
+      returnedQty,
+      returnedApprovedQty: round(returned.approvedQty, PRODUCTION_ISSUE_QTY_PRECISION),
+      returnedPendingQty: round(returned.pendingQty, PRODUCTION_ISSUE_QTY_PRECISION),
+      returnableQty,
+      tempx: returnableQty,
+      needQty: returnableQty,
+      availableQty: returnableQty,
+      kcao031: returnableQty,
+      overflowCap: returnableQty,
+      orderQty: issuedQty,
+      actualOutboundQty: round(issued.approvedQty, PRODUCTION_ISSUE_QTY_PRECISION),
+      actualReturnQty: round(returned.approvedQty, PRODUCTION_ISSUE_QTY_PRECISION),
+      actualInboundQty: round(returned.approvedQty, PRODUCTION_ISSUE_QTY_PRECISION),
+      pendingOutboundText: formatPendingText(ctx.issuePendingMap?.get(materialCode)),
+      pendingInboundText: formatPendingText(ctx.returnPendingMap?.get(materialCode)),
+      ...select,
+    }
+    delete next.__dispatchCodes
+    delete next.__dispatchProductNames
+    delete next.__scak02List
+    merged.push(next)
+  }
+  return merged
+}
+
 export async function fetchStockInProductionBatchLines(pool, query = {}) {
   const sourceOrderNo = text(query.sourceOrderNo)
   if (!sourceOrderNo) {
@@ -424,6 +773,8 @@ export async function fetchStockInProductionBatchLines(pool, query = {}) {
     return { ok: false, status: 400, msg: '请先选择生产车间' }
   }
   const excludeReceiptNo = text(query.excludeReceiptNo)
+  const warehouseCode = text(query.warehouseCode)
+  const piNo = text(query.piNo || query.paperNo)
   const inboundType = normalizeProductionBatchInboundType(query.inboundType)
   const dispatchSystemcode = text(query.dispatchSystemcode)
   const keyword = text(query.keyword)
@@ -432,6 +783,12 @@ export async function fetchStockInProductionBatchLines(pool, query = {}) {
 
   if (isReturn && !dispatchSystemcode) {
     return { ok: false, status: 400, msg: LEGACY_RETURN_PARAM_ERROR_MSG }
+  }
+  if (isReturn && !warehouseCode) {
+    return { ok: false, status: 400, msg: '请先选择仓库' }
+  }
+  if (isReturn && !piNo) {
+    return { ok: false, status: 400, msg: '请先带出 PI号' }
   }
 
   const headerCheck = await validateProductionDispatchHeader(pool, {
@@ -447,6 +804,141 @@ export async function fetchStockInProductionBatchLines(pool, query = {}) {
       .map((x) => x.trim().toLowerCase())
       .filter(Boolean),
   )
+
+  if (isReturn) {
+    const paging = parseProductionReturnPaging(query)
+    if (isProductionReturnCuttingWorkshop(workshopCode)) {
+      const { fetchCuttingIssueBatchLines } = await import('./stockOutCuttingIssueBatchAdd.js')
+      const cuttingResult = await fetchCuttingIssueBatchLines(pool, {
+        ...query,
+        sourceOrderNo,
+        workshopCode,
+        warehouseCode,
+        piNo,
+        dispatchSystemcode,
+        keyword: '',
+        fetchAll: '1',
+      })
+      if (!cuttingResult.ok) return cuttingResult
+      const cuttingRows = Array.isArray(cuttingResult.list) ? cuttingResult.list : []
+      const kw = keyword.toLowerCase()
+      const filteredCuttingRows = kw
+        ? cuttingRows.filter((row) => text(row.kcaa01 || row.childKcaa01).toLowerCase().includes(kw))
+        : cuttingRows
+      const materialCodes = [...new Set(filteredCuttingRows.map((row) => text(row.kcaa01 || row.childKcaa01)).filter(Boolean))]
+      const [issueResult, returnResult] = await Promise.all([
+        fetchProductionIssueQtyByMaterial(pool, { sourceOrderNo, warehouseCode, materialCodes }),
+        fetchProductionReturnQtyByMaterial(pool, { sourceOrderNo, materialCodes, excludeReceiptNo }),
+      ])
+      const ctx = {
+        piNo,
+        issueMap: issueResult.aggMap,
+        issuePendingMap: issueResult.pendingMap,
+        returnMap: returnResult.aggMap,
+        returnPendingMap: returnResult.pendingMap,
+      }
+      const mappedRows = filteredCuttingRows.map((row) => mapCuttingIssueRowToProductionReturn(row, selectedSet, ctx))
+      const sliced = sliceProductionReturnRows(mappedRows, paging)
+      return {
+        ok: true,
+        list: sliced.list,
+        total: sliced.total,
+        page: sliced.page,
+        pageSize: sliced.pageSize,
+        fetchAll: paging.fetchAll,
+        sourceOrderNo,
+        workshopCode,
+        warehouseCode,
+        piNo,
+        batchMode: 'cutting',
+        piCostHint: cuttingResult.piCostHint,
+      }
+    }
+
+    const listReq = pool.request()
+      .input('sourceOrderNo', sql.NVarChar(200), sourceOrderNo)
+      .input('workshopCode', sql.NVarChar(200), workshopCode)
+    const listR = await listReq.query(`
+      SELECT
+        l.[id],
+        ${nvarcharTextExpr('l', 'scak02', 200)} AS scak02,
+        ${nvarcharTextExpr('l', 'systemcode', 200)} AS systemcode,
+        ${nvarcharTextExpr('l', 'GUID', 200)} AS GUID,
+        ${safeDecimalExpr('l', 'scak03')} AS scak03,
+        ${nvarcharTextExpr('l', 'pi', 200)} AS pi,
+        ${nvarcharTextExpr('l', 'kcaa01', 300)} AS kcaa01,
+        ${nvarcharTextExpr('l', 'kcaa02', 500)} AS kcaa02
+      FROM ${DISPATCH_LINE_FROM} AS l
+      INNER JOIN ${DISPATCH_HEADER_FROM} AS h
+        ON ${nvarcharTextExpr('h', 'scaj01', 200)} = ${nvarcharTextExpr('l', 'scak01', 200)}
+      WHERE ${nvarcharTextExpr('h', 'scaj01', 200)} = @sourceOrderNo
+        AND ${nvarcharTextExpr('h', 'del', 20)} IN (N'', N'0')
+        AND ${nvarcharTextExpr('h', 'pass', 20)} = N'1'
+        AND ${nvarcharTextExpr('h', 'closed', 20)} IN (N'', N'0')
+        AND ${nvarcharTextExpr('h', 'scaj05', 200)} = @workshopCode
+        AND ${nvarcharTextExpr('l', 'del', 20)} IN (N'', N'0')
+        AND ${nvarcharTextExpr('l', 'scak02', 200)} = ${nvarcharTextExpr('l', 'GUID', 200)}
+        AND ${nvarcharTextExpr('l', 'scak02', 200)} <> N''
+      ORDER BY ${safeIntExpr('l', 'seq')}, l.[id]
+    `)
+    const dispatchLines = listR.recordset ?? []
+    if (!dispatchLines.length) {
+      return { ok: false, status: 400, msg: LEGACY_RETURN_NO_LINES_MSG }
+    }
+
+    const expandedRaw = await batchExpandProductionDispatchLines(pool, dispatchLines, piNo)
+    const kw = keyword.toLowerCase()
+    const filtered = kw
+      ? expandedRaw.filter((row) => text(row.childKcaa01).toLowerCase().includes(kw))
+      : expandedRaw
+    if (!filtered.length) {
+      return {
+        ok: true,
+        list: [],
+        total: 0,
+        page: paging.page,
+        pageSize: paging.pageSize,
+        fetchAll: paging.fetchAll,
+        sourceOrderNo,
+        workshopCode,
+        warehouseCode,
+        piNo,
+        piCostHint: '当前派工单未匹配到 PI 成本用量材料，请确认 PI 已完成一键运算',
+      }
+    }
+
+    const materialCodes = [...new Set(filtered.map((row) => text(row.childKcaa01)).filter(Boolean))]
+    const dispatchMaterialCodes = [...new Set(filtered.map((row) => text(row.dispatchKcaa01)).filter(Boolean))]
+    const [issueResult, returnResult, dispatchProductNameMap] = await Promise.all([
+      fetchProductionIssueQtyByMaterial(pool, { sourceOrderNo, warehouseCode, materialCodes }),
+      fetchProductionReturnQtyByMaterial(pool, { sourceOrderNo, materialCodes, excludeReceiptNo }),
+      fetchBom000Kcaa02ByMaterialBatch(pool, dispatchMaterialCodes),
+    ])
+
+    const ctx = {
+      piNo,
+      issueMap: issueResult.aggMap,
+      issuePendingMap: issueResult.pendingMap,
+      returnMap: returnResult.aggMap,
+      returnPendingMap: returnResult.pendingMap,
+      dispatchProductNameMap,
+    }
+    const mappedRows = filtered.map((row) => mapProductionReturnExpandedRow(row, ctx))
+    const mergedRows = aggregateProductionReturnRowsByMaterial(mappedRows, selectedSet, ctx)
+    const sliced = sliceProductionReturnRows(mergedRows, paging)
+    return {
+      ok: true,
+      list: sliced.list,
+      total: sliced.total,
+      page: sliced.page,
+      pageSize: sliced.pageSize,
+      fetchAll: paging.fetchAll,
+      sourceOrderNo,
+      workshopCode,
+      warehouseCode,
+      piNo,
+    }
+  }
 
   const headerWhere = `
     ${nvarcharTextExpr('h', 'scaj01', 200)} = @sourceOrderNo

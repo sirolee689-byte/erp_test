@@ -16,7 +16,11 @@
       >
         采购订单添加
       </el-button>
-      <el-button plain @click="openMaterialTraceWindow">
+      <el-button
+        :type="pageMode === 'material-trace' ? 'primary' : 'default'"
+        plain
+        @click="switchMaterialTrace"
+      >
         转向物料查询
       </el-button>
     </div>
@@ -86,6 +90,18 @@
               <span class="switch-label">显示未审核</span>
               <el-switch v-model="showUnaudited" @change="onUnauditedChange" />
             </div>
+            <el-button
+              v-if="showUnaudited"
+              v-permission="'audit'"
+              type="warning"
+              plain
+              size="small"
+              :loading="batchAuditLoading"
+              :disabled="!currentPageAuditableRows.length"
+              @click="batchAuditCurrentPage"
+            >
+              批量审核当前页
+            </el-button>
           </template>
         </div>
       </div>
@@ -331,6 +347,10 @@
       </div>
     </div>
 
+    <div v-if="pageMode === 'material-trace'" class="buy-material-trace-panel">
+      <BuyOrderMaterialTracePanel />
+    </div>
+
     <div
       v-show="isFormPanel"
       ref="createPanelRef"
@@ -520,7 +540,20 @@
               <el-table-column label="采购单位" prop="kcaa25" width="96" show-overflow-tooltip />
               <el-table-column label="数量" width="120">
                 <template #default="{ row }">
-                  <el-input-number v-model="row.quantity" :min="0" :precision="2" :controls="false" :formatter="formatQuantityInput" :parser="parseQuantityInput" class="buy-line-input-num" @change="recalcLine(row)" />
+                  <div class="buy-line-qty-cell">
+                    <el-input-number
+                      v-model="row.quantity"
+                      :min="0"
+                      :precision="2"
+                      :controls="false"
+                      :formatter="formatQuantityInput"
+                      :parser="parseQuantityInput"
+                      :disabled="row.inboundLocked"
+                      class="buy-line-input-num"
+                      @change="recalcLine(row)"
+                    />
+                    <span v-if="row.inboundLocked" class="buy-line-lock-tip">已入库，数量锁定</span>
+                  </div>
                 </template>
               </el-table-column>
               <el-table-column v-if="hasPrice" label="单价" width="110" align="right">
@@ -649,6 +682,7 @@ import ErpTableViewportHScroll from '@/components/erp/ErpTableViewportHScroll.vu
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
 import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
+import BuyOrderMaterialTracePanel from './material-trace-window.vue'
 import {
   BUY_BATCH_MSG_ACCEPTED,
   BUY_BATCH_MSG_APPLY,
@@ -676,6 +710,7 @@ const activeTab = ref('header')
 const loading = ref(false)
 const detailLoading = ref(false)
 const saving = ref(false)
+const batchAuditLoading = ref(false)
 const recycled = ref(false)
 const showUnaudited = ref(false)
 const rows = ref([])
@@ -707,6 +742,7 @@ const activeBatchSessionId = ref('')
 const isFormPanel = computed(() => pageMode.value === 'create' || pageMode.value === 'edit')
 const isMultiPiMode = computed(() => form.header.buyType === '2')
 const taxIncludedPricePrecision = computed(() => (model.mode === 'full' ? 4 : 2))
+const currentPageAuditableRows = computed(() => rows.value.filter((row) => String(row?.pass ?? '') !== '1' && !recycled.value && showUnaudited.value))
 
 const buyOrderActionsColWidth = computed(() => {
   if (recycled.value) return getErpTableActionsColMinWidth(2)
@@ -1078,10 +1114,9 @@ async function switchToCreate() {
   createPanelInitialized.value = true
 }
 
-function openMaterialTraceWindow() {
-  const url = '/supply-chain/daily/purchase-order-material-trace-window'
-  const opened = window.open(url, '_blank')
-  if (!opened) ElMessage.error('无法打开新窗口，请检查浏览器是否拦截弹窗')
+function switchMaterialTrace() {
+  pageMode.value = 'material-trace'
+  editId.value = null
 }
 
 async function confirmAndResetCreateForm() {
@@ -1272,6 +1307,7 @@ function hydrateForm(data) {
       const col = `kcaa${String(idx + 1).padStart(2, '0')}`
       return [col, l[col]]
     })),
+    id: l.id,
     seq: l.seq || i + 1,
     bomSystemCode: l.kcak02 || l.systemcode,
     kcaa01: l.kcaa01,
@@ -1279,6 +1315,8 @@ function hydrateForm(data) {
     kcaa03: l.kcaa03,
     kcaa04: l.kcaa04,
     quantity: Number(l.kcak03 || 0),
+    inboundLocked: Boolean(l.inboundLocked),
+    inboundQty: Number(l.inboundQty || 0),
     taxExcludedPrice: Number(l.kcak04 || 0),
     taxIncludedPrice: Number(l.kcak041 || 0),
     taxExcludedAmount: Number(l.kcak05 || 0),
@@ -1665,6 +1703,46 @@ function windowPrint() {
 async function askUnaudit(row) {
   const { value } = await ElMessageBox.prompt(`请输入采购单【${row.buyOrderNo}】反审原因`, '反审原因', { inputType: 'textarea', inputValidator: (v) => !!String(v || '').trim(), inputErrorMessage: '反审原因必填' })
   await lifecycle(row, 'unaudit', value)
+}
+async function batchAuditCurrentPage() {
+  const targets = currentPageAuditableRows.value
+  if (!targets.length) {
+    ElMessage.warning('当前页没有可审核的采购单')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(`确认批量审核当前页 ${targets.length} 张采购单吗？`, '批量审核确认', {
+      type: 'warning',
+      confirmButtonText: '批量审核',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+  batchAuditLoading.value = true
+  let success = 0
+  let failed = 0
+  const failedMessages = []
+  try {
+    for (const row of targets) {
+      try {
+        await axios.post(`/api/buy-order/${row.id}/audit`, { reason: '' })
+        success += 1
+      } catch (err) {
+        failed += 1
+        failedMessages.push(`${row.buyOrderNo || row.id}：${err?.response?.data?.msg || err.message || '审核失败'}`)
+      }
+    }
+    if (failed > 0) {
+      ElMessage.warning(`批量审核完成：成功 ${success} 张，失败 ${failed} 张`)
+      console.warn('[采购单批量审核失败明细]', failedMessages)
+    } else {
+      ElMessage.success(`批量审核完成：成功 ${success} 张`)
+    }
+    await loadList()
+  } finally {
+    batchAuditLoading.value = false
+  }
 }
 function lifecycleConfirmConfig(row, action) {
   const no = row?.buyOrderNo || row?.kcaj01 || row?.id || ''
@@ -2179,6 +2257,22 @@ onUnmounted(() => {
 }
 .buy-line-input-num :deep(.el-input__inner) {
   text-align: left;
+}
+.buy-line-qty-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.buy-line-lock-tip {
+  color: #dc2626;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.buy-material-trace-panel {
+  padding: 12px;
+  background: #fff;
 }
 
 .detail-title { font-weight: 700; margin-bottom: 10px; }

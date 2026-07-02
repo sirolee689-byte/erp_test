@@ -1,0 +1,64 @@
+/* 库存统计快照表：普通库存统计生成结果持久化（第一期） */
+IF NOT EXISTS (
+  SELECT 1 FROM sys.objects
+  WHERE object_id = OBJECT_ID(N'[dbo].[UB_ERP_Stock_stats_snapshot]') AND type IN (N'U')
+)
+BEGIN
+  CREATE TABLE [dbo].[UB_ERP_Stock_stats_snapshot] (
+    [id] INT IDENTITY(1, 1) NOT NULL,
+    [start_date] DATE NOT NULL,
+    [end_date] DATE NOT NULL,
+    [warehouse_code] NVARCHAR(200) NOT NULL,
+    [warehouse_name] NVARCHAR(500) NULL,
+    [material_filter] NVARCHAR(300) NULL,
+    [report_kind] NVARCHAR(50) NOT NULL CONSTRAINT [DF_Stock_stats_snapshot_kind] DEFAULT (N'normal'),
+    [generated_at] DATETIME NOT NULL CONSTRAINT [DF_Stock_stats_snapshot_at] DEFAULT (GETDATE()),
+    [generated_uid] NVARCHAR(50) NULL,
+    [generated_uname] NVARCHAR(100) NULL,
+    [generated_truename] NVARCHAR(100) NULL,
+    [row_count] INT NOT NULL CONSTRAINT [DF_Stock_stats_snapshot_rows] DEFAULT (0),
+    [filter_json] NVARCHAR(MAX) NULL,
+    [pass] NVARCHAR(10) NOT NULL CONSTRAINT [DF_Stock_stats_snapshot_pass] DEFAULT (N'1'),
+    [del] NVARCHAR(10) NOT NULL CONSTRAINT [DF_Stock_stats_snapshot_del] DEFAULT (N'0'),
+    CONSTRAINT [PK_UB_ERP_Stock_stats_snapshot] PRIMARY KEY CLUSTERED ([id] ASC)
+  );
+  CREATE NONCLUSTERED INDEX [IX_Stock_stats_snapshot_gen] ON [dbo].[UB_ERP_Stock_stats_snapshot] ([generated_at] DESC, [id] DESC);
+END
+GO
+
+IF NOT EXISTS (
+  SELECT 1 FROM sys.objects
+  WHERE object_id = OBJECT_ID(N'[dbo].[UB_ERP_Stock_stats_snapshot_line]') AND type IN (N'U')
+)
+BEGIN
+  CREATE TABLE [dbo].[UB_ERP_Stock_stats_snapshot_line] (
+    [id] INT IDENTITY(1, 1) NOT NULL,
+    [snapshot_id] INT NOT NULL,
+    [kcaa01] NVARCHAR(300) NOT NULL,
+    [warehouse_code] NVARCHAR(200) NOT NULL,
+    [kcaa02] NVARCHAR(500) NULL,
+    [kcaa03] NVARCHAR(500) NULL,
+    [kcaa04] NVARCHAR(100) NULL,
+    [lastsum] DECIMAL(18, 6) NOT NULL CONSTRAINT [DF_Stock_stats_line_lastsum] DEFAULT (0),
+    [lastprice] DECIMAL(18, 6) NOT NULL CONSTRAINT [DF_Stock_stats_line_lastprice] DEFAULT (0),
+    [lastmoney] DECIMAL(18, 2) NOT NULL CONSTRAINT [DF_Stock_stats_line_lastmoney] DEFAULT (0),
+    [nowin] DECIMAL(18, 6) NOT NULL CONSTRAINT [DF_Stock_stats_line_nowin] DEFAULT (0),
+    [nowinprice] DECIMAL(18, 6) NOT NULL CONSTRAINT [DF_Stock_stats_line_nowinprice] DEFAULT (0),
+    [nowmoney] DECIMAL(18, 2) NOT NULL CONSTRAINT [DF_Stock_stats_line_nowmoney] DEFAULT (0),
+    [nowout] DECIMAL(18, 6) NOT NULL CONSTRAINT [DF_Stock_stats_line_nowout] DEFAULT (0),
+    [nowoutprice] DECIMAL(18, 6) NOT NULL CONSTRAINT [DF_Stock_stats_line_nowoutprice] DEFAULT (0),
+    [nowoutmoney] DECIMAL(18, 2) NOT NULL CONSTRAINT [DF_Stock_stats_line_nowoutmoney] DEFAULT (0),
+    [nowbs] DECIMAL(18, 6) NOT NULL CONSTRAINT [DF_Stock_stats_line_nowbs] DEFAULT (0),
+    [nowbsprice] DECIMAL(18, 6) NOT NULL CONSTRAINT [DF_Stock_stats_line_nowbsprice] DEFAULT (0),
+    [nowbsmonney] DECIMAL(18, 2) NOT NULL CONSTRAINT [DF_Stock_stats_line_nowbsmonney] DEFAULT (0),
+    [hzkcm] DECIMAL(18, 6) NOT NULL CONSTRAINT [DF_Stock_stats_line_hzkcm] DEFAULT (0),
+    [hzmoney] DECIMAL(18, 2) NOT NULL CONSTRAINT [DF_Stock_stats_line_hzmoney] DEFAULT (0),
+    [nowsum] DECIMAL(18, 6) NOT NULL CONSTRAINT [DF_Stock_stats_line_nowsum] DEFAULT (0),
+    [nowprice] DECIMAL(18, 6) NOT NULL CONSTRAINT [DF_Stock_stats_line_nowprice] DEFAULT (0),
+    [nowmoneys] DECIMAL(18, 2) NOT NULL CONSTRAINT [DF_Stock_stats_line_nowmoneys] DEFAULT (0),
+    [del] NVARCHAR(10) NOT NULL CONSTRAINT [DF_Stock_stats_line_del] DEFAULT (N'0'),
+    CONSTRAINT [PK_UB_ERP_Stock_stats_snapshot_line] PRIMARY KEY CLUSTERED ([id] ASC)
+  );
+  CREATE NONCLUSTERED INDEX [IX_Stock_stats_snapshot_line_sid] ON [dbo].[UB_ERP_Stock_stats_snapshot_line] ([snapshot_id] ASC, [kcaa01] ASC);
+END
+GO

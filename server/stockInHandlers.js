@@ -24,6 +24,15 @@ import {
   fetchStockInAssistReturnBatchLines,
   fetchStockInAssistReturnBomParts,
 } from './stockInAssistReturnBatchAdd.js'
+import {
+  fetchStockInSurplusBatchLines,
+  fetchStockInSurplusBatchPrices,
+} from './stockInSurplusBatchAdd.js'
+import { fetchStockInOtherBatchLines } from './stockInOtherBatchAdd.js'
+import { fetchStockInPrintDocuments } from './stockInPrintData.js'
+import { fetchStockInLabelPrintDocuments } from './stockInLabelPrintData.js'
+import { fetchStockInMaterialQrInfo } from './stockInMaterialQrInfo.js'
+import { fetchStockInMaterialTrace } from './stockInMaterialTrace.js'
 
 const HEADER_FROM = `dbo.[${STOCK_IN_HEADER_TABLE}]`
 const LINE_FROM = `dbo.[${STOCK_IN_LINE_TABLE}]`
@@ -147,11 +156,38 @@ export function __buildSourceOrderPartyFilterSqlForTest(meta) {
   return buildSourceOrderPartyFilterSql(meta)
 }
 
+export function __buildMaterialOptionsSqlForTest(options = {}) {
+  return buildMaterialOptionsSql(options)
+}
+
 function sourceOrderPageParams(query = {}) {
   const page = Math.max(1, Number.parseInt(query.page, 10) || 1)
   const rawPageSize = Number.parseInt(query.pageSize, 10) || 10
   const pageSize = Math.min(100, Math.max(1, rawPageSize))
   return { page, pageSize, startRow: (page - 1) * pageSize + 1, endRow: page * pageSize }
+}
+
+function buildMaterialOptionsSql({ keywordSql = '', paged = false } = {}) {
+  if (!paged) {
+    return `
+      SELECT TOP 100 *
+      FROM ${BOM_FROM}
+      WHERE (ISNULL([del], N'') = N'' OR [del] = N'0') ${keywordSql}
+      ORDER BY [id] DESC
+    `
+  }
+  return `
+    ;WITH base AS (
+      SELECT *,
+             ROW_NUMBER() OVER (ORDER BY [id] DESC) AS rn
+      FROM ${BOM_FROM}
+      WHERE (ISNULL([del], N'') = N'' OR [del] = N'0') ${keywordSql}
+    )
+    SELECT *, (SELECT COUNT(1) FROM base) AS total
+    FROM base
+    WHERE rn BETWEEN @startRow AND @endRow
+    ORDER BY rn ASC
+  `
 }
 
 /** 头表列安全转 nvarchar，供关联单分页 SQL 复用（SQL Server 2008 R2） */
@@ -1334,19 +1370,29 @@ export function registerStockInRoutes(app, deps) {
     try {
       const pool = await getPool()
       const keyword = text(req.query?.keyword)
+      const requireKeyword = text(req.query?.requireKeyword) === '1'
+      const page = Math.max(1, Number.parseInt(req.query?.page, 10) || 1)
+      const rawPageSize = Number.parseInt(req.query?.pageSize, 10) || 100
+      const pageSize = Math.min(200, Math.max(1, rawPageSize))
+      if (requireKeyword && !keyword) {
+        return res.json({ code: 200, msg: 'success', data: { page, pageSize, total: 0, list: [] } })
+      }
       const dbReq = pool.request()
       let kwSql = ''
       if (keyword) {
         dbReq.input('kw', sql.NVarChar(400), `%${keyword}%`)
         kwSql = `AND (LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([kcaa01], N'')))) LIKE @kw OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([kcaa02], N'')))) LIKE @kw)`
       }
-      const r = await dbReq.query(`
-        SELECT TOP 100 *
-        FROM ${BOM_FROM}
-        WHERE (ISNULL([del], N'') = N'' OR [del] = N'0') ${kwSql}
-        ORDER BY [id] DESC
-      `)
-      res.json({ code: 200, msg: 'success', data: { list: r.recordset ?? [] } })
+      if (!req.query?.page && !req.query?.pageSize) {
+        const r = await dbReq.query(buildMaterialOptionsSql({ keywordSql: kwSql, paged: false }))
+        return res.json({ code: 200, msg: 'success', data: { list: r.recordset ?? [] } })
+      }
+      dbReq.input('startRow', sql.Int, (page - 1) * pageSize + 1)
+      dbReq.input('endRow', sql.Int, page * pageSize)
+      const r = await dbReq.query(buildMaterialOptionsSql({ keywordSql: kwSql, paged: true }))
+      const list = r.recordset ?? []
+      const total = Number(list[0]?.total ?? 0) || 0
+      res.json({ code: 200, msg: 'success', data: { page, pageSize, total, list } })
     } catch (err) {
       res.status(500).json({ code: 500, msg: `读取物料失败：${String(err?.message ?? err)}`, data: null })
     }
@@ -1371,11 +1417,15 @@ export function registerStockInRoutes(app, deps) {
         extra += ` AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.noCol}], N'')))) LIKE @kw`
       }
       const { partyNameExpr, referenceExpr } = sourceOrderSelectExpressions(inboundType, meta)
+      const sourceSystemcodeExpr = ['1', '4', '5'].includes(inboundType)
+        ? `LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[systemcode], N''))))`
+        : `N''`
       const r = await dbReq.query(`
         SELECT TOP 100 LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.noCol}], N'')))) AS sourceOrderNo,
                LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[${meta.partyCol}], N'')))) AS relatedPartyCode,
                ${partyNameExpr} AS relatedPartyName,
-               ${referenceExpr} AS referenceNo
+               ${referenceExpr} AS referenceNo,
+               ${sourceSystemcodeExpr} AS sourceSystemcode
         FROM ${meta.header} AS h
         WHERE (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
           AND LTRIM(RTRIM(ISNULL(h.[pass], N''))) = N'1'
@@ -1630,6 +1680,66 @@ export function registerStockInRoutes(app, deps) {
     }
   })
 
+  app.get('/api/stock-in/other-batch-lines', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const result = await fetchStockInOtherBatchLines(pool, req.query ?? {})
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({
+        code: 200,
+        msg: 'success',
+        data: {
+          list: result.list ?? [],
+          total: result.total ?? 0,
+          page: result.page,
+          pageSize: result.pageSize,
+        },
+      })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取其他入库批量选材失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  app.get('/api/stock-in/surplus-batch-lines', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const result = await fetchStockInSurplusBatchLines(pool, req.query ?? {})
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({
+        code: 200,
+        msg: 'success',
+        data: {
+          list: result.list ?? [],
+          total: result.total ?? 0,
+          page: result.page,
+          pageSize: result.pageSize,
+        },
+      })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取盘盈入库批量选材失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  app.post('/api/stock-in/surplus-batch-prices', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const result = await fetchStockInSurplusBatchPrices(pool, req.body ?? {})
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({ code: 200, msg: 'success', data: { priceMap: result.priceMap ?? {} } })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取盘盈入库物料价格失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
   app.get('/api/stock-in/source-lines', async (req, res) => {
     try {
       const pool = await getPool()
@@ -1672,8 +1782,69 @@ export function registerStockInRoutes(app, deps) {
   })
 
   app.get('/api/stock-in/print-data', async (req, res) => {
+    if (text(req.query?.p_sum)) {
+      try {
+        const pool = await getPool()
+        const actor = await getActor(pool, req)
+        const result = await fetchStockInPrintDocuments(pool, {
+          pSum: req.query?.p_sum,
+          printMode: req.query?.print_cn,
+          actor,
+        })
+        if (!result.ok) {
+          res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+          return
+        }
+        res.json({
+          code: 200,
+          msg: 'success',
+          data: { list: result.list, printMode: result.printMode, printConfig: result.printConfig },
+        })
+      } catch (err) {
+        res.status(500).json({ code: 500, msg: `读取入库单打印数据失败：${String(err?.message ?? err)}`, data: null })
+      }
+      return
+    }
     req.params = { id: req.query?.id }
     return detail(req, res, true)
+  })
+
+  app.get('/api/stock-in/material-trace/list', async (req, res) => {
+    try {
+      const result = await fetchStockInMaterialTrace(await getPool(), req.query ?? {})
+      if (!result.ok) return res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+      res.json({ code: 200, msg: 'success', data: result })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取入库转向物料失败：${String(err?.message ?? err?.originalError?.message ?? err)}`, data: null })
+    }
+  })
+
+  app.get('/api/stock-in/label-print-data', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const result = await fetchStockInLabelPrintDocuments(pool, { pSumbq: req.query?.p_sumbq })
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({ code: 200, msg: 'success', data: { list: result.list, labels: result.labels } })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取入库单标签打印数据失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  app.get('/api/stock-in/material-qr-info', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const result = await fetchStockInMaterialQrInfo(pool, req.query ?? {})
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({ code: 200, msg: 'success', data: result.info })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `读取入库物料二维码信息失败：${String(err?.message ?? err)}`, data: null })
+    }
   })
 
   async function detail(req, res, forPrint = false) {

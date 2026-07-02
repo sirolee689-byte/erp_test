@@ -724,10 +724,17 @@ export function matchApiPermissionRule(method, path, body, params) {
       '/api/stock-in/production-dispatch-pick-page',
       '/api/stock-in/assist-return-batch-lines',
       '/api/stock-in/assist-return-bom-parts',
+      '/api/stock-in/other-batch-lines',
+      '/api/stock-in/surplus-batch-lines',
       '/api/stock-in/print-data',
+      '/api/stock-in/label-print-data',
       '/api/stock-in/inventory-summary',
+      '/api/stock-in/material-trace/list',
     ].includes(path)
   ) {
+    return { menuPath: 'inventory/daily/stock-in', action: 'view' }
+  }
+  if (m === 'POST' && path === '/api/stock-in/surplus-batch-prices') {
     return { menuPath: 'inventory/daily/stock-in', action: 'view' }
   }
   if (m === 'GET' && /^\/api\/stock-in\/\d+$/.test(path)) {
@@ -794,6 +801,24 @@ export function matchApiPermissionRule(method, path, body, params) {
   }
   if (m === 'PUT' && path === '/api/stock-out/cutting-issue-config') {
     return { menuPath: 'inventory/daily/stock-out', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/stock-stats/warehouse-options') {
+    return { menuPath: 'inventory/analysis/stock-stats', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/stock-stats/print-header') {
+    return { menuPath: 'inventory/analysis/stock-stats', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/stock-stats/snapshots') {
+    return { menuPath: 'inventory/analysis/stock-stats', action: 'view' }
+  }
+  if (m === 'GET' && /^\/api\/stock-stats\/snapshots\/\d+\/lines$/.test(path)) {
+    return { menuPath: 'inventory/analysis/stock-stats', action: 'view' }
+  }
+  if (m === 'POST' && path === '/api/stock-stats/generate') {
+    return { menuPath: 'inventory/analysis/stock-stats', action: 'add' }
+  }
+  if (m === 'DELETE' && /^\/api\/stock-stats\/snapshots\/\d+$/.test(path)) {
+    return { menuPath: 'inventory/analysis/stock-stats', action: 'delete' }
   }
   if (m === 'PUT' && /^\/api\/stock-out\/\d+$/.test(path)) {
     return { menuPath: 'inventory/daily/stock-out', action: 'edit' }
@@ -1195,6 +1220,9 @@ export function createApiPermissionGate(deps) {
   return async function apiPermissionGate(req, res, next) {
     const p = req.path || ''
     if (p === '/api/login' || p === '/api/health') {
+      return next()
+    }
+    if (req.method === 'GET' && p === '/api/stock-in/material-qr-info') {
       return next()
     }
     if (!p.startsWith('/api/')) {

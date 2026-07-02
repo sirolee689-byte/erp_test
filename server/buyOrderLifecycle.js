@@ -150,7 +150,6 @@ export async function applyBuyOrderLifecycleAction({ pool, id, action, actor = {
     if (isDeleted) return { ok: false, status: 400, msg: '回收站采购单不能反审' }
     if (!isAudited) return { ok: false, status: 400, msg: '未审核采购单不能反审' }
     if (!why) return { ok: false, status: 400, msg: '请填写反审原因' }
-    if (linkCount > 0) return { ok: false, status: 400, msg: '此采购单已存在入库单关联，不允许反审' }
     await insertReverseReason(pool, row, why, actor)
     await pool.request().input('id', sql.Int, id).query(`UPDATE ${HEADER_FROM} SET [pass]=N'0' WHERE [id]=@id`)
   } else if (action === 'close') {

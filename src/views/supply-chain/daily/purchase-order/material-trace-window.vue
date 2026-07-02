@@ -1,9 +1,5 @@
 <template>
   <div class="buy-trace-page">
-    <div class="buy-trace-head">
-      <h1>采购订单转向物料查询</h1>
-    </div>
-
     <div class="buy-trace-toolbar">
       <span class="toolbar-label">查询条件</span>
       <el-input
@@ -169,18 +165,6 @@ onMounted(async () => {
 <style scoped>
 .buy-trace-page {
   padding: 12px;
-}
-
-.buy-trace-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-}
-
-.buy-trace-head h1 {
-  margin: 0;
-  font-size: 20px;
 }
 
 .buy-trace-toolbar {

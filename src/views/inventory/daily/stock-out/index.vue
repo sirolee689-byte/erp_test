@@ -32,6 +32,16 @@
           <el-select v-model="filters.outboundType" clearable class="stock-filter-type" placeholder="出库类型">
             <el-option v-for="opt in outboundTypeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
           </el-select>
+          <template v-if="!showRecycle">
+            <div class="stock-filter-divider stock-filter-divider--print" aria-hidden="true" />
+            <div class="stock-print-actions">
+              <el-select v-model="printMode" size="small" class="stock-print-mode" aria-label="打印类型">
+                <el-option label="打印汇总" value="2" />
+                <el-option label="打印明细" value="1" />
+              </el-select>
+              <el-button size="small" type="primary" plain @click="openSelectedPrint">打印出库单</el-button>
+            </div>
+          </template>
         </div>
         <div class="stock-filter-row stock-filter-row--bottom">
           <el-input
@@ -53,14 +63,6 @@
             <div class="stock-filter-switch">
               <span class="switch-label">显示未审核</span>
               <el-switch v-model="showUnaudited" @change="onSearch" />
-            </div>
-            <div class="stock-filter-divider stock-filter-divider--print" aria-hidden="true" />
-            <div class="stock-print-actions">
-              <el-select v-model="printMode" size="small" class="stock-print-mode" aria-label="打印类型">
-                <el-option label="打印汇总" value="2" />
-                <el-option label="打印明细" value="1" />
-              </el-select>
-              <el-button size="small" type="primary" plain @click="openSelectedPrint">打印出库单</el-button>
             </div>
           </template>
         </div>

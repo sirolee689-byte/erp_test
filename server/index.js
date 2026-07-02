@@ -53,6 +53,7 @@ import { registerBuyOrderRoutes } from './buyOrderHandlers.js'
 import { registerDispatchOrderRoutes } from './dispatchOrderHandlers.js'
 import { registerStockInRoutes } from './stockInHandlers.js'
 import { registerStockOutRoutes } from './stockOutHandlers.js'
+import { registerStockStatsRoutes } from './stockStatsHandlers.js'
 import { registerSystemMailConfigRoutes } from './systemMailConfigHandlers.js'
 import { registerSystemPrintConfigRoutes } from './systemPrintConfigHandlers.js'
 import { registerBomRoutes } from './bom/registerBomRoutes.js'
@@ -12074,6 +12075,7 @@ registerBuyOrderRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerDispatchOrderRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerStockInRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerStockOutRoutes(app, { getPool, getActorAuditTripletFromReq })
+registerStockStatsRoutes(app, { getPool })
 registerSystemMailConfigRoutes(app, { getPool })
 registerSystemPrintConfigRoutes(app, { getPool })
 registerPiBomDataRoutes(app, { getPool })

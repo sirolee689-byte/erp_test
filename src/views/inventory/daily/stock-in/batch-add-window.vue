@@ -15,6 +15,7 @@
         @keyup.enter="reload"
       />
       <el-button type="primary" @click="reload">查询</el-button>
+      <el-button v-if="isProductionReturnBatch" :loading="loading" @click="refreshProductionReturnRows">刷新数据</el-button>
       <el-button @click="queryAll">查询全部</el-button>
       <el-button type="primary" :disabled="!selectedCount || saving || submitted" :loading="saving" @click="saveSelected">
         {{ submitted ? '已提交' : '保存已选数据' }}
@@ -40,19 +41,29 @@
             <thead v-if="isProductionBatch">
               <tr>
                 <th class="col-action">操作</th>
-                <th>材料编码</th>
-                <th>材料名称</th>
-                <th>规格</th>
+                <th v-if="isProductionReturnBatch" class="col-dispatch-summary">对应货品/派工</th>
+                <th class="col-material-code">{{ isProductionReturnBatch ? '退料材料编码' : '材料编码' }}</th>
+                <th class="col-material-name">材料名称</th>
+                <th class="col-spec">规格</th>
                 <th>颜色</th>
                 <th>单位</th>
-                <th class="col-num col-need">{{ productionNeedQtyHeader }}</th>
-                <th class="col-num">RMB单价</th>
-                <th class="col-num">RMB金额</th>
-                <th class="col-num">派工数量</th>
-                <th>{{ productionPendingHeader }}</th>
-                <th>未审出库情况</th>
-                <th class="col-num">{{ productionActualHeader }}</th>
-                <th class="col-num">返工数量</th>
+                <template v-if="isProductionReturnBatch">
+                  <th class="col-num">已领料数量</th>
+                  <th class="col-num">已退料数量</th>
+                  <th class="col-num col-need">可退料数量</th>
+                  <th>未审领料情况</th>
+                  <th>未审退料情况</th>
+                </template>
+                <template v-else>
+                  <th class="col-num col-need">{{ productionNeedQtyHeader }}</th>
+                  <th class="col-num">RMB单价</th>
+                  <th class="col-num">RMB金额</th>
+                  <th class="col-num">派工数量</th>
+                  <th>{{ productionPendingHeader }}</th>
+                  <th>未审出库情况</th>
+                  <th class="col-num">{{ productionActualHeader }}</th>
+                  <th class="col-num">返工数量</th>
+                </template>
               </tr>
             </thead>
             <thead v-else>
@@ -88,19 +99,33 @@
                     {{ buttonLabel(row) }}
                   </el-button>
                 </td>
-                <td>{{ row.kcaa01 || '-' }}</td>
-                <td>{{ row.kcaa02 || '-' }}</td>
-                <td>{{ row.kcaa03 || '-' }}</td>
+                <td v-if="isProductionReturnBatch" class="col-dispatch-summary">
+                  <div>货品：{{ row.dispatchKcaa01 || '-' }}</div>
+                  <div>派工数：{{ formatNum(row.dispatchQty) }}</div>
+                  <div>PI：{{ row.reference || '-' }}</div>
+                </td>
+                <td class="col-material-code">{{ row.kcaa01 || '-' }}</td>
+                <td class="col-material-name">{{ row.kcaa02 || '-' }}</td>
+                <td class="col-spec">{{ row.kcaa03 || '-' }}</td>
                 <td>{{ row.kcaa11 || '-' }}</td>
                 <td>{{ row.kcaa04 || '-' }}</td>
-                <td class="col-num" :class="productionTempxClass(row)">{{ formatNum(row.tempx) }}</td>
-                <td class="col-num">0</td>
-                <td class="col-num">0</td>
-                <td class="col-num">{{ formatNum(row.orderQty) }}</td>
-                <td class="col-pending">{{ row.pendingInboundText || '-' }}</td>
-                <td class="col-pending">{{ row.pendingOutboundText || '-' }}</td>
-                <td class="col-num">{{ formatNum(isProductionReturnBatch ? row.actualReturnQty : row.actualInboundQty) }}</td>
-                <td class="col-num">{{ formatNum(row.reworkQty ?? row.actualOutboundQty) }}</td>
+                <template v-if="isProductionReturnBatch">
+                  <td class="col-num">{{ formatNum(row.issuedQty) }}</td>
+                  <td class="col-num">{{ formatNum(row.returnedQty) }}</td>
+                  <td class="col-num" :class="productionTempxClass(row)">{{ formatNum(row.returnableQty ?? row.tempx) }}</td>
+                  <td class="col-pending">{{ row.pendingOutboundText || '-' }}</td>
+                  <td class="col-pending">{{ row.pendingInboundText || '-' }}</td>
+                </template>
+                <template v-else>
+                  <td class="col-num" :class="productionTempxClass(row)">{{ formatNum(row.tempx) }}</td>
+                  <td class="col-num">0</td>
+                  <td class="col-num">0</td>
+                  <td class="col-num">{{ formatNum(row.orderQty) }}</td>
+                  <td class="col-pending">{{ row.pendingInboundText || '-' }}</td>
+                  <td class="col-pending">{{ row.pendingOutboundText || '-' }}</td>
+                  <td class="col-num">{{ formatNum(row.actualInboundQty) }}</td>
+                  <td class="col-num">{{ formatNum(row.reworkQty ?? row.actualOutboundQty) }}</td>
+                </template>
               </tr>
             </tbody>
             <tbody v-else>
@@ -158,7 +183,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
@@ -181,6 +206,9 @@ const inboundType = ref('1')
 const sourceOrderNo = ref('')
 const supplierCode = ref('')
 const supplierName = ref('')
+const warehouseCode = ref('')
+const warehouseName = ref('')
+const piNo = ref('')
 const excludeReceiptNo = ref('')
 const dispatchSystemcode = ref('')
 const selectedKeysFromParent = ref([])
@@ -189,6 +217,7 @@ const loading = ref(false)
 const saving = ref(false)
 const errorMsg = ref('')
 const rows = ref([])
+const allRowsCache = ref([])
 const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
@@ -234,6 +263,12 @@ const productionNeedQtyHeader = computed(() => (isProductionReturnBatch.value ? 
 const productionPendingHeader = computed(() => (isProductionReturnBatch.value ? '未审退料情况' : '未审入库情况'))
 const productionActualHeader = computed(() => (isProductionReturnBatch.value ? '实际已退数量' : '实际已入数量'))
 
+watch(keyword, () => {
+  if (!isProductionReturnBatch.value) return
+  page.value = 1
+  applyProductionReturnLocalFilter()
+})
+
 function formatNum(v) {
   const n = Number(v)
   if (!Number.isFinite(n)) return '-'
@@ -247,6 +282,16 @@ function productionTempxClass(row) {
   if (n > 0) return 'col-need'
   if (n < 0) return 'col-need col-need--negative'
   return 'col-need col-need--zero'
+}
+
+function applyProductionReturnLocalFilter() {
+  const kw = String(keyword.value ?? '').trim().toLowerCase()
+  const filtered = kw
+    ? allRowsCache.value.filter((row) => String(row.kcaa01 ?? '').toLowerCase().includes(kw))
+    : allRowsCache.value
+  total.value = filtered.length
+  const start = (Number(page.value || 1) - 1) * Number(pageSize.value || 20)
+  rows.value = filtered.slice(start, start + Number(pageSize.value || 20))
 }
 
 function closeWindowAfterError(msg) {
@@ -304,6 +349,10 @@ function resetSelection() {
 
 async function loadRows() {
   if (!sourceOrderNo.value) return
+  if (isProductionReturnBatch.value && allRowsCache.value.length && !loading.value) {
+    applyProductionReturnLocalFilter()
+    return
+  }
   loading.value = true
   errorMsg.value = ''
   try {
@@ -318,16 +367,24 @@ async function loadRows() {
         sourceOrderNo: sourceOrderNo.value,
         supplierCode: supplierCode.value,
         workshopCode: supplierCode.value,
+        warehouseCode: warehouseCode.value,
+        piNo: piNo.value,
         dispatchSystemcode: dispatchSystemcode.value,
         excludeReceiptNo: excludeReceiptNo.value,
-        keyword: keyword.value,
+        keyword: isProductionReturnBatch.value ? '' : keyword.value,
         page: page.value,
         pageSize: pageSize.value,
+        fetchAll: isProductionReturnBatch.value ? '1' : '',
         selectedKeys: mergedSelected.join(','),
       },
     })
-    rows.value = data?.data?.list ?? []
-    total.value = Number(data?.data?.total ?? 0)
+    if (isProductionReturnBatch.value) {
+      allRowsCache.value = data?.data?.list ?? []
+      applyProductionReturnLocalFilter()
+    } else {
+      rows.value = data?.data?.list ?? []
+      total.value = Number(data?.data?.total ?? 0)
+    }
   } catch (err) {
     const msg = err.response?.data?.msg || err.message || '加载失败'
     errorMsg.value = msg
@@ -343,6 +400,10 @@ async function loadRows() {
 
 function reload() {
   page.value = 1
+  if (isProductionReturnBatch.value) {
+    applyProductionReturnLocalFilter()
+    return
+  }
   loadRows()
 }
 
@@ -351,8 +412,18 @@ function queryAll() {
   reload()
 }
 
+function refreshProductionReturnRows() {
+  allRowsCache.value = []
+  page.value = 1
+  loadRows()
+}
+
 function onPageSizeChange() {
   page.value = 1
+  if (isProductionReturnBatch.value) {
+    applyProductionReturnLocalFilter()
+    return
+  }
   loadRows()
 }
 
@@ -449,6 +520,9 @@ onMounted(() => {
   sourceOrderNo.value = String(ctx.sourceOrderNo ?? route.query?.sourceOrderNo ?? '').trim()
   supplierCode.value = String(ctx.supplierCode ?? '').trim()
   supplierName.value = String(ctx.supplierName ?? '').trim()
+  warehouseCode.value = String(ctx.warehouseCode ?? '').trim()
+  warehouseName.value = String(ctx.warehouseName ?? '').trim()
+  piNo.value = String(ctx.piNo ?? '').trim()
   excludeReceiptNo.value = String(ctx.excludeReceiptNo ?? '').trim()
   dispatchSystemcode.value = String(ctx.dispatchSystemcode ?? '').trim()
   selectedKeysFromParent.value = Array.isArray(ctx.currentLineKeys) ? ctx.currentLineKeys : []
@@ -556,6 +630,26 @@ onMounted(() => {
 .stock-batch-float {
   margin-left: 4px;
   font-size: 12px;
+}
+.col-dispatch-summary {
+  width: 240px;
+  min-width: 240px;
+  max-width: 240px;
+  white-space: normal !important;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+.col-material-code {
+  min-width: 120px;
+}
+.col-material-name,
+.col-spec {
+  width: 220px;
+  min-width: 220px;
+  max-width: 220px;
+  white-space: normal !important;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 .col-pending {
   max-width: 220px;

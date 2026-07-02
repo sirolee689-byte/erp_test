@@ -8,12 +8,16 @@ import {
 } from './buyOrderSaveLogic.js'
 import { formatSalesOrderAuditTime } from './salesOrderPiBom.js'
 import { getRequestIp } from './operationAuditMiddleware.js'
-import { rewriteBuyOrderLines } from './buyOrderLineSave.js'
+import { normalizeBuyOrderLines, rewriteBuyOrderLines } from './buyOrderLineSave.js'
 import { rewriteBuyOrderFees } from './buyOrderFeeSave.js'
 import { rewriteBuyOrderBomSnapshots } from './buyOrderBomSnapshot.js'
 import { buildBuyOrderLogInfo, writeBuyOrderOperationLog } from './buyOrderOperationLog.js'
+import { safeDecimalExpr } from './buyOrderSqlSafe.js'
 
 const HEADER_FROM = 'dbo.[UB_ERP_Buy_order]'
+const LINE_FROM = 'dbo.[UB_ERP_Buy_order_list]'
+const STOCK_IN_FROM = 'dbo.[UB_ERP_Stocks_Storage]'
+const STOCK_IN_LINE_FROM = 'dbo.[UB_ERP_Stocks_Storage_list]'
 const SUPPLIER_FROM = 'dbo.[UB_ERP_System_supplier]'
 const CURRENCY_FROM = 'dbo.[UB_ERP_Finance_currency]'
 
@@ -110,6 +114,76 @@ function hasPricePermission(req) {
   const actions = req?.user?.actions ?? req?.user?.Permissions ?? req?.session?.user?.actions
   if (Array.isArray(actions)) return actions.includes('price') || actions.includes('*')
   return true
+}
+
+function qtySame(a, b) {
+  return Math.abs(Number(a ?? 0) - Number(b ?? 0)) <= 0.000001
+}
+
+function lineIdentity(line) {
+  return {
+    id: text(line?.id),
+    systemCode: text(line?.bomSystemCode ?? line?.kcak02 ?? line?.systemCode ?? line?.systemcode),
+    materialCode: text(line?.kcaa01),
+  }
+}
+
+export function validateLockedBuyOrderLineQuantities({ oldLines = [], newLines = [] } = {}) {
+  const normalizedNew = normalizeBuyOrderLines(newLines, {})
+  const newById = new Map()
+  const newBySystemCode = new Map()
+  const newByMaterialCode = new Map()
+  ;(Array.isArray(newLines) ? newLines : []).forEach((raw, index) => {
+    const normalized = normalizedNew[index] ?? {}
+    const merged = { ...raw, ...normalized }
+    const identity = lineIdentity(merged)
+    if (identity.id) newById.set(identity.id, merged)
+    if (identity.systemCode && !newBySystemCode.has(identity.systemCode)) newBySystemCode.set(identity.systemCode, merged)
+    if (identity.materialCode && !newByMaterialCode.has(identity.materialCode)) newByMaterialCode.set(identity.materialCode, merged)
+  })
+
+  for (const oldLine of Array.isArray(oldLines) ? oldLines : []) {
+    if (!(oldLine?.inboundLocked === true || String(oldLine?.inboundLocked ?? '') === '1')) continue
+    const identity = lineIdentity(oldLine)
+    const next = (identity.id && newById.get(identity.id)) ||
+      (identity.systemCode && newBySystemCode.get(identity.systemCode)) ||
+      (identity.materialCode && newByMaterialCode.get(identity.materialCode))
+    const label = identity.materialCode || identity.systemCode || identity.id || '已入库明细'
+    if (!next) return `材料 ${label} 已有入库记录，不允许删除该采购明细`
+    const nextQty = next.quantity ?? next.kcak03
+    if (!qtySame(oldLine.quantity ?? oldLine.kcak03, nextQty)) return `材料 ${label} 已有入库记录，不允许修改采购数量`
+  }
+  return null
+}
+
+async function fetchLockedBuyOrderLines(pool, orderNo) {
+  const r = await pool.request().input('orderNo', sql.NVarChar(200), orderNo).query(`
+    SELECT
+      l.[id],
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcak02], N'')))) AS bomSystemCode,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[systemcode], N'')))) AS systemcode,
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N'')))) AS kcaa01,
+      ${safeDecimalExpr('l', 'kcak03')} AS quantity,
+      CASE WHEN EXISTS (
+        SELECT 1
+        FROM ${STOCK_IN_FROM} AS s
+        INNER JOIN ${STOCK_IN_LINE_FROM} AS il
+          ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[kcan01], N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(il.[kcao01], N''))))
+         AND (ISNULL(il.[del], N'') = N'' OR il.[del] = N'0')
+        WHERE (ISNULL(s.[del], N'') = N'' OR s.[del] = N'0')
+          AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[kcan04], N'')))) = @orderNo
+          AND LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(s.[kcan03], N'')))) = N'1'
+          AND (
+            LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(il.[kcaa01], N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N''))))
+            OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(il.[kcao02], N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcak02], N''))))
+            OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(il.[kcao02], N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[systemcode], N''))))
+          )
+      ) THEN N'1' ELSE N'0' END AS inboundLocked
+    FROM ${LINE_FROM} AS l
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcak01], N'')))) = @orderNo
+      AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
+  `)
+  return r.recordset ?? []
 }
 
 function bindHeader(req, { header, finalNo, supplier, currency, systemCode, actor, insert }) {
@@ -219,6 +293,11 @@ export async function updateBuyOrder({ pool, id, body = {}, req: httpReq, actor 
   const header = normalizeBuyOrderHeader({ ...body.header, buyOrderNo: row.buyOrderNo })
   const err = validateBuyOrderHeader(header)
   if (err) return { ok: false, status: 400, msg: err }
+  const lockedErr = validateLockedBuyOrderLineQuantities({
+    oldLines: await fetchLockedBuyOrderLines(pool, row.buyOrderNo),
+    newLines: body.lines ?? [],
+  })
+  if (lockedErr) return { ok: false, status: 400, msg: lockedErr }
   const supplier = await resolveSupplier(pool, header.supplierCode)
   if (!supplier.ok) return { ok: false, status: 400, msg: supplier.msg }
   const currency = await resolveCurrency(pool, header.currencyCode)

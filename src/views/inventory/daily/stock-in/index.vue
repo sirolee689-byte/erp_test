@@ -5,6 +5,7 @@
       <el-button v-permission="'add'" :type="pageMode === 'form' && !editId ? 'primary' : 'default'" plain @click="newReceipt">
         入库单添加
       </el-button>
+      <el-button :type="pageMode === 'material-trace' ? 'primary' : 'default'" plain @click="switchMaterialTrace">转向物料查询</el-button>
       <el-button plain @click="showTodo('超量入库配置待开发，第一版默认严控超量')">超量入库配置</el-button>
     </div>
 
@@ -33,6 +34,18 @@
           <el-select v-model="filters.inboundType" clearable class="stock-filter-type" placeholder="入库类型">
             <el-option v-for="opt in filterInboundTypeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
           </el-select>
+          <template v-if="!showRecycle">
+            <div class="stock-filter-divider stock-filter-divider--print" aria-hidden="true" />
+            <div class="stock-print-actions">
+              <span v-if="printSelectedCount > 0" class="stock-print-selected-hint">已选择：{{ printSelectedCount }}条记录进行打印</span>
+              <el-select v-model="printMode" size="small" class="stock-print-mode" aria-label="打印类型">
+                <el-option label="打印汇总" value="2" />
+                <el-option label="打印明细" value="1" />
+              </el-select>
+              <el-button size="small" type="primary" plain @click="openSelectedPrint">打印入库单</el-button>
+              <el-button size="small" type="primary" plain @click="openSelectedLabelPrint">打印标签</el-button>
+            </div>
+          </template>
         </div>
         <div class="stock-filter-row stock-filter-row--bottom">
           <el-input
@@ -43,6 +56,7 @@
             @keyup.enter="onSearch"
           />
           <el-button type="primary" size="small" @click="onSearch">查询</el-button>
+          <el-button size="small" @click="resetSearch">重置</el-button>
           <div class="stock-filter-divider" aria-hidden="true" />
           <div class="stock-filter-switch">
             <span class="switch-label">回收站</span>
@@ -60,7 +74,6 @@
               <el-switch v-model="showUnreviewed" @change="onSearch" />
             </div>
           </template>
-          <el-button size="small" @click="resetSearch">重置</el-button>
         </div>
       </div>
 
@@ -142,7 +155,15 @@
           <template #default="{ row }">
             <div class="stock-actions" @click.stop>
               <el-button size="small" plain @click="viewReceipt(row)">查看</el-button>
-              <el-button size="small" plain @click="printReceipt(row)">打印</el-button>
+              <el-button
+                v-if="!showRecycle"
+                size="small"
+                :type="isPrintSelected(row) ? 'primary' : 'default'"
+                plain
+                @click="togglePrintSelect(row)"
+              >
+                {{ isPrintSelected(row) ? '已选择' : '打印选择' }}
+              </el-button>
               <template v-if="!showRecycle">
                 <el-button v-if="showUnreviewed && canReview(row)" v-permission="'review'" size="small" type="warning" plain :loading="row.__op === 'review'" @click="runAction(row, 'review')">复核</el-button>
                 <el-button v-if="canUnreview(row)" v-permission="'unreview'" size="small" type="warning" plain :loading="row.__op === 'unreview'" @click="runAction(row, 'unreview')">反复核</el-button>
@@ -214,6 +235,10 @@
         @size-change="loadList"
         @current-change="loadList"
       />
+    </section>
+
+    <section v-if="pageMode === 'material-trace'" class="erp-section">
+      <StockInMaterialTracePanel />
     </section>
 
     <section v-show="pageMode === 'form'" class="erp-section">
@@ -421,29 +446,6 @@
           <el-table-column label="备注" prop="Describe" min-width="160" />
         </el-table>
       </div>
-    </el-dialog>
-
-    <el-dialog v-model="batchVisible" :title="batchTitle" width="88%">
-      <div class="batch-toolbar">
-        <el-input v-model="batchKeyword" clearable placeholder="编码 / 名称" @keyup.enter="loadBatchLines" />
-        <el-button type="primary" @click="loadBatchLines">查询</el-button>
-      </div>
-      <el-table v-loading="batchLoading" :data="batchLines" border stripe row-key="__batchKey" @selection-change="onBatchSelectionChange">
-        <el-table-column type="selection" width="44" :selectable="isBatchLineSelectable" />
-        <el-table-column label="材料编码" prop="kcaa01" min-width="150" />
-        <el-table-column label="名称" prop="kcaa02" min-width="180" />
-        <el-table-column label="规格" prop="kcaa03" min-width="140" />
-        <el-table-column label="颜色" prop="kcaa11" width="100" />
-        <el-table-column label="单位" prop="kcaa04" width="80" />
-        <el-table-column label="可入库" prop="availableQty" width="110" align="right" />
-        <el-table-column label="选择状态" width="140">
-          <template #default="{ row }">{{ batchLineSelectLabel(row) }}</template>
-        </el-table-column>
-      </el-table>
-      <template #footer>
-        <el-button @click="batchVisible = false">取消</el-button>
-        <el-button type="primary" @click="applyBatchLines">加入明细</el-button>
-      </template>
     </el-dialog>
 
     <el-dialog
@@ -661,41 +663,6 @@
         @current-change="onSourceOrderPageChange"
       />
     </el-dialog>
-
-    <el-dialog v-model="printVisible" title="打印入库单" width="900px" class="stock-print-dialog">
-      <div v-if="printData.header" class="stock-print-page">
-        <h2>入库单</h2>
-        <div class="print-grid">
-          <span>入库单号：{{ printData.header.kcan01 }}</span>
-          <span>入库日期：{{ formatDateTime(printData.header.kcan02) }}</span>
-          <span>类型：{{ inboundTypeText(printData.header.kcan03) }}</span>
-          <span>仓库：{{ printData.header.ck || printData.header.kcan06 }}</span>
-          <span>关联方：{{ printData.header.kehu }}</span>
-          <span>经手人：{{ printData.header.kcan07 }}</span>
-          <span>纸质单号：{{ printData.header.kcan08 }}</span>
-          <span>备注：{{ printData.header.remark }}</span>
-        </div>
-        <table class="print-table">
-          <thead>
-            <tr>
-              <th>序号</th><th>编码</th><th>名称</th><th>规格</th><th>颜色</th><th>单位</th><th>数量</th>
-              <th v-if="hasPricePermission">单价</th><th v-if="hasPricePermission">金额</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(line, idx) in printData.lines" :key="idx">
-              <td>{{ idx + 1 }}</td><td>{{ line.kcaa01 }}</td><td>{{ line.kcaa02 }}</td><td>{{ line.kcaa03 }}</td>
-              <td>{{ line.kcaa11 }}</td><td>{{ line.kcaa04 }}</td><td class="num">{{ formatTrimNumber(line.kcao03) }}</td>
-              <td v-if="hasPricePermission" class="num">{{ formatTrimNumber(line.kcao04) }}</td><td v-if="hasPricePermission" class="num">{{ formatLineAmount(line.kcao051, printData.header?.kcan03) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <template #footer>
-        <el-button @click="printVisible = false">关闭</el-button>
-        <el-button type="primary" @click="doPrint">打印</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -705,12 +672,14 @@ import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
+import StockInMaterialTracePanel from './material-trace-panel.vue'
 import {
   STOCK_BATCH_MSG_ACCEPTED,
   STOCK_BATCH_MSG_APPLY,
   STOCK_BATCH_MSG_REJECTED,
   STOCK_BATCH_REJECT_SOURCE_MISMATCH,
   STOCK_BATCH_REJECT_SUPPLIER_MISMATCH,
+  STOCK_BATCH_REJECT_WAREHOUSE_MISMATCH,
   buildStockBatchSessionId,
   buildAssistReturnLineKey,
   removeStockBatchResult,
@@ -785,15 +754,13 @@ const sourceDialog = reactive({
   assistSupplierLoading: false,
   includeUnaudited: false,
 })
-const batchVisible = ref(false)
-const batchLoading = ref(false)
-const batchKeyword = ref('')
-const batchLines = ref([])
-const batchSelected = ref([])
 const activePurchaseBatchSessionId = ref('')
 const purchaseBatchChildWindow = ref(null)
-const printVisible = ref(false)
-const printData = reactive({ header: null, lines: [] })
+const activeOtherBatchSessionId = ref('')
+const otherBatchChildWindow = ref(null)
+const printMode = ref('2')
+const printSelectedReceiptNos = ref(new Set())
+const printSelectedCount = computed(() => printSelectedReceiptNos.value.size)
 
 const isFreeType = computed(() => ['0', '7'].includes(form.inboundType))
 const isWorkshopPickType = computed(() => ['4', '5'].includes(form.inboundType))
@@ -802,7 +769,6 @@ const isPurchaseSourcePick = computed(() => form.inboundType === '1')
 const isAssistSourcePick = computed(() => form.inboundType === '2')
 const isPrefetchSourcePick = computed(() => isPurchaseSourcePick.value || isAssistSourcePick.value)
 const needsSourceOrder = computed(() => ['1', '2', '3', '4', '5', '6'].includes(form.inboundType))
-const canManualAdd = computed(() => isFreeType.value)
 const formReadOnly = computed(() => false)
 const selectedLineKeys = computed(() => lines.value.filter((line) => line._lineMarked).map((line) => line.__key))
 const relatedLabel = computed(() => {
@@ -820,7 +786,6 @@ const sourceOrderLabel = computed(() => {
   return '关联单号'
 })
 const paperNoLabel = computed(() => (form.inboundType === '4' || form.inboundType === '5' ? 'PI号' : form.inboundType === '6' ? 'PO号' : ['1', '2', '3'].includes(form.inboundType) ? '来货单号' : '纸质单号'))
-const batchTitle = computed(() => (canManualAdd.value ? '手工选择物料' : '从关联单据批量添加'))
 const displayReceiptNo = computed(() => (editId.value ? form.receiptNo : suggestedNo.value || '保存后生成最终单号'))
 const productionPickQtyLabel = computed(() => (form.inboundType === '5' ? '已退料数量' : '已入库数量'))
 const sourceDialogSearchPlaceholder = computed(() => {
@@ -1198,6 +1163,7 @@ async function loadList() {
     list.value = res.data?.data?.list || []
     expandedRowKeys.value = []
     pager.total = Number(res.data?.data?.total || 0)
+    reconcilePrintSelection()
   } catch (err) {
     ElMessage.error(err.response?.data?.msg || err.message || '读取入库单失败')
   } finally {
@@ -1207,6 +1173,7 @@ async function loadList() {
 
 function onSearch() {
   pager.page = 1
+  printSelectedReceiptNos.value = new Set()
   loadList()
 }
 
@@ -1216,6 +1183,7 @@ function resetSearch() {
   showUnaudited.value = false
   showUnreviewed.value = false
   showRecycle.value = false
+  printSelectedReceiptNos.value = new Set()
   pager.page = 1
   loadList()
 }
@@ -1226,11 +1194,17 @@ function switchList() {
   loadList()
 }
 
+function switchMaterialTrace() {
+  pageMode.value = 'material-trace'
+  editId.value = null
+}
+
 function onRecycleChange() {
   if (showRecycle.value) {
     showUnaudited.value = false
     showUnreviewed.value = false
   }
+  printSelectedReceiptNos.value = new Set()
   pager.page = 1
   loadList()
 }
@@ -1280,6 +1254,8 @@ async function editReceipt(row) {
     inTax: String(data.header.in_tax || '1'),
     paperNo: data.header.kcan08 || '',
     remark: data.header.remark || '',
+    dispatchSystemcode: '',
+    sourceSystemcodeId: '',
   })
   lines.value = (data.lines || []).map((line, idx) => ({ ...line, info: line.Describe || '', _lineMarked: false, __key: `${idx}-${line.systemcode || line.id || Date.now()}` }))
   formTab.value = 'base'
@@ -1287,6 +1263,7 @@ async function editReceipt(row) {
   await Promise.all([loadWarehouses(), loadRelatedParties(), loadSourceOrders()])
   prevWorkshopCode.value = form.relatedPartyCode || ''
   ensureWorkshopOptionVisible()
+  await restoreLinkedProductionDispatch()
 }
 
 async function fetchDetail(id) {
@@ -1327,19 +1304,59 @@ async function viewReceipt(row) {
   detailVisible.value = true
 }
 
-async function printReceipt(row) {
-  const res = await axios.get('/api/stock-in/print-data', { params: { id: row.id } })
-  printData.header = res.data?.data?.header || null
-  printData.lines = res.data?.data?.lines || []
-  printVisible.value = true
+function printKey(row) {
+  return String(row?.receiptNo ?? row?.kcan01 ?? '').trim()
 }
 
-function doPrint() {
-  document.documentElement.classList.add('print-stock-in')
-  setTimeout(() => {
-    window.print()
-    document.documentElement.classList.remove('print-stock-in')
-  }, 50)
+function reconcilePrintSelection() {
+  const visibleKeys = new Set((list.value || []).map((row) => printKey(row)).filter(Boolean))
+  const next = new Set()
+  for (const key of printSelectedReceiptNos.value) {
+    if (visibleKeys.has(key)) next.add(key)
+  }
+  printSelectedReceiptNos.value = next
+}
+
+function isPrintSelected(row) {
+  const key = printKey(row)
+  return !!key && printSelectedReceiptNos.value.has(key)
+}
+
+function togglePrintSelect(row) {
+  const key = printKey(row)
+  if (!key) {
+    ElMessage.warning('该入库单缺少入库单号，不能加入打印')
+    return
+  }
+  const next = new Set(printSelectedReceiptNos.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  printSelectedReceiptNos.value = next
+}
+
+function openSelectedPrint() {
+  const selected = (list.value || []).filter((row) => isPrintSelected(row)).map((row) => printKey(row))
+  if (!selected.length) {
+    ElMessage.warning('请选择需要打印的单据。')
+    return
+  }
+  const query = new URLSearchParams({
+    p_sum: selected.join(','),
+    print_cn: printMode.value || '2',
+  })
+  window.open(`/inventory/daily/stock-in-print?${query.toString()}`, '_blank')
+}
+
+function openSelectedLabelPrint() {
+  const selected = (list.value || []).filter((row) => isPrintSelected(row)).map((row) => printKey(row))
+  if (!selected.length) {
+    ElMessage.warning('请选择需要打印标签的入库单。')
+    return
+  }
+  const query = new URLSearchParams({
+    p_sumbq: selected.join(','),
+  })
+  window.open(`/inventory/daily/stock-in-label-print?${query.toString()}`, '_blank')
 }
 
 async function loadSuggestedNo() {
@@ -1654,6 +1671,56 @@ async function loadSourceOrderPage() {
   }
 }
 
+async function restoreLinkedProductionDispatch() {
+  if (!['4', '5'].includes(form.inboundType)) return
+  if (String(form.dispatchSystemcode ?? '').trim()) return
+  const workshopCode = String(form.relatedPartyCode ?? '').trim()
+  const sourceOrderNo = String(form.sourceOrderNo ?? '').trim()
+  if (!workshopCode || !sourceOrderNo) return
+  let optionMatched = sourceOrders.value.find((item) => String(item.sourceOrderNo ?? '').trim() === sourceOrderNo)
+  if (!optionMatched?.sourceSystemcode) {
+    try {
+      const res = await axios.get('/api/stock-in/source-options', {
+        params: {
+          inboundType: form.inboundType,
+          relatedPartyCode: workshopCode,
+          keyword: sourceOrderNo,
+        },
+      })
+      optionMatched = (res.data?.data?.list || []).find((item) => String(item.sourceOrderNo ?? '').trim() === sourceOrderNo)
+    } catch {
+      optionMatched = null
+    }
+  }
+  if (optionMatched?.sourceSystemcode) {
+    form.dispatchSystemcode = optionMatched.sourceSystemcode
+    form.sourceSystemcodeId = optionMatched.sourceSystemcode
+    if (!form.paperNo && optionMatched.referenceNo) form.paperNo = optionMatched.referenceNo
+    if (optionMatched.relatedPartyName) form.relatedPartyName = optionMatched.relatedPartyName
+    return
+  }
+  try {
+    const res = await axios.get('/api/stock-in/production-dispatch-pick-page', {
+      params: {
+        workshopCode,
+        inboundType: form.inboundType,
+        keyword: sourceOrderNo,
+        page: 1,
+        pageSize: 20,
+      },
+    })
+    const list = res.data?.data?.list || []
+    const matched = list.find((item) => String(item.dispatchNo ?? '').trim() === sourceOrderNo) || list[0]
+    if (!matched) return
+    form.dispatchSystemcode = matched.dispatchSystemcode || ''
+    form.sourceSystemcodeId = matched.dispatchSystemcode || ''
+    if (!form.paperNo && matched.piNo) form.paperNo = matched.piNo
+    if (matched.workshopName) form.relatedPartyName = matched.workshopName
+  } catch {
+    // 历史单据如果派工单已无可选明细，仍保留原有关联单号，由批量添加前置校验提示用户重新选择。
+  }
+}
+
 function onWarehouseChange(v) {
   form.warehouseName = warehouses.value.find((w) => w.code === v)?.name || ''
 }
@@ -1829,6 +1896,7 @@ async function openBatchDialog() {
   if (!form.warehouseCode) return ElMessage.warning('请先选择仓库')
   if (['4', '5'].includes(form.inboundType) && !form.relatedPartyCode) return ElMessage.warning('请先选择生产车间')
   if (needsSourceOrder.value && !form.sourceOrderNo) return ElMessage.warning(['4', '5'].includes(form.inboundType) ? '请先选择派工单' : '请先选择关联单号')
+  if (form.inboundType === '5') await restoreLinkedProductionDispatch()
   if (form.inboundType === '5' && !String(form.dispatchSystemcode ?? '').trim()) {
     return ElMessage.warning('请先通过「选择」关联派工单后再批量添加')
   }
@@ -1849,9 +1917,13 @@ async function openBatchDialog() {
     openProductionBatchWindow()
     return
   }
-  batchVisible.value = true
-  batchKeyword.value = ''
-  await loadBatchLines()
+  if (form.inboundType === '7') {
+    openSurplusBatchWindow()
+    return
+  }
+  if (form.inboundType === '0') {
+    openOtherInboundBatchWindow()
+  }
 }
 
 function buildPurchaseBatchCurrentLineKeys() {
@@ -1861,6 +1933,18 @@ function buildPurchaseBatchCurrentLineKeys() {
 function buildAssistReturnCurrentLineKeys() {
   return lines.value
     .map((line) => buildAssistReturnLineKey(line.systemcode ?? line.kcao02, line.pm ?? line.productKcaa01))
+    .filter(Boolean)
+}
+
+function buildSurplusCurrentLineKeys() {
+  return lines.value
+    .map((line) => String(line.kcao02 || line.systemcode || line.kcaa01 || '').trim().toLowerCase())
+    .filter(Boolean)
+}
+
+function buildOtherInboundCurrentLineKeys() {
+  return lines.value
+    .map((line) => String(line.kcao02 || line.systemcode || line.kcaa01 || '').trim().toLowerCase())
     .filter(Boolean)
 }
 
@@ -1939,6 +2023,9 @@ function openProductionBatchWindow() {
     sourceOrderNo: form.sourceOrderNo,
     supplierCode: form.relatedPartyCode,
     supplierName: form.relatedPartyName,
+    warehouseCode: form.warehouseCode,
+    warehouseName: form.warehouseName,
+    piNo: form.paperNo,
     dispatchSystemcode: form.dispatchSystemcode,
     excludeReceiptNo: editId.value ? form.receiptNo : '',
     inTax: form.inTax,
@@ -1951,6 +2038,47 @@ function openProductionBatchWindow() {
   if (!opened) ElMessage.error('无法打开新窗口，请检查浏览器是否拦截弹窗')
 }
 
+function openSurplusBatchWindow() {
+  const sessionId = buildStockBatchSessionId()
+  activePurchaseBatchSessionId.value = sessionId
+  writeStockBatchContext(sessionId, {
+    batchType: 'surplus',
+    inboundType: '7',
+    warehouseCode: form.warehouseCode,
+    warehouseName: form.warehouseName,
+    inTax: form.inTax,
+    currentLineKeys: buildSurplusCurrentLineKeys(),
+    pageSize: 10,
+  })
+  const url = `/inventory/daily/stock-in-surplus-batch-window?sessionId=${encodeURIComponent(sessionId)}`
+  const opened = window.open(url, '_blank')
+  purchaseBatchChildWindow.value = opened || null
+  if (!opened) ElMessage.error('无法打开新窗口，请检查浏览器是否拦截弹窗')
+}
+
+function openOtherInboundBatchWindow() {
+  const sessionId = buildStockBatchSessionId()
+  activeOtherBatchSessionId.value = sessionId
+  writeStockBatchContext(sessionId, {
+    batchType: 'other',
+    inboundType: '0',
+    warehouseCode: form.warehouseCode,
+    warehouseName: form.warehouseName,
+    inTax: form.inTax,
+    currentLineKeys: buildOtherInboundCurrentLineKeys(),
+    pageSize: 10,
+  })
+  const url = `/inventory/daily/stock-in-other-batch-window?sessionId=${encodeURIComponent(sessionId)}&warehouseCode=${encodeURIComponent(form.warehouseCode)}`
+  const opened = window.open(url, '_blank')
+  otherBatchChildWindow.value = opened || null
+  if (!opened) ElMessage.error('无法打开新窗口，请检查浏览器是否拦截弹窗')
+}
+
+function clearOtherInboundBatchSession() {
+  activeOtherBatchSessionId.value = ''
+  otherBatchChildWindow.value = null
+}
+
 function replyPurchaseBatch(source, payload) {
   const target = source && typeof source.postMessage === 'function'
     ? source
@@ -1961,17 +2089,39 @@ function replyPurchaseBatch(source, payload) {
   target.postMessage(payload, window.location.origin)
 }
 
+function replyOtherInboundBatch(source, payload) {
+  const target = source && typeof source.postMessage === 'function'
+    ? source
+    : (otherBatchChildWindow.value && !otherBatchChildWindow.value.closed ? otherBatchChildWindow.value : null)
+  if (!target || typeof target.postMessage !== 'function') return
+  target.postMessage(payload, window.location.origin)
+}
+
 function applyPurchaseBatchLines(batchRows, batchType = 'purchase') {
   const isReturn = batchType === 'assist-return'
+  const isSurplus = batchType === 'surplus'
   const existing = new Set(
-    isReturn ? buildAssistReturnCurrentLineKeys() : buildPurchaseBatchCurrentLineKeys(),
+    isReturn ? buildAssistReturnCurrentLineKeys() : (isSurplus ? buildSurplusCurrentLineKeys() : buildPurchaseBatchCurrentLineKeys()),
   )
   const newLines = (batchRows ?? []).filter((row) => {
     const key = isReturn
       ? buildAssistReturnLineKey(row.systemcode ?? row.kcao02, row.pm ?? row.productKcaa01)
-      : String(row.kcao02 ?? row.lineKey ?? '').trim().toLowerCase()
+      : String(row.kcao02 ?? row.lineKey ?? row.systemcode ?? row.kcaa01 ?? '').trim().toLowerCase()
     return key && !existing.has(key)
   }).map((row) => makeLine(row, { batchType }))
+  if (!newLines.length) return ElMessage.warning('所选明细已在列表中，或未选择新行')
+  lines.value.push(...newLines)
+  ElMessage.success(`已批量添加 ${newLines.length} 条入库明细`)
+}
+
+function applyOtherInboundBatchLines(batchRows) {
+  const existing = new Set(buildOtherInboundCurrentLineKeys())
+  const newLines = (batchRows ?? [])
+    .filter((row) => {
+      const key = String(row.systemcode ?? row.kcaa01 ?? row.lineKey ?? '').trim().toLowerCase()
+      return key && !existing.has(key)
+    })
+    .map((row) => makeLine(row, { batchType: 'other' }))
   if (!newLines.length) return ElMessage.warning('所选明细已在列表中，或未选择新行')
   lines.value.push(...newLines)
   ElMessage.success(`已批量添加 ${newLines.length} 条入库明细`)
@@ -1982,16 +2132,23 @@ function handlePurchaseBatchPayload(payload, source = null, options = {}) {
   const allowStoredSession = !!options.allowStoredSession
   if (!sessionId) return false
   if (sessionId !== activePurchaseBatchSessionId.value && !allowStoredSession) return false
-  const validation = validateStockBatchApply({
-    openedSourceOrderNo: payload.openedSourceOrderNo,
-    currentSourceOrderNo: form.sourceOrderNo,
-    openedSupplierCode: payload.openedSupplierCode,
-    currentSupplierCode: form.relatedPartyCode,
-  })
+  const batchType = String(payload?.batchType ?? 'purchase')
+  const validation = batchType === 'surplus'
+    ? {
+        ok: String(payload.openedWarehouseCode ?? '').trim() && String(payload.openedWarehouseCode ?? '').trim() === String(form.warehouseCode ?? '').trim(),
+        reason: 'warehouse-mismatch',
+      }
+    : validateStockBatchApply({
+        openedSourceOrderNo: payload.openedSourceOrderNo,
+        currentSourceOrderNo: form.sourceOrderNo,
+        openedSupplierCode: payload.openedSupplierCode,
+        currentSupplierCode: form.relatedPartyCode,
+      })
   if (!validation.ok) {
     removeStockBatchResult(sessionId)
     if (allowStoredSession) return false
-    if (validation.reason === STOCK_BATCH_REJECT_SOURCE_MISMATCH) ElMessage.warning('采购单号已变更，批量添加已取消')
+    if (validation.reason === 'warehouse-mismatch') ElMessage.warning('仓库数据错误，请检查所选仓库')
+    else if (validation.reason === STOCK_BATCH_REJECT_SOURCE_MISMATCH) ElMessage.warning('采购单号已变更，批量添加已取消')
     else if (validation.reason === STOCK_BATCH_REJECT_SUPPLIER_MISMATCH) {
       ElMessage.warning(['4', '5'].includes(form.inboundType) ? '生产车间已变更，请重新打开批量添加' : '供应商已变更，请重新打开批量添加')
     }
@@ -2006,7 +2163,7 @@ function handlePurchaseBatchPayload(payload, source = null, options = {}) {
     return false
   }
   removeStockBatchResult(sessionId)
-  applyPurchaseBatchLines(batchRows, String(payload?.batchType ?? 'purchase'))
+  applyPurchaseBatchLines(batchRows, batchType)
   replyPurchaseBatch(source, { type: STOCK_BATCH_MSG_ACCEPTED, sessionId, lineCount: batchRows.length })
   clearPurchaseBatchSession()
   return true
@@ -2019,43 +2176,41 @@ function handlePurchaseBatchMessage(event) {
   handlePurchaseBatchPayload(data, event.source)
 }
 
-async function loadBatchLines() {
-  batchLoading.value = true
-  try {
-    const url = canManualAdd.value ? '/api/stock-in/material-options' : '/api/stock-in/source-lines'
-    const res = await axios.get(url, {
-      params: canManualAdd.value
-        ? { keyword: batchKeyword.value }
-        : { inboundType: form.inboundType, sourceOrderNo: form.sourceOrderNo, keyword: batchKeyword.value },
-    })
-    batchLines.value = (res.data?.data?.list || []).map((row, idx) => ({
-      ...row,
-      __batchKey: String(row.kcao02 ?? row.lineKey ?? row.systemcode ?? row.kcaa01 ?? idx),
-      availableQty: row.availableQty ?? row.kcao03 ?? 0,
-    }))
-  } catch (err) {
-    ElMessage.error(err.response?.data?.msg || err.message || '读取明细失败')
-  } finally {
-    batchLoading.value = false
+function handleOtherInboundBatchPayload(payload, source = null, options = {}) {
+  const sessionId = String(payload?.sessionId ?? '').trim()
+  const allowStoredSession = !!options.allowStoredSession
+  if (!sessionId) return false
+  if (sessionId !== activeOtherBatchSessionId.value && !allowStoredSession) return false
+  const openedWarehouse = String(payload?.openedWarehouseCode ?? '').trim()
+  const currentWarehouse = String(form.warehouseCode ?? '').trim()
+  if (!openedWarehouse || !currentWarehouse || openedWarehouse !== currentWarehouse) {
+    removeStockBatchResult(sessionId)
+    if (!allowStoredSession) {
+      ElMessage.warning('仓库数据错误，请检查所选仓库')
+      replyOtherInboundBatch(source, { type: STOCK_BATCH_MSG_REJECTED, sessionId, reason: STOCK_BATCH_REJECT_WAREHOUSE_MISMATCH })
+      clearOtherInboundBatchSession()
+    }
+    return false
   }
+  const batchRows = Array.isArray(payload.lines) ? payload.lines : []
+  if (!batchRows.length) {
+    removeStockBatchResult(sessionId)
+    replyOtherInboundBatch(source, { type: STOCK_BATCH_MSG_REJECTED, sessionId, reason: 'empty-lines' })
+    return false
+  }
+  removeStockBatchResult(sessionId)
+  applyOtherInboundBatchLines(batchRows)
+  replyOtherInboundBatch(source, { type: STOCK_BATCH_MSG_ACCEPTED, sessionId, lineCount: batchRows.length })
+  clearOtherInboundBatchSession()
+  return true
 }
 
-function onBatchSelectionChange(selection) {
-  batchSelected.value = selection.filter((row) => isBatchLineSelectable(row))
-}
-
-function isBatchLineSelectable(row) {
-  if (canManualAdd.value) return true
-  if (!isQuantityLimitedType()) return true
-  const hasSourceLine = String(row?.kcao02 ?? row?.lineKey ?? row?.systemcode ?? '').trim()
-  if (!hasSourceLine) return true
-  const limit = getLineQuantityLimit(row)
-  return limit == null || limit > 0
-}
-
-function batchLineSelectLabel(row) {
-  if (isBatchLineSelectable(row)) return '可选择'
-  return '不可选'
+function handleOtherInboundBatchMessage(event) {
+  if (event.origin !== window.location.origin) return
+  const data = event.data
+  if (!data || data.type !== STOCK_BATCH_MSG_APPLY) return
+  if (String(data?.batchType ?? '') !== 'other') return
+  handleOtherInboundBatchPayload(data, event.source)
 }
 
 function makeLine(row, options = {}) {
@@ -2108,14 +2263,6 @@ function makeLine(row, options = {}) {
   }
   recalcLine(line, { notify: false })
   return line
-}
-
-function applyBatchLines() {
-  if (!batchSelected.value.length) return ElMessage.warning('请选择明细')
-  const selectable = batchSelected.value.filter((row) => isBatchLineSelectable(row))
-  if (!selectable.length) return ElMessage.warning('所选明细暂无可入库数量，不能加入入库单')
-  lines.value.push(...selectable.map(makeLine))
-  batchVisible.value = false
 }
 
 async function refreshLinesTableHScroll() {
@@ -2286,10 +2433,12 @@ onMounted(() => {
   loadList()
   loadWarehouses()
   window.addEventListener('message', handlePurchaseBatchMessage)
+  window.addEventListener('message', handleOtherInboundBatchMessage)
 })
 
 onUnmounted(() => {
   window.removeEventListener('message', handlePurchaseBatchMessage)
+  window.removeEventListener('message', handleOtherInboundBatchMessage)
 })
 </script>
 
@@ -2381,6 +2530,24 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+.stock-filter-divider--print {
+  margin-left: 28px;
+  margin-right: 16px;
+}
+.stock-print-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.stock-print-mode {
+  width: 112px;
+}
+.stock-print-selected-hint {
+  font-size: 13px;
+  color: var(--el-color-primary);
+  white-space: nowrap;
 }
 .switch-label {
   font-size: 13px;
@@ -2594,34 +2761,15 @@ onUnmounted(() => {
   color: var(--el-text-color-regular);
   white-space: nowrap;
 }
-.detail-grid,
-.print-grid {
+.detail-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(140px, 1fr));
   gap: 10px 18px;
   margin-bottom: 14px;
 }
-.stock-print-page h2 {
-  text-align: center;
-  margin: 0 0 16px;
-}
-.print-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-.print-table th,
-.print-table td {
-  border: 1px solid #333;
-  padding: 6px;
-  font-size: 13px;
-}
-.print-table .num {
-  text-align: right;
-}
 @media (max-width: 900px) {
   .form-grid,
-  .detail-grid,
-  .print-grid {
+  .detail-grid {
     grid-template-columns: 1fr;
   }
   .stock-filter-related,
@@ -2639,24 +2787,6 @@ onUnmounted(() => {
   }
   .stock-remark-input {
     width: 100%;
-  }
-}
-@media print {
-  :global(html.print-stock-in body *) {
-    visibility: hidden;
-  }
-  :global(html.print-stock-in .stock-print-dialog),
-  :global(html.print-stock-in .stock-print-dialog *) {
-    visibility: visible;
-  }
-  :global(html.print-stock-in .el-dialog__header),
-  :global(html.print-stock-in .el-dialog__footer) {
-    display: none !important;
-  }
-  :global(html.print-stock-in .stock-print-dialog .el-dialog) {
-    box-shadow: none;
-    width: 100% !important;
-    margin: 0 !important;
   }
 }
 </style>

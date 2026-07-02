@@ -6,6 +6,7 @@ export const STOCK_BATCH_MSG_ACCEPTED = 'stock-in-batch-accepted'
 export const STOCK_BATCH_MSG_REJECTED = 'stock-in-batch-rejected'
 export const STOCK_BATCH_REJECT_SOURCE_MISMATCH = 'source-mismatch'
 export const STOCK_BATCH_REJECT_SUPPLIER_MISMATCH = 'supplier-mismatch'
+export const STOCK_BATCH_REJECT_WAREHOUSE_MISMATCH = 'warehouse-mismatch'
 
 export function buildStockBatchSessionId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {

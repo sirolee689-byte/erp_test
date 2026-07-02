@@ -14,6 +14,7 @@ import {
   __buildSourceOrderKeywordSqlForTest,
   __buildSourceOrderListSqlForTest,
   __buildSourceOrderPartyFilterSqlForTest,
+  __buildMaterialOptionsSqlForTest,
   __stockInSourceMetaForTest,
 } from './stockInHandlers.js'
 
@@ -231,5 +232,16 @@ describe('stockIn source-order-page SQL', () => {
     assert.ok(countSql.includes('@relatedPartyCode'))
     assertSql2008(listSql)
     assertSql2008(countSql)
+  })
+
+  it('material options SQL supports paged and non-paged modes', () => {
+    const topSql = __buildMaterialOptionsSqlForTest({ keywordSql: 'AND 1 = 1', paged: false })
+    const pagedSql = __buildMaterialOptionsSqlForTest({ keywordSql: 'AND 1 = 1', paged: true })
+    assert.ok(topSql.includes('SELECT TOP 100 *'))
+    assert.ok(topSql.includes('ORDER BY [id] DESC'))
+    assert.ok(pagedSql.includes('ROW_NUMBER() OVER (ORDER BY [id] DESC) AS rn'))
+    assert.ok(pagedSql.includes('WHERE rn BETWEEN @startRow AND @endRow'))
+    assertSql2008(topSql)
+    assertSql2008(pagedSql)
   })
 })

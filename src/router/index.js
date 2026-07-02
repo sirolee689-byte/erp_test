@@ -129,11 +129,25 @@ const stockInAssistReturnBatchWindowRoute = {
   meta: { title: '外协退料批量添加明细', permissionPath: '/inventory/daily/stock-in' },
 }
 
+const stockInSurplusBatchWindowRoute = {
+  path: '/inventory/daily/stock-in-surplus-batch-window',
+  name: 'inventory-daily-stock-in-surplus-batch-window',
+  component: () => import('@/views/inventory/daily/stock-in/surplus-batch-window.vue'),
+  meta: { title: '盘盈入库批量选材', permissionPath: '/inventory/daily/stock-in' },
+}
+
 const stockInProductionBatchWindowRoute = {
   path: '/inventory/daily/stock-in-production-batch-window',
   name: 'inventory-daily-stock-in-production-batch-window',
   component: () => import('@/views/inventory/daily/stock-in/batch-add-window.vue'),
   meta: { title: '生产入库批量添加明细', permissionPath: '/inventory/daily/stock-in' },
+}
+
+const stockInOtherBatchWindowRoute = {
+  path: '/inventory/daily/stock-in-other-batch-window',
+  name: 'inventory-daily-stock-in-other-batch-window',
+  component: () => import('@/views/inventory/daily/stock-in/other-batch-window.vue'),
+  meta: { title: '其他入库批量选材', permissionPath: '/inventory/daily/stock-in' },
 }
 
 const stockOutOtherBatchWindowRoute = {
@@ -185,6 +199,34 @@ const stockOutPrintRoute = {
   meta: { title: '打印出库单', permissionPath: '/inventory/daily/stock-out' },
 }
 
+const stockInPrintRoute = {
+  path: '/inventory/daily/stock-in-print',
+  name: 'inventory-daily-stock-in-print',
+  component: () => import('@/views/inventory/daily/stock-in/print.vue'),
+  meta: { title: '打印入库单', permissionPath: '/inventory/daily/stock-in' },
+}
+
+const stockInLabelPrintRoute = {
+  path: '/inventory/daily/stock-in-label-print',
+  name: 'inventory-daily-stock-in-label-print',
+  component: () => import('@/views/inventory/daily/stock-in/label-print.vue'),
+  meta: { title: '打印入库单标签', permissionPath: '/inventory/daily/stock-in' },
+}
+
+const stockInMaterialQrInfoRoute = {
+  path: '/stock-in/material-qr-info',
+  name: 'stock-in-material-qr-info',
+  component: () => import('@/views/inventory/daily/stock-in/material-qr-info.vue'),
+  meta: { title: '入库物料信息', public: true },
+}
+
+const legacyStockInMaterialQrInfoRoute = {
+  path: '/view.asp',
+  name: 'legacy-stock-in-material-qr-info',
+  component: () => import('@/views/inventory/daily/stock-in/material-qr-info.vue'),
+  meta: { title: '入库物料信息', public: true },
+}
+
 const childRoutes = [
   ...walkRoutes(menuStructure),
   paperPatternImportPreviewRoute,
@@ -224,14 +266,20 @@ const router = createRouter({
     stockInPurchaseBatchWindowRoute,
     stockInAssistBatchWindowRoute,
     stockInProductionBatchWindowRoute,
+    stockInOtherBatchWindowRoute,
     stockInAssistReturnBatchWindowRoute,
+    stockInSurplusBatchWindowRoute,
     stockOutOtherBatchWindowRoute,
     stockOutPurchaseReturnBatchWindowRoute,
     stockOutAssistIssueBatchWindowRoute,
     stockOutProductionIssueBatchWindowRoute,
     stockOutFinishedGoodsBatchWindowRoute,
     stockOutMaterialTraceWindowRoute,
-    stockOutPrintRoute,
+  stockOutPrintRoute,
+  stockInPrintRoute,
+  stockInLabelPrintRoute,
+  stockInMaterialQrInfoRoute,
+  legacyStockInMaterialQrInfoRoute,
     {
       path: '/',
       component: ErpLayout,
@@ -246,6 +294,10 @@ const router = createRouter({
  * 路由守卫：未登录拦截 + 无权限 URL 拦截
  */
 router.beforeEach((to) => {
+  if (to.meta?.public) {
+    return true
+  }
+
   if (to.path === '/login') {
     if (isLoggedIn()) {
       return { path: getFirstPermittedRoutePath(menuStructure) }

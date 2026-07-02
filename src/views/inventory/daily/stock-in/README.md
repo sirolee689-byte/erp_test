@@ -17,6 +17,7 @@
 - **状态列**：固定显示「已审核/未审核」+「已复核/未复核」；已结案、加工只读作补充标签。
 - **显示未复核**：`showUnreviewed=1` 筛 `sp_flag <> '1'`；已审核且未复核行显示「复核」按钮（须 `review` 权限）；回收站开启时该开关隐藏。
 - **入库单数据列**：两行汇总（项数/数量/入库量；含税·不含税·税点总价，需 `price` 权限）。
+- **转向物料查询（2026-07-02）**：顶栏「入库单添加」右侧新增「转向物料查询」；点击后在当前页面切换到 `pageMode=material-trace`，按入库明细物料维度查询已审核、未删除入库明细，不打开新窗口。面板提供查询条件、立即查询、查询全部和分页，表格使用底部横向滚动条；价格列仍受入库单 `price` 权限控制。
 - **入库日期**：列表只显示年-月-日。
 - 只读详情：可查看主表信息和明细清单。
 - 新增/编辑：当前开放其他入库、采购入库、外协入库、生产入库、生产退料、盘盈入库；外协退料、销售退货旧系统基本不使用，第一版只保留历史查看和列表筛选，不再提供新增/切换入口。
@@ -30,10 +31,12 @@
 - 关联单据选择窗口（非生产类型）：除其他入库/盘盈外，第四行通过「选择」打开来源单据窗口；生产入库/生产退料走派工单明细选择窗口，未选车间时前端拦截；`source-order-page` 默认 10 条/页；生产类型「清空」只清派工单与 PI，不清车间；换车间时若已有派工单/PI/明细，弹窗确认后一并清空。**采购入库（2026-07-01）**：选择窗口只显示 `UB_ERP_Buy_order` 已审核、未删除、未结案采购单，列为「操作、状态、采购单号、PI号、供应商、采购日期、交货日期、采购员」；关键字可搜采购单号、PI号、供应商编码和供应商资料名称；选择后回填采购单号、供应商编码/名称，暂存采购主表 `systemcode`，并在采购单号变化时清空已有明细，避免不同采购单明细混用。**采购入库（2026-06-22 修复）**：列表 SQL 曾出现 `AS referenceNo` 重复拼接导致「Incorrect syntax near 'AS'」，已改为仅外层一次别名。
 - 备注输入框：基础资料页“备注”输入框默认占该行内容区约 `50%`，小屏自动切到 `100%`。
 - 明细录入：无来源类型可手工选料；有关联单据类型可从关联单据批量带入明细；入库单明细不再显示「增加明细」按钮。
+- **其他入库批量添加（2026-07-01）**：类型 `0` 点击「批量添加」改为打开独立新窗口 `/inventory/daily/stock-in-other-batch-window`，界面交互对齐其他出库批量选材；**首屏默认不加载任何数据**，必须输入关键字后点“立即查询”才请求接口并展示结果；也可点“查询全部”不带关键字分页浏览物料主档。列表列与配色对齐其他出库：操作、产地、材料编码、**账存数量（红）**、**物料出库未审总数（紫）**、**实际库存数量（蓝，≤0 红）**、名称中/英/开票名、规格、单位、分类；库存三列按当前仓库 + `kcaa01` 汇总（账存=已审入−已审出，实际=账存−未审出）。接口 `GET /api/stock-in/other-batch-lines`（参数 `warehouseCode`、`keyword`、`requireKeyword`、`page/pageSize`）；保存时复用 `POST /api/stock-in/surplus-batch-prices` 取最近复核入库价。其他入库不按库存正数限制可选。选择后通过 `postMessage` 回传父页，父页按物料去重后写入明细。
 - 明细删除：明细表最左侧为按钮式选择列，每行显示「删除」，点击后变为「已选择」；「删除选定明细」只移除这些已标记行，交互参考采购订单/外协订单明细。
 - **采购入库批量添加（2026-06-22）**：类型为采购入库时，「批量添加」打开独立新窗口（`/inventory/daily/stock-in-purchase-batch-window`），接口 `GET /api/stock-in/purchase-batch-lines`；按已选采购单 `kcak01` 分页列出 `UB_ERP_Buy_order_list` 明细，数量池按 `kcak02`（BOM `systemcode`）共享；需入数量 `tempx`（红）= 换算采购量 −（已审+未审入库 − 已审+未审退货）；可超量 `kcao031`（蓝）= `max(0, 换算量×(1+物料分类浮动率) − 净占用)`，浮动率来自 `UB_ERP_Stocks_material.stocks_in`；编辑入库单时汇总排除当前单 `kcan01`；有未审退货不可选；`is_admin=1` 超级管理员可在已满行强制选；带回默认入库数量=需入数量，单价按主表汇率换算 RMB；保存时 `kcao03` 不得超过 `kcao031`（有浮动率时）或需入数量；「保存已选数据」经 `postMessage` 回传（选中行须深拷贝为纯 JSON，避免 Vue 代理导致 `postMessage` 克隆失败），主页面写入明细后回 `accepted`，子窗口再提示成功并自动关窗；结果暂存用 sessionStorage；打开子窗时缓存 `window.open` 引用作回执兜底；回传时仍校验采购单号和供应商；读库时所有参与比较、展示、排序的旧库字段都先安全转文本/数字（包含 `del/pass/seq/code/stocks_in/rmb_hl/rate` 等），避免旧库 nvarchar/数字混用导致 `Error converting data type nvarchar to numeric`。本期不做：`UB_ERP_Buy_order_stocks_max` 超订量、供应商 PQD(7001) 豁免（留超量入库配置下期）。
 - **外协退料批量添加（2026-06-22）**：类型为外协退料时，「批量添加」打开 `/inventory/daily/stock-in-assist-return-batch-window`；父层外协成品 + 展开 BOM 配件两层表；接口 `assist-return-batch-lines` / `assist-return-bom-parts`；带回 `kcao03=0`、`kcao031=100000`；配件单价用 `Finance_currency.bom_rate`（非 `rate`）；详见下文专节。
-- **生产入库/生产退料批量添加（2026-06-22，2026-06-23 补强，2026-06-30 扩展类型 5，2026-06-22 退料对齐旧系统）**：类型为生产入库或生产退料时，「批量添加」打开 `/inventory/daily/stock-in-production-batch-window`；接口 `GET /api/stock-in/production-batch-lines`；打开前须已选入库类型、是否含税、生产车间、派工单号；**生产退料（类型 5）还须已关联 `dispatchSystemcode`（通常来自【选择】派工单）**，否则主页面拦截；类型 4 主表按派工单号校验，`dispatchSystemcode` 有值才校验 `systemcode`；类型 5 主表按车间 + `dispatchSystemcode` 查有效派工（`del=0/pass=1/closed=0`）并与派工单号交叉校验，失败返回旧系统文案「数据不存在,请联系IT部检查!」；无派工明细返回「此订单无清单数据,请检查订单数据!」；缺 `dispatchSystemcode` 返回「参数错误！」；校验失败弹错约 1.5 秒后自动关窗；`kcao02` 写入派工明细键 `scak02`；类型 4 按 `kcan03=4` 统计已入库计算可入数量，类型 5 按 `kcan03=5` 统计已退料计算可退料数量；出库（返工）只展示不扣减；可入/可退上限 `kcao031` = `max(0, tempx + tempx×浮动率)`；带回循环 `kcaa01~35`；单价/金额全 0。
+- **生产入库/生产退料批量添加（2026-06-22，2026-06-23 补强，2026-06-30 扩展类型 5，2026-07-01 退料对齐生产领料）**：类型为生产入库或生产退料时，「批量添加」打开 `/inventory/daily/stock-in-production-batch-window`；接口 `GET /api/stock-in/production-batch-lines`。类型 4 生产入库仍按派工明细本身计算可入库数量；类型 5 生产退料改为按生产领料来源退料：非开料部由派工明细经 `UB_ERP_Bom_pi_cost` 按 PI 展开实际领料子料，同子料 `kcaa01` 合并显示；开料部（车间 `04`）复用出库生产领料的开料部 PI 裁片来源和 `cutting_issue` 分类配置，再按退料口径重新计算已领/已退/可退。生产退料必须已有生产车间、仓库、派工单号、PI号、`dispatchSystemcode`；可退数量 = 当前派工单+当前仓库+子料的生产领料出库数量（已审+未审） - 当前派工单+子料的生产退料数量（已审+未审，编辑时排除当前单）；未领过或已退完的子料不可选。生产退料带回 `kcao02=首个派工明细 scak02`（开料部为 `CUT|材料编码`）、`reference=PI号`、`Describe/info=对应派工货品名称`，单价/金额/税点保持 0。
+- **盘盈入库批量添加（2026-07-01）**：类型为盘盈入库时，「批量添加」打开 `/inventory/daily/stock-in-surplus-batch-window`；接口 `GET /api/stock-in/surplus-batch-lines` 从 `UB_ERP_Bom_000` 物料主档分页选材，只过滤未删除物料，不按当前库存是否大于 0 限制。选中后 `POST /api/stock-in/surplus-batch-prices` 按当前仓库取最近一条已审核且已复核的入库明细价；无价格则单价/税点为 0。带回默认 `kcao03=1`、`kcao031=1`，用户在明细里改为实际盘盈数量；盘盈不是关联单据类型，保存不要求 `kcao02` 来源明细键，也不做可入库上限限制。
 - 金额联动：按不含税单价、税点、数量计算含税单价和两套金额；不含税模式下税点强制为 0。
 - 明细数量限制：关联单据类型（采购、外协、生产、销售退货等）实时按行上的 `kcao031 / availableQty / tempx / needQty` 计算可入库上限，入库数量超过上限时立即提示并回退；其他入库、盘盈入库不限制上限。保存接口仍会做同样校验，防止绕过前端。
 - 税点限制：不含税模式下税点大于 0 会提示并清零；编辑入库单时税点不能为空，如无税点必须填 0。
@@ -44,12 +47,14 @@
 - 审核/反审核：审核后进入库存统计口径，反审核后退出库存统计口径；主表 `pass` 变化时，明细表 `UB_ERP_Stocks_Storage_list.pass` 同步变化。
 - 财务复核：已审核单可复核，`sp_flag=1` 后只读锁定；主表 `sp_flag` 变化时，明细表 `UB_ERP_Stocks_Storage_list.sp_flag` 同步变化。
 - 删除/恢复/彻底删除：已审核单不能直接删除，必须先反审核；彻底删除只允许 `UB_ERP_User.is_admin=1` 的超级管理员（操作时按当前登录用户主键实时查库，不依赖旧登录令牌是否缓存该字段）。
-- 打印：打印主表、明细和合计；价格字段受 `price` 权限控制。
+- 打印：**列表批量打印**（2026-07-01）：行内「打印选择/已选择」按入库单号 `kcan01` 记录；筛选区显示「已选择：N条记录进行打印」、打印类型（汇总/明细）与「打印入库单」按钮；未选提示「请选择需要打印的单据。」；新标签打开 `/inventory/daily/stock-in-print?p_sum=...&print_cn=...`；接口 `GET /api/stock-in/print-data` 批量模式按 `kcan01` 查主表 `UB_ERP_Stocks_Storage` 与明细 `UB_ERP_Stocks_Storage_list`（不按 pass 限制）；明细列：序号、厂款号/PI号、电脑编码、材料名称、规格、颜色、单位、数量、备注；汇总模式按物料字段分组合计数量；LOGO 来自系统打印设定；支持 2–10 行/页换行；未审单显示【未审】；不含单价/金额列。
+- 标签打印（2026-07-02）：列表勾选入库单后点击「打印标签」，打开 `/inventory/daily/stock-in-label-print?p_sumbq=...`；接口 `GET /api/stock-in/label-print-data` 只允许主表 `del=0/pass=1` 的入库单，空参数返回 `Error,Code:208`，单据不存在返回「数据不存在，请返回检查！」；按明细 `kcao01=kcan01`、未删除、`seq/id` 顺序生成标签，一条明细一张标签；标签显示物料编码、英文名或入库单号+中文名、颜色名称/颜色编码、数量和入库时间，二维码内容沿用旧系统 `view.asp?action=stocks&kcaa01=材料编码&kcao01=入库单号`。
 - 待开发占位：导出信息、超量入库配置。
 
 ## 后端接口
 
 - `GET /api/stock-in/list`：列表分页，SQL 使用 `ROW_NUMBER()`，兼容 SQL Server 2008 R2。
+- `GET /api/stock-in/material-trace/list`：转向物料查询；从 `UB_ERP_Stocks_Storage_list` 查询已审核未删除入库明细，并按 `kcao01=kcan01` 回查 `UB_ERP_Stocks_Storage` 的日期、仓库、供应商/外协商等信息；关键字第一版只搜高频字段，不全量 OR `kcaa01~kcaa35`。
 - `GET /api/stock-in/:id`：详情。
 - `GET /api/stock-in/:id`：详情明细包含 `relationOrderQty/relationInboundQty/relationReturnedQty/relationDiffQty/relationOverflowQty/relationNoData`，用于“关联单号相关信息”列展示。
 - `GET /api/stock-in/suggest-doc-no`：建议入库单号；最终单号仍以后端保存结果为准。
@@ -57,17 +62,21 @@
 - `GET /api/stock-in/list-related-party-options`：列表筛选供应商联想（`UB_ERP_System_supplier`，仅查 `del=0 AND pass=1`，关键字可空）。
 - `GET /api/stock-in/related-party-options`：表单关联方候选（按入库类型）。
 - `GET /api/stock-in/source-options`：关联单据候选。
-- `GET /api/stock-in/source-options`：关联单据候选（返回 `sourceOrderNo + relatedPartyCode + relatedPartyName`，派工单候选额外返回 `referenceNo` 用于生产入库自动带出 PI号）。
+- `GET /api/stock-in/source-options`：关联单据候选（返回 `sourceOrderNo + relatedPartyCode + relatedPartyName`，派工单候选额外返回 `referenceNo` 用于自动带出 PI号、`sourceSystemcode` 用于编辑旧单时恢复批量添加所需的 `dispatchSystemcode`）。
 - `GET /api/stock-in/source-order-page`：关联单据选择窗口（默认 10 条/页）；采购入库按 `UB_ERP_Buy_order.kcaj01/kcaj04/kcaj05/kcaj02/systemcode` 返回采购单号、PI号、供应商、采购日期和前端暂存来源键，只显示 `del=0/pass=1/closed=0`；生产退料须传 `relatedPartyCode` 并按 `scaj05` 过滤。
 - `GET /api/stock-in/production-dispatch-pick-page`：**生产入库/生产退料**派工单明细选择（分页单位=派工单张数，默认 10 张/页；按 `addtime` 新→旧；参数 `workshopCode`、`inboundType`、`keyword`、`page`、`pageSize`；生产入库 `keyword` 为空时返回空列表；车间无效返回 400）。
 - `GET /api/stock-in/source-lines`：关联单据明细（非采购入库批量添加仍用此接口）。
 - `GET /api/stock-in/purchase-batch-lines`：采购入库批量添加新窗口分页数据（`page/pageSize`，默认 20；参数 `sourceOrderNo`、`supplierCode`、`excludeReceiptNo`、`selectedKeys`、`keyword`）。
 - `GET /api/stock-in/assist-batch-lines`：外协入库批量添加（仅类型 2）。
-- `GET /api/stock-in/production-batch-lines`：生产入库/生产退料批量添加（类型 4/5；参数 `inboundType`、`sourceOrderNo`、`workshopCode`/`supplierCode`、`dispatchSystemcode`（类型 5 必填）、`excludeReceiptNo`、`selectedKeys`、`keyword`）。
+- `GET /api/stock-in/production-batch-lines`：生产入库/生产退料批量添加（类型 4/5；参数 `inboundType`、`sourceOrderNo`、`workshopCode`/`supplierCode`、`warehouseCode`、`piNo`、`dispatchSystemcode`（类型 5 必填）、`excludeReceiptNo`、`selectedKeys`、`keyword`；类型 5 支持 `fetchAll=1` 一次返回全部合并子料）。
 - `GET /api/stock-in/assist-return-batch-lines`：外协退料批量添加父层外协成品（类型 3）。
 - `GET /api/stock-in/assist-return-bom-parts`：外协退料按成品展开 BOM 配件（参数 `productKcaa01`、`selectedKeys`）。
-- `GET /api/stock-in/material-options`：手工物料候选。
-- `GET /api/stock-in/print-data`：打印数据。
+- `GET /api/stock-in/surplus-batch-lines`：盘盈入库批量选材（类型 7；参数 `keyword`、`selectedKeys`、`page/pageSize`）。
+- `POST /api/stock-in/surplus-batch-prices`：盘盈入库批量选材最近复核入库价（参数 `warehouseCode`、`materialCodes`）。
+- `GET /api/stock-in/other-batch-lines`：其他入库批量选材（类型 0；参数 `warehouseCode`、`keyword`、`requireKeyword`、`selectedKeys`、`page/pageSize`；首屏 `requireKeyword=1` 且关键字为空时返回空列表）。
+- `GET /api/stock-in/material-options`：手工物料候选；支持 `page/pageSize` 分页；传 `requireKeyword=1` 时关键字为空直接返回空列表。
+- `GET /api/stock-in/print-data`：打印数据；单张兼容 `id`；批量打印用 `p_sum`（逗号分隔 `kcan01`）+ `print_cn`（`1` 明细 / `2` 汇总）；返回 `list`、`printMode`、`printConfig.logoSrc`。
+- `GET /api/stock-in/label-print-data`：标签打印数据；参数 `p_sumbq`（逗号分隔 `kcan01`）；仅返回已审核、未删除入库单的明细标签数据。
 - `GET /api/stock-in/inventory-summary`：入库库存统计口径。
 - `POST /api/stock-in`：新增。
 - `PUT /api/stock-in/:id`：编辑。
@@ -85,6 +94,7 @@
 - 明细表：`UB_ERP_Stocks_Storage_list`
 - 操作日志：`UB_Date_ERP_Operation_log`
 - 保存审核：所有入库类型新增与待审核编辑保存后一律自动审核，主表和明细表 `pass` 直接写 `1`，并写入主表审核人/审核时间；已审核单仍须反审后才能编辑；历史未审核单仍可通过审核按钮处理。审核/反审核会同步明细 `pass`，复核/反复核会同步明细 `sp_flag`。
+- 转向物料查询：只读查询 `UB_ERP_Stocks_Storage_list l` + `UB_ERP_Stocks_Storage h`，JOIN 条件为 `l.kcao01=h.kcan01`；主从表均要求未删除且已审核（`del=0/pass=1`）；分页用 `ROW_NUMBER()` 兼容 SQL Server 2008 R2。第一版为性能优先，关键字只匹配入库单号、关联单号、物料编码、名称、规格、颜色、PO/PI、备注、供应商/外协商、仓库等高频字段。
 - 物料快照：保存明细时由后端按 `kcaa01` 重新查询 `UB_ERP_Bom_000`，指定快照字段以 BOM 为准；数量、价格、备注、关联订单明细键不被覆盖。本模块当前明确补写 `kcaa07`、`kcaa08`、`kcaa12`~`kcaa14`、`kcaa25`、`kcaa28`~`kcaa35`，并写入明细 `uid`、`uname`、`utruename`、`addtime`。
 - 库存统计：只统计已审核且未删除的入库明细 `kcao03`，待审核、已删除、反审核后的单据不计入。
 
@@ -147,7 +157,7 @@
 
 ## 2026-06-22 生产退料批量添加
 
-- 入库类型为生产退料时，共用 `/inventory/daily/stock-in-production-batch-window`，接口强制 `inboundType=5`。
+- 入库类型为生产退料时，共用 `/inventory/daily/stock-in-production-batch-window`，接口强制 `inboundType=5`；窗口一次拉取全部可退子料，本地仅按退料材料编码筛选，点击「刷新数据」重新拉取已领/已退数量。
 - 打开前须：入库类型、是否含税、生产车间、派工单号、**`dispatchSystemcode`（选派工单后写入）**。
 - 主表按车间 + `dispatchSystemcode` 查 `UB_ERP_Dispatch_order`（`del=0/pass=1/closed=0`），并与派工单号交叉校验；无效 →「数据不存在,请联系IT部检查!」；无明细 →「此订单无清单数据,请检查订单数据!」；缺 systemcode →「参数错误！」。
 - 可退料数量 `tempx` = 换算派工量 − 已审退料入库(`kcan03=5`) − 未审退料入库；返工出库（已审 `kcaq03`）仅展示在「返工数量」列，不扣减 tempx。
@@ -177,3 +187,11 @@
 - 外协入库选择页按采购选择页的性能口径处理：不为首屏强制精确统计总数，默认一次预取 3 页；第 2、3 页从本地缓存切换，第 4 页及以后继续请求后续数据。
 - 外协单号形态关键字（如 `wx26042102`）优先按 `wxaj01` 精确/前缀匹配；普通关键字仍按外协单号、外协日期、外协相关字段和币别做模糊匹配。
 - 点击【关联选择】后回填外协单号、外协商编码/名称和外协主表 `systemcode`，如果外协单号变化则清空当前明细，避免不同外协订单混用。
+
+## 2026-07-02 入库标签二维码扫码页
+
+- 标签打印页的二维码改为标准二维码，扫码内容使用 `/view.asp?action=stocks&kcaa01=材料编码&kcao01=入库单号`，新系统用 `/view.asp` 兼容旧系统入口，并打开同一张只读扫码页。
+- 扫码页路由为 `/stock-in/material-qr-info`，不进入 ERP 主框架、不要求登录，只能读取 `GET /api/stock-in/material-qr-info` 这一项只读数据；新增、编辑、删除、审核等接口仍按原权限走。
+- 扫码页展示入库单号、关联单号、入库数量、PI号、中文/英文名称、规格、颜色、单位、分类、组别、产地、备注、货仓/板房库存、最近采购记录、最近入库记录；底部开发人显示“廖越锋”。
+- 库存口径：按当前库存计算方式，统计已审核且未删除的入库明细数量减已审核且未删除的出库明细数量；第一版按仓库名称或编码中包含“货仓”“板房”来归类。
+- 涉及表：`UB_ERP_Stocks_Storage`、`UB_ERP_Stocks_Storage_list`、`UB_ERP_Bom_000`、`UB_ERP_Stocks_colorcode`、`UB_ERP_Stocks_material`、`UB_ERP_Buy_order`、`UB_ERP_Buy_order_list`、`UB_ERP_Stocks_out`、`UB_ERP_Stocks_out_list`。

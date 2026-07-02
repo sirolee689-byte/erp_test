@@ -6,6 +6,7 @@ import { fetchBuyOrderExpandDetail } from './buyOrderExpandDetail.js'
 import { fetchBuyOrderMaterialTrace, fetchBuyOrderTraceBomCodes } from './buyOrderMaterialTrace.js'
 import { buildBuyOrderListPagedSql, buildBuyOrderListWhereSql, parseBuyOrderListQuery } from './buyOrderListQuery.js'
 import { checkBuyOrderNoAvailable, createBuyOrder, suggestBuyOrderNo, updateBuyOrder } from './buyOrderSaveService.js'
+import { safeDecimalExpr } from './buyOrderSqlSafe.js'
 
 const HEADER_FROM = 'dbo.[UB_ERP_Buy_order]'
 const LINE_FROM = 'dbo.[UB_ERP_Buy_order_list]'
@@ -14,6 +15,8 @@ const SUPPLIER_FROM = 'dbo.[UB_ERP_System_supplier]'
 const CURRENCY_FROM = 'dbo.[UB_ERP_Finance_currency]'
 const BOM_FROM = 'dbo.[UB_ERP_Bom_000]'
 const SALES_FROM = 'dbo.[UB_ERP_Sales_order]'
+const STOCK_IN_FROM = 'dbo.[UB_ERP_Stocks_Storage]'
+const STOCK_IN_LINE_FROM = 'dbo.[UB_ERP_Stocks_Storage_list]'
 
 function text(v) {
   return String(v ?? '').trim()
@@ -62,6 +65,21 @@ function hasPricePermission(req) {
   const actions = req?.user?.actions ?? req?.user?.Permissions ?? req?.session?.user?.actions
   if (Array.isArray(actions)) return actions.includes('price') || actions.includes('*')
   return true
+}
+
+function attachDetailInboundLock(lines = [], inboundRows = []) {
+  const list = Array.isArray(inboundRows) ? inboundRows : []
+  return (Array.isArray(lines) ? lines : []).map((line) => {
+    const materialCode = text(line?.kcaa01)
+    const bomSystemCode = text(line?.kcak02 ?? line?.systemcode)
+    const matched = list.filter((row) => {
+      const inMat = text(row.materialCode)
+      const inBom = text(row.materialSystemCode)
+      return (materialCode && inMat === materialCode) || (bomSystemCode && inBom === bomSystemCode)
+    })
+    const inboundQty = matched.reduce((sum, row) => sum + Number(row.inboundQty ?? 0), 0)
+    return { ...line, inboundLocked: matched.length > 0, inboundQty }
+  })
 }
 
 export function registerBuyOrderRoutes(app, deps) {
@@ -334,12 +352,27 @@ export function registerBuyOrderRoutes(app, deps) {
           AND (ISNULL([del], N'') = N'' OR [del] = N'0')
         ORDER BY ISNULL([seq], [id]), [id]
       `)
+      const inboundR = await pool.request().input('orderNo', sql.NVarChar(200), orderNo).query(`
+        SELECT
+          LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(il.[kcaa01], N'')))) AS materialCode,
+          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(il.[kcao02], N'')))) AS materialSystemCode,
+          SUM(${safeDecimalExpr('il', 'kcao03')}) AS inboundQty
+        FROM ${STOCK_IN_FROM} AS s
+        INNER JOIN ${STOCK_IN_LINE_FROM} AS il
+          ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[kcan01], N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(il.[kcao01], N''))))
+         AND (ISNULL(il.[del], N'') = N'' OR il.[del] = N'0')
+        WHERE (ISNULL(s.[del], N'') = N'' OR s.[del] = N'0')
+          AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[kcan04], N'')))) = @orderNo
+          AND LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(s.[kcan03], N'')))) = N'1'
+        GROUP BY il.[kcaa01], il.[kcao02]
+      `)
       const feesR = await pool.request().input('orderNo', sql.NVarChar(200), orderNo).query(`
         SELECT * FROM ${FEE_FROM}
         WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([buy_code], N'')))) = @orderNo
         ORDER BY ISNULL([kid], [id]), [id]
       `)
-      res.json({ code: 200, msg: 'success', data: { header: serialize(header), lines: (linesR.recordset ?? []).map(serialize), fees: (feesR.recordset ?? []).map(serialize), forPrint } })
+      const lines = attachDetailInboundLock((linesR.recordset ?? []).map(serialize), inboundR.recordset ?? [])
+      res.json({ code: 200, msg: 'success', data: { header: serialize(header), lines, fees: (feesR.recordset ?? []).map(serialize), forPrint } })
     } catch (err) {
       res.status(500).json({ code: 500, msg: `读取采购单详情失败：${String(err?.message ?? err)}`, data: null })
     }

@@ -21,6 +21,7 @@
     "migrate:bom-consumption": "node scripts/run-migration-sqlserver_v1.1.3_bom_consumption.mjs",
     "migrate:bom-cost": "node scripts/run-migration-sqlserver_v1.1.4_bom_cost.mjs",
     "migrate:paper-pattern-import-mapping": "node scripts/run-migration-sqlserver_v1.1.5_paper_pattern_import_mapping.mjs",
+    "migrate:stock-stats-snapshot": "node scripts/run-migration-sqlserver_stock_stats_snapshot.mjs",
     "e2e:dept-office": "node scripts/e2e-dept-office.mjs",
     "e2e:dept-batch-audit": "node scripts/e2e-dept-batch-audit.mjs",
     "e2e:staff-form-ui": "node scripts/e2e-staff-form-ui.mjs",
@@ -58,6 +59,7 @@
     "express": "^5.2.1",
     "mssql": "^12.2.1",
     "multer": "^2.1.1",
+    "qrcode": "^1.5.4",
     "vue": "^3.5.13",
     "vue-router": "^4.5.0",
     "xlsx": "^0.18.5"
