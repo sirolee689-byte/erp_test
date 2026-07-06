@@ -24,17 +24,18 @@
 
 | path | 页面 |
 |------|------|
-| `production/analysis/report-stats` | 生产领用统计表 |
+| `production/analysis/report-stats` | 生产领用统计表（明细报表，见本目录 README） |
 | `production/analysis/pi-shortage-analysis` | PI欠料分析（占位） |
-| `production/analysis/material-requirement-stats` | 物料需求统计（占位） |
-| `production/analysis/labor-cost-analysis` | 工时工费分析（占位） |
 | `production/analysis/material-sheet` | 物料单 |
-| `production/analysis/production-status-report` | 生产情况表（占位） |
-| `production/analysis/work-hour-status-report` | 工时情况表（占位） |
 
 ## 权限说明
 
 角色「分配权限」中的 path 须与上表一致。若仍使用旧 path（如 `production/dispatch`），迁后需在角色管理中按新 path 重新勾选。
+
+## 生产领用统计表
+
+- 入口：生产管理 → 统计分析 → 生产领用统计表（`production/analysis/report-stats`）。
+- 详见 [`analysis/report-stats/README.md`](analysis/report-stats/README.md)。
 
 ## 物料单
 

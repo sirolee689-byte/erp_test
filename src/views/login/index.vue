@@ -1,281 +1,454 @@
 <template>
-  <!--
-    登录页整体容器
-    小白版解释：
-    - 这一层负责“全屏铺满”
-    - 背景图也在这一层做
-  -->
   <div class="login-page">
-    <!--
-      遮罩层
-      小白版解释：
-      - 背景图可能很花，遮罩层让中间表单更清晰
-    -->
-    <div class="login-overlay"></div>
-
-    <!--
-      内容区
-      小白版解释：
-      - 让登录卡片居中
-    -->
-    <div class="login-content">
-      <!--
-        登录卡片
-        小白版解释：
-        - 使用 Element Plus 的 el-card 做一个简约大气的面板
-      -->
-      <el-card class="login-card" shadow="always">
-        <!-- 标题区 -->
-        <div class="login-title">
-          <!-- 系统名（你可以改成公司名称/项目名称） -->
-          <div class="login-title-main">ERP 管理系统</div>
-          <!-- 副标题（简短说明） -->
-          <div class="login-title-sub">内网账号登录</div>
+    <div class="login-shell">
+      <section class="login-brand" aria-label="系统介绍">
+        <div class="brand-mark">
+          <el-icon><OfficeBuilding /></el-icon>
         </div>
+        <p class="brand-kicker">企业内部管理入口</p>
+        <h1>企业 ERP 管理系统</h1>
+        <p class="brand-desc">
+          统一处理采购、库存、生产、销售与人事协同，让内部流程更清楚、更稳定。
+        </p>
+        <div class="brand-metrics">
+          <div>
+            <span>稳定</span>
+            <strong>内网业务</strong>
+          </div>
+          <div>
+            <span>清晰</span>
+            <strong>权限管控</strong>
+          </div>
+          <div>
+            <span>高效</span>
+            <strong>流程协同</strong>
+          </div>
+        </div>
+      </section>
 
-        <!--
-          登录表单
-          小白版解释：
-          - v-model 会把输入框内容“同步到变量里”
-          - 点击登录时，我们把变量提交给后端 /api/login
-        -->
-        <el-form :model="form" class="login-form" @keyup.enter="onLogin">
-          <!-- 账号输入框 -->
-          <el-form-item>
-            <el-input
-              v-model="form.account"
-              placeholder="请输入用户名或编码"
-              clearable
-              size="large"
-              autocomplete="username"
-            />
-          </el-form-item>
+      <section class="login-panel" aria-label="登录表单">
+        <div class="login-card">
+          <div class="login-title">
+            <div class="login-title-main">企业 ERP 管理系统</div>
+            <div class="login-title-sub">欢迎回来，请登录后继续使用</div>
+          </div>
 
-          <!-- 密码输入框 -->
-          <el-form-item>
-            <el-input
-              v-model="form.password"
-              placeholder="请输入密码"
-              show-password
-              clearable
-              size="large"
-              autocomplete="current-password"
-            />
-          </el-form-item>
+          <el-alert
+            v-if="errorText"
+            class="login-error"
+            :title="errorText"
+            type="error"
+            show-icon
+            :closable="false"
+          />
 
-          <!-- 登录按钮 -->
-          <el-form-item>
+          <el-form
+            ref="loginFormRef"
+            :model="form"
+            :rules="rules"
+            class="login-form"
+            size="large"
+            @keyup.enter="onLogin"
+          >
+            <el-form-item prop="account">
+              <el-input
+                ref="accountInputRef"
+                v-model="form.account"
+                placeholder="请输入账号"
+                clearable
+                autocomplete="username"
+                :prefix-icon="User"
+              />
+            </el-form-item>
+
+            <el-form-item prop="password">
+              <el-input
+                v-model="form.password"
+                placeholder="请输入密码"
+                show-password
+                clearable
+                autocomplete="current-password"
+                :prefix-icon="Lock"
+              />
+            </el-form-item>
+
+            <div class="login-options">
+              <el-checkbox v-model="rememberAccount">记住账号</el-checkbox>
+            </div>
+
             <el-button
               type="primary"
               size="large"
               class="login-btn"
               :loading="loading"
+              :disabled="loading"
               @click="onLogin"
             >
-              登录
+              {{ loading ? '登录中...' : '登录' }}
             </el-button>
-          </el-form-item>
+          </el-form>
 
-          <!-- 提示信息（可选） -->
-          <div class="login-tips">
-            <!-- 小白提示：这里可以放“默认账号/联系管理员”等提示 -->
-            <span>如无法登录，请联系管理员确认账号是否启用。</span>
-          </div>
-        </el-form>
-      </el-card>
+          <div class="login-footer">© 2026 企业 ERP 管理系统</div>
+        </div>
+      </section>
     </div>
   </div>
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { nextTick, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import { Lock, OfficeBuilding, User } from '@element-plus/icons-vue'
 import menuStructure from '../../../erp_structure_dump.json'
 import { getFirstPermittedRoutePath, isFullPathAllowedForCurrentUser } from '@/utils/menuPermission'
 
-// =========================
-// 1) 路由对象（用于跳转）
-// =========================
+const REMEMBER_ACCOUNT_KEY = 'erp_login_remember_account'
+
 const router = useRouter()
 const route = useRoute()
 
-// =========================
-// 2) 表单数据
-// =========================
+const loginFormRef = ref(null)
+const accountInputRef = ref(null)
+const loading = ref(false)
+const errorText = ref('')
+const rememberAccount = ref(false)
+
 const form = reactive({
-  // 登录输入：旧表为 username（登录账号）或 usercode（账号编码）；ERP 表为 UserName
   account: '',
-  // 密码（对应数据库 UB_ERP_User.Password）
   password: '',
 })
 
-// =========================
-// 3) 加载状态（防止重复点击）
-// =========================
-const loading = ref(false)
+const rules = {
+  account: [{ required: true, message: '请输入账号', trigger: 'blur' }],
+  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+}
 
-/**
- * 登录按钮点击事件
- * 小白版解释：
- * - 先做前端必填校验（更快给你提示）
- * - 再请求后端 /api/login
- * - 成功后把 token 存入 localStorage，然后跳转到后台首页或原目标页面
- */
+onMounted(async () => {
+  const savedAccount = String(localStorage.getItem(REMEMBER_ACCOUNT_KEY) ?? '').trim()
+  if (savedAccount) {
+    form.account = savedAccount
+    rememberAccount.value = true
+  }
+
+  await nextTick()
+  accountInputRef.value?.focus?.()
+})
+
+function saveRememberedAccount(account) {
+  if (rememberAccount.value) {
+    localStorage.setItem(REMEMBER_ACCOUNT_KEY, account)
+  } else {
+    localStorage.removeItem(REMEMBER_ACCOUNT_KEY)
+  }
+}
+
+function getLoginErrorMessage(error) {
+  const status = error?.response?.status
+  const backendMsg = String(error?.response?.data?.msg ?? '').trim()
+
+  if (status === 400 || status === 401 || status === 403) {
+    return backendMsg || '账号或密码不正确，请重新输入'
+  }
+  if (status >= 500) {
+    return backendMsg || '系统暂时无法登录，请稍后再试'
+  }
+  if (!error?.response) {
+    return '登录请求失败，请检查网络或服务是否正常'
+  }
+  return backendMsg || '登录失败，请稍后再试'
+}
+
 async function onLogin() {
-  // 关键：去掉左右空格，避免“复制粘贴多了空格”导致登录失败
+  if (loading.value) return
+
+  errorText.value = ''
+  const valid = await loginFormRef.value?.validate().catch(() => false)
+  if (!valid) return
+
   const account = String(form.account ?? '').trim()
   const password = String(form.password ?? '').trim()
 
-  // 关键：前端必填校验
-  if (!account) {
-    ElMessage.error('请输入用户名或编码')
-    return
-  }
-  if (!password) {
-    ElMessage.error('请输入密码')
-    return
-  }
-
-  // 关键：开始请求，进入 loading
   loading.value = true
   try {
-    // 关键：请求后端登录接口
     const res = await axios.post('/api/login', {
-      // 关键：字段名保持简单清晰（后端也按这个取值）
       Account: account,
       Password: password,
     })
 
-    // 关键：后端返回 JSON 在 res.data
     const json = res.data
-
-    // 关键：按约定 code=200 才算成功
     if (json?.code !== 200) {
-      ElMessage.error(json?.msg || '登录失败')
+      errorText.value = json?.msg || '账号或密码不正确，请重新输入'
+      form.password = ''
       return
     }
 
-    // 关键：保存 token（这是“已登录”的标志）
-    const token = json?.data?.token
-    localStorage.setItem('erp_token', String(token ?? ''))
+    const token = String(json?.data?.token ?? '').trim()
+    if (!token) {
+      errorText.value = '登录成功但没有拿到认证信息，请联系管理员'
+      form.password = ''
+      return
+    }
 
-    /**
-     * v1.0.7 RBAC：把「当前用户 + 角色」写入 localStorage，供后续权限判断使用
-     *
-     * 流程说明（从登录到前端读取）：
-     * 1) 后端 POST /api/login 在校验通过后，会在 data.user 里返回 UserID/UserCode/UserName/Status，
-     *    以及本阶段新增的 RoleID、RoleName（来自 UB_ERP_User 关联 UB_ERP_System_role）；
-     *    **is_admin / isAdmin**（超级管理员，供出库单「开料出库配置」等前端门禁）。
-     * 2) localStorage 只能存字符串，所以这里用 JSON.stringify(user) 序列化整个 user 对象。
-     * 3) 写入的 key 固定为 erp_user（与布局页 ErpLayout 读取的 key 一致）。
-     * 4) user.Permissions 为角色在 UB_ERP_System_role.Permissions 中配置的菜单 path JSON 字符串；
-     *    侧栏与路由守卫会读取它做菜单过滤与无权限拦截（详见 @/utils/menuPermission.js）。
-     * 5) 路由守卫仍以 erp_token 判断登录；Permissions 用于登录后的菜单与 URL 授权。
-     */
-    const user = json?.data?.user
-    localStorage.setItem('erp_user', JSON.stringify(user ?? {}))
+    localStorage.setItem('erp_token', token)
+    localStorage.setItem('erp_user', JSON.stringify(json?.data?.user ?? {}))
+    saveRememberedAccount(account)
 
-    // 关键：提示成功
     ElMessage.success('登录成功')
 
-    // 关键：登录成功后跳转
-    // 小白版解释：
-    // - 你原来想去哪个页面，路由守卫会把地址塞到 ?redirect=xxx
-    // - 若 redirect 指向无权限页面，则改跳到「第一个有权限的菜单」或 /403
     let redirect = String(route.query?.redirect ?? '').trim() || '/'
     if (!isFullPathAllowedForCurrentUser(redirect)) {
       redirect = getFirstPermittedRoutePath(menuStructure)
     }
     await router.replace(redirect)
-  } catch (e) {
-    // 关键：axios 如果收到 400/500，会把后端返回的中文 msg 放在 e.response.data.msg
-    const backendMsg = e?.response?.data?.msg
-    ElMessage.error(backendMsg || '登录接口请求失败：请确认后端已启动并检查网络/端口')
+  } catch (error) {
+    errorText.value = getLoginErrorMessage(error)
+    ElMessage.error(errorText.value)
+    form.password = ''
   } finally {
-    // 关键：结束 loading
     loading.value = false
   }
 }
 </script>
 
 <style scoped>
-/* 全屏背景 */
 .login-page {
-  position: relative;
   min-height: 100vh;
-  overflow: hidden;
-
-  /* 背景（不依赖任何图片文件，开箱即用） */
-  background-image: linear-gradient(120deg, rgba(15, 23, 42, 0.92), rgba(2, 132, 199, 0.62));
-  background-color: #0f172a;
+  overflow-y: auto;
+  color: #0f172a;
+  background:
+    linear-gradient(135deg, rgba(248, 250, 252, 0.96), rgba(239, 246, 255, 0.92)),
+    linear-gradient(120deg, #dbeafe 0%, #f8fafc 48%, #e0f2fe 100%);
 }
 
-/* 遮罩层 */
-.login-overlay {
+.login-shell {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(420px, 0.8fr);
+  min-height: 100vh;
+}
+
+.login-shell::before,
+.login-shell::after {
   position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at 20% 10%, rgba(255, 255, 255, 0.12), transparent 45%),
-    radial-gradient(circle at 80% 40%, rgba(255, 255, 255, 0.10), transparent 55%);
+  content: '';
   pointer-events: none;
 }
 
-/* 居中容器 */
-.login-content {
+.login-shell::before {
+  top: 9%;
+  left: 7%;
+  width: 32vw;
+  height: 32vw;
+  max-width: 420px;
+  max-height: 420px;
+  border: 1px solid rgba(37, 99, 235, 0.13);
+  border-radius: 28px;
+  transform: rotate(12deg);
+}
+
+.login-shell::after {
+  right: 8%;
+  bottom: 8%;
+  width: 220px;
+  height: 220px;
+  border: 1px solid rgba(14, 165, 233, 0.18);
+  border-radius: 24px;
+  transform: rotate(-16deg);
+}
+
+.login-brand,
+.login-panel {
   position: relative;
-  min-height: 100vh;
+  z-index: 1;
+}
+
+.login-brand {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 72px 7vw;
+}
+
+.brand-mark {
+  display: inline-flex;
+  width: 56px;
+  height: 56px;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 28px;
+  color: #ffffff;
+  background: linear-gradient(135deg, #1d4ed8, #0f766e);
+  border-radius: 14px;
+  box-shadow: 0 18px 38px rgba(29, 78, 216, 0.22);
+}
+
+.brand-mark .el-icon {
+  font-size: 28px;
+}
+
+.brand-kicker {
+  margin: 0 0 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1d4ed8;
+}
+
+.login-brand h1 {
+  margin: 0;
+  font-size: 44px;
+  line-height: 1.18;
+  font-weight: 760;
+  color: #0f172a;
+}
+
+.brand-desc {
+  max-width: 560px;
+  margin: 22px 0 0;
+  font-size: 17px;
+  line-height: 1.9;
+  color: #475569;
+}
+
+.brand-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 128px));
+  gap: 14px;
+  margin-top: 42px;
+}
+
+.brand-metrics div {
+  min-height: 82px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.68);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+}
+
+.brand-metrics span {
+  display: block;
+  margin-bottom: 9px;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.brand-metrics strong {
+  font-size: 16px;
+  color: #0f172a;
+}
+
+.login-panel {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: 48px 6vw 48px 32px;
+  background: rgba(255, 255, 255, 0.34);
+  border-left: 1px solid rgba(148, 163, 184, 0.18);
+  backdrop-filter: blur(10px);
 }
 
-/* 登录卡片 */
 .login-card {
-  width: 420px;
-  max-width: 92vw;
-  border-radius: 14px;
-
-  /* 玻璃拟态一点点（简约但高级） */
-  background: rgba(255, 255, 255, 0.94);
-  backdrop-filter: blur(8px);
+  box-sizing: border-box;
+  width: min(420px, 100%);
+  padding: 38px 36px 28px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 12px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.13);
 }
 
-/* 标题区 */
 .login-title {
-  margin-bottom: 18px;
-  text-align: center;
+  margin-bottom: 24px;
 }
+
 .login-title-main {
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: 1px;
+  font-size: 25px;
+  line-height: 1.25;
+  font-weight: 760;
   color: #0f172a;
 }
+
 .login-title-sub {
-  margin-top: 6px;
-  font-size: 13px;
-  color: rgba(15, 23, 42, 0.6);
+  margin-top: 9px;
+  font-size: 14px;
+  color: #64748b;
 }
 
-/* 表单区 */
-.login-form {
-  margin-top: 10px;
+.login-error {
+  margin-bottom: 18px;
 }
 
-/* 登录按钮 */
+.login-form :deep(.el-input__wrapper) {
+  min-height: 44px;
+  border-radius: 8px;
+  box-shadow: 0 0 0 1px #dbe3ef inset;
+}
+
+.login-form :deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 1px #2563eb inset, 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.login-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 30px;
+  margin: -2px 0 18px;
+}
+
 .login-btn {
+  box-sizing: border-box;
   width: 100%;
-  border-radius: 10px;
+  min-height: 46px;
+  border-radius: 8px;
+  font-weight: 650;
+  background: linear-gradient(135deg, #1d4ed8, #2563eb);
+  border: 0;
+  box-shadow: 0 14px 26px rgba(37, 99, 235, 0.23);
 }
 
-/* 底部提示 */
-.login-tips {
-  margin-top: 6px;
+.login-btn:hover,
+.login-btn:focus {
+  background: linear-gradient(135deg, #1e40af, #1d4ed8);
+}
+
+.login-footer {
+  margin-top: 24px;
   font-size: 12px;
+  line-height: 1.6;
   text-align: center;
-  color: rgba(15, 23, 42, 0.55);
+  color: #94a3b8;
+}
+
+@media (max-width: 920px) {
+  .login-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .login-brand {
+    display: none;
+  }
+
+  .login-panel {
+    min-height: 100vh;
+    padding: 32px 16px;
+    border-left: 0;
+  }
+
+  .login-card {
+    width: min(420px, calc(100vw - 32px));
+    padding: 32px 24px 24px;
+  }
+}
+
+@media (max-width: 420px) {
+  .login-title-main {
+    font-size: 22px;
+  }
+
+  .login-card {
+    padding: 28px 20px 22px;
+  }
 }
 </style>
-

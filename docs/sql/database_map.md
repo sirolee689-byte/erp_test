@@ -206,6 +206,16 @@
 | 展示与总计 | 同上 | 数量取实际出库数量 `l.kcaq03`；出库类别 `4` 显示「生产领料」；单价/金额取 `l.kcaq04/kcaq05/kcaq041/kcaq051`，受 `inventory/analysis/stock-out-stats:price` 控制；备注优先取明细 `Describe`，为空取主表 `remark`；前端不显示仓库分组首行，也不生成仓库小计行，只保留真实明细和底部总计。 |
 | 候选与抬头 | `UB_ERP_Stocks_Warehouse` + `UB_ERP_Bom_000` + `UB_ERP_Stocks_material` + `UB_ERP_System_Head` | 仓库候选只取已审核、未删除；材料代码候选来自 BOM 主档并返回 `systemcode`；材料分类候选来自 `UB_ERP_Stocks_material`；打印抬头复用 `UB_ERP_System_Head`。 |
 
+## 生产领用统计表（明细）· 生产管理（第一期）
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|----------|--------|-----------------|
+| 报表来源 | `UB_ERP_Stocks_out` + `UB_ERP_Stocks_out_list` | `GET /api/production-issue-stats/report`；主从 `l.kcaq01=h.kcap01`；主表 `del=0/pass=1`，明细 `del=0`；出库类别固定 `kcap03 in (2,4,7,8)`；仓库 `h.kcap06`；物料编码按明细 `l.kcaa01` 精确匹配。 |
+| 统计标准 | 同上 + `UB_ERP_Sales_order` | `chooses=1`：日期按销售订单 `xsaj02` 发现 PI（`xsaj01`），再按 `h.kcap08 IN PI` 查出库明细；手填 PI 时直接 `kcap08 IN`；`chooses=2`：日期按 `h.kcap02`，手填 PI 可选追加 `kcap08 IN`。 |
+| 展示字段 | 同上 | 单号 `kcap01`、日期 `kcap02`、PI `kcap08`、领用车间 `kehu`、材料 `kcaa01/02/03/04`、领用数量 `kcaq03`；退料数量第一期固定 0；实领数量=领用数量；备注第一期留空；无小计/合计行。 |
+| PI 候选 | `UB_ERP_Sales_order` | `GET /api/production-issue-stats/pi-options`；默认 `pass=1/del=0/closed=0`；`includeClosed=1` 为全部已审 PI；多选后以逗号写入查询条件。 |
+| 权限与抬头 | `UB_ERP_System_Head` | 菜单 `production/analysis/report-stats`；动作 `view`/`export`；打印抬头复用 `UB_ERP_System_Head`；结果上限 50000 行。 |
+
 ## 进销存统计报表 · 期间汇总（第一期）
 
 | 业务功能 | 物理表 | 关键字段 / 说明 |
@@ -232,3 +242,12 @@
 | 查询字段 | 同上 + `UB_ERP_Bom_000` + `UB_ERP_Stocks_material` | 必填开始日期、结束日期、仓库、物料编码；仓库默认“货仓”；弹窗不显示物料唯一码；材料分类筛入库/出库明细 `kcaa05`。 |
 | 采购在途 | `UB_ERP_Buy_order` + `UB_ERP_Buy_order_list` | `包含采购在途=是` 时额外展示采购在途行，来源为已审核、未删除、未结案采购单明细；只作为展示，不参与上期结存和滚动结存。 |
 | 展示字段 | 同上 | 序号、单号日期、录入日期/修改日期、入库数量、出库数量、结存、注释；注释统一为“单号、类别、PO/PI、关联单号”，不拼备注；不显示单价、金额，不走 `price` 权限；导出权限为 `inventory/analysis/flow-ledger:export`。 |
+## 生产领用统计表（汇总）· 生产管理（第一期补充）
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|----------|--------|-----------------|
+| PI 范围 | `UB_ERP_Sales_order` | `GET /api/production-issue-stats/report?viewMode=summary`；只取 `pass=1/del=0` 销售订单；销售订单日期 `xsaj02` 在开始日期 00:00:00 到结束日期 23:59:59；手填多个 PI 时按 `xsaj01 IN (...)` 过滤。 |
+| 预算数量 | `UB_ERP_Bom_pi_cost` + `UB_ERP_Sales_order_list` | 按 `sid=PI`、`xsak01=sid`、`pi_cost.pq=sales_order_list.kcaa01` 关联；预算数量为 `SUM(pi_cost.kcac06 * sales_order_list.xsak03)`；结果以预算材料为主表，即预算有但未领用也显示。 |
+| 领用数量 | `UB_ERP_Stocks_out` + `UB_ERP_Stocks_out_list` | 主从 `l.kcaq01=h.kcap01`；出库类别 `kcap03 in (2,4,7,8)`；主表 `del=0`，明细 `del=0`；审核状态包含已审和未审：`h.pass in (0,1)`；仓库 `h.kcap06=当前仓库`；日期按 `h.kcap02`；PI 字段 `h.kcap08 like 'PI%'` 且在当前 PI 范围内；物料编码按 `l.kcaa01` 前缀过滤。 |
+| 退料数量 | `UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list` | 主从 `l.kcao01=h.kcan01`；入库类别 `kcan03 in (3,5)`；主表 `del=0/pass=1`，明细 `del=0`；仓库 `h.kcan06=当前仓库`；退料匹配 `h.kcan04=PI`、`l.kcaa01=物料编码`；第一期按旧系统口径不加退料日期范围。 |
+| 展示与计算 | 同上 | 每个 PI 单独一张表；列为序号、编码、名称、规格、单位、预算数量、领用数量、退料数量、实领数量、未领数量、备注；实领=`领用-退料`；未领=`预算-领用-退料`，不是 `预算-实领`；预算为 0 时未领显示 0；备注来自出库明细 `Describe`，多个备注用分号展示。 |

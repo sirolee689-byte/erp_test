@@ -57,6 +57,7 @@ import { registerStockStatsRoutes } from './stockStatsHandlers.js'
 import { registerStockInStatsRoutes } from './stockInStatsHandlers.js'
 import { registerStockOutStatsRoutes } from './stockOutStatsHandlers.js'
 import { registerStockIoStatsRoutes } from './stockIoStatsHandlers.js'
+import { registerProductionIssueStatsRoutes } from './productionIssueStatsHandlers.js'
 import { registerMaterialFlowLedgerRoutes } from './materialFlowLedgerHandlers.js'
 import { registerSystemMailConfigRoutes } from './systemMailConfigHandlers.js'
 import { registerSystemPrintConfigRoutes } from './systemPrintConfigHandlers.js'
@@ -12083,6 +12084,7 @@ registerStockStatsRoutes(app, { getPool })
 registerStockInStatsRoutes(app, { getPool })
 registerStockOutStatsRoutes(app, { getPool })
 registerStockIoStatsRoutes(app, { getPool })
+registerProductionIssueStatsRoutes(app, { getPool })
 registerMaterialFlowLedgerRoutes(app, { getPool })
 registerSystemMailConfigRoutes(app, { getPool })
 registerSystemPrintConfigRoutes(app, { getPool })

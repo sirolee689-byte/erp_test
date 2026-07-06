@@ -861,6 +861,18 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (
     m === 'GET' &&
     [
+      '/api/production-issue-stats/warehouse-options',
+      '/api/production-issue-stats/material-options',
+      '/api/production-issue-stats/pi-options',
+      '/api/production-issue-stats/report',
+      '/api/production-issue-stats/print-header',
+    ].includes(path)
+  ) {
+    return { menuPath: 'production/analysis/report-stats', action: 'view' }
+  }
+  if (
+    m === 'GET' &&
+    [
       '/api/material-flow-ledger/warehouse-options',
       '/api/material-flow-ledger/material-options',
       '/api/material-flow-ledger/category-options',
