@@ -115,6 +115,12 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'POST' && path === '/api/system/kernel/print-image') {
     return { menuPath: 'system/kernel/erp-core', action: 'edit' }
   }
+  if (m === 'GET' && path === '/api/system/kernel/database-config') {
+    return { menuPath: 'system/kernel/erp-core', action: 'view' }
+  }
+  if (m === 'PUT' && path === '/api/system/kernel/database-config') {
+    return { menuPath: 'system/kernel/erp-core', action: 'edit' }
+  }
 
   /* v1.0.8：人力资源 — 部门资料（菜单 path与 erp_structure_dump 一致：hr/files/department） */
   if (m === 'GET' && path === '/api/hr/departments') {

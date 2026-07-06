@@ -61,6 +61,7 @@ import { registerProductionIssueStatsRoutes } from './productionIssueStatsHandle
 import { registerMaterialFlowLedgerRoutes } from './materialFlowLedgerHandlers.js'
 import { registerSystemMailConfigRoutes } from './systemMailConfigHandlers.js'
 import { registerSystemPrintConfigRoutes } from './systemPrintConfigHandlers.js'
+import { registerSystemDatabaseConfigRoutes } from './systemDatabaseConfigHandlers.js'
 import { registerBomRoutes } from './bom/registerBomRoutes.js'
 import {
   BOM_COST_TABLE,
@@ -12088,6 +12089,7 @@ registerProductionIssueStatsRoutes(app, { getPool })
 registerMaterialFlowLedgerRoutes(app, { getPool })
 registerSystemMailConfigRoutes(app, { getPool })
 registerSystemPrintConfigRoutes(app, { getPool })
+registerSystemDatabaseConfigRoutes(app, { getPool })
 registerPiBomDataRoutes(app, { getPool })
 registerBomRoutes(app, {
   escapeSqlLikePattern,

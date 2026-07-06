@@ -89,7 +89,7 @@
 
         <div class="mail-actions">
           <el-button
-            v-permission.disable="'edit'"
+            v-permission.disable="{ action: 'edit', path: 'system/kernel/erp-core' }"
             type="primary"
             :loading="saving"
             @click="submitForm"
@@ -115,17 +115,10 @@ defineOptions({ name: 'system-kernel-erp-core' })
 const router = useRouter()
 
 const kernelItems = [
-  { label: '管理权限表' },
-  { label: '核心汇率设置' },
-  { label: '超订单倍数设置' },
-  { label: '自动结案设置' },
-  { label: '水电费设置' },
-  { label: '智能单号/日期/关联号限制设定' },
-  { label: '自动单号设定' },
   { label: 'BOM编码规则' },
   { label: '系统EMAIL设定', active: true, route: '/system/kernel/erp-core' },
   { label: '打印设定', route: '/system/kernel/print-setting' },
-  { label: '扣数截止PI设定' },
+  { label: '数据库配置', route: '/system/kernel/database-config' },
 ]
 
 function goKernelItem(item) {

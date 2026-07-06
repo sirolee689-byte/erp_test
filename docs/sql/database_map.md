@@ -143,6 +143,16 @@
 | 页面展示字段 | - | `code=002`、`IT_manager=UB_ERP_System_Head` 只用于页面展示，本次不写入业务表 |
 | 密钥与日志 | `UB_Date_ERP_Operation_log` | ERP 内核所有功能共用 `ERP_CORE_CONFIG_KEY`；保存成功写操作日志，日志不记录核心密钥 |
 
+## 系统内核 · 数据库配置
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|----------|--------|-----------------|
+| 数据库配置 | `UB_ERP_System_Database_Config` | 页面路径 `/system/kernel/database-config`；`GET/PUT /api/system/kernel/database-config` 维护项目表名的用途和备注说明；首次保存时自动建表 |
+| 配置字段 | `UB_ERP_System_Database_Config` | `systemcode` 核心编码；`table_name` 数据库表名，只读展示；`purpose` 用途；`remark` 备注；`source` 来源；`sort_order` 排序 |
+| 审计字段 | `UB_ERP_System_Database_Config` | 新增写 `addtime`、`ip`、`del='0'`、`pass='1'`；更新写 `edittime`、`ip` |
+| 边界 | - | 本表只保存表名说明元数据，不参与业务 SQL 表名替换；真实表名迁移需要单独做白名单和逐模块改造 |
+| 密钥与日志 | `UB_Date_ERP_Operation_log` | ERP 内核所有功能共用 `ERP_CORE_CONFIG_KEY`；保存成功写操作日志，日志不记录核心密钥 |
+
 ### 出库单批量打印（2026-06-30）
 
 | 业务功能 | 物理表 | 关键字段 / 说明 |

@@ -4,7 +4,8 @@
 
 - **ERP核心 / 系统EMAIL发送配置**：页面路径 `/system/kernel/erp-core`，维护 `UB_ERP_System_mail` 第一条全局邮件发送配置。
 - **打印设定**：页面路径 `/system/kernel/print-setting`，维护 `UB_ERP_System_Head` 第一条全局打印抬头配置。
-- **顶部按钮区**：按旧系统按钮条展示系统内核配置项；“系统EMAIL设定”和“打印设定”是独立页面，互相跳转，其它按钮暂时只展示，不混入本次逻辑。
+- **数据库配置**：页面路径 `/system/kernel/database-config`，维护 `UB_ERP_System_Database_Config` 中项目表名的用途和备注。
+- **顶部按钮区**：ERP 内核内只保留 `BOM编码规则`、`系统EMAIL设定`、`打印设定`、`数据库配置` 四个按钮；打印设定和数据库配置在左侧栏隐藏，只通过 ERP 内核按钮进入。
 
 ## 系统EMAIL发送配置
 
@@ -31,6 +32,15 @@
 - 打印设定图片上传默认保存到 `public/system-kernel-images`，可通过 `.env` 的 `ERP_PRINT_IMAGE_DIR` 指向服务器固定 LOGO 目录，通过 `ERP_PRINT_IMAGE_URL_PREFIX` 指定访问前缀。
 - 更新时写真实字段 `edittime`；新增时写 `addtime` 和 `ip`。
 
+## 数据库配置
+
+- 读取接口：`GET /api/system/kernel/database-config`。
+- 保存接口：`PUT /api/system/kernel/database-config`。
+- 配置表：`UB_ERP_System_Database_Config`；首次打开时如果表不存在，后端返回内置项目表清单；首次保存时创建配置表并写入配置。
+- 页面列：`数据库名称`、`用途`、`备注`；数据库名称只读，用途和备注可编辑。
+- 默认清单来自项目源码、接口日志映射和数据库文档中已经使用的 ERP 表；能确定用途的表给默认用途，不能确定时由超级管理员补充。
+- 本功能只维护表名说明元数据，不参与业务 SQL 表名替换；真实表名迁移需要单独做白名单、逐模块改造和验收。
+
 ## 安全与权限
 
 - ERP 内核所有功能模块共用一个核心密钥：后端环境变量 `ERP_CORE_CONFIG_KEY`。
@@ -43,4 +53,5 @@
 
 - 本模块只维护系统内核配置，不做测试发送邮件按钮。
 - 打印设定只保存打印抬头配置，本次不改库存统计表、采购单、销售单、入库单、出库单等实际打印页面。
+- 数据库配置不提供“运行时改表名”能力，避免全系统硬编码 SQL 读写错表。
 - 修改后端接口后，需要手动重启 API 并重新登录。

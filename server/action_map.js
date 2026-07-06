@@ -27,6 +27,8 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   { method: 'GET', path: '/api/system/kernel/print-config', action: '查询打印设定', targetTable: 'UB_ERP_System_Head' },
   { method: 'PUT', path: '/api/system/kernel/print-config', action: '保存打印设定', targetTable: 'UB_ERP_System_Head' },
   { method: 'POST', path: '/api/system/kernel/print-image', action: '上传打印设定图片', targetTable: 'UB_ERP_System_Head' },
+  { method: 'GET', path: '/api/system/kernel/database-config', action: '查询数据库配置', targetTable: 'UB_ERP_System_Database_Config' },
+  { method: 'PUT', path: '/api/system/kernel/database-config', action: '保存数据库配置', targetTable: 'UB_ERP_System_Database_Config' },
   { method: 'GET', path: '/api/stock-out/list', action: '查询出库单列表', targetTable: 'UB_ERP_Stocks_out' },
   { method: 'GET', path: '/api/stock-out/material-trace/list', action: '查询出库转向物料列表', targetTable: 'UB_ERP_Stocks_out_list,UB_ERP_Stocks_out' },
   { method: 'GET', path: '/api/stock-out/suggest-doc-no', action: '获取出库单建议单号', targetTable: 'UB_ERP_Stocks_out' },
