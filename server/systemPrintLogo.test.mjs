@@ -23,7 +23,7 @@ describe('system print logo config', () => {
   test('logo SQL reads first UB_ERP_System_Head row', () => {
     const sqlText = buildSystemPrintLogoSql()
     assert.match(sqlText, /UB_ERP_System_Head/i)
-    assert.match(sqlText, /SELECT TOP \(1\)\s+logo/is)
+    assert.match(sqlText, /SELECT TOP \(1\)\s+logo,\s+info/is)
     assert.match(sqlText, /ORDER BY id ASC/i)
   })
 
@@ -32,11 +32,15 @@ describe('system print logo config', () => {
       request() {
         return {
           async query() {
-            return { recordset: [{ logo: '<img src="/system-kernel-images/a.png" />' }] }
+            return { recordset: [{ logo: '<img src="/system-kernel-images/a.png" />', info: '<p>打印抬头</p>' }] }
           },
         }
       },
     }
-    assert.deepEqual(await fetchSystemPrintLogoConfig(pool), { logoSrc: '/system-kernel-images/a.png' })
+    assert.deepEqual(await fetchSystemPrintLogoConfig(pool), {
+      logoSrc: '/system-kernel-images/a.png',
+      headerHtml: '<p>打印抬头</p>',
+      info: '<p>打印抬头</p>',
+    })
   })
 })

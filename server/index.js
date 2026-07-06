@@ -54,6 +54,10 @@ import { registerDispatchOrderRoutes } from './dispatchOrderHandlers.js'
 import { registerStockInRoutes } from './stockInHandlers.js'
 import { registerStockOutRoutes } from './stockOutHandlers.js'
 import { registerStockStatsRoutes } from './stockStatsHandlers.js'
+import { registerStockInStatsRoutes } from './stockInStatsHandlers.js'
+import { registerStockOutStatsRoutes } from './stockOutStatsHandlers.js'
+import { registerStockIoStatsRoutes } from './stockIoStatsHandlers.js'
+import { registerMaterialFlowLedgerRoutes } from './materialFlowLedgerHandlers.js'
 import { registerSystemMailConfigRoutes } from './systemMailConfigHandlers.js'
 import { registerSystemPrintConfigRoutes } from './systemPrintConfigHandlers.js'
 import { registerBomRoutes } from './bom/registerBomRoutes.js'
@@ -12076,6 +12080,10 @@ registerDispatchOrderRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerStockInRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerStockOutRoutes(app, { getPool, getActorAuditTripletFromReq })
 registerStockStatsRoutes(app, { getPool })
+registerStockInStatsRoutes(app, { getPool })
+registerStockOutStatsRoutes(app, { getPool })
+registerStockIoStatsRoutes(app, { getPool })
+registerMaterialFlowLedgerRoutes(app, { getPool })
 registerSystemMailConfigRoutes(app, { getPool })
 registerSystemPrintConfigRoutes(app, { getPool })
 registerPiBomDataRoutes(app, { getPool })

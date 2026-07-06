@@ -167,7 +167,7 @@ export function buildStockInListPagedSql(opts) {
       SELECT
         LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcao01], N'')))) AS receiptNo,
         COUNT(1) AS itemCount,
-        SUM(ISNULL(l.[kcao031], ISNULL(l.[kcao03], 0))) AS totalQty,
+        SUM(ISNULL(l.[kcao03], 0)) AS totalQty,
         SUM(ISNULL(l.[kcao03], 0)) AS inboundTotalQty,
         SUM(ISNULL(l.[kcao05], 0)) AS taxExcludedTotal,
         SUM(ISNULL(l.[kcao051], ISNULL(l.[kcao05], 0))) AS taxIncludedTotal,

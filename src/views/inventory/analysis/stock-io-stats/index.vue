@@ -1,9 +1,9 @@
 <template>
-  <div class="erp-module-page flow-ledger-page">
+  <div class="erp-module-page stock-io-stats-page">
     <div class="stock-toolbar no-print">
       <el-button type="primary" @click="onPrint">打印统计报表</el-button>
       <el-button type="primary" @click="openQueryDialog">查询内容</el-button>
-      <el-popover placement="bottom-start" trigger="click" width="300">
+      <el-popover placement="bottom-start" trigger="click" width="320">
         <template #reference>
           <el-button>列设置</el-button>
         </template>
@@ -31,7 +31,7 @@
         </div>
       </header>
 
-      <h2 class="report-title">{{ REPORT_TITLE }}</h2>
+      <h2 class="report-title">进销存统计报表</h2>
 
       <div class="report-meta">
         <span>报表生成时间：</span><span class="meta-value">{{ reportGeneratedAt || ' ' }}</span>
@@ -42,15 +42,9 @@
         <span class="meta-gap">仓库：</span><span class="meta-value">{{ reportContext.warehouseLabel || ' ' }}</span>
       </div>
       <div class="report-meta">
-        <span>物料编码：</span><span class="meta-value">{{ reportContext.materialCode || ' ' }}</span>
-        <span class="meta-gap">物料名称：</span><span class="meta-value">{{ reportContext.materialName || ' ' }}</span>
-      </div>
-      <div class="report-meta">
-        <span>规格：</span><span class="meta-value">{{ reportContext.materialSpec || ' ' }}</span>
-        <span class="meta-gap">单位：</span><span class="meta-value">{{ reportContext.materialUnit || ' ' }}</span>
-      </div>
-      <div class="report-meta">
-        <span>包含采购在途：</span><span class="meta-value">{{ reportContext.includePurchaseInTransit ? '是' : '否' }}</span>
+        <span>物料编码：</span><span class="meta-value">{{ reportContext.materialCode || '全部' }}</span>
+        <span class="meta-gap">物料名称：</span><span class="meta-value">{{ reportContext.materialName || '全部' }}</span>
+        <span class="meta-gap">规格：</span><span class="meta-value">{{ reportContext.materialSpec || '全部' }}</span>
       </div>
       <div class="report-done">统计完毕，一共：{{ detailRows.length }} 条记录</div>
 
@@ -60,7 +54,7 @@
             <el-table
               v-erp-list-h-scroll
               class="legacy-report-table"
-              :data="detailRows"
+              :data="displayRows"
               border
               stripe
               row-key="rowKey"
@@ -90,7 +84,7 @@
 
     <el-dialog
       v-model="dialogVisible"
-      title="材料流水账条件查询"
+      title="进销存统计条件查询"
       width="920px"
       destroy-on-close
       :close-on-click-modal="!loading"
@@ -98,13 +92,13 @@
       :show-close="!loading"
       @closed="onDialogClosed"
     >
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="130px" class="query-form">
-        <div class="query-tip">请选择一个具体物料后查询。材料流水账不支持默认查询全部物料。</div>
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="120px" class="query-form">
+        <div class="query-tip">选择或输入条件后，点击确定，系统按日期范围统计进销存汇总。</div>
         <div class="query-grid">
-          <el-form-item label="开始日期" prop="startDate">
+          <el-form-item label="统计开始日期" prop="startDate">
             <el-date-picker v-model="form.startDate" type="date" value-format="YYYY-MM-DD" placeholder="请选择开始日期" />
           </el-form-item>
-          <el-form-item label="结束日期" prop="endDate">
+          <el-form-item label="统计结束日期" prop="endDate">
             <el-date-picker v-model="form.endDate" type="date" value-format="YYYY-MM-DD" placeholder="请选择结束日期" />
           </el-form-item>
           <el-form-item label="仓库" prop="warehouseCode">
@@ -120,13 +114,7 @@
               <el-option v-for="item in warehouseOptions" :key="item.code" :label="formatWarehouseLabel(item)" :value="item.code" />
             </el-select>
           </el-form-item>
-          <el-form-item label="包含采购在途">
-            <el-select v-model="form.includePurchaseInTransit" placeholder="请选择">
-              <el-option label="否" :value="false" />
-              <el-option label="是" :value="true" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="物料编码" prop="materialCode">
+          <el-form-item label="物料编码">
             <el-select
               v-model="form.materialCode"
               filterable
@@ -138,17 +126,14 @@
               @change="onMaterialChange"
               placeholder="输入物料编码搜索"
             >
-              <el-option v-for="item in materialOptions" :key="item.code" :label="formatMaterialLabel(item)" :value="item.code" />
+              <el-option v-for="item in materialOptions" :key="item.code" :label="String(item.code || '').trim()" :value="item.code" />
             </el-select>
           </el-form-item>
           <el-form-item label="物料名称">
-            <el-input v-model="form.materialName" readonly placeholder="选择物料后自动带出" />
+            <el-input v-model="form.materialName" clearable />
           </el-form-item>
           <el-form-item label="规格">
-            <el-input v-model="form.materialSpec" readonly placeholder="选择物料后自动带出" />
-          </el-form-item>
-          <el-form-item label="单位">
-            <el-input v-model="form.materialUnit" readonly placeholder="选择物料后自动带出" />
+            <el-input v-model="form.materialSpec" clearable />
           </el-form-item>
           <el-form-item label="材料分类">
             <el-select
@@ -171,7 +156,7 @@
       </el-form>
       <div v-if="queryProgress.active" class="query-progress-panel">
         <el-progress :percentage="100" :indeterminate="true" :show-text="false" />
-        <p class="query-progress-text">正在统计材料流水，已等待 {{ queryProgress.elapsedSec }} 秒。</p>
+        <p class="query-progress-text">正在统计进销存报表，已等待 {{ queryProgress.elapsedSec }} 秒。</p>
         <p v-if="queryProgress.elapsedSec >= 15" class="query-progress-hint">查询范围较大，请耐心等待，仍在统计中。</p>
       </div>
       <template #footer>
@@ -191,14 +176,10 @@
           <div v-else class="head-info-placeholder">请先在打印设定中维护抬头信息</div>
         </div>
       </header>
-      <h2 class="report-title">{{ REPORT_TITLE }}</h2>
+      <h2 class="report-title">进销存统计报表</h2>
       <div class="report-meta">
         <span>统计日期：</span><span class="meta-value">{{ reportDateRangeText || ' ' }}</span>
         <span class="meta-gap">仓库：</span><span class="meta-value">{{ reportContext.warehouseLabel || ' ' }}</span>
-      </div>
-      <div class="report-meta">
-        <span>物料编码：</span><span class="meta-value">{{ reportContext.materialCode || ' ' }}</span>
-        <span class="meta-gap">物料名称：</span><span class="meta-value">{{ reportContext.materialName || ' ' }}</span>
       </div>
       <table class="print-table">
         <thead>
@@ -207,7 +188,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in detailRows" :key="`print-${row.rowKey}`" :class="row.rowType ? `print-row-${row.rowType}` : ''">
+          <tr v-for="row in displayRows" :key="`print-${row.rowKey}`" :class="row.rowType ? `print-row-${row.rowType}` : ''">
             <td v-for="col in visibleColumns" :key="`print-${row.rowKey}-${col.key}`" :class="{ 'qty-col': col.isQty }">
               {{ formatReportCell(row, col) }}
             </td>
@@ -223,14 +204,18 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
 import ExcelJS from 'exceljs'
-import { formatErpTrimDecimal } from '@/utils/erpNumberDisplay'
+import {
+  formatErpMoneyDisplay,
+  formatErpPriceDisplay,
+  formatErpQtyDisplay,
+} from '@/utils/erpNumberDisplay'
 import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
 
-defineOptions({ name: 'InventoryAnalysisFlowLedger' })
+defineOptions({ name: 'InventoryAnalysisStockIoStats' })
 
-const MENU_PATH = 'inventory/analysis/flow-ledger'
-const REPORT_TITLE = '材料流水账'
-const COLUMN_SETTING_KEY = 'erp.materialFlowLedger.columnSetting.v1'
+const MENU_PATH = 'inventory/analysis/stock-io-stats'
+const REPORT_TITLE = '进销存统计报表'
+const COLUMN_SETTING_KEY = 'erp.stockIoStats.columnSetting.v2'
 const EXPORT_THIN_BORDER = {
   top: { style: 'thin', color: { argb: 'FF333333' } },
   left: { style: 'thin', color: { argb: 'FF333333' } },
@@ -254,6 +239,7 @@ const printLogoSrc = ref('')
 const reportGeneratedAt = ref('')
 const reportCode = ref('')
 const detailRows = ref([])
+const canViewPrice = ref(false)
 const reportContext = reactive({
   startDate: '',
   endDate: '',
@@ -262,8 +248,7 @@ const reportContext = reactive({
   materialCode: '',
   materialName: '',
   materialSpec: '',
-  materialUnit: '',
-  includePurchaseInTransit: false,
+  materialCategories: [],
 })
 const queryProgress = reactive({ active: false, elapsedSec: 0 })
 let queryProgressTimer = null
@@ -275,32 +260,92 @@ const form = reactive({
   materialCode: '',
   materialName: '',
   materialSpec: '',
-  materialUnit: '',
   materialCategories: [],
-  includePurchaseInTransit: false,
 })
 
 const rules = {
-  startDate: [{ required: true, message: '开始日期不能为空', trigger: 'change' }],
-  endDate: [{ required: true, message: '结束日期不能为空', trigger: 'change' }],
+  startDate: [{ required: true, message: '统计开始日期不能为空', trigger: 'change' }],
+  endDate: [{ required: true, message: '统计结束日期不能为空', trigger: 'change' }],
   warehouseCode: [{ required: true, message: '仓库不能为空', trigger: 'change' }],
-  materialCode: [{ required: true, message: '物料编码不能为空', trigger: 'change' }],
 }
 
-const availableColumns = [
+const baseColumns = [
   { key: 'seq', label: '序号', width: 70 },
-  { key: 'docDate', label: '单号日期', width: 130, format: 'date' },
-  { key: 'recordDate', label: '录入日期/修改日期', width: 190, format: 'dateTime' },
-  { key: 'inboundQty', label: '入库数量', width: 130, isQty: true, format: 'qty4' },
-  { key: 'outboundQty', label: '出库数量', width: 130, isQty: true, format: 'qty4' },
-  { key: 'balance', label: '结存', width: 130, isQty: true, format: 'qty4' },
-  { key: 'remark', label: '注释', minWidth: 620 },
+  { key: 'categoryName', label: '类别名称', minWidth: 120 },
+  { key: 'categoryCode', label: '类别编码', width: 100 },
+  { key: 'location', label: '产地', minWidth: 100 },
+  { key: 'lastInboundAt', label: '最后入库时间', width: 140, format: 'datetime' },
+  { key: 'lastOutboundAt', label: '最后出库时间', width: 140, format: 'datetime' },
+  { key: 'materialCode', label: '物料编码', minWidth: 150 },
+  { key: 'materialName', label: '物料名称', minWidth: 220 },
+  { key: 'materialNameEn', label: '英文名称', minWidth: 180 },
+  { key: 'materialSpec', label: '规格', minWidth: 160 },
+  { key: 'colorCode', label: '颜色编码', width: 100 },
+  { key: 'colorName', label: '颜色名称', minWidth: 110 },
+  { key: 'unit', label: '单位', width: 70 },
+  { key: 'previousQty', label: '上期结存数量', width: 120, isQty: true, format: 'qty' },
 ]
-const defaultColumnKeys = availableColumns.map((col) => col.key)
+const priceColumns = [
+  { key: 'previousUnitPrice', label: '上期结存单价', width: 120, isQty: true, format: 'price' },
+  { key: 'previousAmount', label: '上期结存金额', width: 120, isQty: true, format: 'money' },
+]
+const currentColumns = [
+  { key: 'periodInQty', label: '本期入库数量', width: 120, isQty: true, format: 'qty' },
+]
+const currentPriceColumns = [
+  { key: 'periodInUnitPrice', label: '本期入库单价', width: 120, isQty: true, format: 'price' },
+  { key: 'periodInAmount', label: '本期入库金额', width: 120, isQty: true, format: 'money' },
+]
+const outColumns = [
+  { key: 'periodOutQty', label: '本期出库数量', width: 120, isQty: true, format: 'qty' },
+]
+const outPriceColumns = [
+  { key: 'periodOutUnitPrice', label: '本期出库单价', width: 120, isQty: true, format: 'price' },
+  { key: 'periodOutAmount', label: '本期出库金额', width: 120, isQty: true, format: 'money' },
+]
+const supplementColumns = [
+  { key: 'supplementQty', label: '本期补数数量', width: 120, isQty: true, format: 'qty' },
+]
+const supplementPriceColumns = [
+  { key: 'supplementUnitPrice', label: '本期补数单价', width: 120, isQty: true, format: 'price' },
+  { key: 'supplementAmount', label: '本期补数金额', width: 120, isQty: true, format: 'money' },
+]
+const profitLossColumns = [
+  { key: 'profitLossQty', label: '本期盈亏数量', width: 120, isQty: true, format: 'qty' },
+]
+const profitLossPriceColumns = [
+  { key: 'profitLossAmount', label: '本期盈亏金额', width: 120, isQty: true, format: 'money' },
+]
+const endingColumns = [
+  { key: 'endingQty', label: '本期结存数量', width: 120, isQty: true, format: 'qty' },
+]
+const endingPriceColumns = [
+  { key: 'endingUnitPrice', label: '本期结存单价', width: 120, isQty: true, format: 'price' },
+  { key: 'endingAmount', label: '本期结存金额', width: 120, isQty: true, format: 'money' },
+]
+const tailColumns = [
+  { key: 'warning', label: '异常提示', minWidth: 260 },
+]
+const availableColumns = computed(() => [
+  ...baseColumns,
+  ...(canViewPrice.value ? priceColumns : []),
+  ...currentColumns,
+  ...(canViewPrice.value ? currentPriceColumns : []),
+  ...outColumns,
+  ...(canViewPrice.value ? outPriceColumns : []),
+  ...supplementColumns,
+  ...(canViewPrice.value ? supplementPriceColumns : []),
+  ...profitLossColumns,
+  ...(canViewPrice.value ? profitLossPriceColumns : []),
+  ...endingColumns,
+  ...(canViewPrice.value ? endingPriceColumns : []),
+  ...tailColumns,
+])
+const defaultColumnKeys = computed(() => availableColumns.value.map((col) => col.key))
 const checkedColumnKeys = ref([])
 const visibleColumns = computed(() => {
-  const selected = new Set(checkedColumnKeys.value.length ? checkedColumnKeys.value : defaultColumnKeys)
-  return availableColumns.filter((col) => selected.has(col.key))
+  const selected = new Set(checkedColumnKeys.value.length ? checkedColumnKeys.value : defaultColumnKeys.value)
+  return availableColumns.value.filter((col) => selected.has(col.key))
 })
 const warehouseOptions = ref([])
 const materialOptions = ref([])
@@ -311,6 +356,8 @@ const reportDateRangeText = computed(() => {
   if (reportContext.startDate === reportContext.endDate) return reportContext.startDate
   return `${reportContext.startDate || ''} 至 ${reportContext.endDate || ''}`
 })
+
+const displayRows = computed(() => buildDisplayRows(detailRows.value, canViewPrice.value))
 
 function pad2(n) {
   return String(n).padStart(2, '0')
@@ -331,24 +378,20 @@ function makeReportCode() {
   return raw.toUpperCase().replace(/[^0-9A-F]/g, '').slice(0, 16)
 }
 
-function formatDate(value) {
-  const s = String(value ?? '').trim()
-  return s ? s.slice(0, 10) : ''
+function toNumber(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : 0
 }
 
 function formatDateTime(value) {
   const s = String(value ?? '').trim()
   if (!s) return ''
-  return s.slice(0, 19).replace('T', ' ')
-}
-
-function formatQty4(value) {
-  return formatErpTrimDecimal(value, { maxDecimals: 4, empty: '' })
+  return s.replace('T', ' ').slice(0, 19)
 }
 
 function normalizeColumnKeys(keys) {
   if (!Array.isArray(keys)) return []
-  const allowSet = new Set(availableColumns.map((col) => col.key))
+  const allowSet = new Set(availableColumns.value.map((col) => col.key))
   const seen = new Set()
   const result = []
   for (const key of keys) {
@@ -360,13 +403,18 @@ function normalizeColumnKeys(keys) {
   return result
 }
 
+function sameColumnKeys(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+  return a.every((key, index) => key === b[index])
+}
+
 function loadColumnSetting() {
   try {
     const raw = localStorage.getItem(COLUMN_SETTING_KEY)
     const keys = raw ? normalizeColumnKeys(JSON.parse(raw)) : []
-    checkedColumnKeys.value = keys.length ? keys : [...defaultColumnKeys]
+    checkedColumnKeys.value = keys.length ? keys : [...defaultColumnKeys.value]
   } catch {
-    checkedColumnKeys.value = [...defaultColumnKeys]
+    checkedColumnKeys.value = [...defaultColumnKeys.value]
   }
 }
 
@@ -374,7 +422,7 @@ function persistColumnSetting() {
   try {
     localStorage.setItem(COLUMN_SETTING_KEY, JSON.stringify(checkedColumnKeys.value))
   } catch {
-    // 本地列设置失败不影响查询。
+    // 本地列设置失败不影响查询、打印和导出。
   }
 }
 
@@ -382,7 +430,7 @@ function onColumnSettingChange(val) {
   const keys = normalizeColumnKeys(val)
   if (!keys.length) {
     ElMessage.warning('至少保留一列')
-    checkedColumnKeys.value = [...defaultColumnKeys]
+    checkedColumnKeys.value = [...defaultColumnKeys.value]
     persistColumnSetting()
     return
   }
@@ -391,23 +439,117 @@ function onColumnSettingChange(val) {
 }
 
 function resetColumnSetting() {
-  checkedColumnKeys.value = [...defaultColumnKeys]
+  checkedColumnKeys.value = [...defaultColumnKeys.value]
   persistColumnSetting()
   ElMessage.success('已恢复默认列显示')
 }
 
 function formatReportCell(row, col) {
   if (!row || !col) return ''
-  const value = row[col.key]
-  if (col.format === 'date') return formatDate(value)
-  if (col.format === 'dateTime') return formatDateTime(value)
-  if (col.format === 'qty4') return formatQty4(value)
+  if (row.rowType === 'group') return col.key === 'seq' ? row.label : ''
+  if (row.rowType === 'subtotal' || row.rowType === 'total') {
+    if (col.key === 'seq') return row.label
+    if (isSummaryValueColumn(col.key)) return formatReportCellValue(row[col.key], col)
+    return ''
+  }
+  if (col.key === 'seq') return row.seq ?? ''
+  return formatReportCellValue(row[col.key], col)
+}
+
+function formatReportCellValue(value, col) {
+  if (col.format === 'datetime') return formatDateTime(value)
+  if (col.format === 'qty') return formatErpQtyDisplay(value)
+  if (col.format === 'price') return formatErpPriceDisplay(value)
+  if (col.format === 'money') return formatErpMoneyDisplay(value)
   return value ?? ''
 }
 
+function isSummaryValueColumn(key) {
+  return [
+    'previousQty',
+    'previousAmount',
+    'periodInQty',
+    'periodInAmount',
+    'periodOutQty',
+    'periodOutAmount',
+    'supplementQty',
+    'supplementAmount',
+    'profitLossQty',
+    'profitLossAmount',
+    'endingQty',
+    'endingAmount',
+  ].includes(key)
+}
+
+function createTotals() {
+  return {
+    previousQty: 0,
+    previousAmount: 0,
+    periodInQty: 0,
+    periodInAmount: 0,
+    periodOutQty: 0,
+    periodOutAmount: 0,
+    supplementQty: 0,
+    supplementAmount: 0,
+    profitLossQty: 0,
+    profitLossAmount: 0,
+    endingQty: 0,
+    endingAmount: 0,
+  }
+}
+
+function addTotals(target, row, withPrice) {
+  target.previousQty += toNumber(row.previousQty)
+  target.periodInQty += toNumber(row.periodInQty)
+  target.periodOutQty += toNumber(row.periodOutQty)
+  target.supplementQty += toNumber(row.supplementQty)
+  target.profitLossQty += toNumber(row.profitLossQty)
+  target.endingQty += toNumber(row.endingQty)
+  if (withPrice) {
+    target.previousAmount += toNumber(row.previousAmount)
+    target.periodInAmount += toNumber(row.periodInAmount)
+    target.periodOutAmount += toNumber(row.periodOutAmount)
+    target.supplementAmount += toNumber(row.supplementAmount)
+    target.profitLossAmount += toNumber(row.profitLossAmount)
+    target.endingAmount += toNumber(row.endingAmount)
+  }
+}
+
+function buildDisplayRows(rows, withPrice) {
+  const out = []
+  const total = createTotals()
+  let currentWarehouse = ''
+  let subtotal = createTotals()
+  let seq = 1
+
+  const pushSubtotal = () => {
+    if (!currentWarehouse) return
+    out.push({ rowKey: `subtotal-${currentWarehouse}`, rowType: 'subtotal', label: `${currentWarehouse} 小计`, ...subtotal })
+  }
+
+  for (const row of rows) {
+    const warehouseLabel = `${row.warehouseCode || ''} ${row.warehouseName || ''}`.trim()
+    if (warehouseLabel !== currentWarehouse) {
+      pushSubtotal()
+      currentWarehouse = warehouseLabel
+      subtotal = createTotals()
+      out.push({ rowKey: `group-${warehouseLabel}`, rowType: 'group', label: `仓库：${warehouseLabel}` })
+    }
+    const detail = { ...row, rowKey: row.rowKey || `detail-${seq}`, seq }
+    out.push(detail)
+    addTotals(subtotal, detail, withPrice)
+    addTotals(total, detail, withPrice)
+    seq += 1
+  }
+  pushSubtotal()
+  if (rows.length) out.push({ rowKey: 'total', rowType: 'total', label: '总计', ...total })
+  return out
+}
+
 function tableRowClassName({ row }) {
-  if (row.rowType === 'opening') return 'is-opening-row'
-  if (row.rowType === 'purchaseInTransit') return 'is-transit-row'
+  if (row.rowType === 'group') return 'is-group-row'
+  if (row.rowType === 'subtotal') return 'is-subtotal-row'
+  if (row.rowType === 'total') return 'is-total-row'
   return ''
 }
 
@@ -417,11 +559,6 @@ function formatWarehouseLabel(item) {
 
 function formatCodeName(item) {
   return `${String(item?.code ?? '').trim()} ${String(item?.name ?? '').trim()}`.trim()
-}
-
-function formatMaterialLabel(item) {
-  const code = String(item?.code ?? '').trim()
-  return code
 }
 
 function pickDefaultWarehouseCode() {
@@ -446,25 +583,25 @@ function currentWarehouseLabel() {
 
 function onMaterialChange(code) {
   const hit = materialOptions.value.find((row) => String(row.code ?? '').trim() === String(code ?? '').trim())
-  form.materialName = hit?.name || ''
-  form.materialSpec = hit?.spec || ''
-  form.materialUnit = hit?.unit || ''
+  if (!hit) return
+  form.materialName = String(hit.name ?? '').trim()
+  form.materialSpec = String(hit.spec ?? '').trim()
 }
 
 async function loadPrintConfig() {
   try {
-    const { data } = await axios.get('/api/material-flow-ledger/print-header')
+    const { data } = await axios.get('/api/stock-io-stats/print-header')
     const cfg = data?.data ?? {}
     printConfig.info = cfg.headerHtml || cfg.info || ''
     printLogoSrc.value = cfg.logoSrc || ''
   } catch {
-    // 抬头读取失败不影响查询。
+    // 抬头读取失败不影响报表查询。
   }
 }
 
 async function fetchWarehouses(keyword = '') {
   try {
-    const { data } = await axios.get('/api/material-flow-ledger/warehouse-options', { params: { keyword } })
+    const { data } = await axios.get('/api/stock-io-stats/warehouse-options', { params: { keyword } })
     warehouseOptions.value = Array.isArray(data?.data?.list) ? data.data.list : []
   } catch {
     warehouseOptions.value = []
@@ -473,7 +610,7 @@ async function fetchWarehouses(keyword = '') {
 
 async function fetchMaterials(keyword = '') {
   try {
-    const { data } = await axios.get('/api/material-flow-ledger/material-options', { params: { keyword } })
+    const { data } = await axios.get('/api/stock-io-stats/material-options', { params: { keyword } })
     materialOptions.value = Array.isArray(data?.data?.list) ? data.data.list : []
   } catch {
     materialOptions.value = []
@@ -482,7 +619,7 @@ async function fetchMaterials(keyword = '') {
 
 async function fetchCategories(keyword = '') {
   try {
-    const { data } = await axios.get('/api/material-flow-ledger/category-options', { params: { keyword } })
+    const { data } = await axios.get('/api/stock-io-stats/category-options', { params: { keyword } })
     categoryOptions.value = Array.isArray(data?.data?.list) ? data.data.list : []
   } catch {
     categoryOptions.value = []
@@ -511,18 +648,19 @@ function startQueryProgressTimer() {
   }, 1000)
 }
 
-async function loadReport({ closeDialog = true } = {}) {
+async function loadReport() {
   const formInst = formRef.value
   if (formInst) {
     try {
       await formInst.validate()
     } catch {
-      return null
+      return
     }
   }
   loading.value = true
   startQueryProgressTimer()
   try {
+    const wasDefaultColumns = sameColumnKeys(checkedColumnKeys.value, defaultColumnKeys.value)
     const params = {
       startDate: form.startDate,
       endDate: form.endDate,
@@ -530,12 +668,11 @@ async function loadReport({ closeDialog = true } = {}) {
       materialCode: form.materialCode,
       materialName: form.materialName,
       materialSpec: form.materialSpec,
-      materialUnit: form.materialUnit,
       materialCategories: form.materialCategories.join(','),
-      includePurchaseInTransit: form.includePurchaseInTransit ? '1' : '0',
     }
-    const { data } = await axios.get('/api/material-flow-ledger/report', { params, timeout: 180000 })
+    const { data } = await axios.get('/api/stock-io-stats/report', { params, timeout: 180000 })
     const body = data?.data ?? {}
+    canViewPrice.value = body.canViewPrice === true
     detailRows.value = Array.isArray(body.list) ? body.list : []
     reportContext.startDate = body.startDate || form.startDate
     reportContext.endDate = body.endDate || form.endDate
@@ -544,16 +681,15 @@ async function loadReport({ closeDialog = true } = {}) {
     reportContext.materialCode = body.materialCode || form.materialCode
     reportContext.materialName = body.materialName || form.materialName
     reportContext.materialSpec = body.materialSpec || form.materialSpec
-    reportContext.materialUnit = body.materialUnit || form.materialUnit
-    reportContext.includePurchaseInTransit = body.includePurchaseInTransit === true
+    reportContext.materialCategories = Array.isArray(body.materialCategories) ? body.materialCategories : [...form.materialCategories]
     reportGeneratedAt.value = formatNow()
     reportCode.value = makeReportCode()
-    if (closeDialog) dialogVisible.value = false
+    checkedColumnKeys.value = wasDefaultColumns ? [...defaultColumnKeys.value] : normalizeColumnKeys(checkedColumnKeys.value)
+    if (!checkedColumnKeys.value.length) checkedColumnKeys.value = [...defaultColumnKeys.value]
+    dialogVisible.value = false
     ElMessage.success('统计完成')
-    return body
   } catch (e) {
-    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '读取材料流水账失败'))
-    return null
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '读取进销存统计报表失败'))
   } finally {
     loading.value = false
     stopQueryProgressTimer()
@@ -579,9 +715,8 @@ function onPrint() {
 
 function exportFileName() {
   const date = reportDateRangeText.value || `${form.startDate}-${form.endDate}` || '未查询'
-  const warehouse = reportContext.warehouseLabel || currentWarehouseLabel() || '仓库'
-  const code = reportContext.materialCode || form.materialCode || '物料'
-  const safe = `${REPORT_TITLE}-${date}-${warehouse}-${code}`.replace(/[\\/:*?"<>|]/g, '_').slice(0, 160)
+  const warehouse = reportContext.warehouseLabel || currentWarehouseLabel() || '未选仓库'
+  const safe = `${REPORT_TITLE}-${date}-${warehouse}`.replace(/[\\/:*?"<>|]/g, '_').slice(0, 160)
   return `${safe || REPORT_TITLE}.xlsx`
 }
 
@@ -620,7 +755,7 @@ async function exportReportXlsx() {
   }
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet(REPORT_TITLE, {
-    views: [{ state: 'frozen', ySplit: 7 }],
+    views: [{ state: 'frozen', ySplit: 6 }],
     pageSetup: { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
   })
   const colCount = columns.length
@@ -630,19 +765,20 @@ async function exportReportXlsx() {
   ws.getCell(titleRow.number, 1).alignment = { horizontal: 'center', vertical: 'middle' }
   addExportMetaRow(ws, `报表生成时间：${reportGeneratedAt.value || ''}`, `报表代码：${reportCode.value || ''}`, colCount)
   addExportMetaRow(ws, `统计日期：${reportDateRangeText.value || ''}`, `仓库：${reportContext.warehouseLabel || ''}`, colCount)
-  addExportMetaRow(ws, `物料编码：${reportContext.materialCode || ''}`, `物料名称：${reportContext.materialName || ''}`, colCount)
-  addExportMetaRow(ws, `规格：${reportContext.materialSpec || ''}`, `单位：${reportContext.materialUnit || ''}`, colCount)
-  addExportMetaRow(ws, `是否包含采购在途：${reportContext.includePurchaseInTransit ? '是' : '否'}`, `记录数：${detailRows.value.length}`, colCount)
+  addExportMetaRow(ws, `物料编码：${reportContext.materialCode || '全部'}`, `物料名称：${reportContext.materialName || '全部'}`, colCount)
+  addExportMetaRow(ws, `规格：${reportContext.materialSpec || '全部'}`, `材料分类：${(reportContext.materialCategories || []).join(',') || '全部'}`, colCount)
+  const countRow = ws.addRow([`统计完毕，一共：${detailRows.value.length} 条记录`])
+  ws.mergeCells(countRow.number, 1, countRow.number, colCount)
   ws.addRow([])
   const headRow = ws.addRow(columns.map((col) => col.label))
   styleExportRow(headRow, { bold: true, fill: EXPORT_HEADER_FILL })
-  for (const row of detailRows.value) {
+  for (const row of displayRows.value) {
     const added = ws.addRow(columns.map((col) => formatReportCell(row, col)))
-    styleExportRow(added, { bold: row.rowType === 'opening' || row.rowType === 'purchaseInTransit' })
+    styleExportRow(added, { bold: row.rowType === 'group' || row.rowType === 'subtotal' || row.rowType === 'total' })
   }
   ws.columns.forEach((col, index) => {
     const reportCol = columns[index]
-    col.width = Math.max(10, Math.min(90, Math.round((reportCol?.width || reportCol?.minWidth || 120) / 8)))
+    col.width = Math.max(10, Math.min(60, Math.round((reportCol?.width || reportCol?.minWidth || 120) / 8)))
   })
   const buf = await wb.xlsx.writeBuffer()
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
@@ -665,13 +801,13 @@ onMounted(async () => {
   form.startDate = today
   form.endDate = today
   form.warehouseCode = pickDefaultWarehouseCode()
-  checkedColumnKeys.value = [...defaultColumnKeys]
+  checkedColumnKeys.value = [...defaultColumnKeys.value]
   loadColumnSetting()
 })
 </script>
 
 <style scoped>
-.flow-ledger-page {
+.stock-io-stats-page {
   min-height: calc(100vh - 118px);
   padding: 8px;
   background: #f5f7fb;
@@ -743,7 +879,7 @@ onMounted(async () => {
 
 .meta-value {
   display: inline-block;
-  min-width: 150px;
+  min-width: 120px;
   font-weight: 600;
 }
 
@@ -775,25 +911,19 @@ onMounted(async () => {
   color: #000;
 }
 
-.legacy-report-table :deep(.cell) {
-  white-space: normal;
-  overflow: visible;
-  text-overflow: initial;
-  line-height: 1.35;
-  word-break: break-word;
-}
-
 .legacy-report-table :deep(.qty-col .cell) {
   font-weight: 600;
 }
 
-.legacy-report-table :deep(.is-opening-row td) {
-  background: #f4f4f4 !important;
+.legacy-report-table :deep(.is-group-row td) {
+  background: #e9edf3 !important;
   font-weight: 700;
 }
 
-.legacy-report-table :deep(.is-transit-row td) {
-  background: #fff8e8 !important;
+.legacy-report-table :deep(.is-subtotal-row td),
+.legacy-report-table :deep(.is-total-row td) {
+  background: #f4f4f4 !important;
+  font-weight: 700;
 }
 
 .column-setting-title {
@@ -830,7 +960,7 @@ onMounted(async () => {
 
 .query-grid :deep(.el-date-editor),
 .query-grid :deep(.el-select),
-.query-grid :deep(.el-input) {
+.query-grid :deep(.el-input-number) {
   width: 100%;
 }
 
@@ -864,7 +994,7 @@ onMounted(async () => {
 .print-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .print-table th,
@@ -875,13 +1005,11 @@ onMounted(async () => {
   word-break: break-all;
 }
 
-.print-row-opening {
+.print-row-group,
+.print-row-subtotal,
+.print-row-total {
   font-weight: 700;
   background: #eee;
-}
-
-.print-row-purchaseInTransit {
-  background: #fff8e8;
 }
 
 @media print {
@@ -890,7 +1018,7 @@ onMounted(async () => {
     margin: 10mm;
   }
 
-  .flow-ledger-page {
+  .stock-io-stats-page {
     padding: 0;
     background: #fff;
   }

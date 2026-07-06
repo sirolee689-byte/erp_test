@@ -4,6 +4,7 @@ import { applyBuyOrderLifecycleAction } from './buyOrderLifecycle.js'
 import { enrichBuyOrderBatchAddPrices, fetchBuyOrderBatchAddLines } from './buyOrderBatchAdd.js'
 import { fetchBuyOrderExpandDetail } from './buyOrderExpandDetail.js'
 import { fetchBuyOrderMaterialTrace, fetchBuyOrderTraceBomCodes } from './buyOrderMaterialTrace.js'
+import { fetchBuyOrderPrintDocuments } from './buyOrderPrintData.js'
 import { buildBuyOrderListPagedSql, buildBuyOrderListWhereSql, parseBuyOrderListQuery } from './buyOrderListQuery.js'
 import { checkBuyOrderNoAvailable, createBuyOrder, suggestBuyOrderNo, updateBuyOrder } from './buyOrderSaveService.js'
 import { safeDecimalExpr } from './buyOrderSqlSafe.js'
@@ -379,6 +380,40 @@ export function registerBuyOrderRoutes(app, deps) {
   }
 
   app.get('/api/buy-order/print-data', async (req, res) => {
+    if (text(req.query?.p_sum)) {
+      try {
+        const pool = await getPool()
+        const auditActor = await resolveActorAuditTripletFromReq(pool, req)
+        const result = await fetchBuyOrderPrintDocuments(pool, {
+          pSum: req.query?.p_sum,
+          printMode: req.query?.print_mx,
+          language: req.query?.print_cn,
+          actor: {
+            ...(req.user ?? req.session?.user ?? {}),
+            ...auditActor,
+            truename: auditActor.utruename ?? '',
+          },
+          hasPricePermission: hasPricePermission(req),
+        })
+        if (!result.ok) {
+          res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+          return
+        }
+        res.json({
+          code: 200,
+          msg: 'success',
+          data: {
+            list: result.list,
+            printMode: result.printMode,
+            language: result.language,
+            printConfig: result.printConfig,
+          },
+        })
+      } catch (err) {
+        res.status(500).json({ code: 500, msg: `读取采购单打印数据失败：${String(err?.message ?? err?.originalError?.message ?? err)}`, data: null })
+      }
+      return
+    }
     const ids = normalizeIds(req.query?.ids ?? req.query?.id)
     if (ids.length === 1) {
       req.params = { id: String(ids[0]) }

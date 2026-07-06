@@ -805,20 +805,70 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'GET' && path === '/api/stock-stats/warehouse-options') {
     return { menuPath: 'inventory/analysis/stock-stats', action: 'view' }
   }
+  if (m === 'GET' && path === '/api/stock-stats/material-options') {
+    return { menuPath: 'inventory/analysis/stock-stats', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/stock-stats/category-options') {
+    return { menuPath: 'inventory/analysis/stock-stats', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/stock-stats/color-options') {
+    return { menuPath: 'inventory/analysis/stock-stats', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/stock-stats/report') {
+    return { menuPath: 'inventory/analysis/stock-stats', action: 'view' }
+  }
   if (m === 'GET' && path === '/api/stock-stats/print-header') {
     return { menuPath: 'inventory/analysis/stock-stats', action: 'view' }
   }
-  if (m === 'GET' && path === '/api/stock-stats/snapshots') {
-    return { menuPath: 'inventory/analysis/stock-stats', action: 'view' }
+  if (
+    m === 'GET' &&
+    [
+      '/api/stock-in-stats/warehouse-options',
+      '/api/stock-in-stats/material-options',
+      '/api/stock-in-stats/category-options',
+      '/api/stock-in-stats/related-party-options',
+      '/api/stock-in-stats/report',
+      '/api/stock-in-stats/print-header',
+    ].includes(path)
+  ) {
+    return { menuPath: 'inventory/analysis/stock-in-stats', action: 'view' }
   }
-  if (m === 'GET' && /^\/api\/stock-stats\/snapshots\/\d+\/lines$/.test(path)) {
-    return { menuPath: 'inventory/analysis/stock-stats', action: 'view' }
+  if (
+    m === 'GET' &&
+    [
+      '/api/stock-out-stats/warehouse-options',
+      '/api/stock-out-stats/material-options',
+      '/api/stock-out-stats/category-options',
+      '/api/stock-out-stats/related-party-options',
+      '/api/stock-out-stats/report',
+      '/api/stock-out-stats/print-header',
+    ].includes(path)
+  ) {
+    return { menuPath: 'inventory/analysis/stock-out-stats', action: 'view' }
   }
-  if (m === 'POST' && path === '/api/stock-stats/generate') {
-    return { menuPath: 'inventory/analysis/stock-stats', action: 'add' }
+  if (
+    m === 'GET' &&
+    [
+      '/api/stock-io-stats/warehouse-options',
+      '/api/stock-io-stats/material-options',
+      '/api/stock-io-stats/category-options',
+      '/api/stock-io-stats/report',
+      '/api/stock-io-stats/print-header',
+    ].includes(path)
+  ) {
+    return { menuPath: 'inventory/analysis/stock-io-stats', action: 'view' }
   }
-  if (m === 'DELETE' && /^\/api\/stock-stats\/snapshots\/\d+$/.test(path)) {
-    return { menuPath: 'inventory/analysis/stock-stats', action: 'delete' }
+  if (
+    m === 'GET' &&
+    [
+      '/api/material-flow-ledger/warehouse-options',
+      '/api/material-flow-ledger/material-options',
+      '/api/material-flow-ledger/category-options',
+      '/api/material-flow-ledger/report',
+      '/api/material-flow-ledger/print-header',
+    ].includes(path)
+  ) {
+    return { menuPath: 'inventory/analysis/flow-ledger', action: 'view' }
   }
   if (m === 'PUT' && /^\/api\/stock-out\/\d+$/.test(path)) {
     return { menuPath: 'inventory/daily/stock-out', action: 'edit' }

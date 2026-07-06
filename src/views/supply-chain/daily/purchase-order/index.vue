@@ -65,6 +65,20 @@
               <el-option v-for="opt in buyTypeFilterOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
             </el-select>
           </div>
+          <template v-if="!recycled">
+            <div class="buy-filter-divider buy-filter-divider--print" aria-hidden="true" />
+            <div class="buy-print-actions">
+              <el-select v-model="printMode" size="small" class="buy-print-select" aria-label="打印方式">
+                <el-option label="明细打印" value="1" />
+                <el-option label="汇总打印" value="2" />
+              </el-select>
+              <el-select v-model="printLanguage" size="small" class="buy-print-select" aria-label="打印语言">
+                <el-option label="打印中文版" value="1" />
+                <el-option label="打印英文版" value="2" />
+              </el-select>
+              <el-button size="small" type="primary" plain @click="openSelectedPrint">打印采购订单</el-button>
+            </div>
+          </template>
         </div>
         <div class="buy-filter-row buy-filter-row--bottom">
           <div class="buy-filter-field buy-filter-field--keyword">
@@ -280,7 +294,14 @@
                     反审
                   </el-button>
                 </template>
-                <el-button plain size="small" @click.stop="openPrint(row)">打印</el-button>
+                <el-button
+                  plain
+                  size="small"
+                  :type="isPrintSelected(row) ? 'primary' : 'default'"
+                  @click.stop="togglePrintSelect(row)"
+                >
+                  {{ isPrintSelected(row) ? '已选择' : '打印选择' }}
+                </el-button>
               </template>
             </div>
           </template>
@@ -621,14 +642,6 @@
       <detail-block :detail="detail" :has-price="hasPrice" />
     </el-dialog>
 
-    <el-dialog v-model="printVisible" title="采购单打印预览" width="1100px" top="3vh" class="print-dialog">
-      <div class="print-page">
-        <h2>采购单</h2>
-        <detail-block :detail="printData" :has-price="hasPrice" />
-      </div>
-      <template #footer><el-button @click="windowPrint">打印</el-button></template>
-    </el-dialog>
-
     <el-dialog v-model="piDialog.visible" title="选择 PI" width="920px" class="buy-pi-dialog">
       <div class="buy-pi-toolbar">
         <el-input v-model="piDialog.keyword" clearable placeholder="PI号 / PO号 / 客户" @keyup.enter="searchPiDialog" />
@@ -733,11 +746,12 @@ const feePicked = ref('')
 const selectedPis = ref([])
 const piDialog = reactive({ visible: false, loading: false, keyword: '', list: [], selected: [], page: 1, pageSize: 10, total: 0 })
 const detailVisible = ref(false)
-const printVisible = ref(false)
 const detail = ref({ header: {}, lines: [], fees: [] })
-const printData = ref({ header: {}, lines: [], fees: [] })
 const editId = ref(null)
 const activeBatchSessionId = ref('')
+const printMode = ref('1')
+const printLanguage = ref('1')
+const printSelectedOrderNos = ref(new Set())
 
 const isFormPanel = computed(() => pageMode.value === 'create' || pageMode.value === 'edit')
 const isMultiPiMode = computed(() => form.header.buyType === '2')
@@ -931,6 +945,7 @@ async function loadList() {
     if (data.code !== 200) throw new Error(data.msg)
     rows.value = data.data.list || []
     page.total = data.data.total || 0
+    reconcilePrintSelection()
   } catch (err) {
     ElMessage.error(err?.response?.data?.msg || err.message || '读取采购单列表失败')
   } finally {
@@ -1692,13 +1707,49 @@ async function openDetail(row) {
   detail.value = await fetchDetail(row.id)
   detailVisible.value = true
 }
-async function openPrint(row) {
-  const { data } = await axios.get('/api/buy-order/print-data', { params: { ids: row.id } })
-  printData.value = data.data
-  printVisible.value = true
+
+function printKey(row) {
+  return String(row?.buyOrderNo ?? row?.kcaj01 ?? '').trim()
 }
-function windowPrint() {
-  window.print()
+
+function reconcilePrintSelection() {
+  const visibleKeys = new Set((rows.value || []).map((row) => printKey(row)).filter(Boolean))
+  const next = new Set()
+  for (const key of printSelectedOrderNos.value) {
+    if (visibleKeys.has(key)) next.add(key)
+  }
+  printSelectedOrderNos.value = next
+}
+
+function isPrintSelected(row) {
+  const key = printKey(row)
+  return !!key && printSelectedOrderNos.value.has(key)
+}
+
+function togglePrintSelect(row) {
+  const key = printKey(row)
+  if (!key) {
+    ElMessage.warning('该采购单缺少采购单号，不能加入打印')
+    return
+  }
+  const next = new Set(printSelectedOrderNos.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  printSelectedOrderNos.value = next
+}
+
+function openSelectedPrint() {
+  const selected = (rows.value || []).filter((row) => isPrintSelected(row)).map((row) => printKey(row))
+  if (!selected.length) {
+    ElMessage.warning('请选择需要打印的单据')
+    return
+  }
+  const query = new URLSearchParams({
+    p_sum: selected.join(','),
+    print_mx: printMode.value || '1',
+    print_cn: printLanguage.value || '1',
+  })
+  window.open(`/supply-chain/daily/purchase-order-print?${query.toString()}`, '_blank')
 }
 async function askUnaudit(row) {
   const { value } = await ElMessageBox.prompt(`请输入采购单【${row.buyOrderNo}】反审原因`, '反审原因', { inputType: 'textarea', inputValidator: (v) => !!String(v || '').trim(), inputErrorMessage: '反审原因必填' })
@@ -2120,6 +2171,18 @@ onUnmounted(() => {
   margin: 0 var(--buy-filter-switch-gap, 20px);
   background: var(--el-border-color);
   flex-shrink: 0;
+}
+.buy-filter-divider--print {
+  margin-left: 10px;
+}
+.buy-print-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.buy-print-select {
+  width: 132px;
 }
 .buy-filter-switch {
   display: inline-flex;

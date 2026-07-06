@@ -81,6 +81,7 @@
 
 | 业务功能 | 物理表 | 关键字段 / 说明 |
 |----------|--------|-----------------|
+| 采购单批量打印 | `UB_ERP_Buy_order` + `UB_ERP_Buy_order_list` + `UB_ERP_Buy_order_money` + `UB_ERP_System_supplier` + `UB_ERP_Stocks_colorcode` + `UB_ERP_System_Head` | 列表 `p_sum` 为逗号分隔采购单号 `kcaj01`；`GET /api/buy-order/print-data?p_sum=&print_mx=&print_cn=`；`print_mx=1` 明细打印逐张输出，`print_mx=2` 汇总打印先校验供应商一致，再按物料、单价、含税单价、税率、交货日期等字段汇总；`print_cn=1/2` 对应中/英文；价格字段继续受采购单 `price` 权限控制；LOGO 来自 `UB_ERP_System_Head.logo`；本版不写 `UB_ERP_Buy_order_hb` |
 | 分类下拉来源 | `UB_ERP_Bom_code` | `copen=1`；按 `px,id` 排序；分类前缀优先取 `flag5`，空值时按分类名做兼容映射（如主袋→`BAG-`、拉牌→`TAG-`、成品→`PQ-`、裁片→`CUT-`） |
 | 转向查询主数据 | `UB_ERP_Buy_order_list` | 仅查 `pass=1` 且 `del=0`；支持关键词匹配采购明细字段与冗余物料字段（含 `kcaa01~kcaa35`、`kcaa02_en`、`kpname`、`location` 等） |
 | 采购头补充信息 | `UB_ERP_Buy_order` | 通过 `kcaj01=kcak01` 回填关联单号、采购时间、下单人（`utruename`）、供应商 |
@@ -180,8 +181,54 @@
 | 业务功能 | 物理表 | 关键字段 / 说明 |
 |----------|--------|-----------------|
 | 统计来源 | `UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list` + `UB_ERP_Stocks_out` + `UB_ERP_Stocks_out_list` | 仅 `pass=1`、`del=0`；仓库 `kcan06`/`kcap06`；物料 `kcaa01`；期间 `kcan02`/`kcap02` |
-| 快照主表 | `UB_ERP_Stock_stats_snapshot` | `start_date`/`end_date`/`warehouse_code`/`material_filter`/`report_kind=normal`/`generated_*`/`row_count` |
-| 快照明细 | `UB_ERP_Stock_stats_snapshot_line` | 期初/本期入出/报损/调整/结存 数量单价金额（`lastsum`…`nowmoneys`） |
-| 打印抬头 | `UB_ERP_System_Head` | `GET /api/stock-stats/print-header` |
-| 生成接口 | 同上 | `POST /api/stock-stats/generate`；`server/stockStatsCalculator.js`；金额 `kcao05`/`kcaq05` |
+| 报表聚合口径（阶段1） | `UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list` + `UB_ERP_Stocks_out` + `UB_ERP_Stocks_out_list` + `UB_ERP_Bom_000` + `UB_ERP_Stocks_material` + `UB_ERP_Stocks_colorcode` | `GET /api/stock-stats/report` 采用数据库端批量 CTE：先以入库/出库并集确定基础物料集合，再按 `kcaa01 + 仓库` 一次性汇总已审/未审入出库与最后入/出库日期；BOM 用 `ROW_NUMBER()` 取每个物料最新有效行后统一关联类别与颜色，禁止逐行 N+1 查询与逐行 `TOP 1`。 |
+| 报表聚合口径（阶段2） | `UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list` + `UB_ERP_Stocks_out` + `UB_ERP_Stocks_out_list` + `UB_ERP_Bom_000` + `UB_ERP_Stocks_material` + `UB_ERP_Stocks_colorcode` + `UB_ERP_Buy_order` + `UB_ERP_Buy_order_list` | `GET /api/stock-stats/report` 改为会话临时表分段汇总：`#base` 先确定物料+仓库基础行，`#ai/#ui/#oa` 分别汇总已审入库、未审入库和出库，`#bom` 取最新有效 BOM，`#pp/#pi` 汇总在途采购与采购入库，最后统一关联并套用弹窗筛选。业务口径不变，只解决全仓统计大型 CTE 返回慢的问题。 |
+| 在途数量 | `UB_ERP_Buy_order` + `UB_ERP_Buy_order_list` + `UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list` | 同接口批量 CTE：`max(0, 已审采购换算数量 - 已审采购入库换算数量)`；采购主表 `del=0/pass=1/kcaj02>=2019-01-01` 且 `< 截止日期`；采购入库 `del=0/pass=1/kcan03=1/kcan04=kcaj01/kcan06=当前仓库` 且 `< 截止日期`；数量均按明细 `kcaa26/kcaa27` 换算；仅展示，不参与帐存/实存/可用。 |
+| 打印抬头 | `UB_ERP_System_Head` | `GET /api/stock-stats/print-header` 前端口径为 `logoSrc/info`；库存统计页与打印页抬头都直接联动“打印设定”。 |
+| 仓库候选 | `UB_ERP_Stocks_Warehouse` | `GET /api/stock-stats/warehouse-options`（后续查询页预留） |
+| 快照方案（已停用） | `UB_ERP_Stock_stats_snapshot` + `UB_ERP_Stock_stats_snapshot_line` | 当前库存统计页不再读写，待新方案确定后再恢复落库逻辑 |
 
+## 入库统计表 · 入库明细统计（第一期）
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|----------|--------|-----------------|
+| 报表来源 | `UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list` | `GET /api/stock-in-stats/report` 按入库明细逐行展示；主从通过 `l.kcao01 = h.kcan01` 关联；基础条件为主表 `del=0`、明细 `del=0`、入库日期 `kcan02` 在开始日 00:00:00 到结束日 23:59:59；不加 `pass=1`，未审核/反审未审记录保留展示。 |
+| 查询字段 | 同上 | 仓库按 `h.kcan06`，全部仓库不限制；入库类别按 `h.kcan03`；材料代码精确匹配 `l.kcaa01`；材料名称/规格按 `l.kcaa02/l.kcaa03` 模糊；材料分类按 `l.kcaa05`；关联单位按 `h.kcan05/h.kehu`。 |
+| 展示与总计 | 同上 | 数量取实际入库数量 `l.kcao03`；`l.kcao031` 是原始数量/可入库上限，不作为报表展示数量；调拨数量旧口径为 `l.kcao031 - l.kcao03`，第一期前端不展示该列；单价/金额取 `l.kcao04/kcao05/kcao041/kcao051`，受 `inventory/analysis/stock-in-stats:price` 控制；前端不显示单独仓库分组首行，也不生成仓库小计行，只保留真实明细和底部总计。 |
+| 候选与抬头 | `UB_ERP_Stocks_Warehouse` + `UB_ERP_Bom_000` + `UB_ERP_Stocks_material` + `UB_ERP_System_Head` | 仓库候选只取已审核、未删除；材料代码候选来自 BOM 主档；材料分类候选来自 `UB_ERP_Stocks_material`；打印抬头复用 `UB_ERP_System_Head`。 |
+
+## 出库统计表 · 出库明细统计（第一期）
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|----------|--------|-----------------|
+| 报表来源 | `UB_ERP_Stocks_out` + `UB_ERP_Stocks_out_list` | `GET /api/stock-out-stats/report` 按出库明细逐行展示；主从通过 `l.kcaq01 = h.kcap01` 关联；基础条件为主表 `del=0`、明细 `del=0`、出库日期 `kcap02` 在开始日 00:00:00 到结束日 23:59:59；不加 `pass=1`，未审核/反审未审记录保留展示。 |
+| 查询字段 | 同上 | 仓库按 `h.kcap06`，全部仓库不限制；出库类别按 `h.kcap03`；材料代码候选显示 `kcaa01`，实际按明细 `systemcode` 精确匹配；材料名称/规格按 `l.kcaa02/l.kcaa03` 模糊；材料分类按 `l.kcaa05` 支持多选；关联单位按 `h.kcap05/h.kehu`。 |
+| 展示与总计 | 同上 | 数量取实际出库数量 `l.kcaq03`；出库类别 `4` 显示「生产领料」；单价/金额取 `l.kcaq04/kcaq05/kcaq041/kcaq051`，受 `inventory/analysis/stock-out-stats:price` 控制；备注优先取明细 `Describe`，为空取主表 `remark`；前端不显示仓库分组首行，也不生成仓库小计行，只保留真实明细和底部总计。 |
+| 候选与抬头 | `UB_ERP_Stocks_Warehouse` + `UB_ERP_Bom_000` + `UB_ERP_Stocks_material` + `UB_ERP_System_Head` | 仓库候选只取已审核、未删除；材料代码候选来自 BOM 主档并返回 `systemcode`；材料分类候选来自 `UB_ERP_Stocks_material`；打印抬头复用 `UB_ERP_System_Head`。 |
+
+## 进销存统计报表 · 期间汇总（第一期）
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|----------|--------|-----------------|
+| 报表来源 | `UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list` + `UB_ERP_Stocks_out` + `UB_ERP_Stocks_out_list` + `UB_ERP_Bom_000` + `UB_ERP_Stocks_material` + `UB_ERP_Stocks_colorcode` | `GET /api/stock-io-stats/report` 按“仓库 + 物料编码 `kcaa01`”期间汇总；入库 `l.kcao01=h.kcan01`，出库 `l.kcaq01=h.kcap01`；主表要求 `del=0/pass=1`，明细只要求 `del=0`，不按明细 `pass` 过滤；日期按 `>= 开始日 00:00:00` 且 `< 结束日次日 00:00:00`。 |
+| 查询字段 | 同上 | 开始日期、结束日期、仓库必填；第一期只支持具体仓库，不支持全部仓库；物料编码按明细 `kcaa01` 精确匹配，物料名称/规格按明细快照模糊，材料分类按明细 `kcaa05` 多选过滤。 |
+| 计算字段 | 同上 | 上期结存=开始日前历史已审入库数量-历史已审出库数量；上期单价取开始日前最近有效入库 `kcao04`；本期入库=`kcan03 in (1,2,0,5)` 入库 - `kcap03=1` 出库；本期出库=`kcap03 in (4,0,10,7,2)` 出库 - `kcan03 in (3,4)` 入库；本期补数=`kcap03=8`；本期盈亏=`kcan03=7` 入库 - `kcap03=9` 出库；结存按“上期+入库-出库-补数+盈亏”。 |
+| 展示与权限 | 同上 | 展示物料资料、类别、颜色、最后入库/出库时间、各数量/单价/金额和异常提示；价格/金额字段受 `inventory/analysis/stock-io-stats:price` 控制，导出受 `inventory/analysis/stock-io-stats:export` 控制；异常提示包括缺少物料资料、缺少分类/颜色、缺少成本单价、负结存、出库成本无法计算等。 |
+| 候选与抬头 | `UB_ERP_Stocks_Warehouse` + `UB_ERP_Bom_000` + `UB_ERP_Stocks_material` + `UB_ERP_System_Head` | 物料候选来自 BOM，仅按 `kcaa01` 作为筛选值；打印抬头复用 `UB_ERP_System_Head`。 |
+
+# 采购单打印补充映射（2026-07-02）
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|----------|--------|-----------------|
+| 采购单打印抬头 | `UB_ERP_System_Head` | `GET /api/buy-order/print-data?p_sum=&print_mx=&print_cn=` 返回 `printConfig.logoSrc` 与 `printConfig.headerHtml/info`；前端按“LOGO 在上、表头内容在下”显示。 |
+| 采购单打印内容 | `UB_ERP_Buy_order` + `UB_ERP_Buy_order_list` + `UB_ERP_Buy_order_money` | 打印页“交货地址”固定为 `中山市卓越皮具有限公司`；数量、单价、金额、税点和合计只改变显示格式，按统一数字展示规则去掉尾 0，不改变数据库原值。 |
+| 采购单打印签字栏 | 登录态 | “订单编写”只取当前登录态 `truename`；没有 `truename` 时为空，不使用 `utruename` 兜底。 |
+## 材料流水账 · 单物料结存流水（第一期）
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|----------|--------|-----------------|
+| 报表来源 | `UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list` + `UB_ERP_Stocks_out` + `UB_ERP_Stocks_out_list` | `GET /api/material-flow-ledger/report` 用 `UNION ALL` 合并入库、出库明细；入库 `l.kcao01=h.kcan01`，出库 `l.kcaq01=h.kcap01`；主表要求 `del=0/pass=1`，明细只要求 `del=0`，不按明细 `pass` 过滤，以便结存对齐库存统计表“账存数量”；物料按明细 `kcaa01` 精确匹配；仓库分别按 `kcan06/kcap06` 精确匹配；不使用也不写入 `UB_ERP_Stocks_acc`。 |
+| 上期结存 | 同上 | 查询开始日期之前：已审入库数量 `l.kcao03` 合计 - 已审出库数量 `l.kcaq03` 合计；第一行固定显示“上期结存”，后端再对区间内流水逐行滚动计算结存。 |
+| 查询字段 | 同上 + `UB_ERP_Bom_000` + `UB_ERP_Stocks_material` | 必填开始日期、结束日期、仓库、物料编码；仓库默认“货仓”；弹窗不显示物料唯一码；材料分类筛入库/出库明细 `kcaa05`。 |
+| 采购在途 | `UB_ERP_Buy_order` + `UB_ERP_Buy_order_list` | `包含采购在途=是` 时额外展示采购在途行，来源为已审核、未删除、未结案采购单明细；只作为展示，不参与上期结存和滚动结存。 |
+| 展示字段 | 同上 | 序号、单号日期、录入日期/修改日期、入库数量、出库数量、结存、注释；注释统一为“单号、类别、PO/PI、关联单号”，不拼备注；不显示单价、金额，不走 `price` 权限；导出权限为 `inventory/analysis/flow-ledger:export`。 |

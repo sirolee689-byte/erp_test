@@ -25,7 +25,8 @@ export function resolvePrintLogoSrc(value) {
 export function buildSystemPrintLogoSql() {
   return `
     SELECT TOP (1)
-      logo
+      logo,
+      info
     FROM ${PRINT_HEAD_FROM}
     ORDER BY id ASC
   `
@@ -33,7 +34,10 @@ export function buildSystemPrintLogoSql() {
 
 export async function fetchSystemPrintLogoConfig(pool) {
   const rs = await pool.request().query(buildSystemPrintLogoSql())
+  const row = rs.recordset?.[0] ?? {}
   return {
-    logoSrc: resolvePrintLogoSrc(rs.recordset?.[0]?.logo),
+    logoSrc: resolvePrintLogoSrc(row.logo),
+    headerHtml: text(row.info),
+    info: text(row.info),
   }
 }

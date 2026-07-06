@@ -15,6 +15,7 @@ export function buildStockStatsPrintHeaderSql() {
       LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([address], N'')))) AS address,
       LTRIM(RTRIM(CONVERT(nvarchar(120), ISNULL([title], N'')))) AS title,
       LTRIM(RTRIM(CONVERT(nvarchar(120), ISNULL([entitle], N'')))) AS entitle,
+      LTRIM(RTRIM(CONVERT(nvarchar(max), ISNULL([info], N'')))) AS info,
       [logo]
     FROM ${PRINT_HEAD_FROM}
     ORDER BY [id] ASC
@@ -31,6 +32,7 @@ export async function fetchStockStatsPrintHeader(pool) {
     address: text(row.address),
     title: text(row.title),
     entitle: text(row.entitle),
+    info: text(row.info),
     logoSrc: resolvePrintLogoSrc(row.logo),
   }
 }

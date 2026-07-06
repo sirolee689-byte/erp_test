@@ -1025,7 +1025,7 @@ function expandLineSummaryMethod(lines, { columns }) {
 function calcLineSummary(lines = []) {
   return lines.reduce((acc, line) => {
     acc.itemCount += 1
-    acc.totalQty += toNumber(line.kcao031 ?? line.kcao03)
+    acc.totalQty += toNumber(line.kcao03)
     acc.inboundTotalQty += toNumber(line.kcao03)
     acc.taxExcludedTotal += toNumber(line.kcao05)
     acc.taxIncludedTotal += toNumber(line.kcao051 ?? line.kcao05)

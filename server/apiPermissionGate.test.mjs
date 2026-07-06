@@ -103,3 +103,56 @@ describe('matchApiPermissionRule — 未匹配路径', () => {
     assert.equal(matchApiPermissionRule('GET', '/api/not-a-real-route', {}, {}), null)
   })
 })
+
+describe('matchApiPermissionRule - 出库统计表', () => {
+  test('出库统计表接口走统计分析出库统计表 view 权限', () => {
+    for (const path of [
+      '/api/stock-out-stats/warehouse-options',
+      '/api/stock-out-stats/material-options',
+      '/api/stock-out-stats/category-options',
+      '/api/stock-out-stats/related-party-options',
+      '/api/stock-out-stats/report',
+      '/api/stock-out-stats/print-header',
+    ]) {
+      assert.deepEqual(matchApiPermissionRule('GET', path, {}, {}), {
+        menuPath: 'inventory/analysis/stock-out-stats',
+        action: 'view',
+      })
+    }
+  })
+})
+
+describe('matchApiPermissionRule — 入库统计表', () => {
+  test('入库统计表接口走统计分析入库统计表 view 权限', () => {
+    for (const path of [
+      '/api/stock-in-stats/warehouse-options',
+      '/api/stock-in-stats/material-options',
+      '/api/stock-in-stats/category-options',
+      '/api/stock-in-stats/related-party-options',
+      '/api/stock-in-stats/report',
+      '/api/stock-in-stats/print-header',
+    ]) {
+      assert.deepEqual(matchApiPermissionRule('GET', path, {}, {}), {
+        menuPath: 'inventory/analysis/stock-in-stats',
+        action: 'view',
+      })
+    }
+  })
+})
+
+describe('matchApiPermissionRule - 进销存统计报表', () => {
+  test('进销存统计报表接口继续走 stock-io-stats view 权限', () => {
+    for (const path of [
+      '/api/stock-io-stats/warehouse-options',
+      '/api/stock-io-stats/material-options',
+      '/api/stock-io-stats/category-options',
+      '/api/stock-io-stats/report',
+      '/api/stock-io-stats/print-header',
+    ]) {
+      assert.deepEqual(matchApiPermissionRule('GET', path, {}, {}), {
+        menuPath: 'inventory/analysis/stock-io-stats',
+        action: 'view',
+      })
+    }
+  })
+})

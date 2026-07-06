@@ -108,7 +108,10 @@
         "title": "统计分析",
         "children": [
           { "name": "stock-stats", "title": "库存统计表" },
+          { "name": "stock-in-stats", "title": "入库统计表" },
+          { "name": "stock-out-stats", "title": "出库统计表" },
           { "name": "flow-ledger", "title": "材料流水账" },
+          { "name": "stock-io-stats", "title": "进销存统计报表" },
           { "name": "purchase-plan", "title": "采购计划表" }
         ]
       }

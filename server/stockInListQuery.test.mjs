@@ -72,5 +72,13 @@ describe('stockInListQuery', () => {
     assert.match(whereSql, /\[kcan04\]/)
     assert.match(whereSql, /\[kcan08\]/)
   })
+
+  test('入库单数据总数量按实际入库数量 kcao03 统计，不使用可入库上限 kcao031', () => {
+    const { sql } = buildStockInListPagedSql({ whereSql: '' })
+
+    assert.match(sql, /SUM\(ISNULL\(l\.\[kcao03\], 0\)\) AS totalQty/i)
+    assert.match(sql, /SUM\(ISNULL\(l\.\[kcao03\], 0\)\) AS inboundTotalQty/i)
+    assert.doesNotMatch(sql, /SUM\(ISNULL\(l\.\[kcao031\]/i)
+  })
 })
 
