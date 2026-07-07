@@ -130,7 +130,7 @@
           background
           layout="total, sizes, prev, pager, next, jumper"
           :total="page.total"
-          :page-sizes="[5, 10, 20, 50, 100]"
+          :page-sizes="ERP_PAGE_SIZE_OPTIONS"
           @size-change="loadList"
           @current-change="loadList"
         />
@@ -358,7 +358,7 @@
           background
           layout="total, sizes, prev, pager, next, jumper"
           :total="page.total"
-          :page-sizes="[5, 10, 20, 50, 100]"
+          :page-sizes="ERP_PAGE_SIZE_OPTIONS"
           @size-change="loadList"
           @current-change="loadList"
         />
@@ -672,7 +672,7 @@
       <el-pagination
         v-model:current-page="piDialog.page"
         v-model:page-size="piDialog.pageSize"
-        :page-sizes="[10, 20, 50, 100]"
+        :page-sizes="ERP_PAGE_SIZE_OPTIONS"
         layout="total, sizes, prev, pager, next, jumper"
         :total="piDialog.total"
         class="buy-pi-pagination"
@@ -684,6 +684,7 @@
 </template>
 
 <script setup>
+import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, defineComponent, h, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
 import { Refresh } from '@element-plus/icons-vue'

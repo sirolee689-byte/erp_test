@@ -1,4 +1,5 @@
 import { sql } from './db.js'
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 import { getActorAuditTripletFromReq } from './businessAuditFields.js'
 import { getRequestIp } from './operationAuditMiddleware.js'
 import { resolveSysUserIsAdminByUserId } from './sysUsersDb.js'
@@ -58,9 +59,12 @@ function serializeRow(row = {}) {
   return { ...row }
 }
 
-function parsePageParams(query = {}, { defaultPageSize = 10, maxPageSize = 200 } = {}) {
+function parsePageParams(query = {}, { defaultPageSize = 10, maxPageSize = ERP_MAX_PAGE_SIZE } = {}) {
   const page = Math.max(1, Number.parseInt(query.page, 10) || 1)
-  const pageSize = Math.min(maxPageSize, Math.max(1, Number.parseInt(query.pageSize, 10) || defaultPageSize))
+  const pageSize = clampErpPageSize(
+    Number.parseInt(query.pageSize, 10) || defaultPageSize,
+    defaultPageSize,
+  )
   return { page, pageSize, startRow: (page - 1) * pageSize + 1, endRow: page * pageSize }
 }
 
@@ -520,7 +524,7 @@ export function registerStockOutRoutes(app, deps) {
       const pool = await getPool()
       const supplier = text(req.query?.supplier)
       const keyword = text(req.query?.keyword)
-      const { page, pageSize, startRow, endRow } = parsePageParams(req.query ?? {}, { defaultPageSize: 10, maxPageSize: 200 })
+      const { page, pageSize, startRow, endRow } = parsePageParams(req.query ?? {}, { defaultPageSize: 10 })
       const countReq = pool.request()
       const listReq = pool.request()
         .input('startRow', sql.Int, startRow)
@@ -607,7 +611,7 @@ export function registerStockOutRoutes(app, deps) {
     try {
       const pool = await getPool()
       const keyword = text(req.query?.keyword)
-      const { page, pageSize, startRow, endRow } = parsePageParams(req.query ?? {}, { defaultPageSize: 10, maxPageSize: 200 })
+      const { page, pageSize, startRow, endRow } = parsePageParams(req.query ?? {}, { defaultPageSize: 10 })
       const keywordWhere = buildAssistIssueSourceKeywordWhere(Boolean(keyword))
       const listReq = pool.request()
         .input('startRow', sql.Int, startRow)

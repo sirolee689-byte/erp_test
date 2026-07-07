@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * 管理纸格导入资料：UB_ERP_System_uplod_file 分页列表（只读）
  */
@@ -149,7 +150,7 @@ export async function handleGetPaperPatternImportFilesList(req, res) {
     const { joinSql, uploaderSql, uploaderSearchSql } = buildPaperPatternUploaderSql(userMeta)
     const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
     const pageSizeRaw = Number(req.query?.pageSize ?? 20) || 20
-    const pageSize = Math.min(200, Math.max(1, pageSizeRaw))
+    const pageSize = clampErpPageSize(pageSizeRaw, 10)
 
     const queryAllRaw = String(req.query?.queryAll ?? '').trim().toLowerCase()
     const queryAll =

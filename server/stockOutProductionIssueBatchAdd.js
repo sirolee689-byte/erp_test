@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * 生产领料批量添加：派工明细经 PI 成本展开 + 来源需出库/库存计算可领数量。
  * 列表按子料 kcaa01 合并展示（对齐外协领料批量）。SQL Server 2008 R2 兼容。
@@ -60,7 +61,7 @@ export function parseProductionIssueBatchPaging(query = {}) {
   const rawPageSize = Number.parseInt(query.pageSize, 10) || 20
   const pageSize = fetchAll
     ? Number.MAX_SAFE_INTEGER
-    : Math.min(200, Math.max(1, rawPageSize))
+    : clampErpPageSize(rawPageSize, 10)
   return { page, pageSize, fetchAll }
 }
 

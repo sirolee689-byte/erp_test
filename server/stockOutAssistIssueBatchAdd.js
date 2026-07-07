@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * 外协领料批量添加：外协明细展开子料 + 仓库库存计算可领数量。
  * SQL Server 2008 R2 兼容。
@@ -126,7 +127,7 @@ function unitConvertText(kcaa04, kcaa25, kcaa26, kcaa27, refQty) {
 function parsePage(query = {}) {
   const page = Math.max(1, Number.parseInt(query.page, 10) || 1)
   const rawPageSize = Number.parseInt(query.pageSize, 10) || 20
-  const pageSize = Math.min(200, Math.max(1, rawPageSize))
+  const pageSize = clampErpPageSize(rawPageSize, 10)
   return { page, pageSize }
 }
 

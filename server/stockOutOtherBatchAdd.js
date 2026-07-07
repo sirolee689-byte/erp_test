@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * 其他出库批量选材：按仓库 + 物料编码 kcaa01 汇总库存，分页展示可出物料。
  * SQL Server 2008 R2 兼容（ROW_NUMBER 分页）。
@@ -80,7 +81,7 @@ export function formatCustomerSupplyLabel(value) {
 export function parseOtherBatchPage(query = {}) {
   const page = Math.max(1, Number.parseInt(query.page, 10) || 1)
   const rawPageSize = Number.parseInt(query.pageSize, 10) || 5
-  const pageSize = Math.min(200, Math.max(1, rawPageSize))
+  const pageSize = clampErpPageSize(rawPageSize, 10)
   return { page, pageSize, startRow: (page - 1) * pageSize + 1, endRow: page * pageSize }
 }
 

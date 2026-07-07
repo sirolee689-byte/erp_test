@@ -91,7 +91,7 @@
         background
         layout="total, sizes, prev, pager, next, jumper"
         :total="page.total"
-        :page-sizes="[10, 20, 50, 100]"
+        :page-sizes="ERP_PAGE_SIZE_OPTIONS"
         @size-change="loadList"
         @current-change="loadList"
       />
@@ -100,6 +100,7 @@
 </template>
 
 <script setup>
+import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'

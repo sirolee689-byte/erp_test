@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * 采购退货批量添加：按采购单明细 + 本仓入库/退货出库 + 仓库实际库存计算可退数量。
  * SQL Server 2008 R2 兼容（ROW_NUMBER 分页）。
@@ -60,7 +61,7 @@ export function resolvePurchaseReturnSelectState({ returnableQty, alreadySelecte
 function parsePage(query = {}) {
   const page = Math.max(1, Number.parseInt(query.page, 10) || 1)
   const rawPageSize = Number.parseInt(query.pageSize, 10) || 20
-  const pageSize = Math.min(200, Math.max(1, rawPageSize))
+  const pageSize = clampErpPageSize(rawPageSize, 10)
   return { page, pageSize, startRow: (page - 1) * pageSize + 1, endRow: page * pageSize }
 }
 

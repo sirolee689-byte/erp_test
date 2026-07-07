@@ -273,7 +273,7 @@
               size="small"
               layout="total, sizes, prev, pager, next, jumper"
               :total="total"
-              :page-sizes="[5, 10, 20, 50, 100]"
+              :page-sizes="ERP_PAGE_SIZE_OPTIONS"
               @size-change="onPageSizeChange"
               @current-change="onPageChange"
             />
@@ -889,6 +889,7 @@
 </template>
 
 <script setup>
+import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, onUnmounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'

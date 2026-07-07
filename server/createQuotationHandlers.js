@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * 报价 handler 工厂：采购/外协共用实现，由 createQuotationHandlers(config) 参数化差异列与路由。
  * 零行为变更：逻辑与原先 purchaseQuotationHandlers.js 一致，仅抽取重复。
@@ -937,7 +938,7 @@ function registerQuotationRoutes(app, deps) {
 
       const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
       const pageSizeRaw = Number(req.query?.pageSize ?? 20) || 20
-      const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+      const pageSize = clampErpPageSize(pageSizeRaw, 10)
 
       const recycledRaw = String(req.query?.recycled ?? '').trim().toLowerCase()
       const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'

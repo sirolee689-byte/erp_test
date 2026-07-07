@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * 外协退料批量添加：父层外协成品 + 子层 BOM 配件展开（最多四层，同编码合并）。
  * bom_rate 仅取自 UB_ERP_Finance_currency.bom_rate，禁止用 rate 代替；空值默认 1。
@@ -137,7 +138,7 @@ export function flattenAssistReturnBomTree(nodes, depth = 1, parentFactor = 1, a
 function parsePage(query = {}) {
   const page = Math.max(1, Number.parseInt(query.page, 10) || 1)
   const rawPageSize = Number.parseInt(query.pageSize, 10) || 20
-  const pageSize = Math.min(100, Math.max(1, rawPageSize))
+  const pageSize = clampErpPageSize(rawPageSize, 10)
   return { page, pageSize, startRow: (page - 1) * pageSize + 1, endRow: page * pageSize }
 }
 

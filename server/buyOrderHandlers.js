@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 import { sql } from './db.js'
 import { resolveActorAuditTripletFromReq } from './businessAuditFields.js'
 import { applyBuyOrderLifecycleAction } from './buyOrderLifecycle.js'
@@ -58,7 +59,7 @@ function parsePiOptionQuery(query = {}) {
   const pageRaw = Number(query.page ?? 1) || 1
   const pageSizeRaw = Number(query.pageSize ?? 10) || 10
   const page = Math.max(1, Math.floor(pageRaw))
-  const pageSize = Math.min(100, Math.max(1, Math.floor(pageSizeRaw)))
+  const pageSize = clampErpPageSize(pageSizeRaw, 10)
   return { page, pageSize, startRow: (page - 1) * pageSize + 1, endRow: page * pageSize }
 }
 

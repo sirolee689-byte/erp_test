@@ -2,6 +2,13 @@
 
 > 单源：表/字段与页面功能的映射关系。页面交互细节见各模块 README。
 
+## BOM资料
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|----------|--------|-----------------|
+| BOM主页分页列表 | `UB_ERP_Bom_000` + `UB_ERP_Bom_code` + `UB_ERP_Bom_cost` + `UB_ERP_Stocks_material` + `UB_ERP_Stocks_workshop` | `GET /api/inv/bom/list`；主列表来自 BOM 主档，按 `del/pass`、BOM分类前缀、裁片开关、关键词过滤；“需要运算”按 `UB_ERP_Bom_code.copen=1` 且 `flag5` 前缀判断；“已运算/未运算”和成本用量列复用当前页 `UB_ERP_Bom_cost` 的 `sid + pq` 汇总结果，避免列表主查询逐行重复查成本表。 |
+| BOM转向物料查询 | `UB_ERP_Bom_Sales_list` + `UB_ERP_Bom_code` + `UB_ERP_Stocks_material` + `UB_ERP_Stocks_colorcode` + `UB_ERP_Finance_currency` + `UB_ERP_Sales_order` + `UB_ERP_Sales_order_list` + `UB_ERP_Bom_pi_cost` | `GET /api/inv/bom/material-trace/list` 查 `UB_ERP_Bom_Sales_list` 已审核未删除行，默认 `id desc`，分类按 `UB_ERP_Bom_code.flag5` 前缀过滤 `kcaa01`，关键字只搜高频字段；`GET /api/inv/bom/material-trace/:id/usage` 用当前行 `kcac01` 向上追 `kcac02` 最多三层找到 `PQ-` 成品（向上追溯 `UB_ERP_Bom_Sales_list` 仅按 `del=0`，不限 `pass`；上级/成品行常为 `pass=0`），再按 `UB_ERP_Sales_order_list.kcaa01=成品款号` 关联已审核销售订单（主/明细 `pass=1`、`del=0`），计价用量为 `xsak03 * SUM(UB_ERP_Bom_pi_cost.kcac06)`；新系统不查 `UB_ERP_Bom_pi_consumption`。性能：主表约 200 万行仅 id 主键，list 改「`SELECT id INTO #临时表` 正向扫 → 排序分页 JOIN 回主表」两段式并在临时表上 COUNT（避开 `ORDER BY id DESC` 反向串行全表扫，>30s→~2.5s）；usage 追溯 `kcac02=@childKey` 直比（参数 `varchar(50)`，去 `LTRIM/RTRIM/CONVERT`，每层 2.6s→1.66s）；前端进页面默认不加载，点查询才请求。 |
+
 ## 入库单 · 生产入库批量添加
 
 | 业务功能 | 物理表 | 关键字段 / 说明 |

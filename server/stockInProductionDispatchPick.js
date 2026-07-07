@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * 生产入库/生产退料（类型 4/5）选派工单明细弹窗 — 对齐旧系统 s_search4.asp。
  * 主表 UB_ERP_Dispatch_order + 明细 UB_ERP_Dispatch_order_list；
@@ -25,7 +26,7 @@ function text(v) {
 function parsePage(query = {}) {
   const page = Math.max(1, Number.parseInt(query.page, 10) || 1)
   const rawPageSize = Number.parseInt(query.pageSize, 10) || PRODUCTION_DISPATCH_PICK_DEFAULT_PAGE_SIZE
-  const pageSize = Math.min(100, Math.max(1, rawPageSize))
+  const pageSize = clampErpPageSize(rawPageSize, 10)
   return { page, pageSize, startRow: (page - 1) * pageSize + 1, endRow: page * pageSize }
 }
 

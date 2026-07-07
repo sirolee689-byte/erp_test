@@ -242,6 +242,13 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
 
   { method: 'GET', path: '/api/inv/bom/list', action: '查询BOM资料列表', targetTable: 'UB_ERP_Bom_000' },
   { method: 'GET', path: '/api/inv/bom/bom-code-categories', action: '查询BOM分类下拉', targetTable: 'UB_ERP_Bom_code' },
+  { method: 'GET', path: '/api/inv/bom/material-trace/list', action: '查询BOM转向物料列表', targetTable: 'UB_ERP_Bom_Sales_list' },
+  {
+    method: 'GET',
+    path: /^\/api\/inv\/bom\/material-trace\/\d+\/usage\/?$/,
+    action: '查询BOM转向物料展开追溯',
+    targetTable: 'UB_ERP_Bom_Sales_list,UB_ERP_Sales_order,UB_ERP_Sales_order_list,UB_ERP_Bom_pi_cost',
+  },
   { method: 'GET', path: '/api/inventory/bom/check-code', action: '校验BOM编码重复', targetTable: 'UB_ERP_Bom_000' },
   { method: 'GET', path: '/api/inventory/bom/unit-rate-suggest', action: '查询BOM单位换算建议', targetTable: 'UB_ERP_Stocks_unit_change' },
   { method: 'POST', path: '/api/inventory/bom/save-main', action: '保存BOM主资料(save-main)', targetTable: 'UB_ERP_Bom_000' },

@@ -226,7 +226,7 @@
       <el-pagination
         v-model:current-page="pager.page"
         v-model:page-size="pager.pageSize"
-        :page-sizes="[10, 20, 50, 100]"
+        :page-sizes="ERP_PAGE_SIZE_OPTIONS"
         layout="total, sizes, prev, pager, next, jumper"
         :total="pager.total"
         class="stock-pagination"
@@ -653,7 +653,7 @@
       <el-pagination
         v-model:current-page="sourceDialog.page"
         v-model:page-size="sourceDialog.pageSize"
-        :page-sizes="[10, 20, 50, 100]"
+        :page-sizes="ERP_PAGE_SIZE_OPTIONS"
         layout="total, sizes, prev, pager, next, jumper"
         :total="sourceDialog.total"
         class="source-order-pagination"
@@ -665,6 +665,7 @@
 </template>
 
 <script setup>
+import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'

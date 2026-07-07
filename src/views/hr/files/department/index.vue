@@ -77,7 +77,7 @@
           :total="total"
           :current-page="page"
           :page-size="pageSize"
-          :page-sizes="[10, 20, 50, 100]"
+          :page-sizes="ERP_PAGE_SIZE_OPTIONS"
           @size-change="onPageSizeChange"
           @current-change="onPageChange"
         />
@@ -184,7 +184,7 @@
               :total="total"
               :current-page="page"
               :page-size="pageSize"
-              :page-sizes="[10, 20, 50, 100]"
+              :page-sizes="ERP_PAGE_SIZE_OPTIONS"
               @size-change="onPageSizeChange"
               @current-change="onPageChange"
             />
@@ -233,6 +233,7 @@
 </template>
 
 <script setup>
+import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'

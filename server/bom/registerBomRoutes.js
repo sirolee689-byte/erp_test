@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from '../erpPagination.js'
 /**
  * BOM 模块路由注册（从 server/index.js 机械抽出，零行为变更）
  */
@@ -41,6 +42,12 @@ const BOM_UNIT_CHANGE_FROM = 'dbo.[UB_ERP_Stocks_unit_change]'
 const BOM_MATERIAL_FROM = 'dbo.[UB_ERP_Stocks_material]'
 const BOM_STOCKS_WORKSHOP_FROM = 'dbo.[UB_ERP_Stocks_workshop]'
 const SYS_SUPPLIER_FROM = 'dbo.[UB_ERP_System_supplier]'
+const BOM_SALES_LIST_FROM = 'dbo.[UB_ERP_Bom_Sales_list]'
+const SALES_ORDER_FROM = 'dbo.[UB_ERP_Sales_order]'
+const SALES_ORDER_LIST_FROM = 'dbo.[UB_ERP_Sales_order_list]'
+const PI_COST_FROM = 'dbo.[UB_ERP_Bom_pi_cost]'
+const BOM_COLOR_FROM = 'dbo.[UB_ERP_Stocks_colorcode]'
+const BOM_FINANCE_CURRENCY_FROM = 'dbo.[UB_ERP_Finance_currency]'
 
 /** 已审核禁止改删固定文案（与 server/index.js 一致） */
 const HR_STAFF_AUDIT_LOCK_MSG = '该记录已审核锁定，请反审后再操作'
@@ -76,6 +83,38 @@ function bomPartParseDecimal(raw) {
   if (s === '') return 0
   const n = Number(s)
   return Number.isFinite(n) ? n : 0
+}
+
+function formatBomTraceDecimal(raw, maxDecimals = 6) {
+  const n = Number(raw)
+  if (!Number.isFinite(n)) return '0'
+  const places = Math.max(0, Math.min(20, Math.floor(Number(maxDecimals) || 0)))
+  const fixed = n.toFixed(places)
+  return fixed.replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '')
+}
+
+function bomTraceText(v) {
+  return String(v ?? '').trim()
+}
+
+function bomTraceBoolLabel(v, emptyText = '-') {
+  const s = String(v ?? '').trim().toLowerCase()
+  if (s === '1' || s === 'y' || s === 'yes' || s === 'true' || s === '是') return '是'
+  return emptyText
+}
+
+function bomTraceIsoDate(v) {
+  const s = String(v ?? '').trim()
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : ''
+}
+
+function bomTraceNextIsoDate(iso) {
+  const s = bomTraceIsoDate(iso)
+  if (!s) return ''
+  const d = new Date(`${s}T00:00:00Z`)
+  if (Number.isNaN(d.getTime())) return ''
+  d.setUTCDate(d.getUTCDate() + 1)
+  return d.toISOString().slice(0, 10)
 }
 
 /** 配件用量类字段写入前规整（§2：与 decimal(18,6) 对齐，降低 JS 浮点误差） */
@@ -1000,11 +1039,315 @@ app.get('/api/inv/bom/bom-code-categories', async (req, res) => {
   }
 })
 
+function extractBomTraceProductCode(row) {
+  const candidates = [row?.kcaa03, row?.kcaa01, row?.pkcaa01, row?.pcode]
+  for (const val of candidates) {
+    const s = String(val ?? '').trim()
+    if (!s) continue
+    const hit = s.match(/PQ-[A-Za-z0-9/_-]+/i)
+    if (hit?.[0]) return hit[0].trim()
+  }
+  return ''
+}
+
+function mapBomTraceRow(row) {
+  const quoteCurrency = bomTraceText(row.quoteCurrencyName) || bomTraceText(row.kcaa34)
+  const purchaseCurrency = bomTraceText(row.purchaseCurrencyName) || bomTraceText(row.kcaa35)
+  const colorCode = bomTraceText(row.kcaa11)
+  const colorName = bomTraceText(row.colorName)
+  return {
+    id: Number(row.id),
+    sid: bomTraceText(row.sid),
+    kcac01: bomTraceText(row.kcac01),
+    kcac02: bomTraceText(row.kcac02),
+    addtime: bomTraceText(row.addtime),
+    edittime: bomTraceText(row.edittime),
+    kcaa01: bomTraceText(row.kcaa01),
+    kcaa02: bomTraceText(row.kcaa02),
+    kcaa02_en: bomTraceText(row.kcaa02_en),
+    kpname: bomTraceText(row.kpname),
+    kcaa03: bomTraceText(row.kcaa03),
+    kcaa04: bomTraceText(row.kcaa04),
+    kcaa05: bomTraceText(row.kcaa05),
+    categoryName: bomTraceText(row.categoryName) || bomTraceText(row.kcaa05),
+    kcaa06: bomTraceText(row.kcaa06),
+    kcaa09: bomTraceText(row.kcaa09),
+    kcaa10: bomTraceText(row.kcaa10),
+    kcaa11: colorCode,
+    colorName: colorName ? `${colorCode}${colorCode ? '(' : ''}${colorName}${colorCode ? ')' : ''}` : colorCode,
+    purchaseLabel: bomTraceBoolLabel(row.kcaa12),
+    subcontractLabel: bomTraceBoolLabel(row.kcaa13),
+    selfProducedLabel: bomTraceBoolLabel(row.kcaa14),
+    workshop: bomTraceText(row.kcaa15),
+    bondedLabel: bomTraceBoolLabel(row.kcaa28, '否'),
+    customerSupplyLabel: bomTraceBoolLabel(row.Customer_supply, '否'),
+    kcaa32: row.kcaa32 == null ? '' : formatBomTraceDecimal(row.kcaa32, 6),
+    kcaa33: row.kcaa33 == null ? '' : formatBomTraceDecimal(row.kcaa33, 6),
+    kcaa34: bomTraceText(row.kcaa34),
+    kcaa35: bomTraceText(row.kcaa35),
+    quoteCurrencyName: quoteCurrency,
+    purchaseCurrencyName: purchaseCurrency,
+    location: bomTraceText(row.location),
+    sale_price: row.sale_price == null ? '' : formatBomTraceDecimal(row.sale_price, 6),
+    cost_price: row.cost_price == null ? '' : formatBomTraceDecimal(row.cost_price, 6),
+    Customer_Name: bomTraceText(row.Customer_Name),
+    remark: bomTraceText(row.remark),
+    Describe: bomTraceText(row.Describe),
+  }
+}
+
+app.get('/api/inv/bom/material-trace/list', async (req, res) => {
+  try {
+    const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
+    const pageSize = clampErpPageSize(Number(req.query?.pageSize ?? 10) || 10, 10)
+    const startDate = bomTraceIsoDate(req.query?.startDate)
+    const endDate = bomTraceIsoDate(req.query?.endDate)
+    const endNext = endDate ? bomTraceNextIsoDate(endDate) : ''
+    const keyword = String(req.query?.keyword ?? '').trim()
+    const keywordOk = keyword.length > 0 && String(req.query?.all ?? '') !== '1'
+    const bomCodeIdRaw = Number(req.query?.bom_code_id ?? req.query?.bomCodeId ?? '')
+    const bomCodeId = Number.isFinite(bomCodeIdRaw) && bomCodeIdRaw > 0 ? Math.trunc(bomCodeIdRaw) : 0
+    const hasBomCodeFilter = bomCodeId > 0
+    const pool = await getPool()
+
+    const whereParts = [
+      `(ISNULL(l.del, N'') = N'' OR l.del = N'0')`,
+      `LTRIM(RTRIM(ISNULL(l.pass, N''))) = N'1'`,
+    ]
+    if (startDate) whereParts.push(`LEFT(LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(l.addtime, N'')))), 10) >= @startDate`)
+    if (endNext) whereParts.push(`LEFT(LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(l.addtime, N'')))), 10) < @endNext`)
+    if (hasBomCodeFilter) {
+      whereParts.push(`
+        EXISTS (
+          SELECT 1
+          FROM ${INV_BOM_CODE_FROM} AS bc_f
+          WHERE bc_f.id = @bomCodeId
+            AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc_f.flag5, N'')))) <> N''
+            AND UPPER(LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.kcaa01, N'')))))
+              LIKE UPPER(LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc_f.flag5, N''))))) + N'%'
+        )
+      `)
+    }
+    if (keywordOk) {
+      whereParts.push(`(
+        l.sid LIKE @kw OR l.kcac01 LIKE @kw OR l.kcac02 LIKE @kw OR
+        l.kcaa01 LIKE @kw OR l.kcaa02 LIKE @kw OR l.kcaa02_en LIKE @kw OR
+        l.kpname LIKE @kw OR l.kcaa03 LIKE @kw OR l.kcaa06 LIKE @kw OR
+        l.kcaa09 LIKE @kw OR l.kcaa10 LIKE @kw OR l.kcaa11 LIKE @kw OR
+        l.remark LIKE @kw OR l.Describe LIKE @kw OR l.Customer_Name LIKE @kw OR
+        l.location LIKE @kw
+      )`)
+    }
+    const whereSql = `WHERE ${whereParts.join('\n        AND ')}`
+    const bindTraceInputs = (dbReq) => {
+      if (startDate) dbReq.input('startDate', sql.NVarChar(10), startDate)
+      if (endNext) dbReq.input('endNext', sql.NVarChar(10), endNext)
+      if (hasBomCodeFilter) dbReq.input('bomCodeId', sql.Int, bomCodeId)
+      if (keywordOk) dbReq.input('kw', sql.NVarChar(500), `%${escapeSqlLikePattern(keyword)}%`)
+      return dbReq
+    }
+
+    const startRow = (page - 1) * pageSize + 1
+    const endRow = page * pageSize
+    // 性能：主表 UB_ERP_Bom_Sales_list 约 200 万行且只有 id 主键。
+    // 先把命中行的 id 抓进临时表（正向扫描可并行），再对少量 id 排序分页并 JOIN 回主表，
+    // 避免 ROW_NUMBER OVER (ORDER BY id DESC) 直接对大表做反向串行扫描（实测反向扫描 >30s，两段式约 2.5s）。
+    const listReq = bindTraceInputs(pool.request())
+    listReq.input('startRow', sql.Int, startRow)
+    listReq.input('endRow', sql.Int, endRow)
+    const listR = await listReq.query(`
+      SELECT l.id
+      INTO #bom_trace_ids
+      FROM ${BOM_SALES_LIST_FROM} AS l
+      ${whereSql};
+
+      SELECT COUNT(1) AS total FROM #bom_trace_ids;
+
+      ;WITH page_ids AS (
+        SELECT id, ROW_NUMBER() OVER (ORDER BY id DESC) AS rn
+        FROM #bom_trace_ids
+      )
+      SELECT
+        l.id, l.sid, l.kcac01, l.kcac02, l.addtime, l.edittime, l.kcaa01, l.kcaa02, l.kcaa02_en,
+        l.kpname, l.kcaa03, l.kcaa04, l.kcaa05, l.kcaa06, l.kcaa09, l.kcaa10, l.kcaa11,
+        l.kcaa12, l.kcaa13, l.kcaa14, l.kcaa15, l.kcaa28, l.kcaa32, l.kcaa33,
+        l.kcaa34, l.kcaa35, l.location, l.sale_price, l.cost_price, l.Customer_supply,
+        l.Customer_Name, l.remark, l.Describe,
+        cat.name AS categoryName,
+        color.name AS colorName,
+        qcur.name AS quoteCurrencyName,
+        pcur.name AS purchaseCurrencyName,
+        p.rn
+      FROM page_ids AS p
+      INNER JOIN ${BOM_SALES_LIST_FROM} AS l ON l.id = p.id
+      LEFT JOIN ${BOM_MATERIAL_FROM} AS cat
+        ON LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.kcaa05, N'')))) =
+           LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(cat.code, N''))))
+      LEFT JOIN ${BOM_COLOR_FROM} AS color
+        ON LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.kcaa11, N'')))) =
+           LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(color.code, N''))))
+      LEFT JOIN ${BOM_FINANCE_CURRENCY_FROM} AS qcur
+        ON LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.kcaa34, N'')))) =
+           LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(qcur.code, N''))))
+      LEFT JOIN ${BOM_FINANCE_CURRENCY_FROM} AS pcur
+        ON LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.kcaa35, N'')))) =
+           LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(pcur.code, N''))))
+      WHERE p.rn BETWEEN @startRow AND @endRow
+      ORDER BY p.rn;
+
+      DROP TABLE #bom_trace_ids;
+    `)
+    const recordsets = listR.recordsets ?? []
+    const total = Number(recordsets[0]?.[0]?.total ?? 0)
+    const list = (recordsets[1] ?? []).map(mapBomTraceRow)
+    res.json({ code: 200, msg: 'success', data: { total, list } })
+  } catch (err) {
+    console.error('GET /api/inv/bom/material-trace/list 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取 BOM 转向物料查询失败：${detail}`, data: null })
+  }
+})
+
+app.get('/api/inv/bom/material-trace/:id/usage', async (req, res) => {
+  try {
+    const id = Number(req.params?.id)
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ code: 400, msg: '无效的转向物料行 id', data: null })
+    }
+    const startDate = bomTraceIsoDate(req.query?.startDate)
+    const endDate = bomTraceIsoDate(req.query?.endDate)
+    const endNext = endDate ? bomTraceNextIsoDate(endDate) : ''
+    const pool = await getPool()
+    const currentR = await pool.request().input('id', sql.Int, id).query(`
+      SELECT TOP 1
+        id, sid, kcac01, kcac02, kcaa01, kcaa02, kcaa03, kcaa06, kcaa10, pkcaa01, pcode,
+        ISNULL(CONVERT(decimal(28, 6), kcac06), 0) AS usage
+      FROM ${BOM_SALES_LIST_FROM}
+      WHERE id = @id
+        AND (ISNULL(del, N'') = N'' OR del = N'0')
+        AND LTRIM(RTRIM(ISNULL(pass, N''))) = N'1'
+    `)
+    const current = currentR.recordset?.[0]
+    if (!current) return res.status(404).json({ code: 404, msg: '转向物料行不存在或未审核', data: null })
+
+    const products = []
+    const seenProducts = new Set()
+    let childKey = bomTraceText(current.kcac01)
+    for (let level = 0; level < 3 && childKey; level += 1) {
+      // 性能：kcac02 为 varchar(50)。直接用 varchar 参数等值比较（去掉 LTRIM/RTRIM/CONVERT 外包），
+      // 避免逐行函数计算与 nvarchar 隐式转换（实测每层 2.6s → 1.66s）。varchar 等值比较会忽略尾部空格，追溯结果不变。
+      const parentR = await pool.request().input('childKey', sql.VarChar(50), childKey).query(`
+        SELECT TOP 30
+          id, sid, kcac01, kcac02, kcaa01, kcaa02, kcaa03, kcaa06, kcaa10, pkcaa01, pcode,
+          ISNULL(CONVERT(decimal(28, 6), kcac06), 0) AS usage
+        FROM ${BOM_SALES_LIST_FROM}
+        WHERE kcac02 = @childKey
+          AND (ISNULL(del, N'') = N'' OR del = N'0')
+        ORDER BY id DESC
+      `)
+      const parents = parentR.recordset ?? []
+      for (const p of parents) {
+        const productCode = extractBomTraceProductCode(p)
+        if (!productCode) continue
+        const key = `${productCode}\x1f${bomTraceText(p.kcaa01)}`
+        if (seenProducts.has(key)) continue
+        seenProducts.add(key)
+        products.push({
+          productCode,
+          customerStyle: bomTraceText(p.kcaa06),
+          kcaa01: bomTraceText(p.kcaa01),
+          kcaa02: bomTraceText(p.kcaa02),
+          kcaa10: bomTraceText(p.kcaa10),
+          usage: formatBomTraceDecimal(p.usage, 6),
+        })
+      }
+      childKey = bomTraceText(parents[0]?.kcac01)
+    }
+
+    const productCodes = [...new Set(products.map((p) => p.productCode).filter(Boolean))]
+    const pis = []
+    if (productCodes.length) {
+      const reqPi = pool.request().input('materialCode', sql.NVarChar(300), bomTraceText(current.kcaa01))
+      const codeConds = []
+      for (let i = 0; i < productCodes.length; i += 1) {
+        reqPi.input(`pq${i}`, sql.NVarChar(300), productCodes[i])
+        codeConds.push(`LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(sol.kcaa01, N'')))) = @pq${i}`)
+      }
+      let dateWhere = ''
+      if (startDate) {
+        reqPi.input('startDate', sql.NVarChar(10), startDate)
+        dateWhere += ` AND CONVERT(nvarchar(10), so.xsaj02, 120) >= @startDate `
+      }
+      if (endNext) {
+        reqPi.input('endNext', sql.NVarChar(10), endNext)
+        dateWhere += ` AND CONVERT(nvarchar(10), so.xsaj02, 120) < @endNext `
+      }
+      const piR = await reqPi.query(`
+        ;WITH cost_sum AS (
+          SELECT
+            LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.sid, N'')))) AS sid,
+            LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.pq, N'')))) AS pq,
+            LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.kcaa01, N'')))) AS kcaa01,
+            ISNULL(SUM(ISNULL(CONVERT(decimal(28, 6), c.kcac06), 0)), 0) AS usage_qty
+          FROM ${PI_COST_FROM} AS c
+          WHERE LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.kcaa01, N'')))) = @materialCode
+            AND (ISNULL(c.del, N'') = N'' OR c.del = N'0')
+            AND ISNULL(c.isok, 1) = 1
+          GROUP BY
+            LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.sid, N'')))),
+            LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.pq, N'')))),
+            LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.kcaa01, N''))))
+        )
+        SELECT
+          sol.xsak01 AS piNo,
+          so.xsaj06 AS poNo,
+          CONVERT(nvarchar(10), so.xsaj02, 120) AS salesDate,
+          sol.kcaa01 AS productCode,
+          sol.xsak08 AS piCustomerStyle,
+          ISNULL(CONVERT(decimal(28, 6), sol.xsak03), 0) AS salesQty,
+          ISNULL(cs.usage_qty, 0) AS unitCostUsage,
+          ISNULL(CONVERT(decimal(28, 6), sol.xsak03), 0) * ISNULL(cs.usage_qty, 0) AS pricedUsageTotal
+        FROM ${SALES_ORDER_LIST_FROM} AS sol
+        INNER JOIN ${SALES_ORDER_FROM} AS so
+          ON LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(so.xsaj01, N'')))) =
+             LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(sol.xsak01, N''))))
+        LEFT JOIN cost_sum AS cs
+          ON cs.sid = LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(sol.xsak01, N''))))
+         AND cs.pq = LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(sol.kcaa01, N''))))
+        WHERE (${codeConds.join(' OR ')})
+          AND (ISNULL(sol.del, N'') = N'' OR sol.del = N'0')
+          AND LTRIM(RTRIM(ISNULL(sol.pass, N''))) = N'1'
+          AND (ISNULL(so.del, N'') = N'' OR so.del = N'0')
+          AND LTRIM(RTRIM(ISNULL(so.pass, N''))) = N'1'
+          ${dateWhere}
+        ORDER BY so.xsaj02 DESC, sol.xsak01 DESC
+      `)
+      for (const row of piR.recordset ?? []) {
+        pis.push({
+          piNo: bomTraceText(row.piNo),
+          poNo: bomTraceText(row.poNo),
+          salesDate: bomTraceText(row.salesDate),
+          productCode: bomTraceText(row.productCode),
+          salesQty: formatBomTraceDecimal(row.salesQty, 6),
+          piCustomerStyle: bomTraceText(row.piCustomerStyle),
+          pricedUsageTotal: formatBomTraceDecimal(row.pricedUsageTotal, 6),
+        })
+      }
+    }
+
+    res.json({ code: 200, msg: 'success', data: { products, pis } })
+  } catch (err) {
+    console.error('GET /api/inv/bom/material-trace/:id/usage 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取 BOM 转向物料展开失败：${detail}`, data: null })
+  }
+})
+
 app.get('/api/inv/bom/list', async (req, res) => {
   try {
     const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
     const pageSizeRaw = Number(req.query?.pageSize ?? 10) || 10
-    const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+    const pageSize = clampErpPageSize(pageSizeRaw, 10)
 
     const recycledRaw = String(req.query?.recycled ?? '').trim().toLowerCase()
     const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
@@ -1058,16 +1401,24 @@ app.get('/api/inv/bom/list', async (req, res) => {
           : ' AND b.kcaa01 LIKE @codeContainsLike '
         : ''
 
+    const operatorKeywordSqlParts = []
+    if (bomMasterColset.has('utruename')) operatorKeywordSqlParts.push('b.utruename LIKE @kwLike')
+    if (bomMasterColset.has('uptruename')) operatorKeywordSqlParts.push('b.uptruename LIKE @kwLike')
+    if (bomMasterColset.has('uname')) operatorKeywordSqlParts.push('b.uname LIKE @kwLike')
+    const operatorKeywordSql = operatorKeywordSqlParts.length
+      ? ` OR ${operatorKeywordSqlParts.join(' OR ')}`
+      : ''
+
     const keywordOrSql = keywordOk
       ? keywordNormOk
         ? ` AND (
-          (b.kcaa01 LIKE @kwLike OR b.kcaa02 LIKE @kwLike)
+          (b.kcaa01 LIKE @kwLike OR b.kcaa02 LIKE @kwLike${operatorKeywordSql})
           OR (
             REPLACE(b.kcaa01, N'-', N'') LIKE @kwNormLike
             OR REPLACE(b.kcaa02, N'-', N'') LIKE @kwNormLike
           )
         ) `
-        : ' AND (b.kcaa01 LIKE @kwLike OR b.kcaa02 LIKE @kwLike) '
+        : ` AND (b.kcaa01 LIKE @kwLike OR b.kcaa02 LIKE @kwLike${operatorKeywordSql}) `
       : ''
 
     /** bom_cut=1：仅保留裁片主档（编码以 CUT- 开头，忽略大小写）；bom_cut=0：默认排除 CUT-，除非用户显式按 CUT- 搜索 */
@@ -1182,28 +1533,7 @@ app.get('/api/inv/bom/list', async (req, res) => {
             ) THEN 1
             ELSE 0
           END AS is_need_calc,
-          CASE
-            WHEN LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.del), N''))) = N'1' THEN 0
-            WHEN NOT EXISTS (
-              SELECT 1
-              FROM ${INV_BOM_CODE_FROM} AS bc2
-              WHERE LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(bc2.copen, N'')))) = N'1'
-                AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc2.flag5, N'')))) <> N''
-                AND LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa01, N'')))) LIKE (
-                  LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc2.flag5, N'')))) + N'%'
-                )
-            ) THEN 0
-            WHEN EXISTS (
-              SELECT 1
-              FROM ${BOM_COST_FROM} AS c
-              WHERE LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.pq, N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N''))))
-                AND (
-                  LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.sid, N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.[GUID], N''))))
-                  OR LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.sid, N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.systemcode, N''))))
-                )
-            ) THEN 1
-            ELSE 0
-          END AS has_UB_ERP_Bom_cost_cached,
+          CAST(0 AS int) AS has_UB_ERP_Bom_cost_cached,
           ${bomListExtraSelect},
           ROW_NUMBER() OVER (
             ORDER BY
@@ -1283,7 +1613,9 @@ app.get('/api/inv/bom/list', async (req, res) => {
 
     const list = rawRows.map((row) => {
       const isNeedCalc = Number(row.is_need_calc ?? 0) === 1
-      const hasBomCostCached = Number(row.has_UB_ERP_Bom_cost_cached ?? 0) === 1
+      const aggHit = lookupBomCostAggregateForMasterRow(row, bomCostAggMap)
+      const bomCostAggCnt = aggHit && Number(aggHit.cnt) > 0 ? Number(aggHit.cnt) : 0
+      const hasBomCostCached = isNeedCalc && bomCostAggCnt > 0
       let usageCalcLabel = '不需运算'
       let usageCalcStatus = 'none'
       if (isNeedCalc) {
@@ -1295,8 +1627,6 @@ app.get('/api/inv/bom/list', async (req, res) => {
           usageCalcStatus = 'pending'
         }
       }
-      const aggHit = lookupBomCostAggregateForMasterRow(row, bomCostAggMap)
-      const bomCostAggCnt = aggHit && Number(aggHit.cnt) > 0 ? Number(aggHit.cnt) : 0
       /** 用量（成本）：仅需运算行展示；库内列为 kcac04/kcac06 */
       let bomCostUsageCostText = ''
       if (isNeedCalc) {
@@ -1305,8 +1635,8 @@ app.get('/api/inv/bom/list', async (req, res) => {
         } else {
           const sum4 = Number(aggHit?.total4 ?? 0)
           const sum6 = Number(aggHit?.total6 ?? 0)
-          const s4 = Number.isFinite(sum4) ? sum4.toFixed(4) : '0.0000'
-          const s6 = Number.isFinite(sum6) ? sum6.toFixed(4) : '0.0000'
+          const s4 = formatBomTraceDecimal(sum4, 6)
+          const s6 = formatBomTraceDecimal(sum6, 6)
           bomCostUsageCostText = `成本：${s4},${s6}`
         }
       }

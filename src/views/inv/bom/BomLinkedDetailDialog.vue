@@ -87,6 +87,8 @@
                         :precision="6"
                         :step="0.000001"
                         :controls="false"
+                        :formatter="formatBomNumberInput"
+                        :parser="parseBomNumberInput"
                         class="bom-parts-num"
                         @change="
                           () => {
@@ -106,6 +108,8 @@
                         :precision="2"
                         :step="0.1"
                         :controls="false"
+                        :formatter="formatBomNumberInput"
+                        :parser="parseBomNumberInput"
                         class="bom-parts-num"
                         @update:model-value="(v) => onLossPctChange(row, v)"
                       />
@@ -123,6 +127,8 @@
                         :precision="4"
                         :step="0.0001"
                         :controls="false"
+                        :formatter="formatBomNumberInput"
+                        :parser="parseBomNumberInput"
                         class="bom-parts-num"
                         @change="markPartsDirty"
                       />
@@ -165,6 +171,7 @@ import ErpPageDialog from '@/components/erp/ErpPageDialog.vue'
 import BomDetailBasicReadonly from './BomDetailBasicReadonly.vue'
 import MaterialSelector from '../../supply-chain/daily/purchase-quote/MaterialSelector.vue'
 import { useUiDensity } from '@/composables/useUiDensity'
+import { formatErpTrimDecimal } from '@/utils/erpNumberDisplay.js'
 
 defineOptions({ inheritAttrs: false })
 
@@ -284,7 +291,7 @@ function syncPartKcac06(row) {
 }
 
 function formatUsageTotal(row) {
-  return bomRound6(partUsageSum(row)).toFixed(6)
+  return formatBomDisplayNumber(bomRound6(partUsageSum(row)), 6)
 }
 
 function partCostSum(row) {
@@ -294,13 +301,27 @@ function partCostSum(row) {
 }
 
 function formatQtySumFooter(n) {
-  return bomRound6(n).toFixed(6)
+  return formatBomDisplayNumber(bomRound6(n), 6)
 }
 
 function formatMoney(n) {
-  const x = Number(n)
-  if (!Number.isFinite(x)) return '0.00'
-  return x.toFixed(2)
+  return formatBomDisplayNumber(n, 6)
+}
+
+function formatBomDisplayNumber(value, maxDecimals = 6, empty = '0') {
+  return formatErpTrimDecimal(value, { maxDecimals, empty })
+}
+
+function formatBomNumberInput(value) {
+  if (value === null || value === undefined || value === '') return ''
+  return formatBomDisplayNumber(value, 6, '')
+}
+
+function parseBomNumberInput(value) {
+  const s = String(value ?? '').replace(/,/g, '').trim()
+  if (!s) return undefined
+  const n = Number(s)
+  return Number.isFinite(n) ? n : undefined
 }
 
 function lossPctDisplay(row) {

@@ -4,22 +4,39 @@
       v1.1.8：BOM 主档列表（UB_ERP_Bom_000），严格服务端分页；合并关键词搜索（kcaa01/kcaa02 全模糊 OR）。
       性能约定：关键词仅在后端「满 3 字」时生效（参数化 LIKE），降低大表扫描风险。
     -->
-    <el-card v-if="!isBomStandaloneWindow" shadow="never">
+    <div v-if="!isBomStandaloneWindow" class="bom-mode-bar">
+      <el-button
+        :type="pageMode === 'manage' ? 'primary' : 'default'"
+        plain
+        @click="switchBomPageMode('manage')"
+      >
+        管理BOM资料
+      </el-button>
+      <el-button
+        v-permission="'add'"
+        :type="pageMode === 'create' ? 'primary' : 'default'"
+        plain
+        @click="switchBomPageMode('create')"
+      >
+        BOM资料添加
+      </el-button>
+      <el-button
+        :type="pageMode === 'material-trace' ? 'primary' : 'default'"
+        plain
+        @click="switchBomPageMode('material-trace')"
+      >
+        转向物料查询
+      </el-button>
+    </div>
+
+    <el-card v-if="!isBomStandaloneWindow" v-show="pageMode === 'manage'" shadow="never">
       <template #header>
         <span class="page-title">{{ pageTitle }}</span>
       </template>
      
 
-      <div class="bom-toolbar">
-        <div class="bom-toolbar-row bom-toolbar-row--filters search-row erp-action-row">
-          <el-input
-            v-model="keyword"
-            placeholder="输入编码或名称关键词（支持全模糊）"
-            clearable
-            class="bom-keyword-input"
-            @keyup.enter="onSearch"
-          />
-          <el-button type="primary" @click="onSearch">查询</el-button>
+      <div class="bom-filter-bar">
+        <div class="bom-filter-row bom-filter-row--top">
           <el-select
             v-if="!showRecycle"
             v-model="searchQuery.bom_code_id"
@@ -45,16 +62,6 @@
             <el-option label="不包含裁片编码（排除 CUT- 开头）" :value="0" />
             <el-option label="仅裁片编码（仅 CUT- 开头）" :value="1" />
           </el-select>
-        </div>
-        <div class="bom-toolbar-row bom-toolbar-row--actions search-row erp-action-row">
-          <div class="audit-switch">
-            <span class="switch-label">回收站</span>
-            <el-switch v-model="showRecycle" @change="onRecycleChange" />
-          </div>
-          <div v-if="!showRecycle" class="audit-switch">
-            <span class="switch-label">显示未审核</span>
-            <el-switch v-model="showUnAudited" @change="onSearch" />
-          </div>
           <el-button
             v-if="showUnAudited && !showRecycle"
             v-permission="'audit'"
@@ -79,8 +86,32 @@
           >
             批量运算（当前页）
           </el-button>
-          <el-button @click="onReset">重置</el-button>
-          <el-button v-if="!showRecycle" v-permission="'add'" type="success" @click="openAddBom">新增 BOM</el-button>
+        </div>
+        <div class="bom-filter-row bom-filter-row--bottom">
+          <div class="bom-filter-field bom-filter-field--keyword">
+            <span class="bom-filter-label">查询内容</span>
+            <el-input
+              v-model="keyword"
+              placeholder="输入编码、名称、录入人或修改人关键词（支持全模糊）"
+              clearable
+              class="bom-keyword-input"
+              @keyup.enter="onSearch"
+            />
+          </div>
+          <el-button type="primary" size="small" @click="onSearch">查询</el-button>
+          <el-button size="small" @click="onReset">重置</el-button>
+          <div class="bom-filter-divider" aria-hidden="true" />
+          <div class="audit-switch">
+            <span class="switch-label">回收站</span>
+            <el-switch v-model="showRecycle" @change="onRecycleChange" />
+          </div>
+          <template v-if="!showRecycle">
+            <div class="bom-filter-divider" aria-hidden="true" />
+            <div class="audit-switch">
+              <span class="switch-label">显示未审核</span>
+              <el-switch v-model="showUnAudited" @change="onSearch" />
+            </div>
+          </template>
         </div>
       </div>
 
@@ -117,7 +148,7 @@
           :total="total"
           :current-page="page"
           :page-size="pageSize"
-          :page-sizes="[10, 20, 50, 100]"
+          :page-sizes="ERP_PAGE_SIZE_OPTIONS"
           @size-change="onPageSizeChange"
           @current-change="onPageChange"
         />
@@ -149,13 +180,9 @@
                   <template v-if="showRecycle">
                     <el-button
                       v-permission="'view'"
-                      tag="a"
-                      :href="bomStandaloneWindowHref('detail', row?.code)"
-                      target="_blank"
-                      rel="noopener"
                       type="info"
                       plain
-                      @click="guardBomStandaloneLink($event, 'detail', row)"
+                      @click="openDetail(row)"
                     >
                       查看详情
                     </el-button>
@@ -184,15 +211,11 @@
                     <el-button
                       v-if="showUnAudited"
                       v-permission="'edit'"
-                      tag="a"
-                      :href="bomStandaloneWindowHref('edit', row?.code)"
-                      target="_blank"
-                      rel="noopener"
                       :type="isBomListRowEdited(row) ? 'default' : 'primary'"
                       :plain="!isBomListRowEdited(row)"
                       :class="{ 'bom-list-btn--edited': isBomListRowEdited(row) }"
                       :disabled="rowIsAudited(row)"
-                      @click="guardBomStandaloneLink($event, 'edit', row)"
+                      @click="onEdit(row)"
                     >
                       {{ isBomListRowEdited(row) ? '已编辑' : '编辑' }}
                     </el-button>
@@ -208,13 +231,9 @@
                     </el-button>
                     <el-button
                       v-permission="'view'"
-                      tag="a"
-                      :href="bomStandaloneWindowHref('detail', row?.code)"
-                      target="_blank"
-                      rel="noopener"
                       type="info"
                       plain
-                      @click="guardBomStandaloneLink($event, 'detail', row)"
+                      @click="openDetail(row)"
                     >查看详情</el-button>
                     <el-button
                       v-if="!row.isNeedCalc"
@@ -463,7 +482,7 @@
               :total="total"
               :current-page="page"
               :page-size="pageSize"
-              :page-sizes="[10, 20, 50, 100]"
+              :page-sizes="ERP_PAGE_SIZE_OPTIONS"
               @size-change="onPageSizeChange"
               @current-change="onPageChange"
             />
@@ -472,13 +491,187 @@
       </el-skeleton>
     </el-card>
 
-    <ErpPageDialog
+    <section v-if="!isBomStandaloneWindow && pageMode === 'material-trace'" class="bom-material-trace-panel">
+      <div class="bom-page-panel-header">
+        <strong>转向物料查询</strong>
+        <div class="bom-page-panel-actions">
+          <el-button @click="switchBomPageMode('manage')">返回列表</el-button>
+        </div>
+      </div>
+      <div class="bom-trace-filter-bar">
+        <div class="bom-trace-filter-row">
+          <el-select
+            v-model="materialTraceFilters.bom_code_id"
+            placeholder="分类"
+            class="bom-trace-category-select"
+            clearable
+            filterable
+          >
+            <el-option label="全部分类" value="" />
+            <el-option
+              v-for="opt in bomCodeCategoryOptions"
+              :key="opt.id"
+              :label="opt.flag1 || `id=${opt.id}`"
+              :value="opt.id"
+            />
+          </el-select>
+          <el-date-picker
+            v-model="materialTraceFilters.startDate"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="开始日期"
+            class="bom-trace-date"
+          />
+          <el-date-picker
+            v-model="materialTraceFilters.endDate"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="结束日期"
+            class="bom-trace-date"
+          />
+        </div>
+        <div class="bom-trace-filter-row">
+          <el-input
+            v-model="materialTraceFilters.keyword"
+            class="bom-trace-keyword"
+            clearable
+            placeholder="编码/上级编码/名称/规格/客款号/备注/PI"
+            @keyup.enter="onMaterialTraceSearch"
+          />
+          <el-button type="primary" :loading="materialTraceLoading" @click="onMaterialTraceSearch">查询</el-button>
+          <el-button :loading="materialTraceLoading" @click="resetMaterialTrace">重置</el-button>
+          <el-checkbox v-model="materialTraceFilters.showEnglish">显示英文</el-checkbox>
+        </div>
+      </div>
+      <ErpTableViewportHScroll>
+        <el-table
+          ref="materialTraceTableRef"
+          v-loading="materialTraceLoading"
+          :data="materialTraceRows"
+          border
+          stripe
+          class="erp-list-table bom-trace-table"
+          row-key="id"
+          :empty-text="materialTraceLoading ? '加载中...' : (materialTraceEverQueried ? '暂无数据' : '请输入关键字后点「查询」')"
+          @expand-change="onMaterialTraceExpandChange"
+        >
+          <el-table-column type="expand" width="46" fixed="left">
+            <template #default="{ row }">
+              <div v-loading="row._usageLoading" class="bom-trace-expand">
+                <el-alert v-if="row._usageError" :title="row._usageError" type="error" show-icon class="bom-trace-expand-alert" />
+                <template v-else>
+                  <div class="bom-trace-expand-title">对应成品</div>
+                  <el-table :data="row._usageProducts || []" border size="small" class="bom-trace-expand-table">
+                    <el-table-column label="操作" width="70" align="center">
+                      <template #default="{ row: product }">
+                        <el-button link type="primary" @click="openBomTraceSource(product)">查看</el-button>
+                      </template>
+                    </el-table-column>
+                    <el-table-column prop="productCode" label="对应款号" width="160" show-overflow-tooltip />
+                    <el-table-column prop="customerStyle" label="客款号" width="120" show-overflow-tooltip />
+                    <el-table-column prop="kcaa01" label="编码" width="170" show-overflow-tooltip />
+                    <el-table-column prop="kcaa02" label="名称" width="100" show-overflow-tooltip />
+                    <el-table-column prop="kcaa10" label="组别" width="80" show-overflow-tooltip />
+                    <el-table-column label="用量" width="90" align="right">
+                      <template #default="{ row: product }">{{ formatBomDisplayNumber(product.usage, 6) }}</template>
+                    </el-table-column>
+                  </el-table>
+                  <div class="bom-trace-expand-title bom-trace-expand-title--pi">PI明细</div>
+                  <el-table :data="row._usagePis || []" border size="small" class="bom-trace-expand-table">
+                    <el-table-column prop="piNo" label="对应PI号" width="120" show-overflow-tooltip />
+                    <el-table-column prop="poNo" label="PO号" width="120" show-overflow-tooltip />
+                    <el-table-column prop="salesDate" label="PI销售时间" width="120" />
+                    <el-table-column label="销售数量" width="100" align="right">
+                      <template #default="{ row: pi }">{{ formatBomDisplayNumber(pi.salesQty, 6) }}</template>
+                    </el-table-column>
+                    <el-table-column prop="piCustomerStyle" label="PI客款号" width="120" show-overflow-tooltip />
+                    <el-table-column label="计价用量合计" width="120" align="right">
+                      <template #default="{ row: pi }">{{ formatBomDisplayNumber(pi.pricedUsageTotal, 6) }}</template>
+                    </el-table-column>
+                  </el-table>
+                </template>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="76" align="center" fixed="left">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="openBomTraceSource(row)">查看</el-button>
+            </template>
+          </el-table-column>
+          <el-table-column label="导入/更新时间" width="170" show-overflow-tooltip>
+            <template #default="{ row }">
+              <div class="bom-list-datetime">
+                <div>导入：{{ listCell(row.addtime) }}</div>
+                <div>更新：{{ listCell(row.edittime) }}</div>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column prop="kcac01" label="上级编码" min-width="180" show-overflow-tooltip />
+          <el-table-column prop="kcaa01" label="编码" min-width="180" fixed="left" show-overflow-tooltip />
+          <el-table-column prop="kcaa02" label="名称" min-width="160" show-overflow-tooltip />
+          <el-table-column v-if="materialTraceFilters.showEnglish" prop="kcaa02_en" label="英文名" min-width="160" show-overflow-tooltip />
+          <el-table-column prop="kpname" label="开票名" min-width="140" show-overflow-tooltip />
+          <el-table-column prop="kcaa03" label="规格" min-width="160" show-overflow-tooltip />
+          <el-table-column prop="kcaa04" label="单位" width="70" show-overflow-tooltip />
+          <el-table-column prop="categoryName" label="分类名" min-width="110" show-overflow-tooltip />
+          <el-table-column prop="kcaa06" label="客户款号" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="kcaa09" label="工厂款号" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="kcaa10" label="组别" width="86" show-overflow-tooltip />
+          <el-table-column prop="colorName" label="颜色名" min-width="110" show-overflow-tooltip />
+          <el-table-column prop="purchaseLabel" label="采购" width="58" align="center" />
+          <el-table-column prop="subcontractLabel" label="外协" width="58" align="center" />
+          <el-table-column prop="selfProducedLabel" label="自产" width="58" align="center" />
+          <el-table-column prop="workshop" label="生产车间" min-width="110" show-overflow-tooltip />
+          <el-table-column label="报价损耗" width="92" align="right">
+            <template #default="{ row }">{{ formatBomDisplayNumber(row.kcaa32, 6) }}</template>
+          </el-table-column>
+          <el-table-column label="采购损耗" width="92" align="right">
+            <template #default="{ row }">{{ formatBomDisplayNumber(row.kcaa33, 6) }}</template>
+          </el-table-column>
+          <el-table-column prop="quoteCurrencyName" label="报价币别" width="96" show-overflow-tooltip />
+          <el-table-column prop="purchaseCurrencyName" label="采购币别" width="96" show-overflow-tooltip />
+          <el-table-column prop="location" label="产地" width="86" show-overflow-tooltip />
+          <el-table-column label="销售价格" width="96" align="right">
+            <template #default="{ row }">{{ formatBomDisplayNumber(row.sale_price, 6) }}</template>
+          </el-table-column>
+          <el-table-column label="成本价格" width="96" align="right">
+            <template #default="{ row }">{{ formatBomDisplayNumber(row.cost_price, 6) }}</template>
+          </el-table-column>
+          <el-table-column prop="customerSupplyLabel" label="客户供应" width="90" align="center" />
+          <el-table-column prop="Customer_Name" label="客户名称" min-width="130" show-overflow-tooltip />
+          <el-table-column prop="remark" label="备注" min-width="160" show-overflow-tooltip />
+        </el-table>
+      </ErpTableViewportHScroll>
+      <div class="pagination-row pagination-row--bottom">
+        <el-pagination
+          v-model:current-page="materialTracePage.page"
+          v-model:page-size="materialTracePage.pageSize"
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="materialTracePage.total"
+          :page-sizes="ERP_PAGE_SIZE_OPTIONS"
+          @size-change="loadMaterialTraceList"
+          @current-change="loadMaterialTraceList"
+        />
+      </div>
+    </section>
+
+    <component
+      :is="isBomStandaloneWindow ? ErpPageDialog : 'section'"
+      v-show="isBomStandaloneWindow || pageMode === 'detail'"
       v-model="detailVisible"
       :title="detailDialogTitle"
       :modal="!isBomStandaloneWindow"
       :dialog-class="detailDialogClass"
+      class="bom-page-panel bom-detail-page-panel"
       @closed="onDetailClosed"
     >
+      <div v-if="!isBomStandaloneWindow" class="bom-page-panel-header">
+        <strong>{{ detailDialogTitle }}</strong>
+        <div class="bom-page-panel-actions">
+          <el-button @click="switchBomPageMode('manage')">返回列表</el-button>
+        </div>
+      </div>
       <el-skeleton :loading="detailLoading" animated :rows="10">
         <template #default>
           <el-alert v-if="detailError" :title="detailError" type="error" show-icon class="bom-detail-alert" />
@@ -486,7 +679,28 @@
             <el-tabs v-model="detailActiveTab" class="bom-detail-tabs">
               <el-tab-pane label="基础资料" name="basic">
                 <div v-loading="detailBasicLoading" class="bom-detail-body erp-detail-form-surface">
-                  <BomDetailBasicReadonly :basic="bomBasic" />
+                  <BomBasicForm
+                    v-if="detailBasicForm"
+                    :form="detailBasicForm"
+                    readonly
+                    :currency-dropdown-options="detailCurrencyDropdownOptions"
+                    :fetch-material-suggest="fetchMaterialSuggest"
+                    :fetch-color-suggest="fetchColorSuggest"
+                    :fetch-unit-suggest="fetchUnitSuggest"
+                    :fetch-supplier-suggest="fetchSupplierSuggest"
+                    :fetch-workshop-suggest="fetchWorkshopSuggest"
+                    :on-pick-material="noopBomBasicPicker"
+                    :on-pick-color="noopBomBasicPicker"
+                    :on-pick-unit-use="noopBomBasicPicker"
+                    :on-pick-unit-po="noopBomBasicPicker"
+                    :on-pick-unit-qt="noopBomBasicPicker"
+                    :on-pick-supplier="noopBomBasicPicker"
+                    :on-pick-workshop="noopBomBasicPicker"
+                    :on-numeric-input="noopBomBasicPicker"
+                    :on-kcaa01-keydown="noopBomBasicPicker"
+                    :on-kcaa01-paste="noopBomBasicPicker"
+                    :on-kcaa01-blur="noopBomBasicPicker"
+                  />
                 </div>
               </el-tab-pane>
               <el-tab-pane label="配件明细" name="parts" :disabled="!bomBasic">
@@ -606,6 +820,8 @@
                           :precision="6"
                           :step="0.000001"
                           :controls="false"
+                          :formatter="formatBomNumberInput"
+                          :parser="parseBomNumberInput"
                           class="bom-parts-num"
                           @change="
                             () => {
@@ -625,6 +841,8 @@
                           :precision="2"
                           :step="0.1"
                           :controls="false"
+                          :formatter="formatBomNumberInput"
+                          :parser="parseBomNumberInput"
                           class="bom-parts-num"
                           @update:model-value="(v) => onLossPctChange(row, v)"
                         />
@@ -643,6 +861,8 @@
                           :precision="4"
                           :step="0.0001"
                           :controls="false"
+                          :formatter="formatBomNumberInput"
+                          :parser="parseBomNumberInput"
                           class="bom-parts-num"
                           @change="markPartsSessionDirty"
                         />
@@ -867,7 +1087,7 @@
           </template>
         </template>
       </el-skeleton>
-    </ErpPageDialog>
+    </component>
 
     <section class="bom-cost-usage-print-document" aria-hidden="true">
       <p class="bom-cost-usage-print-time-print">打印时间：{{ bomCostUsagePrintTimestamp }}</p>
@@ -920,7 +1140,9 @@
     />
 
     <!-- BOM 主档新增/编辑（UB_ERP_Bom_000） -->
-    <el-dialog
+    <component
+      :is="isBomStandaloneWindow ? 'el-dialog' : 'section'"
+      v-show="isBomStandaloneWindow || pageMode === 'create' || pageMode === 'edit'"
       v-model="editVisible"
       :title="editDialogTitle"
       width="96%"
@@ -929,9 +1151,26 @@
       destroy-on-close
       :close-on-click-modal="false"
       :close-on-press-escape="false"
-      :class="['bom-edit-dialog', 'erp-detail-form-context', { 'bom-edit-dialog--standalone': isBomStandaloneWindow }]"
+      :class="['bom-edit-dialog', 'erp-detail-form-context', 'bom-page-panel', { 'bom-edit-dialog--standalone': isBomStandaloneWindow }]"
       @closed="onEditClosed"
     >
+      <div v-if="!isBomStandaloneWindow" class="bom-page-panel-header">
+        <strong>{{ editDialogTitle }}</strong>
+        <div class="bom-page-panel-actions">
+          <el-button @click="closeEditWindowOrDialog">返回列表</el-button>
+          <el-button v-if="editMode === 'add'" @click="resetCurrentEditPanel">重置</el-button>
+          <el-button v-if="editActiveTab === 'main'" type="primary" :loading="editSaving" @click="submitBomEdit">保存主档</el-button>
+          <el-button
+            v-if="editActiveTab === 'parts'"
+            type="success"
+            :loading="editPartsSaving"
+            :disabled="!editBomSystemcode || editPartsReadOnly || editPartsLoading || editPartsSaving"
+            @click="saveEditBomParts"
+          >
+            保存配件明细
+          </el-button>
+        </div>
+      </div>
       <div
         class="bom-edit-body"
         :class="{ 'bom-edit-body--parts-tab': editActiveTab === 'parts' }"
@@ -951,311 +1190,26 @@
         <el-tabs v-model="editActiveTab" class="bom-edit-tabs">
           <el-tab-pane label="BOM基础资料" name="main">
             <div class="erp-detail-form-surface">
-            <el-form
-              ref="editFormRef"
-              class="erp-detail-form bom-edit-form"
-              :model="editForm"
-              label-width="112px"
-              size="default"
-              @submit.prevent
-            >
-          <div class="bom-section-title">系统</div>
-          <el-row :gutter="12" class="bom-edit-row-system">
-            <el-col :xs="24" :sm="15">
-              <el-form-item label="系统编码">
-                <el-input v-model="editForm.systemcode" disabled placeholder="保存后自动生成" />
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="9">
-              <el-form-item label="客供">
-                <div class="bom-edit-checkbox-cell">
-                  <el-checkbox v-model="editForm.customer_supply_bool">是</el-checkbox>
-                </div>
-              </el-form-item>
-            </el-col>
-          </el-row>
-          <div class="bom-section-title">基本资料</div>
-          <el-row :gutter="12">
-            <el-col :xs="24" :sm="8">
-              <el-form-item label="编码" required>
-                <el-input
-                  v-model="editForm.kcaa01"
-                  maxlength="300"
-                  show-word-limit
-                  placeholder="必填，不可含空格"
-                  @keydown="onKcaa01Keydown"
-                  @paste="onKcaa01Paste"
-                  @blur="onKcaa01Blur"
-                />
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="16">
-              <el-form-item label="名称" required>
-                <el-input v-model="editForm.kcaa02" maxlength="500" show-word-limit />
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="8">
-              <el-form-item label="开票名称">
-                <el-input v-model="editForm.kpname" maxlength="500" />
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="16">
-              <el-form-item label="英文名称">
-                <el-input v-model="editForm.kcaa02_en" maxlength="500" />
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="12">
-              <el-form-item label="分类" required>
-                <el-autocomplete
-                  v-model="editForm.kcaa05_display"
-                  :fetch-suggestions="fetchMaterialSuggest"
-                  clearable
-                  placeholder="必填，编码/名称检索"
-                  style="width: 100%"
-                  value-key="label"
-                  @select="onPickMaterial"
-                />
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="12">
-              <el-form-item label="规格">
-                <el-input v-model="editForm.kcaa03" maxlength="500" />
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="12">
-              <el-form-item label="组别">
-                <el-input v-model="editForm.kcaa10" maxlength="200" />
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="12">
-              <el-form-item label="颜色">
-                <el-autocomplete
-                  v-model="editForm.kcaa11_display"
-                  :fetch-suggestions="fetchColorSuggest"
-                  clearable
-                  placeholder="编码/名称检索"
-                  style="width: 100%"
-                  value-key="label"
-                  @select="onPickColor"
-                />
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="12">
-              <el-form-item label="产地">
-                <el-select v-model="editForm.location" placeholder="请选择" style="width: 100%">
-                  <el-option label="国内" value="国内" />
-                  <el-option label="进口" value="进口" />
-                </el-select>
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="12">
-              <el-form-item label="客户款号">
-                <el-input v-model="editForm.kcaa06" maxlength="300" />
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="12">
-              <el-form-item label="工厂款号">
-                <el-input v-model="editForm.kcaa09" maxlength="300" />
-              </el-form-item>
-            </el-col>
-          </el-row>
-
-          <div class="bom-section-title">单位与损耗</div>
-          <!-- 布局参考：第 1 行使用单位+小数；第 2、3 行各为三列「单位 | 转换方式 | 转换率」 -->
-          <div class="bom-unit-loss-block">
-            <el-row :gutter="12">
-              <el-col :xs="24" :sm="12">
-                <el-form-item label="使用单位" required>
-                  <el-autocomplete
-                    v-model="editForm.kcaa04"
-                    :fetch-suggestions="fetchUnitSuggest"
-                    clearable
-                    placeholder="必填"
-                    style="width: 100%"
-                    value-key="value"
-                    @select="onPickUnitUse"
-                  />
-                </el-form-item>
-              </el-col>
-              <el-col :xs="24" :sm="12">
-                <el-form-item label="小数点配置">
-                  <el-select v-model="editForm.decimal" placeholder="位数" style="width: 100%">
-                    <el-option v-for="n in 6" :key="n" :label="`${n} 位`" :value="String(n)" />
-                  </el-select>
-                </el-form-item>
-              </el-col>
-            </el-row>
-            <el-row :gutter="12">
-              <el-col :xs="24" :sm="8">
-                <el-form-item label="采购单位" required>
-                  <el-autocomplete
-                    v-model="editForm.kcaa25"
-                    :fetch-suggestions="fetchUnitSuggest"
-                    clearable
-                    placeholder="必填"
-                    style="width: 100%"
-                    value-key="value"
-                    @select="onPickUnitPo"
-                  />
-                </el-form-item>
-              </el-col>
-              <el-col :xs="24" :sm="8">
-                <el-form-item label="转换方式">
-                  <el-select v-model="editForm.kcaa27" style="width: 100%">
-                    <el-option label="采购->使用" :value="0" />
-                    <el-option label="使用->采购" :value="1" />
-                  </el-select>
-                </el-form-item>
-              </el-col>
-              <el-col :xs="24" :sm="8">
-                <el-form-item label="转换率">
-                  <el-input v-model="editForm.kcaa26" placeholder="填写使用单位与采购单位后自动换算" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-            <el-row :gutter="12">
-              <el-col :xs="24" :sm="8">
-                <el-form-item label="报价单位">
-                  <el-autocomplete
-                    v-model="editForm.kcaa29"
-                    :fetch-suggestions="fetchUnitSuggest"
-                    clearable
-                    placeholder="单位名称"
-                    style="width: 100%"
-                    value-key="value"
-                    @select="onPickUnitQt"
-                  />
-                </el-form-item>
-              </el-col>
-              <el-col :xs="24" :sm="8">
-                <el-form-item label="转换方式">
-                  <el-select v-model="editForm.kcaa31" style="width: 100%">
-                    <el-option label="报价->使用" :value="0" />
-                    <el-option label="使用->报价" :value="1" />
-                  </el-select>
-                </el-form-item>
-              </el-col>
-              <el-col :xs="24" :sm="8">
-                <el-form-item label="转换率">
-                  <el-input v-model="editForm.kcaa30" placeholder="填写使用单位与报价单位后自动换算" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-            <el-row :gutter="12">
-              <el-col :xs="24" :sm="12">
-                <el-form-item label="报价损耗">
-                  <el-input v-model="editForm.kcaa32" @input="onNumericInput($event, 'kcaa32')" />
-                </el-form-item>
-              </el-col>
-              <el-col :xs="24" :sm="12">
-                <el-form-item label="物料损耗">
-                  <el-input v-model="editForm.kcaa33" @input="onNumericInput($event, 'kcaa33')" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-          </div>
-
-          <div class="bom-section-title">价格与币别</div>
-          <el-row :gutter="12">
-            <el-col :xs="24" :sm="12">
-              <el-form-item label="BOM价格">
-                <el-input v-model="editForm.sale_price" @input="onNumericInput($event, 'sale_price')" />
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="12">
-              <el-form-item label="币别(报价)">
-                <el-select
-                  v-model="editForm.kcaa34"
-                  filterable
-                  clearable
-                  placeholder="请选择币别"
-                  style="width: 100%"
-                >
-                  <el-option
-                    v-for="(name, idx) in currencyDropdownOptions"
-                    :key="'c34-' + idx + '-' + name"
-                    :label="name"
-                    :value="name"
-                  />
-                </el-select>
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="12">
-              <el-form-item label="采购价格">
-                <el-input v-model="editForm.cost_price" @input="onNumericInput($event, 'cost_price')" />
-              </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="12">
-              <el-form-item label="币别(采购)">
-                <el-select
-                  v-model="editForm.kcaa35"
-                  filterable
-                  clearable
-                  placeholder="请选择币别"
-                  style="width: 100%"
-                >
-                  <el-option
-                    v-for="(name, idx) in currencyDropdownOptions"
-                    :key="'c35-' + idx + '-' + name"
-                    :label="name"
-                    :value="name"
-                  />
-                </el-select>
-              </el-form-item>
-            </el-col>
-            <el-col :span="24">
-              <el-form-item label="供应商">
-                <el-autocomplete
-                  v-model="editForm.supplier_display"
-                  :fetch-suggestions="fetchSupplierSuggest"
-                  clearable
-                  placeholder="编码/名称"
-                  style="width: 100%"
-                  value-key="label"
-                  @select="onPickSupplier"
-                />
-              </el-form-item>
-            </el-col>
-          </el-row>
-
-          <div class="bom-section-title">工作方式与车间</div>
-          <el-row :gutter="12">
-            <el-col :span="24">
-              <el-form-item label="工作方式">
-                <el-checkbox v-model="editForm.kcaa12_bool">采购</el-checkbox>
-                <el-checkbox v-model="editForm.kcaa13_bool">外协</el-checkbox>
-                <el-checkbox v-model="editForm.kcaa14_bool">自产</el-checkbox>
-              </el-form-item>
-            </el-col>
-            <el-col :span="24">
-              <el-form-item label="生产车间">
-                <el-autocomplete
-                  v-model="editForm.workshop_display"
-                  :fetch-suggestions="fetchWorkshopSuggest"
-                  clearable
-                  placeholder="编码/名称"
-                  style="width: 100%"
-                  value-key="label"
-                  @select="onPickWorkshop"
-                />
-              </el-form-item>
-            </el-col>
-          </el-row>
-
-          <div class="bom-section-title">其它</div>
-          <el-row :gutter="12">
-            <el-col :xs="24" :sm="12">
-              <el-form-item label="保税">
-                <el-switch v-model="editForm.sign_bool" active-text="保税" inactive-text="非保税" />
-              </el-form-item>
-            </el-col>
-            <el-col :span="24">
-              <el-form-item label="备注">
-                <el-input v-model="editForm.remark" type="textarea" :rows="3" maxlength="2000" show-word-limit />
-              </el-form-item>
-            </el-col>
-          </el-row>
-            </el-form>
+              <BomBasicForm
+                :form="editForm"
+                :currency-dropdown-options="currencyDropdownOptions"
+                :fetch-material-suggest="fetchMaterialSuggest"
+                :fetch-color-suggest="fetchColorSuggest"
+                :fetch-unit-suggest="fetchUnitSuggest"
+                :fetch-supplier-suggest="fetchSupplierSuggest"
+                :fetch-workshop-suggest="fetchWorkshopSuggest"
+                :on-pick-material="onPickMaterial"
+                :on-pick-color="onPickColor"
+                :on-pick-unit-use="onPickUnitUse"
+                :on-pick-unit-po="onPickUnitPo"
+                :on-pick-unit-qt="onPickUnitQt"
+                :on-pick-supplier="onPickSupplier"
+                :on-pick-workshop="onPickWorkshop"
+                :on-numeric-input="onNumericInput"
+                :on-kcaa01-keydown="onKcaa01Keydown"
+                :on-kcaa01-paste="onKcaa01Paste"
+                :on-kcaa01-blur="onKcaa01Blur"
+              />
             </div>
           </el-tab-pane>
 
@@ -1374,28 +1328,32 @@
                   <el-table-column prop="kcaa04" label="单位" width="72" show-overflow-tooltip />
                   <el-table-column label="单位用量" width="118">
                     <template #default="{ row }">
-                      <el-input-number
-                        v-model="row.kcac04"
-                        :disabled="editPartLineReadonly(row)"
-                        :min="0"
-                        :precision="6"
-                        :step="0.000001"
-                        :controls="false"
-                        class="bom-parts-num"
+                        <el-input-number
+                          v-model="row.kcac04"
+                          :disabled="editPartLineReadonly(row)"
+                          :min="0"
+                          :precision="6"
+                          :step="0.000001"
+                          :controls="false"
+                          :formatter="formatBomNumberInput"
+                          :parser="parseBomNumberInput"
+                          class="bom-parts-num"
                         @change="() => syncPartKcac06(row)"
                       />
                     </template>
                   </el-table-column>
                   <el-table-column label="损耗" width="88">
                     <template #default="{ row }">
-                      <el-input-number
-                        :model-value="lossPctDisplay(row)"
-                        :disabled="editPartLineReadonly(row)"
-                        :min="0"
-                        :precision="2"
-                        :step="0.1"
-                        :controls="false"
-                        class="bom-parts-num"
+                        <el-input-number
+                          :model-value="lossPctDisplay(row)"
+                          :disabled="editPartLineReadonly(row)"
+                          :min="0"
+                          :precision="2"
+                          :step="0.1"
+                          :controls="false"
+                          :formatter="formatBomNumberInput"
+                          :parser="parseBomNumberInput"
+                          class="bom-parts-num"
                         @update:model-value="(v) => onLossPctChange(row, v)"
                       />
                     </template>
@@ -1415,14 +1373,16 @@
                   </el-table-column>
                   <el-table-column label="单价" width="105">
                     <template #default="{ row }">
-                      <el-input-number
-                        v-model="row.cost_price"
-                        :disabled="editPartLineReadonly(row)"
-                        :min="0"
-                        :precision="4"
-                        :step="0.0001"
-                        :controls="false"
-                        class="bom-parts-num"
+                        <el-input-number
+                          v-model="row.cost_price"
+                          :disabled="editPartLineReadonly(row)"
+                          :min="0"
+                          :precision="4"
+                          :step="0.0001"
+                          :controls="false"
+                          :formatter="formatBomNumberInput"
+                          :parser="parseBomNumberInput"
+                          class="bom-parts-num"
                       />
                     </template>
                   </el-table-column>
@@ -1444,7 +1404,7 @@
           </el-tab-pane>
         </el-tabs>
       </div>
-      <template #footer>
+      <div v-if="isBomStandaloneWindow" class="bom-page-panel-footer bom-page-panel-footer--dialog">
         <el-button @click="closeEditWindowOrDialog">关闭</el-button>
         <el-button v-if="editActiveTab === 'main'" type="primary" :loading="editSaving" @click="submitBomEdit">保存主档</el-button>
         <el-button
@@ -1456,12 +1416,13 @@
         >
           保存配件明细
         </el-button>
-      </template>
-    </el-dialog>
+      </div>
+    </component>
   </div>
 </template>
 
 <script setup>
+import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import axios from 'axios'
 import { Check, Close } from '@element-plus/icons-vue'
@@ -1472,10 +1433,11 @@ import { useUiDensity } from '@/composables/useUiDensity'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
 import ErpPageDialog from '@/components/erp/ErpPageDialog.vue'
-import BomDetailBasicReadonly from './BomDetailBasicReadonly.vue'
+import BomBasicForm from './BomBasicForm.vue'
 import BomLinkedDetailDialog from './BomLinkedDetailDialog.vue'
 import ExcelJS from 'exceljs'
 import { aggregateBomCostUsageFlatForDisplay } from '@/utils/bomCostUsageAggregate.js'
+import { formatErpTrimDecimal } from '@/utils/erpNumberDisplay.js'
 
 const { detailTableSize } = useUiDensity()
 const route = useRoute()
@@ -1501,10 +1463,28 @@ const isBomStandaloneWindow = computed(() =>
   bomWindowMode.value === 'parts-edit' ||
   bomWindowMode.value === 'cost-print',
 )
+const pageMode = ref('manage')
 const loading = ref(false)
 const errorMessage = ref('')
 const listTableRef = ref(null)
 const tableList = ref([])
+const materialTraceTableRef = ref(null)
+const materialTraceLoading = ref(false)
+const materialTraceRows = ref([])
+const materialTraceFilters = reactive({
+  bom_code_id: '',
+  startDate: '',
+  endDate: '',
+  showEnglish: false,
+  keyword: '',
+})
+const materialTracePage = reactive({
+  page: 1,
+  pageSize: 10,
+  total: 0,
+})
+// 转向物料查询：进页面默认不加载，点「查询」后才置 true（大白话：先输关键字再查，避免一进来就全表扫）
+const materialTraceEverQueried = ref(false)
 
 watch([tableList, loading], async () => {
   if (loading.value) return
@@ -2409,6 +2389,22 @@ const currencyDropdownOptions = computed(() => {
   return [...set].sort((a, b) => a.localeCompare(b, 'zh-CN'))
 })
 
+const detailBasicForm = computed(() =>
+  bomBasic.value ? buildBomBasicFormFromBasic(bomBasic.value) : null,
+)
+
+const detailCurrencyDropdownOptions = computed(() => {
+  const set = new Set(currencyDropdownOptions.value.map((s) => String(s ?? '').trim()).filter(Boolean))
+  const f = detailBasicForm.value
+  const q = String(f?.kcaa34 ?? '').trim()
+  const p = String(f?.kcaa35 ?? '').trim()
+  if (q) set.add(q)
+  if (p) set.add(p)
+  return [...set].sort((a, b) => a.localeCompare(b, 'zh-CN'))
+})
+
+function noopBomBasicPicker() {}
+
 async function loadBomCurrencyNames() {
   try {
     const res = await axios.get('/api/inventory/bom/currency-options')
@@ -2432,50 +2428,60 @@ function resetEditForm() {
 }
 
 /** @param {Record<string, unknown>} b */
-function fillEditFormFromBasic(b) {
-  resetEditForm()
-  editForm.systemcode = String(b.systemcode ?? '')
-  editForm.kcaa01 = String(b.kcaa01 ?? '')
-  editForm.kcaa02 = String(b.kcaa02 ?? '')
-  editForm.kcaa02_en = String(b.kcaa02_en ?? '')
-  editForm.kpname = String(b.kpname ?? '')
-  editForm.kcaa03 = String(b.kcaa03 ?? '')
-  editForm.kcaa05 = String(b.kcaa05 ?? '')
+function buildBomBasicFormFromBasic(b) {
+  const f = createEmptyEditForm()
+  f.systemcode = String(b.systemcode ?? '')
+  f.kcaa01 = String(b.kcaa01 ?? '')
+  f.kcaa02 = String(b.kcaa02 ?? '')
+  f.kcaa02_en = String(b.kcaa02_en ?? '')
+  f.kpname = String(b.kpname ?? '')
+  f.kcaa03 = String(b.kcaa03 ?? '')
+  f.kcaa05 = String(b.kcaa05 ?? '')
   const cat = String(b.categoryName ?? '').trim()
-  editForm.kcaa05_display = editForm.kcaa05 ? (cat ? `${editForm.kcaa05},${cat}` : editForm.kcaa05) : ''
-  editForm.kcaa06 = String(b.kcaa06 ?? '')
-  editForm.kcaa09 = String(b.kcaa09 ?? '')
-  editForm.kcaa10 = String(b.kcaa10 ?? '')
-  editForm.kcaa11 = String(b.kcaa11 ?? '')
-  editForm.kcaa11_display = editForm.kcaa11
-  editForm.location = String(b.location ?? '').trim() || '国内'
-  editForm.kcaa04 = String(b.kcaa04 ?? '')
-  editForm.decimal = String(b.decimal ?? '2') || '2'
-  editForm.kcaa25 = String(b.kcaa25 ?? '')
-  editForm.kcaa29 = String(b.kcaa29 ?? '')
-  editForm.kcaa26 = String(b.kcaa26 ?? '')
-  editForm.kcaa30 = String(b.kcaa30 ?? '')
+  f.kcaa05_display = f.kcaa05 ? (cat ? `${f.kcaa05},${cat}` : f.kcaa05) : ''
+  f.kcaa06 = String(b.kcaa06 ?? '')
+  f.kcaa09 = String(b.kcaa09 ?? '')
+  f.kcaa10 = String(b.kcaa10 ?? '')
+  f.kcaa11 = String(b.kcaa11 ?? '')
+  f.kcaa11_display = f.kcaa11
+  f.location = String(b.location ?? '').trim() || '国内'
+  f.kcaa04 = String(b.kcaa04 ?? '')
+  f.decimal = String(b.decimal ?? '2') || '2'
+  f.kcaa25 = String(b.kcaa25 ?? '')
+  f.kcaa29 = String(b.kcaa29 ?? '')
+  f.kcaa26 = String(b.kcaa26 ?? '')
+  f.kcaa30 = String(b.kcaa30 ?? '')
   const k27 = Number(b.kcaa27)
-  editForm.kcaa27 = k27 === 1 ? 1 : 0
+  f.kcaa27 = k27 === 1 ? 1 : 0
   const k31 = Number(b.kcaa31)
-  editForm.kcaa31 = k31 === 1 ? 1 : 0
-  editForm.kcaa32 = String(b.kcaa32 ?? '')
-  editForm.kcaa33 = String(b.kcaa33 ?? '')
-  editForm.sale_price = String(b.sale_price ?? '')
-  editForm.kcaa34 = String(b.kcaa34 ?? '')
-  editForm.cost_price = String(b.cost_price ?? '')
-  editForm.kcaa35 = String(b.kcaa35 ?? '')
-  editForm.Customer_Name = String(b.Customer_Name ?? '')
-  editForm.supplier_display = String(b.supplier_display ?? '').trim() || editForm.Customer_Name
-  editForm.kcaa15 = String(b.kcaa15 ?? '')
-  editForm.workshop_display = String(b.workshop_display ?? '').trim()
-  editForm.remark = String(b.remark ?? '')
-  editForm.kcaa12_bool = !!b.kcaa12_checked
-  editForm.kcaa13_bool = !!b.kcaa13_checked
-  editForm.kcaa14_bool = b.kcaa14_checked !== false
-  editForm.customer_supply_bool = !!b.customer_supply_checked
+  f.kcaa31 = k31 === 1 ? 1 : 0
+  f.kcaa32 = String(b.kcaa32 ?? '')
+  f.kcaa33 = String(b.kcaa33 ?? '')
+  f.sale_price = String(b.sale_price ?? '')
+  f.kcaa34 = String(b.kcaa34 ?? '')
+  f.cost_price = String(b.cost_price ?? '')
+  f.kcaa35 = String(b.kcaa35 ?? '')
+  f.Customer_Name = String(b.Customer_Name ?? '')
+  f.supplier_display = String(b.supplier_display ?? '').trim() || f.Customer_Name
+  f.kcaa15 = String(b.kcaa15 ?? '')
+  f.workshop_display = String(b.workshop_display ?? '').trim()
+  f.remark = String(b.remark ?? '')
+  f.kcaa12_bool = !!b.kcaa12_checked
+  f.kcaa13_bool = !!b.kcaa13_checked
+  f.kcaa14_bool = b.kcaa14_checked !== false
+  f.customer_supply_bool = !!b.customer_supply_checked
   const sig = String(b.sign ?? '').trim()
-  editForm.sign_bool = sig === '1' || sig.toLowerCase() === 'y'
+  f.sign_bool = sig === '1' || sig.toLowerCase() === 'y'
+  return f
+}
+
+/** @param {Record<string, unknown>} b */
+function fillEditFormFromBasic(b) {
+  const f = buildBomBasicFormFromBasic(b)
+  resetEditForm()
+  for (const k of Object.keys(f)) {
+    editForm[k] = f[k]
+  }
   editMasterPass.value = String(b.pass ?? '').trim()
 }
 
@@ -2553,6 +2559,7 @@ function editPartsDiffersFromBaseline() {
 }
 
 function openAddBom() {
+  pageMode.value = 'create'
   editMode.value = 'add'
   editActiveTab.value = 'main'
   editMasterPass.value = '0'
@@ -2562,6 +2569,11 @@ function openAddBom() {
   editPartsError.value = ''
   resetEditForm()
   editVisible.value = true
+}
+
+function resetCurrentEditPanel() {
+  if (editMode.value !== 'add') return
+  openAddBom()
 }
 
 function onKcaa01Keydown(ev) {
@@ -2840,6 +2852,32 @@ function buildBomMasterPayload() {
   }
 }
 
+function extractBomColorSuffix(code) {
+  const s = String(code ?? '').trim()
+  const slashIdx = s.lastIndexOf('/')
+  if (slashIdx < 0 || slashIdx >= s.length - 1) return ''
+  const afterSlash = s.slice(slashIdx + 1).trim()
+  if (!afterSlash) return ''
+  return afterSlash.split('-')[0].trim()
+}
+
+async function confirmBomColorSuffixBeforeSave(payload) {
+  const suffix = extractBomColorSuffix(payload?.kcaa01)
+  const color = String(payload?.kcaa11 ?? '').trim()
+  if (!suffix || !color) return true
+  if (suffix.toUpperCase() === color.toUpperCase()) return true
+  try {
+    await ElMessageBox.confirm('颜色跟编码后缀不一致，是否继续？', '保存确认', {
+      type: 'warning',
+      confirmButtonText: '继续保存',
+      cancelButtonText: '取消',
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** 新增主档：优先 save-main；若后端未重启仍为旧路由则 404 回退 POST /api/inventory/bom */
 async function postBomMasterInsert(payload) {
   try {
@@ -2877,6 +2915,8 @@ async function submitBomEdit() {
   editSaving.value = true
   try {
     const payload = buildBomMasterPayload()
+    const allowSaveByColor = await confirmBomColorSuffixBeforeSave(payload)
+    if (!allowSaveByColor) return
     if (editMode.value === 'add') {
       const res = await postBomMasterInsert(payload)
       if (res.data?.code !== 200) {
@@ -2887,6 +2927,7 @@ async function submitBomEdit() {
       if (sc) {
         editForm.systemcode = sc
         editMode.value = 'edit'
+        pageMode.value = 'edit'
         editMasterPass.value = '0'
       }
       ElMessage.success(sc ? 'BOM 主资料保存成功' : '新增成功')
@@ -2909,6 +2950,8 @@ async function submitBomEdit() {
     ElMessage.success('保存成功')
     if (masterChanged) markBomListRowAsEdited(payload.systemcode)
     editVisible.value = false
+    pageMode.value = 'manage'
+    onEditClosed()
     await loadData()
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '请求失败'))
@@ -3009,7 +3052,7 @@ function syncPartKcac06(row) {
 
 /** 界面展示用量合计（kcac06） */
 function formatUsageTotal(row) {
-  return bomRound6(partUsageSum(row)).toFixed(6)
+  return formatBomDisplayNumber(bomRound6(partUsageSum(row)), 6)
 }
 
 /** 成本合计 = 用量合计(kcac06 规整后) * 单价 */
@@ -3037,30 +3080,36 @@ const partsSumCost = computed(() => {
 })
 
 function formatQty(n) {
-  const x = Number(n)
-  if (!Number.isFinite(x)) return '0.0000'
-  return x.toFixed(4)
+  return formatBomDisplayNumber(n, 4)
 }
 
 function formatLossRate(n) {
-  const x = Number(n)
-  if (!Number.isFinite(x) || x === 0) return '0'
-  const trimmed = x.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')
-  const [intPart, decPart = ''] = trimmed.split('.')
-  if (!decPart) return `${intPart}.00`
-  if (decPart.length === 1) return `${intPart}.${decPart}0`
-  return trimmed
+  return formatBomDisplayNumber(n, 6)
 }
 
 /** 底部「实际用量总和」等与 kcac06 精度一致 */
 function formatQtySumFooter(n) {
-  return bomRound6(n).toFixed(6)
+  return formatBomDisplayNumber(bomRound6(n), 6)
 }
 
 function formatMoney(n) {
-  const x = Number(n)
-  if (!Number.isFinite(x)) return '0.00'
-  return x.toFixed(2)
+  return formatBomDisplayNumber(n, 6)
+}
+
+function formatBomDisplayNumber(value, maxDecimals = 6, empty = '0') {
+  return formatErpTrimDecimal(value, { maxDecimals, empty })
+}
+
+function formatBomNumberInput(value) {
+  if (value === null || value === undefined || value === '') return ''
+  return formatBomDisplayNumber(value, 6, '')
+}
+
+function parseBomNumberInput(value) {
+  const s = String(value ?? '').replace(/,/g, '').trim()
+  if (!s) return undefined
+  const n = Number(s)
+  return Number.isFinite(n) ? n : undefined
 }
 
 /** 损耗率编辑：界面百分比 vs 库内小数 */
@@ -3619,6 +3668,42 @@ function closeEditWindowOrDialog() {
     return
   }
   editVisible.value = false
+  pageMode.value = 'manage'
+  onEditClosed()
+  void loadData()
+}
+
+function switchBomPageMode(mode) {
+  if (isBomStandaloneWindow.value) return
+  if (mode === 'create') {
+    openAddBom()
+    return
+  }
+  if (mode === 'manage') {
+    pageMode.value = 'manage'
+    if (detailVisible.value) {
+      detailVisible.value = false
+      onDetailClosed()
+    }
+    if (editVisible.value) {
+      editVisible.value = false
+      onEditClosed()
+    }
+    void loadData()
+    return
+  }
+  if (mode === 'material-trace') {
+    if (detailVisible.value) {
+      detailVisible.value = false
+      onDetailClosed()
+    }
+    if (editVisible.value) {
+      editVisible.value = false
+      onEditClosed()
+    }
+    pageMode.value = 'material-trace'
+    // 进「转向物料查询」默认不加载任何数据（避免一进来就对 200 万行主表全表扫）；由用户点查询触发
+  }
 }
 
 function onDetailClosed() {
@@ -3655,7 +3740,7 @@ function listNumericZeroBlank(v) {
   if (!s) return ''
   const n = Number(s)
   if (Number.isFinite(n) && n === 0) return ''
-  return s
+  return Number.isFinite(n) ? formatBomDisplayNumber(n, 6, '') : s
 }
 
 /** 主列表日期时间：空为空白 */
@@ -3769,6 +3854,104 @@ async function loadData() {
   }
 }
 
+function materialTraceDateParams() {
+  const startDate = String(materialTraceFilters.startDate ?? '').trim()
+  const endDate = String(materialTraceFilters.endDate ?? '').trim()
+  return {
+    ...(startDate ? { startDate } : {}),
+    ...(endDate ? { endDate } : {}),
+  }
+}
+
+async function loadMaterialTraceList(opts = {}) {
+  materialTraceLoading.value = true
+  materialTraceEverQueried.value = true
+  try {
+    const bomCodeId = Number(materialTraceFilters.bom_code_id)
+    const kw = opts.all ? '' : String(materialTraceFilters.keyword ?? '').trim()
+    const params = {
+      page: materialTracePage.page,
+      pageSize: materialTracePage.pageSize,
+      ...materialTraceDateParams(),
+      ...(Number.isFinite(bomCodeId) && bomCodeId > 0 ? { bom_code_id: bomCodeId } : {}),
+      ...(kw ? { keyword: kw } : {}),
+      ...(opts.all ? { all: '1' } : {}),
+    }
+    const res = await axios.get('/api/inv/bom/material-trace/list', { params })
+    const body = res.data
+    if (body?.code !== 200) throw new Error(body?.msg || '读取转向物料查询失败')
+    const data = body?.data ?? {}
+    materialTraceRows.value = (Array.isArray(data.list) ? data.list : []).map((row) => ({
+      ...row,
+      _usageLoaded: false,
+      _usageLoading: false,
+      _usageError: '',
+      _usageProducts: [],
+      _usagePis: [],
+    }))
+    materialTracePage.total = Number(data.total ?? 0)
+    await nextTick()
+    materialTraceTableRef.value?.doLayout?.()
+  } catch (e) {
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '读取转向物料查询失败'))
+    materialTraceRows.value = []
+    materialTracePage.total = 0
+  } finally {
+    materialTraceLoading.value = false
+  }
+}
+
+function onMaterialTraceSearch() {
+  materialTracePage.page = 1
+  loadMaterialTraceList()
+}
+
+function resetMaterialTrace() {
+  materialTraceFilters.bom_code_id = ''
+  materialTraceFilters.startDate = ''
+  materialTraceFilters.endDate = ''
+  materialTraceFilters.keyword = ''
+  materialTracePage.page = 1
+  materialTraceRows.value = []
+  materialTracePage.total = 0
+  materialTraceEverQueried.value = false
+}
+
+async function loadMaterialTraceUsage(row) {
+  const id = Number(row?.id)
+  if (!Number.isInteger(id) || id <= 0 || row._usageLoading || row._usageLoaded) return
+  row._usageLoading = true
+  row._usageError = ''
+  try {
+    const res = await axios.get(`/api/inv/bom/material-trace/${id}/usage`, {
+      params: materialTraceDateParams(),
+    })
+    const body = res.data
+    if (body?.code !== 200) throw new Error(body?.msg || '读取展开追溯失败')
+    row._usageProducts = Array.isArray(body?.data?.products) ? body.data.products : []
+    row._usagePis = Array.isArray(body?.data?.pis) ? body.data.pis : []
+    row._usageLoaded = true
+  } catch (e) {
+    row._usageError = String(e?.response?.data?.msg ?? e?.message ?? '读取展开追溯失败')
+  } finally {
+    row._usageLoading = false
+  }
+}
+
+function onMaterialTraceExpandChange(row, expandedRows) {
+  const isExpanded = Array.isArray(expandedRows) && expandedRows.some((r) => Number(r?.id) === Number(row?.id))
+  if (isExpanded) loadMaterialTraceUsage(row)
+}
+
+function openBomTraceSource(row) {
+  const code = String(row?.kcaa01 ?? row?.productCode ?? '').trim()
+  if (!code) {
+    ElMessage.warning('当前行缺少 BOM 编码，无法查看')
+    return
+  }
+  openDetail({ code })
+}
+
 async function onSearch() {
   page.value = 1
   const shouldResetOneShotFilters =
@@ -3852,7 +4035,7 @@ function openBomStandaloneWindow(mode, row) {
 }
 
 function openDetail(row) {
-  openBomStandaloneWindow('detail', row)
+  void loadDetailDialog(row)
 }
 
 async function loadDetailDialog(row) {
@@ -3863,6 +4046,7 @@ async function loadDetailDialog(row) {
   }
   detailTitleCode.value = code
   detailListRow.value = row
+  pageMode.value = 'detail'
   detailVisible.value = true
   detailLoading.value = true
   detailError.value = ''
@@ -4347,7 +4531,7 @@ function onEdit(row) {
     ElMessage.warning('该数据已审核，需要先反审后才能编辑。')
     return
   }
-  openBomStandaloneWindow('edit', row)
+  void loadEditDialog(row)
 }
 
 async function loadEditDialog(row) {
@@ -4361,6 +4545,7 @@ async function loadEditDialog(row) {
     return
   }
   editMode.value = 'edit'
+  pageMode.value = 'edit'
   editActiveTab.value = 'main'
   resetEditForm()
   editVisible.value = true
@@ -4370,11 +4555,13 @@ async function loadEditDialog(row) {
     if (res.data?.code !== 200 || !basic) {
       ElMessage.error(res.data?.msg || '加载主档失败')
       editVisible.value = false
+      pageMode.value = 'manage'
       return
     }
     if (rowIsAudited(basic)) {
       ElMessage.warning('该数据已审核，需要先反审后才能编辑。')
       editVisible.value = false
+      pageMode.value = 'manage'
       return
     }
     fillEditFormFromBasic(basic)
@@ -4383,6 +4570,7 @@ async function loadEditDialog(row) {
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '网络错误'))
     editVisible.value = false
+    pageMode.value = 'manage'
   }
 }
 
@@ -4395,6 +4583,7 @@ async function openCopyBom(row) {
   }
   const sc = String(row?.systemcode ?? '').trim()
   busyCopySystemcode.value = sc || code
+  pageMode.value = 'create'
   editMode.value = 'add'
   editActiveTab.value = 'main'
   editOpenedFromCopy.value = true
@@ -4410,6 +4599,7 @@ async function openCopyBom(row) {
     if (res.data?.code !== 200 || !basic) {
       ElMessage.error(res.data?.msg || '加载主档失败')
       editVisible.value = false
+      pageMode.value = 'manage'
       return
     }
     fillEditFormFromBasic(basic)
@@ -4419,6 +4609,7 @@ async function openCopyBom(row) {
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '网络错误'))
     editVisible.value = false
+    pageMode.value = 'manage'
   } finally {
     busyCopySystemcode.value = ''
   }
@@ -4477,28 +4668,60 @@ if (isBomStandaloneWindow.value) {
   margin: 0 0 12px;
   color: var(--el-text-color-secondary);
 }
-/* 工具条两行：筛选行 + 操作行；行间距见 --bom-toolbar-row-gap */
-.bom-toolbar {
-  --bom-toolbar-row-gap: 10px;
+.bom-mode-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+}
+.bom-filter-bar {
   display: flex;
   flex-direction: column;
-  gap: var(--bom-toolbar-row-gap);
+  gap: 10px;
   margin-bottom: 12px;
 }
-.bom-toolbar-row.search-row {
-  margin-bottom: 0;
+.bom-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.bom-filter-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.bom-filter-label {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+  white-space: nowrap;
 }
 .bom-keyword-input {
-  flex: 1;
-  min-width: 280px;
-  max-width: 520px;
+  flex: 0 0 420px;
+  width: 420px;
+  min-width: 420px;
+  max-width: 420px;
 }
 .bom-category-select {
-  width: 160px;
+  width: 180px;
   flex-shrink: 0;
 }
 .bom-cut-select {
   width: min(320px, 100%);
+  flex-shrink: 0;
+}
+.bom-filter-divider {
+  width: 1px;
+  height: 22px;
+  margin: 0 18px;
+  background: var(--el-border-color);
   flex-shrink: 0;
 }
 .audit-switch {
@@ -4557,6 +4780,97 @@ if (isBomStandaloneWindow.value) {
 }
 .bom-btn-batch-usage-calc {
   border-radius: 8px;
+}
+.bom-page-panel,
+.bom-material-trace-panel {
+  padding: 12px;
+  background: #fff;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+}
+.bom-page-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+.bom-page-panel-header strong {
+  font-size: 16px;
+  font-weight: 600;
+}
+.bom-page-panel-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.bom-page-panel-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+.bom-page-panel-footer--dialog {
+  border-top: 0;
+}
+.bom-placeholder {
+  min-height: 260px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--el-text-color-secondary);
+  border: 1px dashed var(--el-border-color);
+  border-radius: 4px;
+  background: #fafafa;
+}
+.bom-trace-filter-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.bom-trace-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.bom-trace-category-select {
+  width: 180px;
+}
+.bom-trace-date {
+  width: 150px;
+}
+.bom-trace-keyword {
+  width: 360px;
+}
+.bom-trace-table {
+  width: 100%;
+}
+.bom-trace-expand {
+  padding: 8px 10px 12px;
+  background: #fafafa;
+}
+.bom-trace-expand-alert {
+  margin-bottom: 8px;
+}
+.bom-trace-expand-title {
+  margin: 0 0 6px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+.bom-trace-expand-title--pi {
+  margin-top: 12px;
+}
+.bom-trace-expand-table {
+  width: auto;
+  background: #fff;
 }
 /* 列表「运算」列：方框徽章 + 图标（颜色与 element-override 语义色一致） */
 .bom-usage-calc-badge {
@@ -4817,6 +5131,11 @@ if (isBomStandaloneWindow.value) {
   overflow-y: auto;
   padding-right: 4px;
 }
+.bom-edit-dialog.bom-page-panel:not(.bom-edit-dialog--standalone) .bom-edit-body {
+  max-height: none;
+  overflow-y: visible;
+  padding-right: 0;
+}
 /** 配件明细 Tab：由表格内部滚动，避免外层与表体双滚动条 */
 .bom-edit-body--parts-tab {
   max-height: none;
@@ -4831,15 +5150,90 @@ if (isBomStandaloneWindow.value) {
 .bom-edit-tabs :deep(.el-tab-pane) {
   padding-top: 4px;
 }
-/* 新增/编辑弹窗：系统编码与客供同一行，复选框与输入框垂直对齐 */
-.bom-edit-row-system .bom-edit-checkbox-cell {
-  display: flex;
-  align-items: center;
-  min-height: 32px;
+.bom-basic-edit-form {
+  width: 100%;
 }
-/* 单位与损耗：多行分区，行间距略收紧以贴近参考稿 */
-.bom-unit-loss-block > .el-row:not(:last-child) {
-  margin-bottom: 4px;
+.bom-basic-layout {
+  --bom-basic-label-width: 86px;
+  --bom-basic-input-b: 220px;
+  --bom-basic-input-a: calc(var(--bom-basic-input-b) * 2);
+  --bom-basic-input-height: 40px;
+  --bom-basic-control-font-size: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1380px;
+  padding: 10px 0 18px;
+}
+.bom-basic-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 14px 40px;
+  width: 100%;
+}
+.bom-basic-field {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+.bom-basic-label {
+  flex: 0 0 var(--bom-basic-label-width);
+  min-height: var(--bom-basic-input-height);
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  font-size: 14px;
+  color: var(--el-text-color-primary);
+  white-space: nowrap;
+}
+.bom-basic-label--required {
+  color: #e60000;
+}
+.bom-basic-field :deep(.el-form-item) {
+  margin-bottom: 0;
+}
+.bom-basic-field :deep(.el-form-item__content) {
+  margin-left: 0 !important;
+  line-height: var(--bom-basic-input-height);
+}
+.bom-basic-field :deep(.el-input__wrapper),
+.bom-basic-field :deep(.el-select__wrapper),
+.bom-basic-field :deep(.el-textarea__inner) {
+  min-height: var(--bom-basic-input-height);
+}
+.bom-basic-field :deep(.el-input__inner),
+.bom-basic-field :deep(.el-select__placeholder),
+.bom-basic-field :deep(.el-textarea__inner) {
+  font-size: var(--bom-basic-control-font-size);
+}
+.bom-basic-control--a {
+  width: var(--bom-basic-input-a);
+}
+.bom-basic-control--b {
+  width: var(--bom-basic-input-b);
+}
+.bom-basic-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--bom-basic-input-height);
+}
+.bom-basic-buttons .el-button {
+  min-width: 72px;
+}
+@media (max-width: 720px) {
+  .bom-basic-layout {
+    --bom-basic-input-b: min(220px, calc(100vw - 150px));
+  }
+  .bom-basic-field {
+    width: 100%;
+  }
+  .bom-basic-control--a,
+  .bom-basic-control--b {
+    width: min(100%, calc(100vw - 150px));
+  }
 }
 </style>
 

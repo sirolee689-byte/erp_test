@@ -27,7 +27,7 @@
         :total="historyTotal"
         v-model:current-page="hiPage"
         v-model:page-size="hiPageSize"
-        :page-sizes="[10, 20, 50, 100]"
+        :page-sizes="ERP_PAGE_SIZE_OPTIONS"
         @current-change="loadHistory"
         @size-change="onHiPageSizeChange"
       />
@@ -74,7 +74,7 @@
         :total="historyTotal"
         v-model:current-page="hiPage"
         v-model:page-size="hiPageSize"
-        :page-sizes="[10, 20, 50, 100]"
+        :page-sizes="ERP_PAGE_SIZE_OPTIONS"
         @current-change="loadHistory"
         @size-change="onHiPageSizeChange"
       />
@@ -103,6 +103,7 @@
 </template>
 
 <script setup>
+import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'

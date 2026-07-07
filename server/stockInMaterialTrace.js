@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 import { sql } from './db.js'
 import { safeDecimalExpr } from './buyOrderSqlSafe.js'
 
@@ -41,7 +42,7 @@ function parseIntPositive(v, fallback) {
 export function parseStockInMaterialTraceQuery(query = {}) {
   return {
     page: parseIntPositive(query.page, 1),
-    pageSize: Math.min(100, parseIntPositive(query.pageSize, 10)),
+    pageSize: clampErpPageSize(query.pageSize, 10),
     keyword: text(query.keyword),
     all: ['1', 'true', 'yes'].includes(text(query.all).toLowerCase()),
   }

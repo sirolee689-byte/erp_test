@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 import { sql } from './db.js'
 import {
   BUY_KCAA_DECIMAL_FIELDS,
@@ -274,7 +275,7 @@ async function fetchBuyOrderRequisitionBatchAddLines(pool, opts = {}) {
   const hasPricePermission = opts.hasPricePermission !== false
   const page = Math.max(1, parsePositiveInt(opts?.page) || 1)
   const pageSizeRaw = parsePositiveInt(opts?.pageSize)
-  const pageSize = Math.min(100, Math.max(1, pageSizeRaw || 10))
+  const pageSize = clampErpPageSize(pageSizeRaw || 10, 10)
   const startRow = (page - 1) * pageSize + 1
   const endRow = page * pageSize
 
@@ -577,7 +578,7 @@ async function fetchBuyOrderPiBatchAddLines(pool, opts = {}) {
   const hasPricePermission = opts.hasPricePermission !== false
   const page = Math.max(1, parsePositiveInt(opts?.page) || 1)
   const pageSizeRaw = parsePositiveInt(opts?.pageSize)
-  const pageSize = Math.min(100, Math.max(1, pageSizeRaw || 10))
+  const pageSize = clampErpPageSize(pageSizeRaw || 10, 10)
   const startRow = (page - 1) * pageSize + 1
   const endRow = page * pageSize
   if (!piNo) return { ok: false, status: 400, msg: '订单采购批量添加必须先填写 PI 号' }

@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 import { sql } from './db.js'
 import {
   DISPATCH_ORDER_HEADER_TABLE,
@@ -126,7 +127,8 @@ export function registerDispatchOrderRoutes(app, deps) {
       const excludeOrderNo = String(req.query?.excludeOrderNo ?? '').trim()
       const keyword = String(req.query?.keyword ?? '').trim()
       const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
-      const pageSize = Math.min(100, Math.max(1, Number(req.query?.pageSize ?? (dispatchType === '2' ? 100 : 10)) || 10))
+      const defaultPageSize = dispatchType === '2' ? 100 : 10
+      const pageSize = clampErpPageSize(req.query?.pageSize, defaultPageSize)
       if (!pi) {
         res.status(400).json({ code: 400, msg: '请选择关联 PI', data: null })
         return

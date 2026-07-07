@@ -132,7 +132,7 @@
 
 2. **底部分页**：表格下方，类名 `pagination-row pagination-row--bottom`（或 `pager-row--bottom`）。
 
-3. 头/底绑定同一套 `page` / `pageSize` / `total` 与翻页事件；`layout="total, sizes, prev, pager, next, jumper"` + `background`。
+3. 头/底绑定同一套 `page` / `pageSize` / `total` 与翻页事件；`layout="total, sizes, prev, pager, next, jumper"` + `background`；`:page-sizes="ERP_PAGE_SIZE_OPTIONS"`（单源 `src/utils/erpPagination.js`：5～1000，各页默认条数仍各自 `ref`）。
 
 4. **左对齐**：勿在 scoped 写 `justify-content: flex-end`，使用 `erp-module-page.css` 全局规则。
 

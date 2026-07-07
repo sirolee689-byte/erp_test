@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * 成品出库（类型 6）关联销售订单选单。
  * 一行一 PI（销售订单主表），仅返回关联选择所需字段；有可出明细的订单用 EXISTS 过滤。
@@ -18,7 +19,7 @@ function text(v) {
 function parsePage(query = {}) {
   const page = Math.max(1, Number.parseInt(query.page, 10) || 1)
   const rawPageSize = Number.parseInt(query.pageSize, 10) || FINISHED_GOODS_SOURCE_DEFAULT_PAGE_SIZE
-  const pageSize = Math.min(200, Math.max(1, rawPageSize))
+  const pageSize = clampErpPageSize(rawPageSize, 10)
   return { page, pageSize, startRow: (page - 1) * pageSize + 1, endRow: page * pageSize }
 }
 

@@ -1,5 +1,7 @@
 <template>
   <div class="erp-module-page">
+    <el-tabs v-model="importPageTab" class="paper-import-tabs">
+      <el-tab-pane label="上传区" name="upload">
     <el-card shadow="never" class="block-card">
       <template #header>
         <span class="page-title">纸格资料导入</span>
@@ -48,17 +50,22 @@
             {{ parseColorCount }} 款颜色（fileId：{{ parseFileId || '—' }}）
           </template>
         </el-alert>
-        <el-button type="primary" @click="openParseResultDialog">查看解析结果</el-button>
+        <el-button type="primary" @click="scrollToParseResultPanel">定位到解析结果</el-button>
       </div>
     </el-card>
+      </el-tab-pane>
 
-    <ErpPageDialog
-      v-model="parseDialogVisible"
-      :title="parseDialogTitle"
-      dialog-class="paper-pattern-parse-dialog"
-      :destroy-on-close="false"
-    >
-      <div v-if="parseResult" class="parse-dialog-body">
+      <el-tab-pane label="纸格解析效果" name="result" :disabled="!parseResult">
+    <div v-if="parseResult" ref="parseResultPanelRef" class="parse-result-panel">
+      <el-card shadow="never" class="block-card parse-result-card">
+        <template #header>
+          <div class="parse-result-head">
+            <span class="page-title">{{ parseResultTitle }}</span>
+            <el-button plain @click="scrollToTop">返回上传区</el-button>
+          </div>
+        </template>
+
+        <div class="parse-dialog-body">
         <el-alert
           v-if="commitRestoreNotice"
           class="commit-restore-notice"
@@ -152,7 +159,7 @@
         <div v-show="!hideBasicConfirmArea">
           <p class="confirm-desc">
             颜色编码自 Excel <strong>第 4 行 N 列</strong>起向右识别（如 N4、O4）。顶部<strong>导入类型</strong>、<strong>是否清仓单</strong>全部颜色共用；
-            每色两行展示配件编码（主 BOM）、配件名称、工厂款号（款色路径）等，可改<strong>颜色编码</strong>、<strong>客款号</strong>、<strong>组别</strong>。CUT 预览用下拉切换颜色；正式导入写入<strong>全部</strong>已识别颜色。
+            每色两行展示配件编码（主 BOM）、配件名称、工厂款号（款色路径）等，可改<strong>颜色编码</strong>、<strong>客款号</strong>、<strong>组别</strong>；颜色编码仅改确认区显示，不影响配件编码、工厂款号、CUT 预览、智能校验和正式导入编码。CUT 预览用下拉切换颜色；正式导入写入<strong>全部</strong>已识别颜色。
           </p>
           <div
             v-for="(block, blockIdx) in basicFormList"
@@ -191,7 +198,7 @@
                 <div class="form-field">
                   <div class="form-label">颜色编码</div>
                   <el-input
-                    :model-value="block.colorNo"
+                    :model-value="editableColorNoForBlock(block)"
                     clearable
                     class="field-control"
                     placeholder="如 G-TEST"
@@ -319,8 +326,11 @@
           <el-table-column prop="lineTotal" label="合计" min-width="100" align="right" />
           <el-table-column prop="matching" label="搭配" min-width="120" show-overflow-tooltip />
         </el-table>
-      </div>
-    </ErpPageDialog>
+        </div>
+      </el-card>
+    </div>
+      </el-tab-pane>
+    </el-tabs>
   </div>
 </template>
 
@@ -365,7 +375,6 @@ import {
   saveWorkbenchPayload,
 } from '@/utils/paperPatternSmartCheck.js'
 import { decodePaperPatternUploadFileName } from '@/utils/paperPatternUploadFileName.js'
-import ErpPageDialog from '@/components/erp/ErpPageDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -380,6 +389,8 @@ function downloadTemplate() {
 }
 
 const fileInputRef = ref(null)
+const parseResultPanelRef = ref(null)
+const importPageTab = ref('upload')
 const pickedFile = ref(null)
 const pickedLabel = ref('')
 const uploading = ref(false)
@@ -390,7 +401,7 @@ const importTypesLoading = ref(false)
 const importTypesError = ref('')
 
 /** 基础资料确认块（每色一块） */
-/** @type {import('vue').Ref<Array<{ importTypeFlag5: string, factoryStyleNo: string, groupLabel: string, customerStyleNo: string, colorNo: string, sampleName: string, bomName: string, bomFactoryStyleNo: string }>>} */
+/** @type {import('vue').Ref<Array<{ importTypeFlag5: string, factoryStyleNo: string, groupLabel: string, customerStyleNo: string, colorNo: string, editableColorNo: string, sampleName: string, bomName: string, bomFactoryStyleNo: string }>>} */
 const basicFormList = ref([])
 /** 全部颜色共用的导入类型 */
 const sharedImportTypeFlag5 = ref('')
@@ -405,10 +416,8 @@ const parseTreeLoading = ref(false)
 
 /** @type {import('vue').Ref<null | { mainBom: object, cuts: any[], materials: any[], accessories: any[], warnings: string[] }>} */
 const parseResult = ref(null)
-/** 解析结果大弹窗（上传并解析成功后展示全部确认/预览区） */
-const parseDialogVisible = ref(false)
-
-const parseDialogTitle = computed(() => {
+/** 解析结果当前页确认区（上传并解析成功后展示全部确认/预览区） */
+const parseResultTitle = computed(() => {
   const name = String(pickedLabel.value || '').trim()
   return name ? `纸格解析结果 — ${name}` : '纸格解析结果'
 })
@@ -429,12 +438,20 @@ const canClearParseData = computed(() => {
   return !!(sess?.parseResultSnapshot || String(sess?.fileId ?? '').trim())
 })
 
-function openParseResultDialog() {
+async function scrollToParseResultPanel() {
   if (!parseResult.value) {
     ElMessage.warning('暂无解析结果，请先上传并解析 Excel')
     return
   }
-  parseDialogVisible.value = true
+  importPageTab.value = 'result'
+  await nextTick()
+  parseResultPanelRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+}
+
+async function scrollToTop() {
+  importPageTab.value = 'upload'
+  await nextTick()
+  fileInputRef.value?.closest?.('.block-card')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
 }
 /** 折叠：隐藏各款颜色资料块 */
 const hideBasicConfirmArea = ref(false)
@@ -524,12 +541,14 @@ async function loadImportTypes() {
 }
 
 function createBasicFormBlockFromShared(shared, colorNo) {
+  const rawColorNo = String(colorNo ?? '').trim()
   const block = {
     importTypeFlag5: String(shared.importTypeFlag5 ?? '').trim(),
     factoryStyleNo: String(shared.factoryStyleNo ?? '').trim(),
     groupLabel: String(shared.groupLabel ?? '').trim(),
     customerStyleNo: String(shared.customerStyleNo ?? '').trim(),
-    colorNo: String(colorNo ?? '').trim(),
+    colorNo: rawColorNo,
+    editableColorNo: rawColorNo,
     sampleName: String(shared.sampleName ?? '').trim(),
     bomName: String(shared.bomName ?? '').trim(),
     bomFactoryStyleNo: String(shared.bomFactoryStyleNo ?? '').trim(),
@@ -567,21 +586,29 @@ function syncDerivedBomBasicFields(block, prevImportTypeFlag5 = '') {
 }
 
 function onColorNoUpdate(block, value) {
-  const oldFactoryStyle = String(block?.bomFactoryStyleNo ?? '').trim()
-  const oldDefault = factoryStyleKcaa03PathForBlock(block)
-  block.colorNo = String(value ?? '')
-  if (!oldFactoryStyle || oldFactoryStyle === oldDefault) {
-    block.bomFactoryStyleNo = factoryStyleKcaa03PathForBlock(block)
-  }
+  // 颜色编码允许在确认区改显示值，但 BOM/CUT/Material/Accessory 编码仍使用 Excel 原始颜色键 colorNo。
+  block.editableColorNo = String(value ?? '')
+}
+
+function editableColorNoForBlock(block) {
+  if (!block) return ''
+  return block.editableColorNo === undefined || block.editableColorNo === null
+    ? String(block.colorNo ?? '')
+    : String(block.editableColorNo ?? '')
 }
 
 function restoreBasicFormBlockFromSession(b) {
+  const rawColorNo = String(b?.colorNo ?? '').trim()
   const block = {
     importTypeFlag5: String(b?.importTypeFlag5 ?? '').trim(),
     factoryStyleNo: String(b?.factoryStyleNo ?? '').trim(),
     groupLabel: String(b?.groupLabel ?? '').trim(),
     customerStyleNo: String(b?.customerStyleNo ?? '').trim(),
-    colorNo: String(b?.colorNo ?? '').trim(),
+    colorNo: rawColorNo,
+    editableColorNo:
+      b?.editableColorNo === undefined || b?.editableColorNo === null
+        ? rawColorNo
+        : String(b.editableColorNo ?? ''),
     sampleName: String(b?.sampleName ?? '').trim(),
     bomName: String(b?.bomName ?? '').trim(),
     bomFactoryStyleNo: String(b?.bomFactoryStyleNo ?? '').trim(),
@@ -998,7 +1025,7 @@ function applyParseTreeResponse(data) {
   hydrateBasicFormListFromParseMain(data.mainBom)
   restoreImportPageSessionOverlay()
   persistImportPageSession()
-  openParseResultDialog()
+  scrollToParseResultPanel()
 }
 
 /** 从 session 快照恢复解析树（不请求 parse-tree） */
@@ -1034,7 +1061,7 @@ async function restoreImportUiFromSessionSnapshot(sess) {
     commitRestoreNotice.value =
       '正式导入可能仍在后台进行，界面已从缓存恢复；请勿重复点击「正式导入」，完成后请查看提示或刷新列表。'
   }
-  openParseResultDialog()
+  scrollToParseResultPanel()
   return true
 }
 
@@ -1103,7 +1130,6 @@ async function loadParseTreeFromFileId(fileId, opts = {}) {
       if (!(preserveExisting && hadParse)) {
         errorMessage.value = String(data?.message || '解析失败')
         parseResult.value = null
-        parseDialogVisible.value = false
       }
       return false
     }
@@ -1118,7 +1144,6 @@ async function loadParseTreeFromFileId(fileId, opts = {}) {
     if (!(preserveExisting && hadParse)) {
       errorMessage.value = String(msg)
       parseResult.value = null
-      parseDialogVisible.value = false
     }
     return false
   } finally {
@@ -1148,7 +1173,7 @@ async function tryRestoreParseFromRouteOrSession() {
     restoreImportPageSessionOverlay()
     const merged = await reconcileParseResultAfterSmartCheckReturn()
     refreshSmartCheckStateFromSession()
-    if (merged) openParseResultDialog()
+    if (merged) scrollToParseResultPanel()
     return
   }
 
@@ -1405,19 +1430,21 @@ async function onCommitBom000() {
     commitSuccessPayload = data.data || {}
   } catch (e) {
     const d = e?.response?.data
-    if (d?.code === 'MAIN_BOM_EXISTS') {
+    if (d?.code === 'MAIN_BOM_EXISTS' || d?.code === 'CUT_EXISTS') {
       const codeHint = String(d?.data?.mainBomCode ?? liveMainBomCodeForCommit.value ?? '').trim()
-      try {
-        const codes = Array.isArray(d?.data?.mainBomCodes) ? d.data.mainBomCodes : [codeHint]
-        const hint =
-          codes.length > 1 ? `${codes.join('、')}` : codeHint
-        await ElMessageBox.confirm(
-          `UB_ERP_Bom_000 在册记录中已存在主 BOM：${hint}。是否覆盖？\n将先物理删除对应主 BOM、CUT 及 UB_ERP_Bom_parts，再重新导入（单事务，失败全部回滚）。`,
-          '主 BOM 已存在',
-          { type: 'warning', confirmButtonText: '覆盖并导入', cancelButtonText: '取消' },
-        )
-      } catch {
-        return
+      if (d?.code === 'MAIN_BOM_EXISTS') {
+        try {
+          const codes = Array.isArray(d?.data?.mainBomCodes) ? d.data.mainBomCodes : [codeHint]
+          const hint =
+            codes.length > 0 ? `${codes.join('、')}` : codeHint
+          await ElMessageBox.confirm(
+            `UB_ERP_Bom_000 在册记录中已存在主 BOM：${hint}。是否覆盖？\n将先物理删除对应主 BOM、CUT 及 UB_ERP_Bom_parts，再重新导入（单事务，失败全部回滚）。`,
+            '主 BOM 已存在',
+            { type: 'warning', confirmButtonText: '覆盖并导入', cancelButtonText: '取消' },
+          )
+        } catch {
+          return
+        }
       }
       try {
         const res2 = await postCommit(true)
@@ -1470,9 +1497,9 @@ function onFileChange(ev) {
 
 /** 清空解析相关界面与浏览器缓存（不含已选文件；供重新上传前复用） */
 function resetParseStateOnly() {
+  importPageTab.value = 'upload'
   parseResult.value = null
   parseFileId.value = ''
-  parseDialogVisible.value = false
   errorMessage.value = ''
   commitRestoreNotice.value = ''
   basicFormList.value = []
@@ -1540,7 +1567,7 @@ async function onUploadParse() {
     const ok = await loadParseTreeFromFileId(fid)
     if (!ok) return
     persistImportPageSession()
-    openParseResultDialog()
+    scrollToParseResultPanel()
   } catch (e) {
     const msg =
       e?.response?.data?.message ||
@@ -1560,6 +1587,21 @@ async function onUploadParse() {
 }
 .block-card {
   max-width: 1100px;
+}
+.paper-import-tabs {
+  width: 100%;
+}
+.parse-result-panel {
+  margin-top: 0;
+}
+.parse-result-card {
+  max-width: none;
+}
+.parse-result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 .parse-summary-bar {
   display: flex;

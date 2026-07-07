@@ -212,7 +212,7 @@
       <el-pagination
         v-model:current-page="pager.page"
         v-model:page-size="pager.pageSize"
-        :page-sizes="[10, 20, 50, 100, 200]"
+        :page-sizes="ERP_PAGE_SIZE_OPTIONS"
         layout="total, sizes, prev, pager, next, jumper"
         :total="pager.total"
         class="pagination"
@@ -579,7 +579,7 @@
       <el-pagination
         v-model:current-page="purchaseSourceDialog.page"
         v-model:page-size="purchaseSourceDialog.pageSize"
-        :page-sizes="[10, 20, 50, 100, 200]"
+        :page-sizes="ERP_PAGE_SIZE_OPTIONS"
         layout="total, sizes, prev, pager, next, jumper"
         :total="purchaseSourceDialog.total"
         class="pagination"
@@ -649,7 +649,7 @@
       <el-pagination
         v-model:current-page="assistSourceDialog.page"
         v-model:page-size="assistSourceDialog.pageSize"
-        :page-sizes="[10, 20, 50, 100, 200]"
+        :page-sizes="ERP_PAGE_SIZE_OPTIONS"
         layout="total, sizes, prev, pager, next, jumper"
         :total="assistSourceDialog.total"
         class="pagination"
@@ -733,7 +733,7 @@
       <el-pagination
         v-model:current-page="productionDispatchSourceDialog.page"
         v-model:page-size="productionDispatchSourceDialog.pageSize"
-        :page-sizes="[5, 10, 25, 50, 100, 200]"
+        :page-sizes="ERP_PAGE_SIZE_OPTIONS"
         layout="total, sizes, prev, pager, next, jumper"
         :total="productionDispatchSourceDialog.total"
         class="pagination"
@@ -772,7 +772,7 @@
       <el-pagination
         v-model:current-page="finishedGoodsSourceDialog.page"
         v-model:page-size="finishedGoodsSourceDialog.pageSize"
-        :page-sizes="[10, 20, 50, 100, 200]"
+        :page-sizes="ERP_PAGE_SIZE_OPTIONS"
         layout="total, sizes, prev, pager, next, jumper"
         :total="finishedGoodsSourceDialog.total"
         class="pagination"
@@ -847,6 +847,7 @@
 </template>
 
 <script setup>
+import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'

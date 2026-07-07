@@ -78,7 +78,7 @@
         :total="overviewTotal"
         v-model:current-page="ovPage"
         v-model:page-size="ovPageSize"
-        :page-sizes="[10, 20, 50, 100]"
+        :page-sizes="ERP_PAGE_SIZE_OPTIONS"
         @current-change="loadOverview"
         @size-change="onOvPageSizeChange"
       />
@@ -136,7 +136,7 @@
         :total="overviewTotal"
         v-model:current-page="ovPage"
         v-model:page-size="ovPageSize"
-        :page-sizes="[10, 20, 50, 100]"
+        :page-sizes="ERP_PAGE_SIZE_OPTIONS"
         @current-change="loadOverview"
         @size-change="onOvPageSizeChange"
       />
@@ -204,6 +204,7 @@
 </template>
 
 <script setup>
+import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'

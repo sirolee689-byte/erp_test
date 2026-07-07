@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 import { sql } from './db.js'
 import {
   STOCK_IN_HEADER_TABLE,
@@ -163,7 +164,7 @@ export function __buildMaterialOptionsSqlForTest(options = {}) {
 function sourceOrderPageParams(query = {}) {
   const page = Math.max(1, Number.parseInt(query.page, 10) || 1)
   const rawPageSize = Number.parseInt(query.pageSize, 10) || 10
-  const pageSize = Math.min(100, Math.max(1, rawPageSize))
+  const pageSize = clampErpPageSize(rawPageSize, 10)
   return { page, pageSize, startRow: (page - 1) * pageSize + 1, endRow: page * pageSize }
 }
 
@@ -1373,7 +1374,7 @@ export function registerStockInRoutes(app, deps) {
       const requireKeyword = text(req.query?.requireKeyword) === '1'
       const page = Math.max(1, Number.parseInt(req.query?.page, 10) || 1)
       const rawPageSize = Number.parseInt(req.query?.pageSize, 10) || 100
-      const pageSize = Math.min(200, Math.max(1, rawPageSize))
+      const pageSize = clampErpPageSize(rawPageSize, 10)
       if (requireKeyword && !keyword) {
         return res.json({ code: 200, msg: 'success', data: { page, pageSize, total: 0, list: [] } })
       }

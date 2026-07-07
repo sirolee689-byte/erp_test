@@ -1,4 +1,5 @@
 import { safeDecimalExpr } from './buyOrderSqlSafe.js'
+import { clampErpPageSize } from './erpPagination.js'
 
 export const BUY_ORDER_HEADER_TABLE = 'UB_ERP_Buy_order'
 
@@ -10,7 +11,7 @@ function text(v) {
 
 export function parseBuyOrderListQuery(query = {}) {
   const page = Math.max(1, Number(query.page ?? 1) || 1)
-  const pageSize = Math.min(100, Math.max(1, Number(query.pageSize ?? 10) || 10))
+  const pageSize = clampErpPageSize(query.pageSize, 10)
   const recycledRaw = text(query.recycled).toLowerCase()
   const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
   return {

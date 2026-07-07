@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * Assist order list query helpers.
  * SQL Server 2008 R2 only: use ROW_NUMBER pagination, never OFFSET/FETCH.
@@ -10,7 +11,7 @@ const HEADER_FROM = `dbo.[${ASSIST_ORDER_HEADER_TABLE}]`
 export function parseAssistOrderListQuery(query) {
   const page = Math.max(1, Number(query?.page ?? 1) || 1)
   const pageSizeRaw = Number(query?.pageSize ?? 10) || 10
-  const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+  const pageSize = clampErpPageSize(pageSizeRaw, 10)
   const recycledRaw = String(query?.recycled ?? '').trim().toLowerCase()
   const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
   const showUnauditedRaw = String(query?.showUnaudited ?? '').trim().toLowerCase()

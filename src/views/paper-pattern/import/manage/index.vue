@@ -29,7 +29,7 @@
           v-model:current-page="page"
           v-model:page-size="pageSize"
           :total="total"
-          :page-sizes="[20, 50, 100, 200]"
+          :page-sizes="ERP_PAGE_SIZE_OPTIONS"
           layout="total, sizes, prev, pager, next, jumper"
           background
           @current-change="onPageChange"
@@ -71,7 +71,7 @@
                   v-model:current-page="page"
                   v-model:page-size="pageSize"
                   :total="total"
-                  :page-sizes="[20, 50, 100, 200]"
+                  :page-sizes="ERP_PAGE_SIZE_OPTIONS"
                   layout="total, sizes, prev, pager, next, jumper"
                   background
                   @current-change="onPageChange"
@@ -87,6 +87,7 @@
 </template>
 
 <script setup>
+import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, onMounted, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'

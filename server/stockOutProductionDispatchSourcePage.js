@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * 生产领料（出库类型 4）关联派工单选派弹窗 — 选主单（非明细选材）。
  * 主表 UB_ERP_Dispatch_order；全部显示时展开 UB_ERP_Dispatch_order_list（scak02=GUID）。
@@ -20,7 +21,7 @@ function text(v) {
 function parsePage(query = {}) {
   const page = Math.max(1, Number.parseInt(query.page, 10) || 1)
   const rawPageSize = Number.parseInt(query.pageSize, 10) || PRODUCTION_DISPATCH_SOURCE_DEFAULT_PAGE_SIZE
-  const pageSize = Math.min(200, Math.max(5, rawPageSize))
+  const pageSize = clampErpPageSize(rawPageSize, 5)
   return { page, pageSize, startRow: (page - 1) * pageSize + 1, endRow: page * pageSize }
 }
 

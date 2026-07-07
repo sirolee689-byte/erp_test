@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * 后端 API 服务入口
  * 目标：
@@ -279,7 +280,7 @@ app.get('/api/sys/logs', async (req, res) => {
     const page = Number(req.query?.page ?? 1)
     const pageSize = Number(req.query?.pageSize ?? 10)
     const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1
-    const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.floor(pageSize), 1000) : 10
+    const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? clampErpPageSize(pageSize, 10) : 10
     const startRow = (safePage - 1) * safePageSize + 1
     const endRow = safePage * safePageSize
 
@@ -370,7 +371,7 @@ app.get('/api/roles', async (req, res) => {
     const pageSize = Number(pageSizeRaw ?? 10)
     const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1
     const safePageSize =
-      Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.floor(pageSize), 200) : 10
+      Number.isFinite(pageSize) && pageSize > 0 ? clampErpPageSize(pageSize, 20) : 10
     const offset = (safePage - 1) * safePageSize
 
     const passRaw = req.query?.pass ?? req.query?.status
@@ -1210,7 +1211,7 @@ app.get('/api/users', async (req, res) => {
     // 关键：对分页参数做保护，避免出现 page=0 / pageSize=999999 之类的异常
     const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1
     const safePageSize =
-      Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.floor(pageSize), 200) : 10
+      Number.isFinite(pageSize) && pageSize > 0 ? clampErpPageSize(pageSize, 20) : 10
 
     // 关键：OFFSET 的含义是“跳过多少条”
     // 例子：第 1 页跳过 0 条；第 2 页跳过 10 条（假设 pageSize=10）
@@ -2528,7 +2529,7 @@ app.get('/api/hr/departments', async (req, res) => {
     const pageSize = Number(pageSizeRaw ?? 20)
     const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1
     const safePageSize =
-      Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.floor(pageSize), 200) : 20
+      Number.isFinite(pageSize) && pageSize > 0 ? clampErpPageSize(pageSize, 20) : 20
     const offset = (safePage - 1) * safePageSize
 
     const keywordRaw = String(req.query?.keyword ?? '').trim()
@@ -2561,7 +2562,7 @@ app.get('/api/hr/departments', async (req, res) => {
     const total = Number(totalResult.recordset?.[0]?.total ?? 0)
 
     const safeOffset = Math.max(0, Math.floor(Number(offset)) || 0)
-    const safeFetch = Math.max(1, Math.min(200, Math.floor(Number(safePageSize)) || 20))
+    const safeFetch = Math.max(1, Math.min(ERP_MAX_PAGE_SIZE, Math.floor(Number(safePageSize)) || 20))
 
     const listReq = pool.request()
     listReq.input('pass', sql.NVarChar(10), pass)
@@ -4189,7 +4190,7 @@ app.get('/api/hr/staff', async (req, res) => {
     const page = Number(pageRaw ?? 1)
     const pageSize = Number(pageSizeRaw ?? 20)
     const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1
-    const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.floor(pageSize), 200) : 20
+    const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? clampErpPageSize(pageSize, 20) : 20
     const offset = (safePage - 1) * safePageSize
 
     const nameRaw = String(req.query?.name ?? '').trim()
@@ -4257,7 +4258,7 @@ app.get('/api/hr/staff', async (req, res) => {
     const total = Number(totalResult.recordset?.[0]?.total ?? 0)
 
     const safeOffset = Math.max(0, Math.floor(Number(offset)) || 0)
-    const safeFetch = Math.max(1, Math.min(200, Math.floor(Number(safePageSize)) || 20))
+    const safeFetch = Math.max(1, Math.min(ERP_MAX_PAGE_SIZE, Math.floor(Number(safePageSize)) || 20))
 
     const listSelect = `
       SELECT
@@ -5286,7 +5287,7 @@ app.get('/api/hr/dormitory/rooms', async (req, res) => {
     const page = Number(pageRaw ?? 1)
     const pageSize = Number(pageSizeRaw ?? 20)
     const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1
-    const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.floor(pageSize), 200) : 20
+    const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? clampErpPageSize(pageSize, 20) : 20
     const offset = (safePage - 1) * safePageSize
 
     const passRaw = String(req.query?.pass ?? '1').trim()
@@ -6830,7 +6831,7 @@ app.get('/api/supply-chain/suppliers/list', async (req, res) => {
     const pool = await getPool()
     const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
     const pageSizeRaw = Number(req.query?.pageSize ?? 20) || 20
-    const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+    const pageSize = clampErpPageSize(pageSizeRaw, 10)
 
     const recycledRaw = String(req.query?.recycled ?? '').trim().toLowerCase()
     const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
@@ -7449,7 +7450,7 @@ app.get('/api/supply-chain/customers/list', async (req, res) => {
     const pool = await getPool()
     const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
     const pageSizeRaw = Number(req.query?.pageSize ?? 20) || 20
-    const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+    const pageSize = clampErpPageSize(pageSizeRaw, 10)
 
     const recycledRaw = String(req.query?.recycled ?? '').trim().toLowerCase()
     const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
@@ -8050,7 +8051,7 @@ app.get('/api/supply-chain/settlement-methods/list', async (req, res) => {
     const pool = await getPool()
     const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
     const pageSizeRaw = Number(req.query?.pageSize ?? 20) || 20
-    const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+    const pageSize = clampErpPageSize(pageSizeRaw, 10)
 
     const recycledRaw = String(req.query?.recycled ?? '').trim().toLowerCase()
     const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
@@ -8627,7 +8628,7 @@ app.get('/api/inventory/color-code/list', async (req, res) => {
     const pool = await getPool()
     const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
     const pageSizeRaw = Number(req.query?.pageSize ?? 20) || 20
-    const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+    const pageSize = clampErpPageSize(pageSizeRaw, 10)
 
     const recycledRaw = String(req.query?.recycled ?? '').trim().toLowerCase()
     const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
@@ -9094,7 +9095,7 @@ app.get('/api/inventory/units/list', async (req, res) => {
     const pool = await getPool()
     const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
     const pageSizeRaw = Number(req.query?.pageSize ?? 20) || 20
-    const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+    const pageSize = clampErpPageSize(pageSizeRaw, 10)
 
     const recycledRaw = String(req.query?.recycled ?? '').trim().toLowerCase()
     const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
@@ -9456,7 +9457,7 @@ app.get('/api/inventory/unit-conversion/list', async (req, res) => {
     const pool = await getPool()
     const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
     const pageSizeRaw = Number(req.query?.pageSize ?? 20) || 20
-    const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+    const pageSize = clampErpPageSize(pageSizeRaw, 10)
 
     const recycledRaw = String(req.query?.recycled ?? '').trim().toLowerCase()
     const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
@@ -9847,7 +9848,7 @@ app.get('/api/inventory/material-category/list', async (req, res) => {
     const pool = await getPool()
     const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
     const pageSizeRaw = Number(req.query?.pageSize ?? 20) || 20
-    const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+    const pageSize = clampErpPageSize(pageSizeRaw, 10)
 
     const recycledRaw = String(req.query?.recycled ?? '').trim().toLowerCase()
     const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
@@ -10268,7 +10269,7 @@ app.get('/api/inventory/workshop-dept/list', async (req, res) => {
     const pool = await getPool()
     const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
     const pageSizeRaw = Number(req.query?.pageSize ?? 20) || 20
-    const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+    const pageSize = clampErpPageSize(pageSizeRaw, 10)
 
     const recycledRaw = String(req.query?.recycled ?? '').trim().toLowerCase()
     const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
@@ -11075,7 +11076,7 @@ app.get('/api/hr/dormitory/lodging-overview', async (req, res) => {
     const page = Number(pageRaw ?? 1)
     const pageSize = Number(pageSizeRaw ?? 20)
     const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1
-    const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.floor(pageSize), 200) : 20
+    const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? clampErpPageSize(pageSize, 20) : 20
     const offset = (safePage - 1) * safePageSize
 
     const keywordRaw = String(req.query?.keyword ?? '').trim()
@@ -11259,7 +11260,7 @@ app.get('/api/hr/dormitory/lodging-history', async (req, res) => {
     const page = Number(pageRaw ?? 1)
     const pageSize = Number(pageSizeRaw ?? 20)
     const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1
-    const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.floor(pageSize), 200) : 20
+    const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? clampErpPageSize(pageSize, 20) : 20
     const offset = (safePage - 1) * safePageSize
 
     const passRaw = String(req.query?.pass ?? '').trim()
@@ -11412,7 +11413,7 @@ app.get('/api/hr/dormitory/lodging-in/audit-center-list', async (req, res) => {
     const page = Number(pageRaw ?? 1)
     const pageSize = Number(pageSizeRaw ?? 20)
     const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1
-    const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.min(Math.floor(pageSize), 200) : 20
+    const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? clampErpPageSize(pageSize, 20) : 20
     const offset = (safePage - 1) * safePageSize
     const offsetRows = offset
     const endRow = offset + safePageSize

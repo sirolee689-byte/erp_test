@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * 盘盈入库批量选材：从物料主档选材，不按当前库存正数限制。
  * SQL Server 2008 R2 兼容（ROW_NUMBER 分页）。
@@ -33,7 +34,7 @@ function delActiveSql(alias) {
 export function parseSurplusBatchPage(query = {}) {
   const page = Math.max(1, Number.parseInt(query.page, 10) || 1)
   const rawPageSize = Number.parseInt(query.pageSize, 10) || 10
-  const pageSize = Math.min(200, Math.max(1, rawPageSize))
+  const pageSize = clampErpPageSize(rawPageSize, 10)
   return { page, pageSize, startRow: (page - 1) * pageSize + 1, endRow: page * pageSize }
 }
 

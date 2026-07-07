@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * 外协订单批量选材（订单外协）：PI 销售 BOM 两层树 + 未外协数量计算
  */
@@ -659,7 +660,7 @@ async function fetchAssistOrderOtherBatchAddTree(pool, opts) {
   const bomCodeId = parsePositiveInt(opts?.bomCodeId ?? opts?.bom_code_id)
   const page = Math.max(1, parsePositiveInt(opts?.page) || 1)
   const pageSizeRaw = parsePositiveInt(opts?.pageSize)
-  const pageSize = Math.min(100, Math.max(1, pageSizeRaw || 10))
+  const pageSize = clampErpPageSize(pageSizeRaw || 10, 10)
   const startRow = (page - 1) * pageSize + 1
   const endRow = page * pageSize
   const req = pool.request()

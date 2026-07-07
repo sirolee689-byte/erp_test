@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 import { sql } from './db.js'
 import { likeTextExpr, safeDecimalExpr } from './buyOrderSqlSafe.js'
 
@@ -39,7 +40,7 @@ function mapBomPrefixByName(name) {
 function parseTraceQuery(query = {}) {
   return {
     page: parseIntPositive(query.page, 1),
-    pageSize: Math.min(100, parseIntPositive(query.pageSize, 10)),
+    pageSize: clampErpPageSize(query.pageSize, 10),
     keyword: text(query.keyword),
     bomCodeId: parseIntPositive(query.bomCodeId, 0),
     bomPrefix: text(query.bomPrefix),

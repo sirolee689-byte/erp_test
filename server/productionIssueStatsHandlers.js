@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * 生产领用统计表 API。
  * 明细视图按出库明细逐条展示；汇总视图按 PI + 物料汇总预算、领用、退料、实领、未领。
@@ -79,7 +80,7 @@ function parsePiOptionQuery(query = {}) {
   const pageRaw = Number(query.page ?? 1) || 1
   const pageSizeRaw = Number(query.pageSize ?? 10) || 10
   const page = Math.max(1, Math.floor(pageRaw))
-  const pageSize = Math.min(100, Math.max(1, Math.floor(pageSizeRaw)))
+  const pageSize = clampErpPageSize(pageSizeRaw, 10)
   return { page, pageSize, startRow: (page - 1) * pageSize + 1, endRow: page * pageSize }
 }
 

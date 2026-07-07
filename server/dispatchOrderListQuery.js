@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * 派工单列表查询工具。
  * SQL Server 2008 R2 只使用 ROW_NUMBER 分页，不使用 OFFSET/FETCH。
@@ -33,7 +34,7 @@ function normalizeDispatchType(v) {
 export function parseDispatchOrderListQuery(query) {
   const page = Math.max(1, Number(query?.page ?? 1) || 1)
   const pageSizeRaw = Number(query?.pageSize ?? 20) || 20
-  const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+  const pageSize = clampErpPageSize(pageSizeRaw, 10)
   const recycled = flag(query?.recycled)
   const showUnaudited = flag(query?.showUnaudited)
   return {

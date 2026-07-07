@@ -230,7 +230,7 @@
       <el-pagination
         v-model:current-page="piDialog.page"
         v-model:page-size="piDialog.pageSize"
-        :page-sizes="[10, 20, 50, 100]"
+        :page-sizes="ERP_PAGE_SIZE_OPTIONS"
         layout="total, sizes, prev, pager, next, jumper"
         :total="piDialog.total"
         class="pi-pagination"
@@ -302,6 +302,7 @@
 </template>
 
 <script setup>
+import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'

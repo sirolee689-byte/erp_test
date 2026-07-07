@@ -137,7 +137,7 @@
       <el-pagination
         v-model:current-page="pager.page"
         v-model:page-size="pager.pageSize"
-        :page-sizes="[10, 20, 50, 100]"
+        :page-sizes="ERP_PAGE_SIZE_OPTIONS"
         layout="total, sizes, prev, pager, next, jumper"
         :total="pager.total"
         class="dispatch-pagination"
@@ -324,6 +324,7 @@
 </template>
 
 <script setup>
+import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'

@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * 销售订单列表查询：纯 SQL 拼装（SQL Server 2008 R2，ROW_NUMBER 分页）
  */
@@ -27,7 +28,7 @@ export function escapeSalesOrderSqlLikePattern(s) {
 export function parseSalesOrderListQuery(query) {
   const page = Math.max(1, Number(query?.page ?? 1) || 1)
   const pageSizeRaw = Number(query?.pageSize ?? 10) || 10
-  const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+  const pageSize = clampErpPageSize(pageSizeRaw, 10)
   const recycledRaw = String(query?.recycled ?? '').trim().toLowerCase()
   const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
   return {

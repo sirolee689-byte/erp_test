@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * 库存基本资料：PI_BOM资料。
  * 首页列表按销售订单明细款展示：一行 = 一个 PI 号下的一个成品编码。
@@ -914,7 +915,7 @@ export function registerPiBomDataRoutes(app, { getPool }) {
       const pool = await getPool()
       const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
       const pageSizeRaw = Number(req.query?.pageSize ?? 20) || 20
-      const pageSize = Math.min(100, Math.max(1, pageSizeRaw))
+      const pageSize = clampErpPageSize(pageSizeRaw, 10)
       const keyword = String(req.query?.keyword ?? '').trim()
       const hasKeyword = keyword.length > 0
       const keywordPattern = `%${escapeSqlLikePattern(keyword)}%`

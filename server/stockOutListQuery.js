@@ -1,3 +1,4 @@
+import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * 出库单列表查询工具。
  * SQL Server 2008 R2 只使用 ROW_NUMBER 分页，不使用 OFFSET/FETCH。
@@ -30,7 +31,7 @@ function normalizeOutboundType(v) {
 export function parseStockOutListQuery(query) {
   const page = Math.max(1, Number(query?.page ?? 1) || 1)
   const pageSizeRaw = Number(query?.pageSize ?? 10) || 10
-  const pageSize = Math.min(200, Math.max(1, pageSizeRaw))
+  const pageSize = clampErpPageSize(pageSizeRaw, 10)
   const recycled = flag(query?.recycled)
   const showUnaudited = flag(query?.showUnaudited)
   return {

@@ -175,7 +175,7 @@
           <el-pagination
             v-model:current-page="page"
             v-model:page-size="pageSize"
-            :page-sizes="[10, 20, 50, 100]"
+            :page-sizes="ERP_PAGE_SIZE_OPTIONS"
             :total="total"
             layout="prev, pager, next, sizes, jumper"
             small
@@ -190,6 +190,7 @@
 </template>
 
 <script setup>
+import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
