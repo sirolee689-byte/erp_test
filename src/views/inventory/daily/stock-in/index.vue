@@ -151,13 +151,11 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" fixed="left" width="240" class-name="erp-col-actions">
+        <el-table-column label="操作" fixed="left" :width="stockInActionsColWidth" class-name="erp-col-actions">
           <template #default="{ row }">
-            <div class="stock-actions" @click.stop>
-              <el-button size="small" plain @click="viewReceipt(row)">查看</el-button>
+            <ErpTableActions class="stock-actions" @click.stop>
+              <el-button type="info" plain @click="viewReceipt(row)">查看</el-button>
               <el-button
-                v-if="!showRecycle"
-                size="small"
                 :type="isPrintSelected(row) ? 'primary' : 'default'"
                 plain
                 @click="togglePrintSelect(row)"
@@ -165,19 +163,19 @@
                 {{ isPrintSelected(row) ? '已选择' : '打印选择' }}
               </el-button>
               <template v-if="!showRecycle">
-                <el-button v-if="showUnreviewed && canReview(row)" v-permission="'review'" size="small" type="warning" plain :loading="row.__op === 'review'" @click="runAction(row, 'review')">复核</el-button>
-                <el-button v-if="canUnreview(row)" v-permission="'unreview'" size="small" type="warning" plain :loading="row.__op === 'unreview'" @click="runAction(row, 'unreview')">反复核</el-button>
-                <el-button v-if="canEdit(row)" v-permission="'edit'" size="small" type="primary" plain @click="editReceipt(row)">编辑</el-button>
-                <el-button v-if="canAudit(row)" v-permission="'audit'" size="small" plain :loading="row.__op === 'audit'" @click="runAction(row, 'audit')">审核</el-button>
-                <el-button v-if="canUnaudit(row)" v-permission="'audit'" size="small" plain :loading="row.__op === 'unaudit'" @click="runAction(row, 'unaudit')">反审核</el-button>
-                <el-button v-if="canDelete(row)" v-permission="'delete'" size="small" type="danger" plain :loading="row.__op === 'delete'" @click="runAction(row, 'delete')">删除</el-button>
+                <el-button v-if="showUnreviewed && canReview(row)" v-permission="'review'" type="warning" plain :loading="row.__op === 'review'" @click="runAction(row, 'review')">复核</el-button>
+                <el-button v-if="canUnreview(row)" v-permission="'unreview'" type="warning" plain :loading="row.__op === 'unreview'" @click="runAction(row, 'unreview')">反复核</el-button>
+                <el-button v-if="canEdit(row)" v-permission="'edit'" type="primary" plain @click="editReceipt(row)">编辑</el-button>
+                <el-button v-if="canAudit(row)" v-permission="'audit'" type="success" plain :loading="row.__op === 'audit'" @click="runAction(row, 'audit')">审核</el-button>
+                <el-button v-if="canUnaudit(row)" v-permission="'audit'" type="warning" plain :loading="row.__op === 'unaudit'" @click="runAction(row, 'unaudit')">反审核</el-button>
+                <el-button v-if="canDelete(row)" v-permission="'delete'" type="danger" plain :loading="row.__op === 'delete'" @click="runAction(row, 'delete')">删除</el-button>
                 <span v-if="isLocked(row) && !canUnreview(row)" class="locked-mark" title="此单只读，不可操作">🚫</span>
               </template>
               <template v-else>
-                <el-button v-if="row.pass !== '1'" v-permission="'delete'" size="small" type="primary" plain :loading="row.__op === 'restore'" @click="runAction(row, 'restore')">恢复</el-button>
-                <el-button v-if="row.pass !== '1'" v-permission="'delete'" size="small" type="danger" plain :loading="row.__op === 'hard'" @click="runAction(row, 'hard')">彻底删除</el-button>
+                <el-button v-if="row.pass !== '1'" v-permission="'delete'" type="primary" plain :loading="row.__op === 'restore'" @click="runAction(row, 'restore')">恢复</el-button>
+                <el-button v-if="row.pass !== '1'" v-permission="'delete'" type="danger" plain :loading="row.__op === 'hard'" @click="runAction(row, 'hard')">彻底删除</el-button>
               </template>
-            </div>
+            </ErpTableActions>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="150" class-name="stock-status-col">
@@ -672,6 +670,7 @@ import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
+import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
 import StockInMaterialTracePanel from './material-trace-panel.vue'
 import {
   STOCK_BATCH_MSG_ACCEPTED,
@@ -713,6 +712,12 @@ const saving = ref(false)
 const showUnaudited = ref(false)
 const showUnreviewed = ref(false)
 const showRecycle = ref(false)
+
+const stockInActionsColWidth = computed(() => {
+  if (showRecycle.value) return getErpTableActionsColMinWidth(2)
+  return getErpTableActionsColMinWidth(7, { compact: true })
+})
+
 const listTableRef = ref(null)
 const linesTableRef = ref(null)
 const expandedRowKeys = ref([])

@@ -117,12 +117,14 @@
           {{ formatMoney(row?.c_sum_money) }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="200" align="center" fixed="right">
+      <el-table-column label="操作" :width="roomListActionsColWidth" align="center" fixed="right" class-name="erp-col-actions">
         <template #default="{ row }">
-          <el-button v-permission="'add'" type="success" size="small" link @click="openCheckInForRoom(row)">增加入住</el-button>
-          <el-button v-permission="'view'" type="primary" size="small" link @click="openOccupantsByRow(row)">入住管理</el-button>
-          <el-button v-permission="'view'" type="warning" size="small" link @click="openElectricManage(row)">电费管理</el-button>
-          <el-button v-permission="'audit'" type="danger" size="small" link @click="onDeleteElectric(row)">删除电费</el-button>
+          <ErpTableActions>
+            <el-button v-permission="'add'" type="success" plain @click="openCheckInForRoom(row)">增加入住</el-button>
+            <el-button v-permission="'view'" type="info" plain @click="openOccupantsByRow(row)">入住管理</el-button>
+            <el-button v-permission="'view'" type="warning" plain @click="openElectricManage(row)">电费管理</el-button>
+            <el-button v-permission="'audit'" type="danger" plain @click="onDeleteElectric(row)">删除电费</el-button>
+          </ErpTableActions>
         </template>
       </el-table-column>
     </el-table>
@@ -206,6 +208,9 @@ import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ElectricManage from './ElectricManage.vue'
+import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+
+const roomListActionsColWidth = getErpTableActionsColMinWidth(4, { compact: true })
 
 const emit = defineEmits(['dorm-data-changed'])
 

@@ -101,19 +101,19 @@
               </template>
             </el-table-column>
 
-            <el-table-column label="操作" min-width="280" fixed="right">
+            <el-table-column label="操作" :width="roleActionsColWidth" fixed="right" class-name="erp-col-actions">
               <template #default="{ row }">
-                <template v-if="Number(selectedStatus) === 1">
-                  <el-button v-permission="'edit'" size="small" @click="openEditDialog(row)">编辑</el-button>
-                  <el-button v-permission="'audit'" size="small" type="primary" plain @click="openPermDialog(row)">
-                    分配权限
-                  </el-button>
-                  <el-button v-permission="'delete'" size="small" type="danger" @click="confirmDisable(row)">禁用</el-button>
-                </template>
-                <template v-else>
-                  <el-button v-permission="'edit'" size="small" type="warning" @click="resumeRole(row)">恢复</el-button>
-                  <el-button v-permission="'delete'" size="small" type="danger" @click="deleteRole(row)">删除</el-button>
-                </template>
+                <ErpTableActions>
+                  <template v-if="Number(selectedStatus) === 1">
+                    <el-button v-permission="'edit'" type="primary" plain @click="openEditDialog(row)">编辑</el-button>
+                    <el-button v-permission="'audit'" type="info" plain @click="openPermDialog(row)">分配权限</el-button>
+                    <el-button v-permission="'delete'" type="danger" plain @click="confirmDisable(row)">禁用</el-button>
+                  </template>
+                  <template v-else>
+                    <el-button v-permission="'edit'" type="primary" plain @click="resumeRole(row)">恢复</el-button>
+                    <el-button v-permission="'delete'" type="danger" plain @click="deleteRole(row)">删除</el-button>
+                  </template>
+                </ErpTableActions>
               </template>
             </el-table-column>
           </el-table>
@@ -240,6 +240,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 import { Plus, Refresh, RefreshLeft, Setting } from '@element-plus/icons-vue'
 import menuDump from '../../../../erp_structure_dump.json'
+import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
 
 /** 页面标题（与左侧菜单「角色管理」一致） */
 const pageTitle = '角色管理'
@@ -252,6 +253,12 @@ const loading = ref(false)
 const errorMessage = ref('')
 /** 双视图：1=启用列表，0=回收站 */
 const selectedStatus = ref(1)
+
+const roleActionsColWidth = computed(() => {
+  if (Number(selectedStatus.value) === 1) return getErpTableActionsColMinWidth(3)
+  return getErpTableActionsColMinWidth(2)
+})
+
 /** 搜索关键字（模糊匹配角色名、描述） */
 const keyword = ref('')
 /** 当前页码 */

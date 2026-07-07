@@ -50,3 +50,4 @@ ALTER TABLE dbo.[UB_ERP_Stocks_unit] ADD deltime NVARCHAR(50) NULL;
 ## 已知问题 / 下一步
 
 - 未审行内编辑、回收站彻底删除：可按业务需要再迭代（当前与最小标准件一致）。
+- **UI（2026-07）**：主列表操作列已按 BOM 资料标准统一（`ErpTableActions` + `plain` 语义色；未审视图显示审核/删除，已审视图显示反审）。

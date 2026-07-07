@@ -165,75 +165,73 @@
               </template>
             </el-table-column>
 
-            <el-table-column label="操作" width="340" fixed="right">
+            <el-table-column label="操作" :width="quoteActionsColWidth" fixed="right" class-name="erp-col-actions">
               <template #default="{ row }">
-                <el-button type="primary" link size="small" @click="openView(row)">查看</el-button>
-                <template v-if="!showRecycle">
-                  <el-button
-                    v-if="!passIsAudited(row)"
-                    v-permission="'edit'"
-                    type="success"
-                    link
-                    size="small"
-                    @click="openEdit(row)"
-                  >
-                    编辑
-                  </el-button>
-                  <el-button
-                    v-if="!passIsAudited(row)"
-                    v-permission="'audit'"
-                    type="success"
-                    link
-                    size="small"
-                    :loading="row.__opLoading === 'audit'"
-                    @click="auditRow(row)"
-                  >
-                    审核
-                  </el-button>
-                  <el-button
-                    v-if="passIsAudited(row)"
-                    v-permission="'audit'"
-                    type="warning"
-                    link
-                    size="small"
-                    :loading="row.__opLoading === 'unaudit'"
-                    @click="unauditRow(row)"
-                  >
-                    反审
-                  </el-button>
-                  <el-button
-                    v-permission="'delete'"
-                    type="danger"
-                    link
-                    size="small"
-                    :loading="row.__opLoading === 'delete'"
-                    @click="softDeleteRow(row)"
-                  >
-                    删除
-                  </el-button>
-                </template>
-                <template v-else>
-                  <el-button
-                    v-permission="'edit'"
-                    type="primary"
-                    link
-                    size="small"
-                    :loading="row.__opLoading === 'restore'"
-                    @click="restoreRow(row)"
-                  >
-                    恢复
-                  </el-button>
-                  <el-button
-                    v-permission="'delete'"
-                    type="danger"
-                    link
-                    size="small"
-                    :loading="row.__opLoading === 'permanent'"
-                    @click="permanentDeleteRow(row)"
-                  >
-                    彻底删除
-                  </el-button>
-                </template>
+                <ErpTableActions>
+                  <template v-if="showRecycle">
+                    <el-button
+                      v-permission="'edit'"
+                      type="primary"
+                      plain
+                      :loading="row.__opLoading === 'restore'"
+                      @click="restoreRow(row)"
+                    >
+                      恢复
+                    </el-button>
+                    <el-button
+                      v-permission="'delete'"
+                      type="danger"
+                      plain
+                      :loading="row.__opLoading === 'permanent'"
+                      @click="permanentDeleteRow(row)"
+                    >
+                      彻底删除
+                    </el-button>
+                  </template>
+                  <template v-else>
+                    <el-button type="info" plain @click="openView(row)">查看</el-button>
+                    <el-button
+                      v-if="showUnAudited && !passIsAudited(row)"
+                      v-permission="'edit'"
+                      type="primary"
+                      plain
+                      @click="openEdit(row)"
+                    >
+                      编辑
+                    </el-button>
+                    <el-button
+                      v-if="showUnAudited && !passIsAudited(row)"
+                      v-permission="'audit'"
+                      type="success"
+                      plain
+                      :loading="row.__opLoading === 'audit'"
+                      @click="auditRow(row)"
+                    >
+                      审核
+                    </el-button>
+                    <el-button
+                      v-if="!showUnAudited && passIsAudited(row)"
+                      v-permission="'audit'"
+                      type="warning"
+                      plain
+                      :loading="row.__opLoading === 'unaudit'"
+                      @click="unauditRow(row)"
+                    >
+                      反审
+                    </el-button>
+                    <el-button
+                      v-if="showUnAudited"
+                      v-permission="'delete'"
+                      type="danger"
+                      plain
+                      :disabled="passIsAudited(row)"
+                      :loading="row.__opLoading === 'delete'"
+                      @click="softDeleteRow(row)"
+                    >
+                      删除
+                    </el-button>
+                  </template>
+                </ErpTableActions>
               </template>
             </el-table-column>
           </el-table>
@@ -636,6 +634,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { DocumentCopy, Refresh, Search } from '@element-plus/icons-vue'
 import axios from 'axios'
 import MaterialSelector from './MaterialSelector.vue'
+import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
 
 const pageTitle = '采购报价'
 
@@ -644,6 +643,13 @@ const errorMessage = ref('')
 const keyword = ref('')
 const showRecycle = ref(false)
 const showUnAudited = ref(false)
+
+const quoteActionsColWidth = computed(() => {
+  if (showRecycle.value) return getErpTableActionsColMinWidth(2)
+  if (showUnAudited.value) return getErpTableActionsColMinWidth(4)
+  return getErpTableActionsColMinWidth(2)
+})
+
 const tableList = ref([])
 const total = ref(0)
 const page = ref(1)

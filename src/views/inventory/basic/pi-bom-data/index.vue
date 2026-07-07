@@ -78,8 +78,8 @@
               >
                 <template #default="{ row }">
                   <ErpTableActions>
-                    <el-button type="primary" plain size="small" @click="openPiBomViewer(row)">查看</el-button>
-                    <el-button type="warning" plain size="small" @click="openPiBomEditor(row)">编辑</el-button>
+                    <el-button type="info" plain @click="openPiBomViewer(row)">查看</el-button>
+                    <el-button type="primary" plain @click="openPiBomEditor(row)">编辑</el-button>
                   </ErpTableActions>
                 </template>
               </el-table-column>

@@ -7,9 +7,7 @@
         </div>
         <p class="brand-kicker">企业内部管理入口</p>
         <h1>企业 ERP 管理系统</h1>
-        <p class="brand-desc">
-          统一处理采购、库存、生产、销售与人事协同，让内部流程更清楚、更稳定。
-        </p>
+        
         <div class="brand-metrics">
           <div>
             <span>稳定</span>

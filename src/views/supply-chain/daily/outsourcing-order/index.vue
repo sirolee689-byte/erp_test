@@ -171,26 +171,25 @@
         class-name="erp-col-actions"
       >
         <template #default="{ row }">
-          <div class="action-bar assist-order-actions">
+          <ErpTableActions class="assist-order-actions" @click.stop>
             <template v-if="filters.recycled">
-              <el-button type="primary" plain size="small" @click.stop="runLifecycle(row, 'restore')">恢复</el-button>
-              <el-button type="danger" plain size="small" @click.stop="runLifecycle(row, 'hard-delete')">彻底删除</el-button>
+              <el-button type="primary" plain @click.stop="runLifecycle(row, 'restore')">恢复</el-button>
+              <el-button type="danger" plain @click.stop="runLifecycle(row, 'hard-delete')">彻底删除</el-button>
             </template>
             <template v-else>
-              <el-button plain size="small" @click.stop="openView(row)">查看</el-button>
+              <el-button type="info" plain @click.stop="openView(row)">查看</el-button>
               <template v-if="!isAudited(row)">
                 <el-button
                   type="primary"
                   plain
-                  size="small"
                   :disabled="!canEdit(row)"
                   @click.stop="openEdit(row)"
                 >
                   编辑
                 </el-button>
                 <el-button
+                  type="success"
                   plain
-                  size="small"
                   :disabled="!canAudit(row)"
                   @click.stop="runLifecycle(row, 'audit')"
                 >
@@ -199,7 +198,6 @@
                 <el-button
                   type="danger"
                   plain
-                  size="small"
                   :disabled="!canDelete(row)"
                   @click.stop="runLifecycle(row, 'delete')"
                 >
@@ -209,8 +207,8 @@
               <template v-else>
                 <el-button
                   v-if="canUnaudit(row)"
+                  type="warning"
                   plain
-                  size="small"
                   @click.stop="runLifecycle(row, 'unaudit')"
                 >
                   反审
@@ -218,7 +216,6 @@
                 <el-button
                   v-if="canClose(row)"
                   plain
-                  size="small"
                   @click.stop="runLifecycle(row, 'close')"
                 >
                   结案
@@ -226,7 +223,6 @@
                 <el-button
                   v-if="canUnclose(row)"
                   plain
-                  size="small"
                   @click.stop="runLifecycle(row, 'unclose')"
                 >
                   反结案
@@ -234,14 +230,13 @@
               </template>
               <el-button
                 plain
-                size="small"
                 :type="isPrintSelected(row) ? 'primary' : 'default'"
                 @click.stop="togglePrintSelect(row)"
               >
                 {{ isPrintSelected(row) ? '已选择' : '打印选择' }}
               </el-button>
             </template>
-          </div>
+          </ErpTableActions>
         </template>
       </el-table-column>
       <el-table-column label="结案" width="88">

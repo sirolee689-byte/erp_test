@@ -102,7 +102,7 @@
             </el-table-column>
             <el-table-column
               label="操作"
-              width="300"
+              :width="actionsColWidth"
               fixed="right"
               align="center"
               class-name="erp-col-actions"
@@ -130,24 +130,25 @@
                   </template>
                   <template v-else>
                     <el-button
-                      type="primary"
+                      v-if="showUnAudited && !passIsAudited(row)"
+                      type="success"
                       plain
-                      :disabled="passIsAudited(row)"
                       :loading="busyId === row.id"
                       @click="onAudit(row)"
                     >
                       审核
                     </el-button>
                     <el-button
+                      v-if="!showUnAudited && passIsAudited(row)"
                       type="warning"
                       plain
-                      :disabled="!passIsAudited(row)"
                       :loading="busyId === row.id"
                       @click="onUnaudit(row)"
                     >
                       反审
                     </el-button>
                     <el-button
+                      v-if="showUnAudited"
                       type="danger"
                       plain
                       :disabled="passIsAudited(row)"
@@ -196,10 +197,11 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
+import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
 const pageTitle = '使用单位'
 
 const loading = ref(false)
@@ -213,6 +215,13 @@ const showUnAudited = ref(false)
 const showRecycle = ref(false)
 /** 当前正在请求后端的行主键 id */
 const busyId = ref(null)
+
+/** 操作列宽度：按当前视图最多可见按钮数估算（与 BOM 资料一致） */
+const actionsColWidth = computed(() => {
+  if (showRecycle.value) return getErpTableActionsColMinWidth(2)
+  if (showUnAudited.value) return getErpTableActionsColMinWidth(2)
+  return getErpTableActionsColMinWidth(1)
+})
 
 const createVisible = ref(false)
 const createSubmitting = ref(false)

@@ -131,40 +131,48 @@
             <el-table-column prop="passtime" label="审核时间" min-width="150" show-overflow-tooltip>
               <template #default="{ row }">{{ row.passtime ?? '—' }}</template>
             </el-table-column>
-            <el-table-column label="操作" min-width="320" fixed="right">
+            <el-table-column label="操作" :width="deptActionsColWidth" fixed="right" class-name="erp-col-actions">
               <template #default="{ row }">
-                <el-button v-permission="'edit'" size="small" :disabled="rowIsAudited(row)" @click="openEdit(row)">
-                  编辑
-                </el-button>
-                <el-button
-                  v-permission="'delete'"
-                  size="small"
-                  type="danger"
-                  :disabled="rowIsAudited(row)"
-                  @click="confirmDelete(row)"
-                >
-                  删除
-                </el-button>
-                <el-button
-                  v-permission="'audit'"
-                  size="small"
-                  type="success"
-                  plain
-                  :disabled="rowIsAudited(row)"
-                  @click="doAudit(row)"
-                >
-                  审核
-                </el-button>
-                <el-button
-                  v-permission="'audit'"
-                  size="small"
-                  type="warning"
-                  plain
-                  :disabled="!rowIsAudited(row)"
-                  @click="doUnaudit(row)"
-                >
-                  反审
-                </el-button>
+                <ErpTableActions>
+                  <el-button
+                    v-if="showUnAudited"
+                    v-permission="'edit'"
+                    type="primary"
+                    plain
+                    :disabled="rowIsAudited(row)"
+                    @click="openEdit(row)"
+                  >
+                    编辑
+                  </el-button>
+                  <el-button
+                    v-if="showUnAudited"
+                    v-permission="'delete'"
+                    type="danger"
+                    plain
+                    :disabled="rowIsAudited(row)"
+                    @click="confirmDelete(row)"
+                  >
+                    删除
+                  </el-button>
+                  <el-button
+                    v-if="showUnAudited && !rowIsAudited(row)"
+                    v-permission="'audit'"
+                    type="success"
+                    plain
+                    @click="doAudit(row)"
+                  >
+                    审核
+                  </el-button>
+                  <el-button
+                    v-if="!showUnAudited && rowIsAudited(row)"
+                    v-permission="'audit'"
+                    type="warning"
+                    plain
+                    @click="doUnaudit(row)"
+                  >
+                    反审
+                  </el-button>
+                </ErpTableActions>
               </template>
             </el-table-column>
           </el-table>
@@ -229,6 +237,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 import { Plus, Refresh } from '@element-plus/icons-vue'
+import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
 
 /** 页面标题 */
 const pageTitle = '部门资料'
@@ -247,6 +256,11 @@ const currentDeptRow = ref(null)
 
 /** 是否显示未审核（pass='0'） */
 const showUnAudited = ref(false)
+
+const deptActionsColWidth = computed(() => {
+  if (showUnAudited.value) return getErpTableActionsColMinWidth(3)
+  return getErpTableActionsColMinWidth(1)
+})
 
 /** 树形显示：部门为父、岗位为子（默认开启） */
 const treeMode = ref(true)
@@ -715,5 +729,5 @@ onMounted(() => {
 }
 .name-text {
   display: inline-block;
-}
+}
 </style>

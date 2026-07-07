@@ -54,3 +54,4 @@ ALTER TABLE dbo.[UB_ERP_Stocks_colorcode] ADD deltime NVARCHAR(50) NULL;
 ## 已知问题 / 下一步
 
 - 已审核行的名称修改若需支持，需单独产品与权限策略（当前仅未审可改）。
+- **UI（2026-07）**：主列表操作列已按 BOM 资料标准统一（`ErpTableActions` + `plain` 语义色）。

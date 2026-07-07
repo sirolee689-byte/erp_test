@@ -155,49 +155,47 @@
               </template>
             </el-table-column>
 
-            <el-table-column label="操作" min-width="360" fixed="right">
+            <el-table-column label="操作" :width="operatorActionsColWidth" fixed="right" class-name="erp-col-actions">
               <template #default="{ row }">
-                <template v-if="Number(selectedStatus) === 1">
-                  <el-button v-permission="'view'" size="small" @click="openViewDialog(row)">查看</el-button>
-                  <el-button v-permission="'edit'" size="small" @click="openEditDialog(row)">
-                    编辑
-                  </el-button>
-                  <el-button
-                    v-if="showUnAudited"
-                    v-permission="'edit'"
-                    size="small"
-                    type="primary"
-                    :disabled="passIsAudited(row)"
-                    :loading="busyUserId === row.UserID"
-                    @click="confirmAudit(row)"
-                  >
-                    审核
-                  </el-button>
-                  <el-button
-                    v-if="!showUnAudited"
-                    v-permission="'delete'"
-                    size="small"
-                    type="warning"
-                    :disabled="!passIsAudited(row)"
-                    :loading="busyUserId === row.UserID"
-                    @click="confirmUnaudit(row)"
-                  >
-                    反审
-                  </el-button>
-                  <el-button
-                    v-permission="'delete'"
-                    size="small"
-                    type="warning"
-                    :loading="busyUserId === row.UserID"
-                    @click="confirmDisable(row)"
-                  >
-                    禁用
-                  </el-button>
-                </template>
-                <template v-else>
-                  <el-button v-permission="'view'" size="small" @click="openViewDialog(row)">查看</el-button>
-                  <el-button v-permission="'edit'" size="small" type="warning" @click="resumeUser(row)">恢复</el-button>
-                </template>
+                <ErpTableActions>
+                  <template v-if="Number(selectedStatus) === 1">
+                    <el-button v-permission="'view'" type="info" plain @click="openViewDialog(row)">查看</el-button>
+                    <el-button v-permission="'edit'" type="primary" plain @click="openEditDialog(row)">编辑</el-button>
+                    <el-button
+                      v-if="showUnAudited && !passIsAudited(row)"
+                      v-permission="'edit'"
+                      type="success"
+                      plain
+                      :loading="busyUserId === row.UserID"
+                      @click="confirmAudit(row)"
+                    >
+                      审核
+                    </el-button>
+                    <el-button
+                      v-if="!showUnAudited && passIsAudited(row)"
+                      v-permission="'delete'"
+                      type="warning"
+                      plain
+                      :loading="busyUserId === row.UserID"
+                      @click="confirmUnaudit(row)"
+                    >
+                      反审
+                    </el-button>
+                    <el-button
+                      v-permission="'delete'"
+                      type="warning"
+                      plain
+                      :loading="busyUserId === row.UserID"
+                      @click="confirmDisable(row)"
+                    >
+                      禁用
+                    </el-button>
+                  </template>
+                  <template v-else>
+                    <el-button v-permission="'view'" type="info" plain @click="openViewDialog(row)">查看</el-button>
+                    <el-button v-permission="'edit'" type="primary" plain @click="resumeUser(row)">恢复</el-button>
+                  </template>
+                </ErpTableActions>
               </template>
             </el-table-column>
           </el-table>
@@ -320,6 +318,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 import { Plus, Refresh, RefreshLeft, Setting } from '@element-plus/icons-vue'
+import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
 
 /** 页面标题（与左侧菜单一致） */
 const pageTitle = '操作员管理'
@@ -347,6 +346,11 @@ const selectedStatus = ref(1)
 
 /** 在册列表：默认 pass=1；打开后查 pass=0（与颜色编码一致） */
 const showUnAudited = ref(false)
+
+const operatorActionsColWidth = computed(() => {
+  if (Number(selectedStatus.value) !== 1) return getErpTableActionsColMinWidth(2)
+  return getErpTableActionsColMinWidth(4)
+})
 
 /** 审核/反审/禁用请求中的 UserID */
 const busyUserId = ref(null)
@@ -1028,5 +1032,5 @@ onMounted(async () => {
   color: #fff;
   /* 关键：选中态边框更深，更明显 */
   box-shadow: 0 0 0 2px rgba(184, 95, 18, 0.14) inset;
-}
+}
 </style>

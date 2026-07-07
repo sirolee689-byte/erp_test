@@ -245,19 +245,18 @@
           class-name="erp-col-actions"
         >
           <template #default="{ row }">
-            <div class="action-bar buy-order-actions">
+            <ErpTableActions class="buy-order-actions" @click.stop>
               <template v-if="recycled">
-                <el-button type="primary" plain size="small" @click.stop="lifecycle(row, 'restore')">恢复</el-button>
-                <el-button type="danger" plain size="small" @click.stop="lifecycle(row, 'hard')">彻底删除</el-button>
+                <el-button type="primary" plain @click.stop="lifecycle(row, 'restore')">恢复</el-button>
+                <el-button type="danger" plain @click.stop="lifecycle(row, 'hard')">彻底删除</el-button>
               </template>
               <template v-else>
-                <el-button plain size="small" @click.stop="openDetail(row)">查看</el-button>
+                <el-button type="info" plain @click.stop="openDetail(row)">查看</el-button>
                 <template v-if="showUnaudited">
                   <el-button
                     v-permission="'edit'"
                     type="primary"
                     plain
-                    size="small"
                     :disabled="row.pass === '1'"
                     @click.stop="openEdit(row)"
                   >
@@ -266,8 +265,8 @@
                   <el-button
                     v-if="row.pass !== '1'"
                     v-permission="'audit'"
+                    type="success"
                     plain
-                    size="small"
                     @click.stop="lifecycle(row, 'audit')"
                   >
                     审核
@@ -276,7 +275,6 @@
                     v-permission="'delete'"
                     type="danger"
                     plain
-                    size="small"
                     :disabled="row.pass === '1'"
                     @click.stop="lifecycle(row, 'delete')"
                   >
@@ -287,8 +285,8 @@
                   <el-button
                     v-if="row.pass === '1'"
                     v-permission="'audit'"
+                    type="warning"
                     plain
-                    size="small"
                     @click.stop="askUnaudit(row)"
                   >
                     反审
@@ -296,14 +294,13 @@
                 </template>
                 <el-button
                   plain
-                  size="small"
                   :type="isPrintSelected(row) ? 'primary' : 'default'"
                   @click.stop="togglePrintSelect(row)"
                 >
                   {{ isPrintSelected(row) ? '已选择' : '打印选择' }}
                 </el-button>
               </template>
-            </div>
+            </ErpTableActions>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="150" class-name="buy-status-col">

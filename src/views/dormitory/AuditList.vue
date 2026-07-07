@@ -79,13 +79,12 @@
           <el-tag v-else type="info" size="small" data-testid="tag-pass-0">未审核</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" min-width="200" fixed="right" align="center">
+      <el-table-column label="操作" :width="auditListActionsColWidth" fixed="right" align="center" class-name="erp-col-actions">
         <template #default="{ row }">
-          <div v-if="String(row?.pass ?? '').trim() === '0'" class="audit-actions">
+          <ErpTableActions v-if="String(row?.pass ?? '').trim() === '0'">
             <el-button
               v-permission="'audit'"
-              type="primary"
-              size="small"
+              type="success"
               plain
               data-testid="btn-pass-audit"
               @click="onPassAudit(row)"
@@ -95,25 +94,24 @@
             <el-button
               v-permission="'audit'"
               type="danger"
-              size="small"
               plain
               data-testid="btn-delete-checkin"
               @click="onHardDeleteCheckin(row)"
             >
               删除
             </el-button>
-          </div>
-          <el-button
-            v-else-if="String(row?.pass ?? '').trim() === '1'"
-            v-permission="'audit'"
-            type="warning"
-            size="small"
-            plain
-            data-testid="btn-un-audit"
-            @click="onUnAudit(row)"
-          >
-            反审核
-          </el-button>
+          </ErpTableActions>
+          <ErpTableActions v-else-if="String(row?.pass ?? '').trim() === '1'">
+            <el-button
+              v-permission="'audit'"
+              type="warning"
+              plain
+              data-testid="btn-un-audit"
+              @click="onUnAudit(row)"
+            >
+              反审核
+            </el-button>
+          </ErpTableActions>
         </template>
       </el-table-column>
     </el-table>
@@ -137,6 +135,9 @@
 import { ref, watch, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+
+const auditListActionsColWidth = getErpTableActionsColMinWidth(2)
 
 const emit = defineEmits(['dorm-data-changed'])
 

@@ -90,33 +90,29 @@
                 <el-tag v-else type="info" effect="light">未审</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" min-width="240" fixed="right">
+            <el-table-column label="操作" :width="roomActionsColWidth" fixed="right" class-name="erp-col-actions">
               <template #default="{ row }">
-                <el-button v-permission="'view'" size="small" type="primary" link @click="openViewDetail(row)">
-                  查看
-                </el-button>
-                <el-button
-                  v-if="showUnAudited"
-                  v-permission="'audit'"
-                  size="small"
-                  type="success"
-                  plain
-                  :disabled="rowIsAudited(row)"
-                  @click="doAudit(row)"
-                >
-                  审核
-                </el-button>
-                <el-button
-                  v-if="!showUnAudited"
-                  v-permission="'audit'"
-                  size="small"
-                  type="warning"
-                  plain
-                  :disabled="!rowIsAudited(row)"
-                  @click="doUnaudit(row)"
-                >
-                  反审
-                </el-button>
+                <ErpTableActions>
+                  <el-button v-permission="'view'" type="info" plain @click="openViewDetail(row)">查看</el-button>
+                  <el-button
+                    v-if="showUnAudited && !rowIsAudited(row)"
+                    v-permission="'audit'"
+                    type="success"
+                    plain
+                    @click="doAudit(row)"
+                  >
+                    审核
+                  </el-button>
+                  <el-button
+                    v-if="!showUnAudited && rowIsAudited(row)"
+                    v-permission="'audit'"
+                    type="warning"
+                    plain
+                    @click="doUnaudit(row)"
+                  >
+                    反审
+                  </el-button>
+                </ErpTableActions>
               </template>
             </el-table-column>
           </el-table>
@@ -199,10 +195,11 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
+import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
 
 const pageTitle = '房间管理'
 
@@ -214,6 +211,8 @@ const page = ref(1)
 const pageSize = ref(20)
 const keyword = ref('')
 const showUnAudited = ref(false)
+
+const roomActionsColWidth = computed(() => getErpTableActionsColMinWidth(2))
 
 /** 宿舍状态下拉 */
 const stateOptions = ['使用', '闲置']
@@ -519,5 +518,5 @@ loadData()
 .error-alert,
 .audit-view-alert {
   margin-bottom: 12px;
-}
+}
 </style>

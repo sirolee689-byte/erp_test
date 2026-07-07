@@ -67,9 +67,12 @@
 
 - 列表操作列外包 `<ErpTableActions>`（Grid 最多两行、左对齐；`row-gap` 2px / `col-gap` 4px；主列表小按钮 token 见 `--erp-list-action-*`）
 
-- 行内操作用 `plain` + 语义 `type`（`primary` 编辑/审核、`success` 审核、`warning` 反审、`danger` 删除、`info` 查看），**不要用 `link`**
+- 行内操作用 `plain` + 语义 `type`（`primary` 编辑、`info` 查看、`success` 审核、`warning` 反审、`danger` 删除），**不要用 `link`**；标杆见 `src/views/inv/bom/index.vue`
+- 审核区工具栏：`audit-switch` + `switch-label` + `el-switch`；未审视图用 `el-alert type="warning"` 提示
 
 - 工具条次要链式按钮可加 `erp-btn-keep-link` 豁免方框化
+
+- **全站落地（2026-07）**：主数据、单据、报价、系统/人事/宿舍等主列表操作列已按 `inv/bom/index.vue` 标杆统一；子表/弹窗内操作钮不在此次范围。
 
 
 

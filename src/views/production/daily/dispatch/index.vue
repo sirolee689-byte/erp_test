@@ -93,21 +93,21 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" fixed="left" width="300" class-name="erp-col-actions">
+        <el-table-column label="操作" fixed="left" :width="dispatchActionsColWidth" class-name="erp-col-actions">
           <template #default="{ row }">
-            <div class="action-bar" @click.stop>
-              <el-button size="small" plain @click="viewOrder(row)">查看</el-button>
-              <template v-if="!showRecycle">
-                <el-button v-if="row.pass !== '1'" v-permission="'edit'" size="small" type="primary" plain @click="editOrder(row)">编辑</el-button>
-                <el-button v-if="row.pass !== '1'" v-permission="'audit'" size="small" plain :loading="row.__op === 'audit'" @click="runAction(row, 'audit')">审核</el-button>
-                <el-button v-if="row.pass === '1'" v-permission="'audit'" size="small" plain :loading="row.__op === 'unaudit'" @click="runAction(row, 'unaudit')">反审核</el-button>
-                <el-button v-if="row.pass !== '1'" v-permission="'delete'" size="small" type="danger" plain :loading="row.__op === 'delete'" @click="runAction(row, 'delete')">删除</el-button>
+            <ErpTableActions @click.stop>
+              <template v-if="showRecycle">
+                <el-button v-permission="'delete'" type="primary" plain :loading="row.__op === 'restore'" @click="runAction(row, 'restore')">恢复</el-button>
+                <el-button v-if="row.pass !== '1'" v-permission="'delete'" type="danger" plain :loading="row.__op === 'hard'" @click="runAction(row, 'hard')">彻底删除</el-button>
               </template>
               <template v-else>
-                <el-button v-permission="'delete'" size="small" type="primary" plain :loading="row.__op === 'restore'" @click="runAction(row, 'restore')">恢复</el-button>
-                <el-button v-if="row.pass !== '1'" v-permission="'delete'" size="small" type="danger" plain :loading="row.__op === 'hard'" @click="runAction(row, 'hard')">彻底删除</el-button>
+                <el-button type="info" plain @click="viewOrder(row)">查看</el-button>
+                <el-button v-if="showUnaudited && row.pass !== '1'" v-permission="'edit'" type="primary" plain @click="editOrder(row)">编辑</el-button>
+                <el-button v-if="showUnaudited && row.pass !== '1'" v-permission="'audit'" type="success" plain :loading="row.__op === 'audit'" @click="runAction(row, 'audit')">审核</el-button>
+                <el-button v-if="!showUnaudited && row.pass === '1'" v-permission="'audit'" type="warning" plain :loading="row.__op === 'unaudit'" @click="runAction(row, 'unaudit')">反审核</el-button>
+                <el-button v-if="showUnaudited && row.pass !== '1'" v-permission="'delete'" type="danger" plain :loading="row.__op === 'delete'" @click="runAction(row, 'delete')">删除</el-button>
               </template>
-            </div>
+            </ErpTableActions>
           </template>
         </el-table-column>
         <el-table-column label="派工单号" prop="dispatchOrderNo" min-width="150" fixed="left" show-overflow-tooltip />
@@ -327,6 +327,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
 
 defineOptions({ name: 'production-daily-dispatch' })
 
@@ -336,6 +337,13 @@ const saving = ref(false)
 const list = ref([])
 const showUnaudited = ref(false)
 const showRecycle = ref(false)
+
+const dispatchActionsColWidth = computed(() => {
+  if (showRecycle.value) return getErpTableActionsColMinWidth(2)
+  if (showUnaudited.value) return getErpTableActionsColMinWidth(4)
+  return getErpTableActionsColMinWidth(2)
+})
+
 const filters = reactive({ keyword: '', dispatchType: '' })
 const pager = reactive({ page: 1, pageSize: 20, total: 0 })
 const editId = ref(null)

@@ -131,71 +131,71 @@
                 <el-tag v-else type="success" effect="light">正常</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" min-width="360" fixed="right">
+            <el-table-column label="操作" :width="staffActionsColWidth" fixed="right" class-name="erp-col-actions">
               <template #default="{ row }">
-                <el-button v-permission="'view'" size="small" @click="openView(row)">查看</el-button>
-                <el-button
-                  v-permission="'edit'"
-                  size="small"
-                  type="danger"
-                  v-if="!showDeleted && !showUnAudited"
-                  :disabled="staffIsLeaved(row)"
-                  @click="confirmLeave(row)"
-                >
-                  办理离职
-                </el-button>
-                <el-button
-                  v-permission="'edit'"
-                  size="small"
-                  type="primary"
-                  plain
-                  v-if="showDeleted"
-                  :disabled="rowIsAudited(row) || !rowIsDeleted(row)"
-                  @click="confirmRestore(row)"
-                >
-                  恢复
-                </el-button>
-                <el-button
-                  v-permission="'edit'"
-                  size="small"
-                  v-if="!showDeleted && showUnAudited"
-                  :disabled="rowIsAudited(row) || rowIsDeleted(row)"
-                  @click="openEdit(row)"
-                >
-                  编辑
-                </el-button>
-                <el-button
-                  v-permission="'delete'"
-                  size="small"
-                  type="danger"
-                  v-if="!showDeleted && showUnAudited"
-                  :disabled="rowIsAudited(row) || rowIsDeleted(row)"
-                  @click="confirmDelete(row)"
-                >
-                  删除
-                </el-button>
-                <el-button
-                  v-permission="'audit'"
-                  size="small"
-                  type="success"
-                  plain
-                  v-if="!showDeleted && showUnAudited"
-                  :disabled="rowIsAudited(row) || rowIsDeleted(row)"
-                  @click="doAudit(row)"
-                >
-                  审核
-                </el-button>
-                <el-button
-                  v-permission="'audit'"
-                  size="small"
-                  type="warning"
-                  plain
-                  v-if="!showDeleted && !showUnAudited"
-                  :disabled="!rowIsAudited(row) || rowIsDeleted(row)"
-                  @click="doUnaudit(row)"
-                >
-                  反审
-                </el-button>
+                <ErpTableActions>
+                  <el-button type="info" plain @click="openView(row)">查看</el-button>
+                  <el-button
+                    v-permission="'edit'"
+                    type="danger"
+                    plain
+                    v-if="!showDeleted && !showUnAudited"
+                    :disabled="staffIsLeaved(row)"
+                    @click="confirmLeave(row)"
+                  >
+                    办理离职
+                  </el-button>
+                  <el-button
+                    v-permission="'edit'"
+                    type="primary"
+                    plain
+                    v-if="showDeleted"
+                    :disabled="rowIsAudited(row) || !rowIsDeleted(row)"
+                    @click="confirmRestore(row)"
+                  >
+                    恢复
+                  </el-button>
+                  <el-button
+                    v-permission="'edit'"
+                    type="primary"
+                    plain
+                    v-if="!showDeleted && showUnAudited"
+                    :disabled="rowIsAudited(row) || rowIsDeleted(row)"
+                    @click="openEdit(row)"
+                  >
+                    编辑
+                  </el-button>
+                  <el-button
+                    v-permission="'delete'"
+                    type="danger"
+                    plain
+                    v-if="!showDeleted && showUnAudited"
+                    :disabled="rowIsAudited(row) || rowIsDeleted(row)"
+                    @click="confirmDelete(row)"
+                  >
+                    删除
+                  </el-button>
+                  <el-button
+                    v-permission="'audit'"
+                    type="success"
+                    plain
+                    v-if="!showDeleted && showUnAudited && !rowIsAudited(row)"
+                    :disabled="rowIsDeleted(row)"
+                    @click="doAudit(row)"
+                  >
+                    审核
+                  </el-button>
+                  <el-button
+                    v-permission="'audit'"
+                    type="warning"
+                    plain
+                    v-if="!showDeleted && !showUnAudited && rowIsAudited(row)"
+                    :disabled="rowIsDeleted(row)"
+                    @click="doUnaudit(row)"
+                  >
+                    反审
+                  </el-button>
+                </ErpTableActions>
               </template>
             </el-table-column>
           </el-table>
@@ -526,6 +526,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 import { Plus, Refresh, Upload } from '@element-plus/icons-vue'
+import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
 
 /** 页面标题（与左侧菜单一致） */
 const pageTitle = '员工档案资料'
@@ -546,6 +547,13 @@ const pageSize = ref(20)
 
 /** 是否显示未审核（pass='0'） */
 const showUnAudited = ref(false)
+
+const staffActionsColWidth = computed(() => {
+  if (showDeleted.value) return getErpTableActionsColMinWidth(2)
+  if (showUnAudited.value) return getErpTableActionsColMinWidth(4)
+  return getErpTableActionsColMinWidth(2)
+})
+
 /** v1.1.2：是否显示已删除（del='1'） */
 const showDeleted = ref(false)
 /** 为 true 时列表仅含 status=离职；关闭时接口排除离职，分页 total 准确 */
@@ -1315,7 +1323,7 @@ async function submitBatchUpdate() {
   background-color: #d6ecff;
   border-color: #bcdfff;
   color: #1f5faa;
-}
+}
 .warn-text {
   color: #d12f19;
   font-weight: 700;

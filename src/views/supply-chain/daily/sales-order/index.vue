@@ -92,15 +92,34 @@
               class-name="erp-col-actions"
             >
               <template #default="{ row }">
-                <div class="action-bar so-order-actions">
-                  <el-button plain size="small" @click.stop="openView(row)">查看</el-button>
-                  <template v-if="!showRecycle">
+                <ErpTableActions class="so-order-actions">
+                  <template v-if="showRecycle">
+                    <el-button
+                      v-permission="'edit'"
+                      type="primary"
+                      plain
+                      :loading="row.__opLoading === 'restore'"
+                      @click.stop="restoreRow(row)"
+                    >
+                      恢复
+                    </el-button>
+                    <el-button
+                      v-permission="'delete'"
+                      type="danger"
+                      plain
+                      :loading="row.__opLoading === 'permanent'"
+                      @click.stop="hardDeleteRow(row)"
+                    >
+                      彻底删除
+                    </el-button>
+                  </template>
+                  <template v-else>
+                    <el-button type="info" plain @click.stop="openView(row)">查看</el-button>
                     <el-button
                       v-if="!row.isPureSpareOrder"
                       v-permission="'edit'"
                       type="primary"
                       plain
-                      size="small"
                       :loading="calculateLoading"
                       @click.stop="calculateOrder(row, false)"
                     >
@@ -116,7 +135,6 @@
                         <el-button
                           v-permission="'edit'"
                           plain
-                          size="small"
                           :disabled="!row.canAddSpareUsage"
                           :loading="spareUsageLoading"
                           @click.stop="addSpareUsage(row)"
@@ -126,69 +144,47 @@
                       </span>
                     </el-tooltip>
                     <el-button
-                      v-if="!passIsAudited(row)"
+                      v-if="showUnAudited && !passIsAudited(row)"
                       v-permission="'edit'"
                       type="primary"
                       plain
-                      size="small"
                       @click.stop="openEdit(row)"
                     >
                       编辑
                     </el-button>
                     <el-button
-                      v-if="!passIsAudited(row)"
+                      v-if="showUnAudited && !passIsAudited(row)"
                       v-permission="'audit'"
+                      type="success"
                       plain
-                      size="small"
                       :loading="row.__opLoading === 'audit'"
                       @click.stop="auditRow(row)"
                     >
                       审核
                     </el-button>
                     <el-button
-                      v-if="passIsAudited(row)"
+                      v-if="!showUnAudited && passIsAudited(row)"
                       v-permission="'audit'"
+                      type="warning"
                       plain
-                      size="small"
                       :loading="row.__opLoading === 'unaudit'"
                       @click.stop="unauditRow(row)"
                     >
                       反审
                     </el-button>
                     <el-button
+                      v-if="showUnAudited"
                       v-permission="'delete'"
                       type="danger"
                       plain
-                      size="small"
+                      :disabled="passIsAudited(row)"
                       :loading="row.__opLoading === 'delete'"
                       @click.stop="softDeleteRow(row)"
                     >
                       删除
                     </el-button>
                   </template>
-                  <template v-else>
-                    <el-button
-                      v-permission="'edit'"
-                      type="primary"
-                      plain
-                      size="small"
-                      :loading="row.__opLoading === 'restore'"
-                      @click.stop="restoreRow(row)"
-                    >
-                      恢复
-                    </el-button>
-                    <el-button
-                      v-permission="'delete'"
-                      type="danger"
-                      plain
-                      size="small"
-                      :loading="row.__opLoading === 'permanent'"
-                      @click.stop="hardDeleteRow(row)"
-                    >
-                      彻底删除
-                    </el-button>
-                  </template>
-                </div>
+                </ErpTableActions>
               </template>
             </el-table-column>
             <el-table-column type="expand" width="48">

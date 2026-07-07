@@ -209,17 +209,18 @@
         stripe
         row-key="piNo"
       >
-        <el-table-column label="操作" width="110" align="center" fixed="left">
+        <el-table-column label="操作" width="110" align="center" fixed="left" class-name="erp-col-actions">
           <template #default="{ row }">
-            <el-button
-              size="small"
-              :type="isPiRowSelected(row) ? 'success' : 'primary'"
-              :plain="!isPiRowSelected(row)"
-              class="prod-pi-select-button"
-              @click="choosePiRow(row)"
-            >
-              {{ isPiRowSelected(row) ? '已选择' : '选择' }}
-            </el-button>
+            <ErpTableActions>
+              <el-button
+                :type="isPiRowSelected(row) ? 'success' : 'primary'"
+                plain
+                class="prod-pi-select-button"
+                @click="choosePiRow(row)"
+              >
+                {{ isPiRowSelected(row) ? '已选择' : '选择' }}
+              </el-button>
+            </ErpTableActions>
           </template>
         </el-table-column>
         <el-table-column prop="piNo" label="PI号" min-width="140" align="center" />

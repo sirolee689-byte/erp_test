@@ -140,12 +140,11 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" fixed="left" width="260">
+        <el-table-column label="操作" fixed="left" :width="stockOutActionsColWidth" class-name="erp-col-actions">
           <template #default="{ row }">
-            <div class="row-actions">
-              <el-button size="small" plain @click="viewOrder(row)">查看</el-button>
+            <ErpTableActions class="row-actions" @click.stop>
+              <el-button type="info" plain @click="viewOrder(row)">查看</el-button>
               <el-button
-                size="small"
                 :type="isPrintSelected(row) ? 'primary' : 'default'"
                 plain
                 @click="togglePrintSelect(row)"
@@ -153,17 +152,17 @@
                 {{ isPrintSelected(row) ? '已选择' : '打印选择' }}
               </el-button>
               <template v-if="!showRecycle">
-                <el-button v-if="canEdit(row)" v-permission="'edit'" size="small" type="primary" plain @click="editOrder(row)">编辑</el-button>
-                <el-button v-if="canAudit(row)" v-permission="'audit'" size="small" plain :loading="row.__op === 'audit'" @click="runAction(row, 'audit')">审核</el-button>
-                <el-button v-if="canUnaudit(row)" v-permission="'audit'" size="small" plain :loading="row.__op === 'unaudit'" @click="runAction(row, 'unaudit')">反审核</el-button>
-                <el-button v-if="canDelete(row)" v-permission="'delete'" size="small" type="danger" plain :loading="row.__op === 'delete'" @click="runAction(row, 'delete')">删除</el-button>
+                <el-button v-if="canEdit(row)" v-permission="'edit'" type="primary" plain @click="editOrder(row)">编辑</el-button>
+                <el-button v-if="canAudit(row)" v-permission="'audit'" type="success" plain :loading="row.__op === 'audit'" @click="runAction(row, 'audit')">审核</el-button>
+                <el-button v-if="canUnaudit(row)" v-permission="'audit'" type="warning" plain :loading="row.__op === 'unaudit'" @click="runAction(row, 'unaudit')">反审核</el-button>
+                <el-button v-if="canDelete(row)" v-permission="'delete'" type="danger" plain :loading="row.__op === 'delete'" @click="runAction(row, 'delete')">删除</el-button>
                 <span v-if="isLocked(row)" class="locked-mark" title="此单已结案，不可操作">只读</span>
               </template>
               <template v-else>
-                <el-button v-permission="'delete'" size="small" type="primary" plain :loading="row.__op === 'restore'" @click="runAction(row, 'restore')">恢复</el-button>
-                <el-button v-permission="'delete'" size="small" type="danger" plain :loading="row.__op === 'hard'" @click="runAction(row, 'hard')">彻底删除</el-button>
+                <el-button v-permission="'delete'" type="primary" plain :loading="row.__op === 'restore'" @click="runAction(row, 'restore')">恢复</el-button>
+                <el-button v-permission="'delete'" type="danger" plain :loading="row.__op === 'hard'" @click="runAction(row, 'hard')">彻底删除</el-button>
               </template>
-            </div>
+            </ErpTableActions>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="150">
@@ -853,6 +852,7 @@ import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
+import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
 import {
   STOCK_OUT_BATCH_MSG_APPLY,
   STOCK_OUT_BATCH_MSG_ACCEPTED,
@@ -931,6 +931,13 @@ const pageMode = ref('list')
 const formTab = ref('base')
 const showRecycle = ref(false)
 const showUnaudited = ref(false)
+
+const stockOutActionsColWidth = computed(() => {
+  if (showRecycle.value) return getErpTableActionsColMinWidth(2)
+  if (showUnaudited.value) return getErpTableActionsColMinWidth(5)
+  return getErpTableActionsColMinWidth(3)
+})
+
 const printMode = ref('2')
 const printSelectedSystemcodes = ref(new Set())
 const listTableRef = ref(null)
