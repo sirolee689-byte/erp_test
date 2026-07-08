@@ -46,6 +46,8 @@ const BOM_SALES_LIST_FROM = 'dbo.[UB_ERP_Bom_Sales_list]'
 const SALES_ORDER_FROM = 'dbo.[UB_ERP_Sales_order]'
 const SALES_ORDER_LIST_FROM = 'dbo.[UB_ERP_Sales_order_list]'
 const PI_COST_FROM = 'dbo.[UB_ERP_Bom_pi_cost]'
+const BUY_ORDER_FROM = 'dbo.[UB_ERP_Buy_order]'
+const BUY_ORDER_LIST_FROM = 'dbo.[UB_ERP_Buy_order_list]'
 const BOM_COLOR_FROM = 'dbo.[UB_ERP_Stocks_colorcode]'
 const BOM_FINANCE_CURRENCY_FROM = 'dbo.[UB_ERP_Finance_currency]'
 
@@ -95,6 +97,12 @@ function formatBomTraceDecimal(raw, maxDecimals = 6) {
 
 function bomTraceText(v) {
   return String(v ?? '').trim()
+}
+
+function bomTraceKeywordLooksLikeCode(v) {
+  const s = bomTraceText(v)
+  if (!s || s.length > 300 || /\s/.test(s)) return false
+  return /^[A-Za-z0-9][A-Za-z0-9/_<>.-]*-[A-Za-z0-9/_<>.-]+$/.test(s)
 }
 
 function bomTraceBoolLabel(v, emptyText = '-') {
@@ -1096,72 +1104,141 @@ function mapBomTraceRow(row) {
   }
 }
 
+function buildBomTraceWhere(reqQuery, escapeLike) {
+  const startDate = bomTraceIsoDate(reqQuery?.startDate)
+  const endDate = bomTraceIsoDate(reqQuery?.endDate)
+  const endNext = endDate ? bomTraceNextIsoDate(endDate) : ''
+  const keyword = String(reqQuery?.keyword ?? '').trim()
+  const keywordOk = keyword.length > 0 && String(reqQuery?.all ?? '') !== '1'
+  const exactKeywordFirst = keywordOk && bomTraceKeywordLooksLikeCode(keyword)
+  const bomCodeIdRaw = Number(reqQuery?.bom_code_id ?? reqQuery?.bomCodeId ?? '')
+  const bomCodeId = Number.isFinite(bomCodeIdRaw) && bomCodeIdRaw > 0 ? Math.trunc(bomCodeIdRaw) : 0
+  const hasBomCodeFilter = bomCodeId > 0
+  const keywordHasVarcharExact = keyword.length <= 50
+
+  const baseWhereParts = [
+    `(ISNULL(l.del, N'') = N'' OR l.del = N'0')`,
+    `LTRIM(RTRIM(ISNULL(l.pass, N''))) = N'1'`,
+  ]
+  if (startDate) baseWhereParts.push(`LEFT(LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(l.addtime, N'')))), 10) >= @startDate`)
+  if (endNext) baseWhereParts.push(`LEFT(LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(l.addtime, N'')))), 10) < @endNext`)
+  if (hasBomCodeFilter) {
+    baseWhereParts.push(`
+      EXISTS (
+        SELECT 1
+        FROM ${INV_BOM_CODE_FROM} AS bc_f
+        WHERE bc_f.id = @bomCodeId
+          AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc_f.flag5, N'')))) <> N''
+          AND UPPER(LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.kcaa01, N'')))))
+            LIKE UPPER(LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc_f.flag5, N''))))) + N'%'
+      )
+    `)
+  }
+
+  const keywordFuzzyWhere = `(
+      l.sid LIKE @kw OR l.kcac01 LIKE @kw OR l.kcac02 LIKE @kw OR
+      l.kcaa01 LIKE @kw OR l.kcaa02 LIKE @kw OR l.kcaa02_en LIKE @kw OR
+      l.kpname LIKE @kw OR l.kcaa03 LIKE @kw OR l.kcaa06 LIKE @kw OR
+      l.kcaa09 LIKE @kw OR l.kcaa10 LIKE @kw OR l.kcaa11 LIKE @kw OR
+      l.remark LIKE @kw OR l.Describe LIKE @kw OR l.Customer_Name LIKE @kw OR
+      l.location LIKE @kw
+    )`
+  const keywordExactWhere = keywordHasVarcharExact
+    ? `(l.kcaa01 = @kwExactN OR l.kcac01 = @kwExactV OR l.kcac02 = @kwExactV)`
+    : `(l.kcaa01 = @kwExactN)`
+  const baseWhereSql = `WHERE ${baseWhereParts.join('\n      AND ')}`
+  const whereSql = keywordOk
+    ? `${baseWhereSql}\n      AND ${keywordFuzzyWhere}`
+    : baseWhereSql
+
+  const bindTraceInputs = (dbReq) => {
+    if (startDate) dbReq.input('startDate', sql.NVarChar(10), startDate)
+    if (endNext) dbReq.input('endNext', sql.NVarChar(10), endNext)
+    if (hasBomCodeFilter) dbReq.input('bomCodeId', sql.Int, bomCodeId)
+    if (keywordOk) dbReq.input('kw', sql.NVarChar(500), `%${escapeLike(keyword)}%`)
+    if (exactKeywordFirst) {
+      dbReq.input('kwExactN', sql.NVarChar(300), keyword)
+      if (keywordHasVarcharExact) dbReq.input('kwExactV', sql.VarChar(50), keyword)
+    }
+    return dbReq
+  }
+
+  return {
+    keywordOk,
+    exactKeywordFirst,
+    baseWhereSql,
+    whereSql,
+    keywordExactWhere,
+    bindTraceInputs,
+  }
+}
+
 app.get('/api/inv/bom/material-trace/list', async (req, res) => {
   try {
     const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
     const pageSize = clampErpPageSize(Number(req.query?.pageSize ?? 10) || 10, 10)
-    const startDate = bomTraceIsoDate(req.query?.startDate)
-    const endDate = bomTraceIsoDate(req.query?.endDate)
-    const endNext = endDate ? bomTraceNextIsoDate(endDate) : ''
-    const keyword = String(req.query?.keyword ?? '').trim()
-    const keywordOk = keyword.length > 0 && String(req.query?.all ?? '') !== '1'
-    const bomCodeIdRaw = Number(req.query?.bom_code_id ?? req.query?.bomCodeId ?? '')
-    const bomCodeId = Number.isFinite(bomCodeIdRaw) && bomCodeIdRaw > 0 ? Math.trunc(bomCodeIdRaw) : 0
-    const hasBomCodeFilter = bomCodeId > 0
+    const traceWhere = buildBomTraceWhere(req.query, escapeSqlLikePattern)
+    const { keywordOk, exactKeywordFirst, baseWhereSql, whereSql, keywordExactWhere, bindTraceInputs } = traceWhere
     const pool = await getPool()
-
-    const whereParts = [
-      `(ISNULL(l.del, N'') = N'' OR l.del = N'0')`,
-      `LTRIM(RTRIM(ISNULL(l.pass, N''))) = N'1'`,
-    ]
-    if (startDate) whereParts.push(`LEFT(LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(l.addtime, N'')))), 10) >= @startDate`)
-    if (endNext) whereParts.push(`LEFT(LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(l.addtime, N'')))), 10) < @endNext`)
-    if (hasBomCodeFilter) {
-      whereParts.push(`
-        EXISTS (
-          SELECT 1
-          FROM ${INV_BOM_CODE_FROM} AS bc_f
-          WHERE bc_f.id = @bomCodeId
-            AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc_f.flag5, N'')))) <> N''
-            AND UPPER(LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.kcaa01, N'')))))
-              LIKE UPPER(LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(bc_f.flag5, N''))))) + N'%'
-        )
-      `)
-    }
-    if (keywordOk) {
-      whereParts.push(`(
-        l.sid LIKE @kw OR l.kcac01 LIKE @kw OR l.kcac02 LIKE @kw OR
-        l.kcaa01 LIKE @kw OR l.kcaa02 LIKE @kw OR l.kcaa02_en LIKE @kw OR
-        l.kpname LIKE @kw OR l.kcaa03 LIKE @kw OR l.kcaa06 LIKE @kw OR
-        l.kcaa09 LIKE @kw OR l.kcaa10 LIKE @kw OR l.kcaa11 LIKE @kw OR
-        l.remark LIKE @kw OR l.Describe LIKE @kw OR l.Customer_Name LIKE @kw OR
-        l.location LIKE @kw
-      )`)
-    }
-    const whereSql = `WHERE ${whereParts.join('\n        AND ')}`
-    const bindTraceInputs = (dbReq) => {
-      if (startDate) dbReq.input('startDate', sql.NVarChar(10), startDate)
-      if (endNext) dbReq.input('endNext', sql.NVarChar(10), endNext)
-      if (hasBomCodeFilter) dbReq.input('bomCodeId', sql.Int, bomCodeId)
-      if (keywordOk) dbReq.input('kw', sql.NVarChar(500), `%${escapeSqlLikePattern(keyword)}%`)
-      return dbReq
-    }
 
     const startRow = (page - 1) * pageSize + 1
     const endRow = page * pageSize
-    // 性能：主表 UB_ERP_Bom_Sales_list 约 200 万行且只有 id 主键。
-    // 先把命中行的 id 抓进临时表（正向扫描可并行），再对少量 id 排序分页并 JOIN 回主表，
-    // 避免 ROW_NUMBER OVER (ORDER BY id DESC) 直接对大表做反向串行扫描（实测反向扫描 >30s，两段式约 2.5s）。
+    const fastKeywordPage = keywordOk
+    const takeRows = fastKeywordPage ? endRow + 1 : 0
+    // 性能：关键词搜索不算精确总数，只取当前页需要的行数再多 1 行判断是否还有下一页。
+    // 查询全部/无关键词查询保留精确总数，避免改变全量浏览口径。
     const listReq = bindTraceInputs(pool.request())
     listReq.input('startRow', sql.Int, startRow)
     listReq.input('endRow', sql.Int, endRow)
-    const listR = await listReq.query(`
-      SELECT l.id
+    if (fastKeywordPage) listReq.input('takeRows', sql.Int, takeRows)
+    const seedSql = fastKeywordPage
+      ? exactKeywordFirst
+        ? `
+      -- l.id + 0：去掉 SELECT INTO 对自增列的 IDENTITY 继承，否则下面按需 INSERT 会报 IDENTITY_INSERT OFF
+      SELECT TOP (@takeRows) l.id + 0 AS id
+      INTO #bom_trace_ids
+      FROM ${BOM_SALES_LIST_FROM} AS l
+      ${baseWhereSql}
+        AND ${keywordExactWhere}
+      ORDER BY l.id DESC;
+
+      IF NOT EXISTS (SELECT 1 FROM #bom_trace_ids)
+      BEGIN
+        INSERT INTO #bom_trace_ids (id)
+        SELECT TOP (@takeRows) l.id
+        FROM ${BOM_SALES_LIST_FROM} AS l
+        ${whereSql}
+        ORDER BY l.id DESC;
+      END;
+      `
+        : `
+      -- l.id + 0：去掉 SELECT INTO 对自增列的 IDENTITY 继承，保持临时表列口径一致
+      SELECT TOP (@takeRows) l.id + 0 AS id
+      INTO #bom_trace_ids
+      FROM ${BOM_SALES_LIST_FROM} AS l
+      ${whereSql}
+      ORDER BY l.id DESC;
+      `
+      : `
+      -- l.id + 0：去掉 SELECT INTO 对自增列的 IDENTITY 继承，保持临时表列口径一致
+      SELECT l.id + 0 AS id
       INTO #bom_trace_ids
       FROM ${BOM_SALES_LIST_FROM} AS l
       ${whereSql};
-
-      SELECT COUNT(1) AS total FROM #bom_trace_ids;
+      `
+    const totalSql = fastKeywordPage
+      ? `
+      SELECT
+        CASE WHEN COUNT(1) > @endRow THEN @endRow + 1 ELSE COUNT(1) END AS total,
+        CAST(0 AS int) AS totalExact
+      FROM #bom_trace_ids;
+      `
+      : `
+      SELECT COUNT(1) AS total, CAST(1 AS int) AS totalExact FROM #bom_trace_ids;
+      `
+    const listR = await listReq.query(`
+      ${seedSql}
+      ${totalSql}
 
       ;WITH page_ids AS (
         SELECT id, ROW_NUMBER() OVER (ORDER BY id DESC) AS rn
@@ -1199,12 +1276,59 @@ app.get('/api/inv/bom/material-trace/list', async (req, res) => {
     `)
     const recordsets = listR.recordsets ?? []
     const total = Number(recordsets[0]?.[0]?.total ?? 0)
+    const totalExact = Number(recordsets[0]?.[0]?.totalExact ?? 1) === 1
     const list = (recordsets[1] ?? []).map(mapBomTraceRow)
-    res.json({ code: 200, msg: 'success', data: { total, list } })
+    res.json({ code: 200, msg: 'success', data: { total, totalExact, list } })
   } catch (err) {
     console.error('GET /api/inv/bom/material-trace/list 失败：', err)
     const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
     res.status(500).json({ code: 500, msg: `读取 BOM 转向物料查询失败：${detail}`, data: null })
+  }
+})
+
+app.get('/api/inv/bom/material-trace/count', async (req, res) => {
+  try {
+    const traceWhere = buildBomTraceWhere(req.query, escapeSqlLikePattern)
+    const { keywordOk, exactKeywordFirst, baseWhereSql, whereSql, keywordExactWhere, bindTraceInputs } = traceWhere
+    const pool = await getPool()
+    const countReq = bindTraceInputs(pool.request())
+    const countSql = keywordOk
+      ? exactKeywordFirst
+        ? `
+      DECLARE @exactCount bigint = 0;
+      SELECT @exactCount = COUNT(1)
+      FROM ${BOM_SALES_LIST_FROM} AS l
+      ${baseWhereSql}
+        AND ${keywordExactWhere};
+
+      IF (@exactCount > 0)
+      BEGIN
+        SELECT @exactCount AS total;
+      END
+      ELSE
+      BEGIN
+        SELECT COUNT(1) AS total
+        FROM ${BOM_SALES_LIST_FROM} AS l
+        ${whereSql};
+      END
+      `
+        : `
+      SELECT COUNT(1) AS total
+      FROM ${BOM_SALES_LIST_FROM} AS l
+      ${whereSql};
+      `
+      : `
+      SELECT COUNT(1) AS total
+      FROM ${BOM_SALES_LIST_FROM} AS l
+      ${baseWhereSql};
+      `
+    const countR = await countReq.query(countSql)
+    const total = Number(countR.recordset?.[0]?.total ?? 0)
+    res.json({ code: 200, msg: 'success', data: { total } })
+  } catch (err) {
+    console.error('GET /api/inv/bom/material-trace/count 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取转向物料精确总数失败：${detail}`, data: null })
   }
 })
 
@@ -1261,6 +1385,7 @@ app.get('/api/inv/bom/material-trace/:id/usage', async (req, res) => {
           usage: formatBomTraceDecimal(p.usage, 6),
         })
       }
+      if (products.length) break
       childKey = bomTraceText(parents[0]?.kcac01)
     }
 
@@ -1340,6 +1465,254 @@ app.get('/api/inv/bom/material-trace/:id/usage', async (req, res) => {
     console.error('GET /api/inv/bom/material-trace/:id/usage 失败：', err)
     const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
     res.status(500).json({ code: 500, msg: `读取 BOM 转向物料展开失败：${detail}`, data: null })
+  }
+})
+
+app.get('/api/inv/bom/moq/list', async (req, res) => {
+  try {
+    const code = String(req.query?.code ?? '').trim()
+    const showAll = String(req.query?.showAll ?? '').trim() === '1'
+    if (!code) {
+      return res.status(400).json({ code: 400, msg: '请输入编码进行查询', data: null })
+    }
+    const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
+    const pageSize = clampErpPageSize(Number(req.query?.pageSize ?? 10) || 10, 10)
+    const startRow = (page - 1) * pageSize + 1
+    const endRow = page * pageSize
+    const moqSidSuffixFilterSql = showAll
+      ? ''
+      : `
+            AND c.sid NOT LIKE N'%-DECR'
+            AND c.sid NOT LIKE N'%-CP'
+          `
+    const pool = await getPool()
+    const q = await pool
+      .request()
+      .input('code', sql.NVarChar(300), code)
+      .input('startRow', sql.Int, startRow)
+      .input('endRow', sql.Int, endRow)
+      .query(`
+        SELECT
+          c.sid,
+          c.pq,
+          c.kcaa01,
+          c.temp,
+          c.kcaa11,
+          ISNULL(SUM(ISNULL(CONVERT(decimal(28, 6), c.kcac06), 0)), 0) AS usageQty
+        INTO #moq_base
+        FROM ${PI_COST_FROM} AS c
+        WHERE (
+            c.kcaa01 = @code
+            OR c.kcaa11 = @code
+          )
+          AND (ISNULL(c.del, N'') = N'' OR c.del = N'0')
+          AND ISNULL(c.isok, 1) = 1
+          ${moqSidSuffixFilterSql}
+        GROUP BY
+          c.sid,
+          c.pq,
+          c.kcaa01,
+          c.temp,
+          c.kcaa11;
+
+        SELECT TOP 1
+          CONVERT(decimal(28, 6), bol2.kcak041) AS dj2
+        INTO #moq_fallback_price
+        FROM ${BUY_ORDER_FROM} AS bo2
+        INNER JOIN ${BUY_ORDER_LIST_FROM} AS bol2
+          ON bo2.kcaj01 = bol2.kcak01
+        WHERE bol2.kcaa01 = @code
+          AND (ISNULL(bo2.del, N'') = N'' OR bo2.del = N'0')
+          AND LTRIM(RTRIM(ISNULL(bo2.pass, N''))) = N'1'
+          AND (ISNULL(bol2.del, N'') = N'' OR bol2.del = N'0')
+        ORDER BY bol2.id DESC;
+
+        ;WITH cur_price_candidates AS (
+          SELECT
+            bo.kcaj04 AS sid,
+            CONVERT(decimal(28, 6), bol.kcak041) AS dj,
+            ROW_NUMBER() OVER (PARTITION BY bo.kcaj04 ORDER BY bol.id DESC) AS rn
+          FROM ${BUY_ORDER_FROM} AS bo
+          INNER JOIN ${BUY_ORDER_LIST_FROM} AS bol
+            ON bo.kcaj01 = bol.kcak01
+          INNER JOIN (SELECT DISTINCT sid FROM #moq_base) AS s
+            ON s.sid = bo.kcaj04
+          WHERE bol.kcaa01 = @code
+            AND (ISNULL(bo.del, N'') = N'' OR bo.del = N'0')
+            AND LTRIM(RTRIM(ISNULL(bo.pass, N''))) = N'1'
+            AND (ISNULL(bol.del, N'') = N'' OR bol.del = N'0')
+        )
+        SELECT sid, dj
+        INTO #moq_cur_price
+        FROM cur_price_candidates
+        WHERE rn = 1;
+
+        ;WITH sales_line_candidates AS (
+          SELECT
+            l.xsak01 AS sid,
+            l.kcaa01 AS pq,
+            l.kcaa10,
+            l.kcaa06,
+            l.xsak03,
+            ROW_NUMBER() OVER (PARTITION BY l.xsak01, l.kcaa01 ORDER BY l.id DESC) AS rn
+          FROM ${SALES_ORDER_LIST_FROM} AS l
+          INNER JOIN (SELECT DISTINCT sid, pq FROM #moq_base) AS b
+            ON b.sid = l.xsak01
+           AND b.pq = l.kcaa01
+          WHERE (ISNULL(l.del, N'') = N'' OR l.del = N'0')
+            AND LTRIM(RTRIM(ISNULL(l.pass, N''))) = N'1'
+        )
+        SELECT sid, pq, kcaa10, kcaa06, xsak03
+        INTO #moq_sales_line
+        FROM sales_line_candidates
+        WHERE rn = 1;
+
+        ;WITH sales_order_candidates AS (
+          SELECT
+            h.xsaj01 AS sid,
+            h.xsaj02,
+            h.xsaj06,
+            ROW_NUMBER() OVER (PARTITION BY h.xsaj01 ORDER BY h.id DESC) AS rn
+          FROM ${SALES_ORDER_FROM} AS h
+          INNER JOIN (SELECT DISTINCT sid FROM #moq_base) AS b
+            ON b.sid = h.xsaj01
+          WHERE (ISNULL(h.del, N'') = N'' OR h.del = N'0')
+            AND LTRIM(RTRIM(ISNULL(h.pass, N''))) = N'1'
+        )
+        SELECT sid, xsaj02, xsaj06
+        INTO #moq_sales_order
+        FROM sales_order_candidates
+        WHERE rn = 1;
+
+        SELECT
+          b.sid,
+          b.pq,
+          b.kcaa01,
+          b.temp,
+          b.kcaa11,
+          b.usageQty,
+          ISNULL(sol.kcaa10, N'') AS kcaa10,
+          ISNULL(sol.kcaa06, N'') AS customerStyle,
+          ISNULL(CONVERT(decimal(28, 6), sol.xsak03), 0) AS salesQty,
+          ISNULL(CONVERT(nvarchar(10), so.xsaj02, 120), N'') AS salesDate,
+          ISNULL(so.xsaj06, N'') AS poNo,
+          ISNULL(color.name, N'') AS colorName,
+          ISNULL(CONVERT(decimal(28, 6), curPrice.dj), 0) AS dj,
+          ISNULL(CONVERT(decimal(28, 6), fallbackPrice.dj2), 0) AS dj2,
+          ISNULL(b.usageQty, 0) * ISNULL(CONVERT(decimal(28, 6), sol.xsak03), 0) AS totalUsage,
+          CASE
+            WHEN ISNULL(CONVERT(decimal(28, 6), curPrice.dj), 0) > 0
+              THEN ISNULL(CONVERT(decimal(28, 6), curPrice.dj), 0)
+            ELSE ISNULL(CONVERT(decimal(28, 6), fallbackPrice.dj2), 0)
+          END AS ep,
+          CASE
+            WHEN ISNULL(CONVERT(decimal(28, 6), curPrice.dj), 0) > 0 THEN CAST(0 AS int)
+            WHEN ISNULL(CONVERT(decimal(28, 6), fallbackPrice.dj2), 0) > 0 THEN CAST(1 AS int)
+            ELSE CAST(0 AS int)
+          END AS usedFallback
+        INTO #moq_rows
+        FROM #moq_base AS b
+        LEFT JOIN #moq_sales_line AS sol
+          ON sol.sid = b.sid
+         AND sol.pq = b.pq
+        LEFT JOIN #moq_sales_order AS so
+          ON so.sid = b.sid
+        OUTER APPLY (
+          SELECT TOP 1 cc.name
+          FROM ${BOM_COLOR_FROM} AS cc
+          WHERE cc.code = b.kcaa11
+            AND (ISNULL(cc.del, N'') = N'' OR cc.del = N'0')
+            AND LTRIM(RTRIM(ISNULL(cc.pass, N''))) = N'1'
+          ORDER BY cc.id DESC
+        ) AS color
+        LEFT JOIN #moq_cur_price AS curPrice
+          ON curPrice.sid = b.sid
+        OUTER APPLY (
+          SELECT TOP 1 dj2 FROM #moq_fallback_price
+        ) AS fallbackPrice;
+
+        ALTER TABLE #moq_rows ADD amount decimal(28, 6) NULL;
+        UPDATE #moq_rows
+          SET amount = ISNULL(totalUsage, 0) * ISNULL(ep, 0);
+
+        SELECT
+          COUNT(1) AS total,
+          ISNULL(SUM(ISNULL(totalUsage, 0)), 0) AS usageTotal,
+          ISNULL(SUM(ISNULL(amount, 0)), 0) AS amountTotal
+        FROM #moq_rows;
+
+        ;WITH ordered_rows AS (
+          SELECT
+            *,
+            ROW_NUMBER() OVER (ORDER BY sid DESC) AS rn
+          FROM #moq_rows
+        )
+        SELECT
+          sid,
+          pq,
+          kcaa01,
+          temp,
+          kcaa11,
+          usageQty,
+          kcaa10,
+          customerStyle,
+          salesQty,
+          salesDate,
+          poNo,
+          colorName,
+          dj,
+          dj2,
+          ep,
+          usedFallback,
+          totalUsage,
+          amount
+        FROM ordered_rows
+        WHERE rn BETWEEN @startRow AND @endRow
+        ORDER BY rn;
+
+        DROP TABLE #moq_rows;
+        DROP TABLE #moq_sales_order;
+        DROP TABLE #moq_sales_line;
+        DROP TABLE #moq_cur_price;
+        DROP TABLE #moq_fallback_price;
+        DROP TABLE #moq_base;
+      `)
+    const recordsets = q.recordsets ?? []
+    const sumRow = recordsets[0]?.[0] ?? {}
+    const list = (recordsets[1] ?? []).map((row) => ({
+      sid: bomTraceText(row.sid),
+      pq: bomTraceText(row.pq),
+      kcaa01: bomTraceText(row.kcaa01),
+      temp: bomTraceText(row.temp),
+      kcaa11: bomTraceText(row.kcaa11),
+      usageQty: formatBomTraceDecimal(row.usageQty, 6),
+      kcaa10: bomTraceText(row.kcaa10),
+      customerStyle: bomTraceText(row.customerStyle),
+      salesQty: formatBomTraceDecimal(row.salesQty, 6),
+      salesDate: bomTraceText(row.salesDate),
+      poNo: bomTraceText(row.poNo),
+      colorName: bomTraceText(row.colorName),
+      dj: formatBomTraceDecimal(row.dj, 6),
+      dj2: formatBomTraceDecimal(row.dj2, 6),
+      ep: formatBomTraceDecimal(row.ep, 6),
+      usedFallback: Number(row.usedFallback) === 1,
+      totalUsage: formatBomTraceDecimal(row.totalUsage, 6),
+      amount: formatBomTraceDecimal(row.amount, 6),
+    }))
+    res.json({
+      code: 200,
+      msg: 'success',
+      data: {
+        total: Number(sumRow.total ?? 0),
+        usageTotal: formatBomTraceDecimal(sumRow.usageTotal, 6),
+        amountTotal: formatBomTraceDecimal(sumRow.amountTotal, 6),
+        list,
+      },
+    })
+  } catch (err) {
+    console.error('GET /api/inv/bom/moq/list 失败：', err)
+    const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+    res.status(500).json({ code: 500, msg: `读取 MOQ 查询失败：${detail}`, data: null })
   }
 })
 
@@ -1635,8 +2008,8 @@ app.get('/api/inv/bom/list', async (req, res) => {
         } else {
           const sum4 = Number(aggHit?.total4 ?? 0)
           const sum6 = Number(aggHit?.total6 ?? 0)
-          const s4 = formatBomTraceDecimal(sum4, 6)
-          const s6 = formatBomTraceDecimal(sum6, 6)
+          const s4 = formatBomTraceDecimal(sum4, 4)
+          const s6 = formatBomTraceDecimal(sum6, 4)
           bomCostUsageCostText = `成本：${s4},${s6}`
         }
       }
@@ -2300,34 +2673,6 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
       .request()
       .input('sc', sql.NVarChar(100), systemcode)
       .query(`
-      WITH part_keys AS (
-        SELECT DISTINCT LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p0.kcaa01, N'')))) AS kcaa01_key
-        FROM ${INV_BOM_PARTS_FROM} AS p0
-        WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p0.kcac01, N'')))) = @sc
-      ),
-      bh_ranked AS (
-        SELECT
-          LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) AS kcaa01_key,
-          LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) AS j01,
-          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa02, N'')))) AS j02,
-          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa03, N'')))) AS j03,
-          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.kcaa11, N'')))) AS j11,
-          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS child_systemcode,
-          LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(10), b.pass), N''))) AS child_pass,
-          ROW_NUMBER() OVER (
-            PARTITION BY LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N''))))
-            ORDER BY b.id DESC
-          ) AS rn
-        FROM ${INV_BOM_MASTER_FROM} AS b
-        INNER JOIN part_keys AS pk
-          ON LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) = pk.kcaa01_key
-        WHERE (ISNULL(b.del, N'') = N'' OR LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), b.del), N''))) = N'0')
-      ),
-      bh AS (
-        SELECT kcaa01_key, j01, j02, j03, j11, child_systemcode, child_pass
-        FROM bh_ranked
-        WHERE rn = 1
-      )
       SELECT
         p.id,
         LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) AS kcac01,
@@ -2359,13 +2704,24 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
         LTRIM(RTRIM(ISNULL(bh.child_systemcode, N''))) AS child_systemcode,
         LTRIM(RTRIM(ISNULL(bh.child_pass, N''))) AS child_pass
       FROM ${INV_BOM_PARTS_FROM} AS p
-      LEFT OUTER JOIN bh
-        ON LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p.kcaa01, N'')))) = bh.kcaa01_key
-      WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcac01, N'')))) = @sc
+      OUTER APPLY (
+        SELECT TOP 1
+          LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) AS j01,
+          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa02, N'')))) AS j02,
+          LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa03, N'')))) AS j03,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.kcaa11, N'')))) AS j11,
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS child_systemcode,
+          LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(10), b.pass), N''))) AS child_pass
+        FROM ${INV_BOM_MASTER_FROM} AS b
+        WHERE b.kcaa01 = p.kcaa01
+          AND (ISNULL(b.del, N'') = N'' OR b.del = N'0')
+        ORDER BY b.id DESC
+      ) AS bh
+      WHERE p.kcac01 = @sc
         AND EXISTS (
           SELECT 1
           FROM ${INV_BOM_MASTER_FROM} AS h
-          WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.systemcode, N'')))) = @sc
+          WHERE h.systemcode = @sc
             AND (ISNULL(h.del, N'') = N'' OR h.del = N'0')
         )
       ORDER BY CASE WHEN p.[Seq] IS NULL THEN 1 ELSE 0 END, p.[Seq], p.id

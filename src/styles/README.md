@@ -51,13 +51,10 @@
 
 ## 全局页面标签栏
 
-
-
+- 外壳（`src/layout/ErpLayout.vue`）锁 `height: 100vh` + `overflow: hidden`，顶栏与左侧功能栏固定不动；纵向滚动仅发生在 `src/layout/ErpAppMain.vue` 的 `.erp-main`（`overflow-y: auto`）。
 - `BOM资料 / 使用单位 / 单位转换率` 这类已打开页面标签，由 `src/layout/ErpAppMain.vue` 统一固定在内容区顶部。
-
 - 页面向下滚动时标签栏必须继续显示，方便用户随时切换已打开页面。
-
-- 外层主内容不要使用会破坏 `position: sticky` 的纵向滚动包裹；横向溢出优先用 `overflow-x: clip` 或表格自己的视口底横条处理。
+- 横向溢出优先用 `overflow-x: clip` 或表格自己的视口底横条处理。
 
 
 

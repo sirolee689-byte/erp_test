@@ -498,13 +498,16 @@ async function submitChangePassword() {
 </script>
 
 <style scoped>
+/* 外壳锁一屏高，滚动收进内容区，顶栏+左侧栏不随页面整体滚动 */
 .erp-layout {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 /* 右侧列占满剩余宽度，避免主内容变化时挤压侧栏 */
 .erp-main-column {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
 }
 .erp-header {
   display: flex;

@@ -27,6 +27,13 @@
       >
         转向物料查询
       </el-button>
+      <el-button
+        :type="pageMode === 'moq' ? 'primary' : 'default'"
+        plain
+        @click="switchBomPageMode('moq')"
+      >
+        MOQ查询
+      </el-button>
     </div>
 
     <el-card v-if="!isBomStandaloneWindow" v-show="pageMode === 'manage'" shadow="never">
@@ -306,7 +313,7 @@
             </el-table-column>
             <el-table-column
               label="输入/修改时间"
-              min-width="158"
+              min-width="200"
               align="center"
               header-align="center"
               class-name="erp-col-datetime"
@@ -352,7 +359,7 @@
             </el-table-column>
             <el-table-column
               label="成本用量"
-              min-width="168"
+              min-width="220"
               align="center"
               header-align="center"
               class-name="erp-col-datetime"
@@ -378,7 +385,7 @@
                 <span class="bom-list-cell-wrap">{{ listCell(row.kpname) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="规格" min-width="140" align="center" header-align="center">
+            <el-table-column label="规格" min-width="180" align="center" header-align="center">
               <template #default="{ row }">
                 <span class="bom-list-cell-wrap">{{ listCell(row.spec) }}</span>
               </template>
@@ -392,7 +399,7 @@
             <el-table-column label="客户款号" min-width="110" align="center" header-align="center">
               <template #default="{ row }">{{ listCell(row.kcaa06) }}</template>
             </el-table-column>
-            <el-table-column label="工厂款号" min-width="110" align="center" header-align="center">
+            <el-table-column label="工厂款号" min-width="180" align="center" header-align="center">
               <template #default="{ row }">{{ listCell(row.kcaa09) }}</template>
             </el-table-column>
             <el-table-column label="组别" width="72" align="center" header-align="center">
@@ -540,7 +547,13 @@
           />
           <el-button type="primary" :loading="materialTraceLoading" @click="onMaterialTraceSearch">查询</el-button>
           <el-button :loading="materialTraceLoading" @click="resetMaterialTrace">重置</el-button>
+          <el-divider direction="vertical" />
           <el-checkbox v-model="materialTraceFilters.showEnglish">显示英文</el-checkbox>
+          <el-divider direction="vertical" />
+          <el-button
+            :disabled="!materialTraceRows.length"
+            @click="toggleMaterialTraceExpandAll"
+          >{{ materialTraceAllExpanded ? '收起全部' : '展开全部' }}</el-button>
         </div>
       </div>
       <ErpTableViewportHScroll>
@@ -569,7 +582,7 @@
                     </el-table-column>
                     <el-table-column prop="productCode" label="对应款号" width="160" show-overflow-tooltip />
                     <el-table-column prop="customerStyle" label="客款号" width="120" show-overflow-tooltip />
-                    <el-table-column prop="kcaa01" label="编码" width="170" show-overflow-tooltip />
+                    <el-table-column prop="kcaa01" label="编码" width="180" show-overflow-tooltip />
                     <el-table-column prop="kcaa02" label="名称" width="100" show-overflow-tooltip />
                     <el-table-column prop="kcaa10" label="组别" width="80" show-overflow-tooltip />
                     <el-table-column label="用量" width="90" align="right">
@@ -598,7 +611,7 @@
               <el-button link type="primary" @click="openBomTraceSource(row)">查看</el-button>
             </template>
           </el-table-column>
-          <el-table-column label="导入/更新时间" width="170" show-overflow-tooltip>
+          <el-table-column label="导入/更新时间" width="220" show-overflow-tooltip>
             <template #default="{ row }">
               <div class="bom-list-datetime">
                 <div>导入：{{ listCell(row.addtime) }}</div>
@@ -606,16 +619,15 @@
               </div>
             </template>
           </el-table-column>
-          <el-table-column prop="kcac01" label="上级编码" min-width="180" show-overflow-tooltip />
-          <el-table-column prop="kcaa01" label="编码" min-width="180" fixed="left" show-overflow-tooltip />
-          <el-table-column prop="kcaa02" label="名称" min-width="160" show-overflow-tooltip />
+          <el-table-column prop="kcaa01" label="编码" min-width="280" fixed="left" show-overflow-tooltip />
+          <el-table-column prop="kcaa02" label="名称" min-width="260" show-overflow-tooltip />
           <el-table-column v-if="materialTraceFilters.showEnglish" prop="kcaa02_en" label="英文名" min-width="160" show-overflow-tooltip />
           <el-table-column prop="kpname" label="开票名" min-width="140" show-overflow-tooltip />
           <el-table-column prop="kcaa03" label="规格" min-width="160" show-overflow-tooltip />
           <el-table-column prop="kcaa04" label="单位" width="70" show-overflow-tooltip />
           <el-table-column prop="categoryName" label="分类名" min-width="110" show-overflow-tooltip />
           <el-table-column prop="kcaa06" label="客户款号" min-width="120" show-overflow-tooltip />
-          <el-table-column prop="kcaa09" label="工厂款号" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="kcaa09" label="工厂款号" min-width="180" show-overflow-tooltip />
           <el-table-column prop="kcaa10" label="组别" width="86" show-overflow-tooltip />
           <el-table-column prop="colorName" label="颜色名" min-width="110" show-overflow-tooltip />
           <el-table-column prop="purchaseLabel" label="采购" width="58" align="center" />
@@ -647,12 +659,107 @@
           v-model:current-page="materialTracePage.page"
           v-model:page-size="materialTracePage.pageSize"
           background
-          layout="total, sizes, prev, pager, next, jumper"
+          :layout="materialTracePage.totalExact ? 'total, sizes, prev, pager, next, jumper' : 'sizes, prev, pager, next, jumper'"
           :total="materialTracePage.total"
           :page-sizes="ERP_PAGE_SIZE_OPTIONS"
           @size-change="loadMaterialTraceList"
           @current-change="loadMaterialTraceList"
         />
+        <span v-if="!materialTracePage.totalExact" class="bom-trace-fast-page-tip">
+          {{ materialTraceCountLoading ? '总数计算中…' : '快速搜索中，未计算精确总数' }}
+        </span>
+      </div>
+    </section>
+
+    <section v-if="!isBomStandaloneWindow && pageMode === 'moq'" class="bom-material-trace-panel">
+      <div class="bom-page-panel-header">
+        <strong>MOQ查询</strong>
+        <div class="bom-page-panel-actions">
+          <el-button @click="switchBomPageMode('manage')">返回列表</el-button>
+        </div>
+      </div>
+      <div class="bom-trace-filter-bar">
+        <div class="bom-trace-filter-row">
+          <el-input
+            v-model="moqFilters.code"
+            class="bom-moq-keyword"
+            clearable
+            placeholder="请输入物料编码或颜色编码"
+            @keyup.enter="onMoqSearch"
+          />
+          <el-button type="primary" :loading="moqLoading" @click="onMoqSearch">查询</el-button>
+          <el-button :loading="moqLoading" @click="resetMoq">重置</el-button>
+          <el-divider direction="vertical" />
+          <el-switch
+            v-model="moqFilters.showAll"
+            active-text="显示全部"
+            :inactive-text="'隐藏-DECR/-CP'"
+            @change="onMoqShowAllChange"
+          />
+          <el-button type="success" :disabled="!moqRows.length" @click="exportMoqXlsx">导出信息</el-button>
+        </div>
+      </div>
+      <ErpTableViewportHScroll>
+        <el-table
+          v-loading="moqLoading"
+          :data="moqRows"
+          border
+          stripe
+          class="erp-list-table bom-moq-table"
+          row-key="__rowKey"
+          :empty-text="moqLoading ? '加载中...' : (moqEverQueried ? '暂无数据' : '请输入编码进行查询')"
+        >
+          <el-table-column label="序号" width="70" align="center">
+            <template #default="{ row }">{{ row.__index }}</template>
+          </el-table-column>
+          <el-table-column prop="kcaa01" label="查询编码" width="170" show-overflow-tooltip />
+          <el-table-column prop="sid" label="销售单号" width="130" show-overflow-tooltip />
+          <el-table-column prop="salesDate" label="销售日期" width="120" />
+          <el-table-column prop="customerStyle" label="客款号" width="120" show-overflow-tooltip />
+          <el-table-column prop="poNo" label="客单号" width="130" show-overflow-tooltip />
+          <el-table-column label="销售数量" width="80" align="right">
+            <template #default="{ row }">{{ formatBomDisplayNumber(row.salesQty, 6) }}</template>
+          </el-table-column>
+          <el-table-column prop="pq" label="所用位置" min-width="250" show-overflow-tooltip />
+          <el-table-column prop="kcaa10" label="组别" width="90" show-overflow-tooltip />
+          <el-table-column label="颜色" min-width="140" show-overflow-tooltip>
+            <template #default="{ row }">{{ moqColorCell(row) }}</template>
+          </el-table-column>
+          <el-table-column label="物料所在款号内总用量" width="170" align="right">
+            <template #default="{ row }">{{ formatBomDisplayNumber(row.totalUsage, 6) }}</template>
+          </el-table-column>
+          <el-table-column label="单价" width="120" align="right">
+            <template #default="{ row }">
+              <el-tooltip
+                v-if="row.usedFallback"
+                content="未匹配到该 PI 采购价，已回退到该物料最近采购价"
+                placement="top"
+              >
+                <span class="bom-moq-price--fallback">{{ formatBomDisplayNumber(row.ep, 6) }}</span>
+              </el-tooltip>
+              <span v-else>{{ formatBomDisplayNumber(row.ep, 6) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="金额" width="140" align="right">
+            <template #default="{ row }">{{ formatBomDisplayNumber(row.amount, 2) }}</template>
+          </el-table-column>
+        </el-table>
+      </ErpTableViewportHScroll>
+      <div class="pagination-row pagination-row--bottom">
+        <el-pagination
+          v-model:current-page="moqPage.page"
+          v-model:page-size="moqPage.pageSize"
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="moqPage.total"
+          :page-sizes="ERP_PAGE_SIZE_OPTIONS"
+          @size-change="loadMoqList"
+          @current-change="loadMoqList"
+        />
+        <div class="bom-moq-summary">
+          <span>总用量合计：{{ formatBomDisplayNumber(moqTotals.usageTotal, 6) }}</span>
+          <span>金额合计：{{ formatBomDisplayNumber(moqTotals.amountTotal, 2) }}</span>
+        </div>
       </div>
     </section>
 
@@ -779,6 +886,7 @@
                             {{ detailPartChildActionLabel }}
                           </el-button>
                           <el-button
+                            v-if="detailPartChildActionMode === 'parts-edit'"
                             type="danger"
                             plain
                             :disabled="partLineReadonly(row)"
@@ -813,7 +921,11 @@
                     <el-table-column prop="kcaa04" label="单位" width="64" show-overflow-tooltip />
                     <el-table-column label="单位用量" width="118">
                       <template #default="{ row }">
+                        <span v-if="partLineReadonly(row)" class="bom-parts-readonly-num">
+                          {{ formatPartNumberDisplay(row.kcac04) }}
+                        </span>
                         <el-input-number
+                          v-else
                           v-model="row.kcac04"
                           :disabled="partLineReadonly(row)"
                           :min="0"
@@ -834,7 +946,11 @@
                     </el-table-column>
                     <el-table-column label="损耗率(%)" width="108">
                       <template #default="{ row }">
+                        <span v-if="partLineReadonly(row)" class="bom-parts-readonly-num">
+                          {{ formatPartLossPct(row) }}
+                        </span>
                         <el-input-number
+                          v-else
                           :model-value="lossPctDisplay(row)"
                           :disabled="partLineReadonly(row)"
                           :min="0"
@@ -854,7 +970,11 @@
                     </el-table-column>
                     <el-table-column label="单价" width="112">
                       <template #default="{ row }">
+                        <span v-if="partLineReadonly(row)" class="bom-parts-readonly-num">
+                          {{ formatMoney(row.cost_price) }}
+                        </span>
                         <el-input-number
+                          v-else
                           v-model="row.cost_price"
                           :disabled="partLineReadonly(row)"
                           :min="0"
@@ -1482,9 +1602,35 @@ const materialTracePage = reactive({
   page: 1,
   pageSize: 10,
   total: 0,
+  totalExact: true,
+})
+const materialTraceCountLoading = ref(false)
+const materialTraceCurrentSig = ref('')
+const materialTraceCountCache = reactive({
+  sig: '',
+  total: 0,
 })
 // 转向物料查询：进页面默认不加载，点「查询」后才置 true（大白话：先输关键字再查，避免一进来就全表扫）
 const materialTraceEverQueried = ref(false)
+// 转向物料查询：「展开全部/收起全部」按钮的当前状态（true=已全部展开）
+const materialTraceAllExpanded = ref(false)
+// MOQ 查询：复刻旧系统，必须先输入编码才查询
+const moqLoading = ref(false)
+const moqRows = ref([])
+const moqFilters = reactive({
+  code: '',
+  showAll: false,
+})
+const moqPage = reactive({
+  page: 1,
+  pageSize: 10,
+  total: 0,
+})
+const moqTotals = reactive({
+  usageTotal: '0',
+  amountTotal: '0',
+})
+const moqEverQueried = ref(false)
 
 watch([tableList, loading], async () => {
   if (loading.value) return
@@ -1512,15 +1658,15 @@ const showUnAudited = ref(false)
 /** 回收站视图（与「显示未审核」互斥） */
 const showRecycle = ref(false)
 
-/** 主列表操作列：按当前视图最多可见按钮数估宽（默认 5 钮，未审核 7 钮，回收站 3 钮） */
-const bomListActionsButtonCount = computed(() => {
-  if (showRecycle.value) return 3
-  if (showUnAudited.value) return 7
-  return 5
+/** 主列表操作列：BOM 专用 4 列按钮布局，按实际最长按钮估宽，避免左侧大片留白 */
+const BOM_LIST_ACTIONS_COL_WIDTH_RECYCLE = 236
+const BOM_LIST_ACTIONS_COL_WIDTH_NORMAL = 252
+const BOM_LIST_ACTIONS_COL_WIDTH_UNAUDITED = 260
+const bomListActionsColWidth = computed(() => {
+  if (showRecycle.value) return BOM_LIST_ACTIONS_COL_WIDTH_RECYCLE
+  if (showUnAudited.value) return BOM_LIST_ACTIONS_COL_WIDTH_UNAUDITED
+  return BOM_LIST_ACTIONS_COL_WIDTH_NORMAL
 })
-const bomListActionsColWidth = computed(() =>
-  getErpTableActionsColMinWidth(bomListActionsButtonCount.value, { compact: true }),
-)
 
 watch(bomListActionsColWidth, async () => {
   await nextTick()
@@ -2097,7 +2243,9 @@ function getPartsTableColumnWidths(rows, overrides = {}) {
   }
 }
 
-const partsDetailActionsColWidth = 152
+const partsDetailActionsColWidth = computed(() =>
+  detailPartChildActionMode.value === 'parts-edit' ? getErpTableActionsColMinWidth(2) : 96,
+)
 const partsEditActionsColWidth = getErpTableActionsColMinWidth(2)
 const partsDetailColumnWidths = computed(() =>
   getPartsTableColumnWidths(partsList.value, {
@@ -2825,7 +2973,7 @@ function buildBomMasterPayload() {
     kcaa06: String(editForm.kcaa06 ?? ''),
     kcaa09: String(editForm.kcaa09 ?? ''),
     kcaa10: String(editForm.kcaa10 ?? ''),
-    kcaa11: String(editForm.kcaa11 ?? '').trim(),
+    kcaa11: resolveBomMasterColorCode(editForm),
     location: String(editForm.location ?? '').trim() || '国内',
     kcaa04: String(editForm.kcaa04 ?? '').trim(),
     decimal: String(editForm.decimal ?? '2'),
@@ -2852,6 +3000,14 @@ function buildBomMasterPayload() {
   }
 }
 
+function resolveBomMasterColorCode(formLike) {
+  const picked = String(formLike?.kcaa11 ?? '').trim()
+  if (picked) return picked
+  const display = String(formLike?.kcaa11_display ?? '').trim()
+  if (!display) return ''
+  return String(display.split(',')[0] ?? '').trim()
+}
+
 function extractBomColorSuffix(code) {
   const s = String(code ?? '').trim()
   const slashIdx = s.lastIndexOf('/')
@@ -2863,7 +3019,7 @@ function extractBomColorSuffix(code) {
 
 async function confirmBomColorSuffixBeforeSave(payload) {
   const suffix = extractBomColorSuffix(payload?.kcaa01)
-  const color = String(payload?.kcaa11 ?? '').trim()
+  const color = resolveBomMasterColorCode(payload)
   if (!suffix || !color) return true
   if (suffix.toUpperCase() === color.toUpperCase()) return true
   try {
@@ -2963,8 +3119,8 @@ async function submitBomEdit() {
 /** 主档 systemcode 为空则无法加载配件表 */
 const bomSystemcode = computed(() => String(bomBasic.value?.systemcode ?? '').trim())
 
-/** 已审核主档：配件只读（与列表「编辑」禁用一致） */
-const partsReadOnly = computed(() => bomWindowMode.value !== 'parts-edit' && rowIsAudited(detailListRow.value))
+/** 查看详情只读；只有配件编辑页且主档未审核时才允许改配件 */
+const partsReadOnly = computed(() => bomWindowMode.value !== 'parts-edit' || rowIsAudited(detailListRow.value))
 
 /** 与 server bomPartsDelLooksActive 一致：空 / '0' / 数值 0 视为在册可编辑 */
 function bomPartDelLooksActive(delVal) {
@@ -3084,7 +3240,7 @@ function formatQty(n) {
 }
 
 function formatLossRate(n) {
-  return formatBomDisplayNumber(n, 6)
+  return formatBomDisplayNumber(n, 2)
 }
 
 /** 底部「实际用量总和」等与 kcac06 精度一致 */
@@ -3094,6 +3250,14 @@ function formatQtySumFooter(n) {
 
 function formatMoney(n) {
   return formatBomDisplayNumber(n, 6)
+}
+
+function formatPartNumberDisplay(n) {
+  return formatBomDisplayNumber(n, 6)
+}
+
+function formatPartLossPct(row) {
+  return formatBomDisplayNumber(lossPctDisplay(row), 2)
 }
 
 function formatBomDisplayNumber(value, maxDecimals = 6, empty = '0') {
@@ -3703,6 +3867,19 @@ function switchBomPageMode(mode) {
     }
     pageMode.value = 'material-trace'
     // 进「转向物料查询」默认不加载任何数据（避免一进来就对 200 万行主表全表扫）；由用户点查询触发
+    return
+  }
+  if (mode === 'moq') {
+    if (detailVisible.value) {
+      detailVisible.value = false
+      onDetailClosed()
+    }
+    if (editVisible.value) {
+      editVisible.value = false
+      onEditClosed()
+    }
+    pageMode.value = 'moq'
+    // MOQ 复刻旧系统：必须先输入编码再查，进页面不自动加载
   }
 }
 
@@ -3863,6 +4040,38 @@ function materialTraceDateParams() {
   }
 }
 
+function buildMaterialTraceCountSig(params) {
+  const p = params ?? {}
+  return JSON.stringify({
+    keyword: String(p.keyword ?? '').trim(),
+    all: String(p.all ?? '').trim() === '1' ? '1' : '0',
+    startDate: String(p.startDate ?? '').trim(),
+    endDate: String(p.endDate ?? '').trim(),
+    bom_code_id: Number(p.bom_code_id ?? 0) > 0 ? Number(p.bom_code_id) : 0,
+  })
+}
+
+async function refreshMaterialTraceExactTotal(params, sig) {
+  materialTraceCountLoading.value = true
+  try {
+    const res = await axios.get('/api/inv/bom/material-trace/count', { params })
+    const body = res.data
+    if (body?.code !== 200) return
+    const nextTotal = Number(body?.data?.total ?? 0)
+    if (sig !== materialTraceCurrentSig.value) return
+    materialTracePage.total = nextTotal
+    materialTracePage.totalExact = true
+    materialTraceCountCache.sig = sig
+    materialTraceCountCache.total = nextTotal
+  } catch {
+    if (sig === materialTraceCurrentSig.value) materialTracePage.totalExact = false
+  } finally {
+    if (sig === materialTraceCurrentSig.value) {
+      materialTraceCountLoading.value = false
+    }
+  }
+}
+
 async function loadMaterialTraceList(opts = {}) {
   materialTraceLoading.value = true
   materialTraceEverQueried.value = true
@@ -3877,6 +4086,9 @@ async function loadMaterialTraceList(opts = {}) {
       ...(kw ? { keyword: kw } : {}),
       ...(opts.all ? { all: '1' } : {}),
     }
+    const sig = buildMaterialTraceCountSig(params)
+    materialTraceCurrentSig.value = sig
+    materialTraceCountLoading.value = false
     const res = await axios.get('/api/inv/bom/material-trace/list', { params })
     const body = res.data
     if (body?.code !== 200) throw new Error(body?.msg || '读取转向物料查询失败')
@@ -3889,13 +4101,26 @@ async function loadMaterialTraceList(opts = {}) {
       _usageProducts: [],
       _usagePis: [],
     }))
+    // 新数据到来行默认收起，按钮状态回落为「展开全部」
+    materialTraceAllExpanded.value = false
     materialTracePage.total = Number(data.total ?? 0)
+    materialTracePage.totalExact = data.totalExact !== false
+    if (!materialTracePage.totalExact) {
+      if (materialTraceCountCache.sig === sig) {
+        materialTracePage.total = Number(materialTraceCountCache.total ?? 0)
+        materialTracePage.totalExact = true
+      } else {
+        refreshMaterialTraceExactTotal(params, sig)
+      }
+    }
     await nextTick()
     materialTraceTableRef.value?.doLayout?.()
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '读取转向物料查询失败'))
     materialTraceRows.value = []
     materialTracePage.total = 0
+    materialTracePage.totalExact = true
+    materialTraceCountLoading.value = false
   } finally {
     materialTraceLoading.value = false
   }
@@ -3914,7 +4139,175 @@ function resetMaterialTrace() {
   materialTracePage.page = 1
   materialTraceRows.value = []
   materialTracePage.total = 0
+  materialTracePage.totalExact = true
+  materialTraceCountLoading.value = false
+  materialTraceCurrentSig.value = ''
+  materialTraceCountCache.sig = ''
+  materialTraceCountCache.total = 0
   materialTraceEverQueried.value = false
+  materialTraceAllExpanded.value = false
+}
+
+function moqColorCell(row) {
+  const code = String(row?.kcaa11 ?? '').trim()
+  const name = String(row?.colorName ?? '').trim()
+  if (code && name) return `${code}(${name})`
+  return code || name || '—'
+}
+
+async function loadMoqList() {
+  const code = String(moqFilters.code ?? '').trim()
+  if (!code) {
+    ElMessage.warning('请输入编码进行查询')
+    return
+  }
+  moqLoading.value = true
+  moqEverQueried.value = true
+  try {
+    const res = await axios.get('/api/inv/bom/moq/list', {
+      params: {
+        code,
+        showAll: moqFilters.showAll ? 1 : 0,
+        page: moqPage.page,
+        pageSize: moqPage.pageSize,
+      },
+    })
+    const body = res.data
+    if (body?.code !== 200) throw new Error(body?.msg || '读取 MOQ 查询失败')
+    const data = body?.data ?? {}
+    const list = Array.isArray(data.list) ? data.list : []
+    moqRows.value = list.map((row, idx) => ({
+      ...row,
+      __rowKey: `${row.sid || 'sid'}-${row.pq || 'pq'}-${idx}`,
+      __index: (moqPage.page - 1) * moqPage.pageSize + idx + 1,
+    }))
+    moqPage.total = Number(data.total ?? 0)
+    moqTotals.usageTotal = String(data.usageTotal ?? '0')
+    moqTotals.amountTotal = String(data.amountTotal ?? '0')
+  } catch (e) {
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '读取 MOQ 查询失败'))
+    moqRows.value = []
+    moqPage.total = 0
+    moqTotals.usageTotal = '0'
+    moqTotals.amountTotal = '0'
+  } finally {
+    moqLoading.value = false
+  }
+}
+
+function onMoqSearch() {
+  const code = String(moqFilters.code ?? '').trim()
+  if (!code) {
+    ElMessage.warning('请输入编码进行查询')
+    return
+  }
+  moqPage.page = 1
+  loadMoqList()
+}
+
+function onMoqShowAllChange() {
+  const code = String(moqFilters.code ?? '').trim()
+  if (!code) return
+  moqPage.page = 1
+  loadMoqList()
+}
+
+function resetMoq() {
+  moqFilters.code = ''
+  moqFilters.showAll = false
+  moqRows.value = []
+  moqPage.page = 1
+  moqPage.total = 0
+  moqTotals.usageTotal = '0'
+  moqTotals.amountTotal = '0'
+  moqEverQueried.value = false
+}
+
+async function exportMoqXlsx() {
+  const rows = moqRows.value
+  if (!rows?.length) {
+    ElMessage.warning('暂无数据可导出')
+    return
+  }
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet('MOQ查询')
+  const headers = [
+    '序号',
+    '查询编码',
+    '销售单号',
+    '销售日期',
+    '客款号',
+    '客单号',
+    '销售数量',
+    '所用位置',
+    '组别',
+    '颜色',
+    '物料所在款号内总用量',
+    '单价',
+    '金额',
+  ]
+  ws.addRow(headers)
+  ws.getRow(1).font = { bold: true }
+  rows.forEach((row) => {
+    ws.addRow([
+      row.__index,
+      row.kcaa01,
+      row.sid,
+      row.salesDate,
+      row.customerStyle,
+      row.poNo,
+      formatBomDisplayNumber(row.salesQty, 6),
+      row.pq,
+      row.kcaa10,
+      moqColorCell(row),
+      formatBomDisplayNumber(row.totalUsage, 6),
+      formatBomDisplayNumber(row.ep, 6),
+      formatBomDisplayNumber(row.amount, 2),
+    ])
+  })
+  ws.addRow([
+    '合计',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    formatBomDisplayNumber(moqTotals.usageTotal, 6),
+    '',
+    formatBomDisplayNumber(moqTotals.amountTotal, 2),
+  ])
+  ws.columns = [
+    { width: 8 },
+    { width: 18 },
+    { width: 16 },
+    { width: 14 },
+    { width: 14 },
+    { width: 14 },
+    { width: 12 },
+    { width: 20 },
+    { width: 10 },
+    { width: 16 },
+    { width: 22 },
+    { width: 12 },
+    { width: 14 },
+  ]
+  const buf = await wb.xlsx.writeBuffer()
+  const blob = new Blob([buf], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19)
+  const safeCode = String(moqFilters.code ?? '').trim() || '全部'
+  a.href = url
+  a.download = `MOQ查询_${safeCode}_${stamp}.xlsx`
+  a.click()
+  URL.revokeObjectURL(url)
+  ElMessage.success('已导出')
 }
 
 async function loadMaterialTraceUsage(row) {
@@ -3941,6 +4334,17 @@ async function loadMaterialTraceUsage(row) {
 function onMaterialTraceExpandChange(row, expandedRows) {
   const isExpanded = Array.isArray(expandedRows) && expandedRows.some((r) => Number(r?.id) === Number(row?.id))
   if (isExpanded) loadMaterialTraceUsage(row)
+  // 用户手动收起任意一行后，按钮状态回落为「展开全部」
+  if (!isExpanded) materialTraceAllExpanded.value = false
+}
+
+/** 一键展开/收起当前页所有明细行（展开会逐行触发懒加载 usage） */
+function toggleMaterialTraceExpandAll() {
+  const t = materialTraceTableRef.value
+  if (!t) return
+  const expand = !materialTraceAllExpanded.value
+  materialTraceRows.value.forEach((row) => t.toggleRowExpansion(row, expand))
+  materialTraceAllExpanded.value = expand
 }
 
 function openBomTraceSource(row) {
@@ -4850,6 +5254,11 @@ if (isBomStandaloneWindow.value) {
 .bom-trace-keyword {
   width: 360px;
 }
+.bom-trace-fast-page-tip {
+  margin-left: 8px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
 .bom-trace-table {
   width: 100%;
 }
@@ -4871,6 +5280,24 @@ if (isBomStandaloneWindow.value) {
 .bom-trace-expand-table {
   width: auto;
   background: #fff;
+}
+.bom-moq-keyword {
+  width: 320px;
+}
+.bom-moq-table {
+  width: 100%;
+}
+.bom-moq-price--fallback {
+  color: #d03050;
+  font-weight: 600;
+}
+.bom-moq-summary {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--el-text-color-regular);
 }
 /* 列表「运算」列：方框徽章 + 图标（颜色与 element-override 语义色一致） */
 .bom-usage-calc-badge {
@@ -5084,6 +5511,11 @@ if (isBomStandaloneWindow.value) {
 }
 .bom-parts-num {
   width: 100%;
+}
+.bom-parts-readonly-num {
+  display: block;
+  width: 100%;
+  text-align: right;
 }
 /** 选择列：未标记＝删除（橘色），已标记＝已选择（灰） */
 .bom-part-mark-btn {

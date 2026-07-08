@@ -14,12 +14,14 @@ defineOptions({ name: 'ErpAppMain' })
 
 <style scoped>
 .erp-main {
+  flex: 1;
+  min-height: 0;
   background: #f3f5f7;
   padding: 16px;
   min-width: 0;
-  /* 主内容区横向由表体/视口底横条处理，避免白卡片与 el-card__body 再出一层横滚 */
+  /* 纵向滚动收进内容区；横向仍由表体/视口底横条处理 */
   overflow-x: clip;
-  overflow-y: visible;
+  overflow-y: auto;
 }
 .erp-content-card {
   background: #fff;

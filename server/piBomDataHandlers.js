@@ -73,8 +73,11 @@ async function ensureSalesOrderCalcStatusColumn(pool) {
 
 function formatDecimal(v) {
   const n = Number(v)
-  if (!Number.isFinite(n)) return '0.0000'
-  return n.toFixed(4)
+  if (!Number.isFinite(n)) return '0'
+  return n
+    .toFixed(4)
+    .replace(/(\.\d*?[1-9])0+$/, '$1')
+    .replace(/\.0+$/, '')
 }
 
 function formatUsageCostText(row) {

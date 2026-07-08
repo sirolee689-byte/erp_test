@@ -55,7 +55,7 @@
                   max-height="calc(100vh - 320px)"
                 >
                   <el-table-column type="index" label="序号" width="56" align="center" fixed="left" :index="partsRowIndex" />
-                  <el-table-column label="操作" width="168" align="center" fixed="left">
+                  <el-table-column label="操作" width="96" align="center" fixed="left">
                     <template #default="{ row }">
                       <ErpTableActions>
                         <el-button
@@ -67,9 +67,6 @@
                         >
                           查看
                         </el-button>
-                        <el-button type="danger" plain :disabled="partLineReadonly(row)" @click="removePartRow(row)">
-                          删除
-                        </el-button>
                       </ErpTableActions>
                     </template>
                   </el-table-column>
@@ -80,7 +77,11 @@
                   <el-table-column prop="kcaa04" label="单位" width="64" show-overflow-tooltip />
                   <el-table-column label="单位用量" width="118">
                     <template #default="{ row }">
+                      <span v-if="partLineReadonly(row)" class="bom-parts-readonly-num">
+                        {{ formatPartNumberDisplay(row.kcac04) }}
+                      </span>
                       <el-input-number
+                        v-else
                         v-model="row.kcac04"
                         :disabled="partLineReadonly(row)"
                         :min="0"
@@ -101,7 +102,11 @@
                   </el-table-column>
                   <el-table-column label="损耗率(%)" width="108">
                     <template #default="{ row }">
+                      <span v-if="partLineReadonly(row)" class="bom-parts-readonly-num">
+                        {{ formatPartLossPct(row) }}
+                      </span>
                       <el-input-number
+                        v-else
                         :model-value="lossPctDisplay(row)"
                         :disabled="partLineReadonly(row)"
                         :min="0"
@@ -120,7 +125,11 @@
                   </el-table-column>
                   <el-table-column label="单价" width="112">
                     <template #default="{ row }">
+                      <span v-if="partLineReadonly(row)" class="bom-parts-readonly-num">
+                        {{ formatMoney(row.cost_price) }}
+                      </span>
                       <el-input-number
+                        v-else
                         v-model="row.cost_price"
                         :disabled="partLineReadonly(row)"
                         :min="0"
@@ -215,7 +224,7 @@ const dialogTitle = computed(() => {
 
 const bomSystemcode = computed(() => String(bomBasic.value?.systemcode ?? '').trim())
 
-const partsReadOnly = computed(() => rowIsAudited(bomBasic.value))
+const partsReadOnly = computed(() => true)
 
 const partsSumActualUsage = computed(() => {
   let s = 0
@@ -306,6 +315,14 @@ function formatQtySumFooter(n) {
 
 function formatMoney(n) {
   return formatBomDisplayNumber(n, 6)
+}
+
+function formatPartNumberDisplay(n) {
+  return formatBomDisplayNumber(n, 6)
+}
+
+function formatPartLossPct(row) {
+  return formatBomDisplayNumber(lossPctDisplay(row), 2)
 }
 
 function formatBomDisplayNumber(value, maxDecimals = 6, empty = '0') {
@@ -664,4 +681,12 @@ watch(
   { immediate: true },
 )
 </script>
+
+<style scoped>
+.bom-parts-readonly-num {
+  display: block;
+  width: 100%;
+  text-align: right;
+}
+</style>
 
