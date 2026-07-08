@@ -157,10 +157,6 @@
         <div v-if="importTypesError" class="hint err-inline global-import-type-err">{{ importTypesError }}</div>
 
         <div v-show="!hideBasicConfirmArea">
-          <p class="confirm-desc">
-            颜色编码自 Excel <strong>第 4 行 N 列</strong>起向右识别（如 N4、O4）。顶部<strong>导入类型</strong>、<strong>是否清仓单</strong>全部颜色共用；
-            每色两行展示配件编码（主 BOM）、配件名称、工厂款号（款色路径）等，可改<strong>颜色编码</strong>、<strong>客款号</strong>、<strong>组别</strong>；颜色编码仅改确认区显示，不影响配件编码、工厂款号、CUT 预览、智能校验和正式导入编码。CUT 预览用下拉切换颜色；正式导入写入<strong>全部</strong>已识别颜色。
-          </p>
           <div
             v-for="(block, blockIdx) in basicFormList"
             :key="`color-block-${blockIdx}-${block.colorNo}`"
@@ -318,7 +314,6 @@
         <h3 class="sub-title">Accessory 列表</h3>
         <el-table :data="parseResult.accessories" border size="small" class="preview-table" empty-text="无">
           <el-table-column prop="seqNo" label="序号" width="72" align="center" />
-          <el-table-column prop="colorNo" label="颜色" width="100" show-overflow-tooltip />
           <el-table-column prop="accessoryName" label="名称" min-width="140" show-overflow-tooltip />
           <el-table-column prop="erpCode" label="ERP 编码" min-width="220" show-overflow-tooltip />
           <el-table-column prop="usageQty" label="用量" min-width="100" align="right" />

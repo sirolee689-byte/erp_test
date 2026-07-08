@@ -2,12 +2,6 @@ import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * 销售订单列表查询：纯 SQL 拼装（SQL Server 2008 R2，ROW_NUMBER 分页）
  */
-import {
-  buildSalesOrderCanAddSpareUsageSqlExpr,
-  buildSalesOrderHasSparePartsSqlExpr,
-  buildSalesOrderIsPureSpareOrderSqlExpr,
-} from './salesOrderSpareParts.js'
-
 export const SALES_ORDER_HEADER_TABLE = 'UB_ERP_Sales_order'
 const HEADER_FROM = `dbo.[${SALES_ORDER_HEADER_TABLE}]`
 
@@ -137,9 +131,6 @@ export function buildSalesOrderListPagedSql(opts) {
           LTRIM(RTRIM(ISNULL(h.[pass], N''))) AS pass,
           LTRIM(RTRIM(ISNULL(h.[del], N''))) AS del,
           ${calcStatusExpr} AS calcStatus,
-          ${buildSalesOrderHasSparePartsSqlExpr('h')} AS hasSpareParts,
-          ${buildSalesOrderIsPureSpareOrderSqlExpr('h')} AS isPureSpareOrder,
-          ${buildSalesOrderCanAddSpareUsageSqlExpr('h')} AS canAddSpareUsage,
           h.[rn]
         FROM (
           SELECT

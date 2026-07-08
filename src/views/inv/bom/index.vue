@@ -96,7 +96,6 @@
         </div>
         <div class="bom-filter-row bom-filter-row--bottom">
           <div class="bom-filter-field bom-filter-field--keyword">
-            <span class="bom-filter-label">查询内容</span>
             <el-input
               v-model="keyword"
               placeholder="输入编码、名称、录入人或修改人关键词（支持全模糊）"
@@ -187,9 +186,13 @@
                   <template v-if="showRecycle">
                     <el-button
                       v-permission="'view'"
+                      tag="a"
+                      :href="bomStandaloneWindowHref('detail', row.code)"
+                      target="_blank"
+                      rel="noopener"
                       type="info"
                       plain
-                      @click="openDetail(row)"
+                      @click="guardBomStandaloneLink($event, 'detail', row)"
                     >
                       查看详情
                     </el-button>
@@ -238,9 +241,13 @@
                     </el-button>
                     <el-button
                       v-permission="'view'"
+                      tag="a"
+                      :href="bomStandaloneWindowHref('detail', row.code)"
+                      target="_blank"
+                      rel="noopener"
                       type="info"
                       plain
-                      @click="openDetail(row)"
+                      @click="guardBomStandaloneLink($event, 'detail', row)"
                     >查看详情</el-button>
                     <el-button
                       v-if="!row.isNeedCalc"
@@ -1211,7 +1218,12 @@
 
     <section class="bom-cost-usage-print-document" aria-hidden="true">
       <p class="bom-cost-usage-print-time-print">打印时间：{{ bomCostUsagePrintTimestamp }}</p>
-      <p class="bom-cost-usage-print-header">{{ bomCostUsageHeaderText }}</p>
+      <p
+        class="bom-cost-usage-print-header"
+        :style="bomCostUsagePrintHeaderFontSize ? { fontSize: bomCostUsagePrintHeaderFontSize } : null"
+      >
+        {{ bomCostUsageHeaderText }}
+      </p>
       <table v-if="bomCostUsageFlatRows.length" class="bom-cost-usage-print-document-table">
         <thead>
           <tr>
@@ -1715,6 +1727,7 @@ const detailActiveTab = ref('basic')
 const detailDialogClass = computed(() => {
   const cls = ['bom-detail-dialog', 'bom-main-detail-dialog', 'erp-detail-form-context']
   if (isBomStandaloneWindow.value) cls.push('bom-window-standalone-dialog')
+  if (isBomStandaloneWindow.value && bomWindowMode.value === 'detail') cls.push('bom-window-standalone-detail')
   if (detailVisible.value && detailActiveTab.value === 'costBomUsage') {
     cls.push('bom-main-detail-dialog--cost-usage-tab')
   }
@@ -1812,6 +1825,42 @@ function formatBomCostUsageHeaderText(basic) {
 
 const bomCostUsageHeaderText = computed(() => formatBomCostUsageHeaderText(bomBasic.value))
 
+/** 打印抬头动态字号（空串时回退 CSS 变量 --bom-cost-print-header-font-size） */
+const bomCostUsagePrintHeaderFontSize = ref('')
+
+/** 打印抬头字号上限，与 --bom-cost-print-header-font-size 保持一致 */
+const BOM_COST_PRINT_HEADER_FONT_MAX_PX = 17
+/** 打印抬头字号下限，防止超长编码缩到看不清 */
+const BOM_COST_PRINT_HEADER_FONT_MIN_PX = 9
+/** A4 纵向内容区可用宽（210mm - 左右各 8mm 页边距，96dpi 约 733px，留安全余量） */
+const BOM_COST_PRINT_HEADER_MAX_WIDTH_PX = 720
+
+/**
+ * 按打印区宽度自适应计算抬头字号，保证单行不换行。
+ * 仅影响打印展示，不改抬头文本内容。
+ * @param {string} text
+ * @returns {string} 如 "14px"，异常或空文本时返回空串
+ */
+function computeBomCostPrintHeaderFontSize(text) {
+  try {
+    const t = String(text ?? '').trim()
+    if (!t) return ''
+    const canvas = document.createElement('canvas')
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return ''
+    const fontFamily = getComputedStyle(document.body).fontFamily || 'sans-serif'
+    const maxPx = BOM_COST_PRINT_HEADER_FONT_MAX_PX
+    ctx.font = `700 ${maxPx}px ${fontFamily}`
+    const measured = ctx.measureText(t).width
+    if (!measured || measured <= 0) return ''
+    const fitted = Math.floor((maxPx * BOM_COST_PRINT_HEADER_MAX_WIDTH_PX) / measured)
+    const clamped = Math.max(BOM_COST_PRINT_HEADER_FONT_MIN_PX, Math.min(maxPx, fitted))
+    return `${clamped}px`
+  } catch {
+    return ''
+  }
+}
+
 /** @param {unknown[]} list */
 function normalizeBomCostHidePrefixes(list) {
   const arr = Array.isArray(list) ? list : []
@@ -1836,7 +1885,8 @@ function mapBomCostApiRowsToCostUsageRawRows(bomCostRows) {
     kcaa02: r?.kcaa02 != null ? String(r.kcaa02) : '',
     kcaa03: r?.kcaa03 != null ? String(r.kcaa03) : '',
     kcaa04: r?.kcaa04 != null ? String(r.kcaa04) : '',
-    Describe: r?.Describe != null ? String(r.Describe) : '',
+    Describe: String(r?.Describe ?? '').trim() || String(r?.binfo ?? '').trim(),
+    binfo: r?.binfo != null ? String(r.binfo) : '',
     yl: Number(r?.kcac04 ?? 0),
     loss_rate: Number(r?.kcac05 ?? 0),
     total_qty: Number.isFinite(Number(r?.kcac06)) ? Number(r.kcac06) : undefined,
@@ -2118,11 +2168,13 @@ function onPrintBomCostUsage() {
     return
   }
   bomCostUsagePrintTimestamp.value = formatBomCostUsagePrintTimestamp(new Date())
+  bomCostUsagePrintHeaderFontSize.value = computeBomCostPrintHeaderFontSize(bomCostUsageHeaderText.value)
   detailActiveTab.value = 'costBomUsage'
   applyBomCostPrintPageStyle()
   const cleanupPrintClass = () => {
     document.documentElement.classList.remove('print-bom-cost-usage')
     removeBomCostPrintPageStyle()
+    bomCostUsagePrintHeaderFontSize.value = ''
     window.removeEventListener('afterprint', cleanupPrintClass)
   }
   document.documentElement.classList.add('print-bom-cost-usage')
@@ -2385,7 +2437,10 @@ const editSaving = ref(false)
 
 /** 查看详情 / 联动查看：配件明细表纵向可视高度（表内滚动） */
 const bomPartsTableMaxHeight = 'calc(100vh - 320px)'
-const bomCostUsageTableMaxHeight = 'calc(100vh - 260px)'
+// DIY：成本BOM用量表可视高度。此值是表格真正的封顶（el-table :max-height）。
+// 想让表格离窗口底更近就把 190 调小、想留更多空白就调大；须与下方独立窗口 CSS
+// 「.bom-window-standalone-detail...--fill { max-height }」（约 5912 行）保持一致。
+const bomCostUsageTableMaxHeight = 'calc(100vh - 190px)'
 /** 编辑弹窗配件明细：与查看一致，另扣底栏按钮区约 60px */
 const bomEditPartsTableMaxHeight = 'calc(100vh - 380px)'
 
@@ -5710,6 +5765,38 @@ if (isBomStandaloneWindow.value) {
   overflow: auto;
 }
 
+.bom-window-standalone-detail.el-dialog .el-dialog__headerbtn {
+  display: none;
+}
+
+.bom-window-standalone-detail.el-dialog .el-dialog__body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.bom-window-standalone-detail.el-dialog .bom-detail-tabs {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.bom-window-standalone-detail.el-dialog .bom-detail-tabs > .el-tabs__header {
+  flex-shrink: 0;
+}
+
+.bom-window-standalone-detail.el-dialog .bom-detail-tabs > .el-tabs__content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.bom-window-standalone-detail.el-dialog .bom-detail-tabs > .el-tabs__content > .el-tab-pane {
+  min-height: 100%;
+  box-sizing: border-box;
+}
+
 .bom-edit-dialog--standalone.el-dialog .el-dialog__body {
   height: calc(100vh - 48px);
 }
@@ -5837,12 +5924,64 @@ if (isBomStandaloneWindow.value) {
   overflow-y: auto !important;
 }
 
+/* 独立详情页只让成本 BOM 表格按内容自然增高，避免行数少时合计下面出现整屏留白。 */
+.bom-window-standalone-detail.bom-main-detail-dialog--cost-usage-tab.el-dialog .el-dialog__body {
+  overflow: auto;
+}
+
+.bom-window-standalone-detail.bom-main-detail-dialog--cost-usage-tab .bom-detail-tabs > .el-tabs__content {
+  overflow: auto;
+}
+
+.bom-window-standalone-detail.bom-main-detail-dialog--cost-usage-tab
+  .bom-detail-tabs
+  > .el-tabs__content
+  > .el-tab-pane,
+.bom-window-standalone-detail.bom-main-detail-dialog--cost-usage-tab #pane-costBomUsage {
+  height: auto;
+  min-height: 0;
+}
+
+.bom-window-standalone-detail.bom-main-detail-dialog--cost-usage-tab .bom-cost-usage-wrap,
+.bom-window-standalone-detail.bom-main-detail-dialog--cost-usage-tab .bom-cost-usage-table-outer--fill {
+  display: block;
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.bom-window-standalone-detail.bom-main-detail-dialog--cost-usage-tab .bom-cost-usage-wrap {
+  overflow: visible;
+}
+
+.bom-window-standalone-detail.bom-main-detail-dialog--cost-usage-tab .bom-cost-usage-table-outer--fill {
+  /* DIY：独立窗口成本用量表外框高度上限，与 bomCostUsageTableMaxHeight（约 2400 行）保持一致；
+     调小=表格更贴近窗口底、留白更少，调大=底部留白更多 */
+  max-height: calc(100vh - 190px);
+  overflow-x: auto;
+  overflow-y: auto;
+}
+
+.bom-window-standalone-detail.bom-main-detail-dialog--cost-usage-tab
+  .bom-cost-usage-table-outer--fill
+  .bom-cost-usage-screen-table
+  .el-table__inner-wrapper {
+  display: block;
+}
+
+.bom-window-standalone-detail.bom-main-detail-dialog--cost-usage-tab
+  .bom-cost-usage-table-outer--fill
+  .bom-cost-usage-screen-table
+  .el-table__body-wrapper {
+  flex: initial;
+}
+
 /* 成本 BOM 用量表：浏览器打印（与 onPrintBomCostUsage 的 html class 配合） */
 @media print {
   /* 纸张纵向、页码由 onPrintBomCostUsage 注入 #bom-cost-print-page-style */
   /*
    * DIY：成本 BOM 用量表「打印」字号与列宽 —— 只改下面变量，保存后 Ctrl+F5，再点「点击此处打印」预览。
    * 屏上表格列宽不受影响（仍看 el-table 的 min-width/width）。
+   * 抬头单行：--bom-cost-print-header-font-size 为字号上限；超长编码由 computeBomCostPrintHeaderFontSize 自动缩小（下限 9px）。
    */
   html.print-bom-cost-usage {
     --bom-cost-print-font-size: 12px;
@@ -5985,6 +6124,8 @@ if (isBomStandaloneWindow.value) {
     font-size: var(--bom-cost-print-header-font-size);
     font-weight: var(--bom-cost-print-header-font-weight);
     line-height: 1.5;
+    /* DIY：抬头强制单行；超长时由 bomCostUsagePrintHeaderFontSize 行内字号覆盖 */
+    white-space: nowrap;
   }
   html.print-bom-cost-usage .bom-cost-usage-print-time-print {
     margin: 0 0 6px;

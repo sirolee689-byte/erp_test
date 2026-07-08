@@ -14,10 +14,12 @@ import {
   pickSalesOrderCalcStatusColumn,
 } from './salesOrderListQuery.js'
 import {
-  buildSalesOrderCanAddSpareUsageSqlExpr,
-  buildSalesOrderHasSparePartsSqlExpr,
-  buildSalesOrderIsPureSpareOrderSqlExpr,
+  fetchBomCodeExcludePrefixes,
+  orderLinesHaveSpareParts,
+  orderLinesIsPureSpare,
+  resolveCanAddSpareUsage,
 } from './salesOrderSpareParts.js'
+import { normKcaa01 } from './salesOrderSaveLogic.js'
 import { assertPiNoUnique, createSalesOrder, getClientIpFromReq, updateSalesOrder } from './salesOrderSaveService.js'
 import {
   approveSalesOrder,
@@ -91,6 +93,127 @@ function formatSalesOrderLineUsageCostText(row) {
   const s4 = Number.isFinite(sum4) ? sum4.toFixed(4) : '0.0000'
   const s6 = Number.isFinite(sum6) ? sum6.toFixed(4) : '0.0000'
   return `成本：${s4},${s6}`
+}
+
+function text(v) {
+  return String(v ?? '').trim()
+}
+
+function uniqueTexts(values) {
+  return [...new Set((values ?? []).map((v) => text(v)).filter(Boolean))]
+}
+
+function bindNVarCharList(req, name, values, length = 300) {
+  return values.map((value, index) => {
+    const key = `${name}${index}`
+    req.input(key, sql.NVarChar(length), value)
+    return `@${key}`
+  })
+}
+
+async function fetchSalesOrderLineCodesByPi(pool, piNos) {
+  const list = uniqueTexts(piNos)
+  const out = new Map(list.map((piNo) => [piNo, []]))
+  if (!list.length) return out
+  const req = pool.request()
+  const inList = bindNVarCharList(req, 'pi', list, 200).join(',')
+  const r = await req.query(`
+    SELECT
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[xsak01], N'')))) AS piNo,
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N'')))) AS kcaa01
+    FROM ${LINE_FROM} AS l
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[xsak01], N'')))) IN (${inList})
+      AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
+      AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N'')))) <> N''
+  `)
+  for (const row of r.recordset ?? []) {
+    const piNo = text(row.piNo)
+    if (!out.has(piNo)) out.set(piNo, [])
+    out.get(piNo).push({ kcaa01: text(row.kcaa01) })
+  }
+  return out
+}
+
+async function fetchPiCostPqSetByPi(pool, piNos) {
+  const list = uniqueTexts(piNos)
+  const out = new Map(list.map((piNo) => [piNo, new Set()]))
+  if (!list.length) return out
+  const req = pool.request()
+  const inList = bindNVarCharList(req, 'costPi', list, 200).join(',')
+  const r = await req.query(`
+    SELECT
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.[sid], N'')))) AS piNo,
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[pq], N'')))) AS pq
+    FROM ${PI_COST_FROM} AS c
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.[sid], N'')))) IN (${inList})
+      AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[pq], N'')))) <> N''
+    GROUP BY
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.[sid], N'')))),
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[pq], N''))))
+  `)
+  for (const row of r.recordset ?? []) {
+    const piNo = text(row.piNo)
+    if (!out.has(piNo)) out.set(piNo, new Set())
+    out.get(piNo).add(normKcaa01(row.pq))
+  }
+  return out
+}
+
+async function enrichSalesOrderOperationFlags(pool, rows) {
+  const list = Array.isArray(rows) ? rows : []
+  if (!list.length) return list
+  const piNos = uniqueTexts(list.map((row) => row.piNo))
+  const [excludePrefixes, lineMap] = await Promise.all([
+    fetchBomCodeExcludePrefixes(pool),
+    fetchSalesOrderLineCodesByPi(pool, piNos),
+  ])
+
+  const mixedPiNos = []
+  for (const row of list) {
+    const piNo = text(row.piNo)
+    const lines = lineMap.get(piNo) ?? []
+    const hasSpareParts = orderLinesHaveSpareParts(lines, excludePrefixes)
+    const isPureSpareOrder = orderLinesIsPureSpare(lines, excludePrefixes)
+    row.hasSpareParts = hasSpareParts
+    row.isPureSpareOrder = isPureSpareOrder
+    row.canAddSpareUsage = isPureSpareOrder
+    if (hasSpareParts && !isPureSpareOrder) mixedPiNos.push(piNo)
+  }
+
+  const piCostPqMap = await fetchPiCostPqSetByPi(pool, mixedPiNos)
+  for (const row of list) {
+    if (!row.hasSpareParts || row.isPureSpareOrder) continue
+    const piNo = text(row.piNo)
+    row.canAddSpareUsage = resolveCanAddSpareUsage(
+      lineMap.get(piNo) ?? [],
+      excludePrefixes,
+      piCostPqMap.get(piNo) ?? new Set(),
+    )
+  }
+  return list
+}
+
+async function fetchSalesOrderPiCostUsageByPq(pool, piNo, pqValues) {
+  const codes = uniqueTexts(pqValues)
+  const out = new Map()
+  if (!text(piNo) || !codes.length) return out
+  const req = pool.request().input('piNo', sql.NVarChar(200), text(piNo))
+  const inList = bindNVarCharList(req, 'pq', codes, 300).join(',')
+  const r = await req.query(`
+    SELECT
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[pq], N'')))) AS pq,
+      COUNT_BIG(1) AS [rowCount],
+      ISNULL(SUM(ISNULL(CONVERT(decimal(18, 6), c.[kcac04]), 0)), 0) AS totalKcac04,
+      ISNULL(SUM(ISNULL(CONVERT(decimal(18, 6), c.[kcac06]), 0)), 0) AS totalKcac06
+    FROM ${PI_COST_FROM} AS c
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.[sid], N'')))) = @piNo
+      AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[pq], N'')))) IN (${inList})
+    GROUP BY LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[pq], N''))))
+  `)
+  for (const row of r.recordset ?? []) {
+    out.set(text(row.pq), row)
+  }
+  return out
 }
 
 /**
@@ -202,7 +325,10 @@ export function registerSalesOrderRoutes(app, deps) {
 
       const { sql: listSql } = buildSalesOrderListPagedSql({ whereSql, calcStatusExpr })
       const listResult = await listReq.query(listSql)
-      const list = (listResult.recordset ?? []).map((row) => serializeRow(row))
+      const list = await enrichSalesOrderOperationFlags(
+        pool,
+        (listResult.recordset ?? []).map((row) => serializeRow(row)),
+      )
 
       res.json({ code: 200, msg: 'success', data: { total, list } })
     } catch (err) {
@@ -426,10 +552,7 @@ export function registerSalesOrderRoutes(app, deps) {
           LTRIM(RTRIM(ISNULL(h.[del], N''))) AS del,
           LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(h.[decimal_view], N'')))) AS decimalPlaces,
           LTRIM(RTRIM(CONVERT(nvarchar(max), ISNULL(h.[remark], N'')))) AS remark,
-          ${calcStatusExpr} AS calcStatus,
-          ${buildSalesOrderHasSparePartsSqlExpr('h')} AS hasSpareParts,
-          ${buildSalesOrderIsPureSpareOrderSqlExpr('h')} AS isPureSpareOrder,
-          ${buildSalesOrderCanAddSpareUsageSqlExpr('h')} AS canAddSpareUsage
+          ${calcStatusExpr} AS calcStatus
         FROM ${HEADER_FROM} AS h
         WHERE h.[id] = @id
       `)
@@ -456,36 +579,41 @@ export function registerSalesOrderRoutes(app, deps) {
           LTRIM(RTRIM(CONVERT(nvarchar(max), ISNULL(l.[remark], N'')))) AS remark,
           LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa10], N'')))) AS groupName,
           LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa09], N'')))) AS factoryStyleNo,
-          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[version], N'')))) AS version,
-          ISNULL(pc.[rowCount], 0) AS piCostRowCount,
-          CAST(ISNULL(pc.[totalKcac04], 0) AS decimal(18, 6)) AS piCostKcac04Total,
-          CAST(ISNULL(pc.[totalKcac06], 0) AS decimal(18, 6)) AS piCostKcac06Total
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[version], N'')))) AS version
         FROM ${LINE_FROM} AS l
-        LEFT JOIN (
-          SELECT
-            LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[pq], N'')))) AS pq,
-            COUNT_BIG(1) AS [rowCount],
-            ISNULL(SUM(ISNULL(CONVERT(decimal(18, 6), c.[kcac04]), 0)), 0) AS totalKcac04,
-            ISNULL(SUM(ISNULL(CONVERT(decimal(18, 6), c.[kcac06]), 0)), 0) AS totalKcac06
-          FROM ${PI_COST_FROM} AS c
-          WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.[sid], N'')))) = @piNo
-          GROUP BY LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[pq], N''))))
-        ) AS pc
-          ON pc.[pq] = LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N''))))
         WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[xsak01], N'')))) = @piNo
         ORDER BY ISNULL(l.[seq], l.[id]) ASC
       `)
+
+      const lineRows = (lr.recordset ?? []).map((row) => serializeRow(row))
+      const [excludePrefixes, usageMap] = await Promise.all([
+        fetchBomCodeExcludePrefixes(pool),
+        fetchSalesOrderPiCostUsageByPq(
+          pool,
+          piNo,
+          lineRows.map((row) => row.kcaa01),
+        ),
+      ])
+      const headerRow = serializeRow(header)
+      const piCostPqSet = new Set([...usageMap.keys()].map((pq) => normKcaa01(pq)))
+      headerRow.hasSpareParts = orderLinesHaveSpareParts(lineRows, excludePrefixes)
+      headerRow.isPureSpareOrder = orderLinesIsPureSpare(lineRows, excludePrefixes)
+      headerRow.canAddSpareUsage = resolveCanAddSpareUsage(lineRows, excludePrefixes, piCostPqSet)
+      const lines = lineRows.map((line) => {
+        const usage = usageMap.get(text(line.kcaa01)) ?? {}
+        line.piCostRowCount = Number(usage.rowCount ?? 0)
+        line.piCostKcac04Total = Number(usage.totalKcac04 ?? 0)
+        line.piCostKcac06Total = Number(usage.totalKcac06 ?? 0)
+        line.usageCostText = formatSalesOrderLineUsageCostText(line)
+        return line
+      })
 
       res.json({
         code: 200,
         msg: 'success',
         data: {
-          header: serializeRow(header),
-          lines: (lr.recordset ?? []).map((row) => {
-            const line = serializeRow(row)
-            line.usageCostText = formatSalesOrderLineUsageCostText(row)
-            return line
-          }),
+          header: headerRow,
+          lines,
         },
       })
     } catch (err) {

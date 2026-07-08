@@ -2260,7 +2260,7 @@ async function runBomUsageCalcForHead(pool, head, hidePrefixes, actor) {
     .input('pq', sql.NVarChar(300), pq)
     .input('sid', sql.NVarChar(100), systemcode)
     .query(`
-      SELECT id, pq, sid, kcaa01, kcaa02, kcaa03, kcaa04, kcac04, kcac05, kcac06, kcac07, kcac08, [Describe], isok
+      SELECT id, pq, sid, kcaa01, kcaa02, kcaa03, kcaa04, kcac04, kcac05, kcac06, kcac07, kcac08, [Describe], binfo, isok
       FROM ${BOM_COST_FROM}
       WHERE pq = @pq AND sid = @sid
       ORDER BY ${buildBomCostReadOrderBy(pq)}
@@ -2315,6 +2315,7 @@ function mapBomCostRecordToDto(r) {
     kcac07: r.kcac07 != null ? Number(r.kcac07) : null,
     kcac08: r.kcac08 != null ? Number(r.kcac08) : null,
     Describe: r.Describe != null ? String(r.Describe) : '',
+    binfo: r.binfo != null ? String(r.binfo) : '',
     isok: r.isok != null ? Number(r.isok) : 0,
   }
 }
@@ -2437,7 +2438,7 @@ app.post('/api/bom/usage-calc', async (req, res) => {
       .input('pq', sql.NVarChar(300), pq)
       .input('sid', sql.NVarChar(100), sid)
       .query(`
-        SELECT id, pq, sid, kcaa01, kcaa02, kcaa03, kcaa04, kcac04, kcac05, kcac06, kcac07, kcac08, [Describe], isok
+        SELECT id, pq, sid, kcaa01, kcaa02, kcaa03, kcaa04, kcac04, kcac05, kcac06, kcac07, kcac08, [Describe], binfo, isok
         FROM ${BOM_COST_FROM}
         WHERE pq = @pq AND sid = @sid
         ORDER BY ${buildBomCostReadOrderBy(pq)}
@@ -2597,7 +2598,7 @@ app.get('/api/bom/tree', async (req, res) => {
         .input('pq', sql.NVarChar(300), pq)
         .input('sid', sql.NVarChar(100), sid)
         .query(`
-          SELECT id, pq, sid, kcaa01, kcaa02, kcaa03, kcaa04, kcac04, kcac05, kcac06, kcac07, kcac08, [Describe], isok
+          SELECT id, pq, sid, kcaa01, kcaa02, kcaa03, kcaa04, kcac04, kcac05, kcac06, kcac07, kcac08, [Describe], binfo, isok
           FROM ${BOM_COST_FROM}
           WHERE pq = @pq AND sid = @sid
           ORDER BY ${buildBomCostReadOrderBy(pq)}

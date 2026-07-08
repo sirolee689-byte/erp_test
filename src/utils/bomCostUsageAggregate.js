@@ -47,7 +47,7 @@ export function aggregateBomCostUsageFlatForDisplay(flatRows, hidePrefixes) {
     const r = flatRows[i]
     const code = String(r?.kcaa01 ?? '').trim()
     if (!code || bomCostUsageMatchesHidePrefix(code, hidePrefixes)) continue
-    const remark = String(r?.Describe ?? '').trim()
+    const remark = String(r?.Describe ?? '').trim() || String(r?.binfo ?? '').trim()
     const key = `${code}\u0000${remark}`
     const sortKey = bomCostFlatRowSortKey(r, i)
     const pxSortKey = bomCostFlatRowPxSortKey(r)
@@ -104,22 +104,52 @@ export function aggregateBomCostUsageFlatForDisplay(flatRows, hidePrefixes) {
       _sortFirstFlat: g.firstFlatIndex,
     })
   }
+  // 业务规则：同一编码（kcaa01）的所有行必须挨在一起（不管备注是主里/副里）。
+  // 先按编码汇总「聚团键」，排序前几档只看编码级键，同编码内部再排备注；
+  // 这样 px 优先不变，又保证同编码不会被别的编码从中间劈开。
+  /** @type {Map<string, { px: number | null, minSort: number, minFlat: number }>} */
+  const codeAgg = new Map()
+  for (let j = 0; j < out.length; j++) {
+    const g = out[j]
+    const code = String(g.kcaa01)
+    const px = g._sortPx == null ? null : Number(g._sortPx)
+    const minSort = Number(g._sortMin)
+    const minFlat = Number(g._sortFirstFlat)
+    const a = codeAgg.get(code)
+    if (!a) {
+      codeAgg.set(code, { px, minSort, minFlat })
+    } else {
+      if (px != null && (a.px == null || px < a.px)) a.px = px
+      if (minSort < a.minSort) a.minSort = minSort
+      if (minFlat < a.minFlat) a.minFlat = minFlat
+    }
+  }
   out.sort((a, b) => {
-    const ap = a._sortPx == null ? null : Number(a._sortPx)
-    const bp = b._sortPx == null ? null : Number(b._sortPx)
+    const ca = codeAgg.get(String(a.kcaa01))
+    const cb = codeAgg.get(String(b.kcaa01))
+    // ① 编码级 px（空值排后）
+    const ap = ca?.px == null ? null : ca.px
+    const bp = cb?.px == null ? null : cb.px
     if (ap != null || bp != null) {
       if (ap == null) return 1
       if (bp == null) return -1
       if (ap !== bp) return ap - bp
     }
+    // ② 编码级最小排序键（Seq / 原顺序）
+    const csa = Number(ca?.minSort)
+    const csb = Number(cb?.minSort)
+    if (csa !== csb) return csa - csb
+    // ③ 编码级最小首次下标：天然唯一，保证同编码聚团、不同编码不交错
+    const cfa = Number(ca?.minFlat)
+    const cfb = Number(cb?.minFlat)
+    if (cfa !== cfb) return cfa - cfb
+    // 同编码内部：按本组备注的出现顺序排
     const sa = Number(a._sortMin)
     const sb = Number(b._sortMin)
     if (sa !== sb) return sa - sb
     const fa = Number(a._sortFirstFlat)
     const fb = Number(b._sortFirstFlat)
     if (fa !== fb) return fa - fb
-    const c = String(a.kcaa01).localeCompare(String(b.kcaa01), 'zh-Hans-CN', { sensitivity: 'accent' })
-    if (c !== 0) return c
     return String(a.Describe).localeCompare(String(b.Describe), 'zh-Hans-CN', { sensitivity: 'accent' })
   })
   return out.map(({ _sortMin, _sortPx, _sortFirstFlat, ...rest }) => rest)
