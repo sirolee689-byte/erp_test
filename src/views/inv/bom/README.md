@@ -30,7 +30,7 @@
 - **`PUT /api/inventory/bom/parts/:systemcode`**（及 **`POST /api/inventory/bom/save-parts`**）：保存时每行 **UPDATE** 使用 **`id` + `kcac01`（主档 `systemcode`）** 双重锁定；按配件 **`kcaa01`** 关联 **`UB_ERP_Bom_000`** 最新在册行，将表中存在的 **`kcaa01`～`kcaa35`**、**`kcac02`** 与 **`systemcode`**（若明细表有该列，同子 BOM `systemcode`）从主档写回明细；用量/单价/备注/排序仍以请求为准。新增行先 **INSERT OUTPUT id** 再执行同一套 UPDATE。详见 `docs/sql/database_map.md`（`UB_ERP_Bom_parts` 条目）。
 - **`kcac06`**：用量合计 = **`kcac04 × (1 + kcac05)`**；前端损耗按 **百分比** 编辑，库内 **`kcac05`** 为小数；保存时写入 **`kcac04`/`kcac05`/`kcac06`**（若库中存在 **`kcac06`** 列）。
 - **编辑弹窗新增配件**：新增空行或选材新增时，`单位用量(kcac04)` 与 `单价(cost_price)` 默认留空，交给用户填写；若用户不填直接保存，仍按后端现有规则落为 0。
-- **添加配件选材表**（`MaterialSelector.vue`，`GET /api/inv/bom/list`）：编码列右侧展示 **输入/修改时间**（两行，与 BOM 主列表一致），时间为**子件 `UB_ERP_Bom_000` 主档**的 `addtime`/`edittime`；采购报价、外协报价、销售订单批量选材共用该弹窗。
+- **添加配件选材表**（`MaterialSelector.vue`，`GET /api/inv/bom/list`）：BOM 配件明细传 `fullscreen`，弹窗 **100vh 铺满**（行数多少表体区都占满，分页钉底）；编码列右侧 **输入/修改时间** 等同主列表。采购/外协/销售批量选材默认仍近全屏 `max-height`。
 - **审计**：用量变更成功：`[更新]了配件用量，BOM：[主档 kcaa01]，配件：[kcaa01]，用量：[kcac04]，损耗：[kcac05]`。若配件在 **`UB_ERP_Bom_000`** 存在子档，另记：`[同步]了BOM配件属性，主BOM：[systemcode]，配件：[kcaa01]，已同步kcaa01-kcaa35共35个字段。`
 
 ## 接口一览（`server/index.js`）
@@ -63,7 +63,8 @@
 - **主页查询内容**：同一个关键词框支持搜索 BOM 编码、名称、录入人、修改人；仍沿用原规则，关键词不足 3 个字不作为筛选条件。
 - **BOM 分类筛选**：工具栏下拉来自 **`UB_ERP_Bom_code`**（按 `id` 排序，展示 `flag1` 如「产品」）；查询传 **`bom_code_id`**，按该分类 **`flag5` 前缀** 匹配物料编码 `kcaa01`；默认「全部分类」。列表「分类」列仍为材料分类（`UB_ERP_Stocks_material` / `kcaa05`，旧表名 `Bom_material`），与筛选项不是同一张表。**仅改分类或裁片过滤下拉不会刷新列表**，须点「查询」或关键词回车。
 - **主列表列字体统一**：主列表所有数据列（含编码、名称、规格、输入/修改时间、成本用量、录入人/修改人等）字号与粗细与「分类」列一致（常规字号、非粗体）；仅改屏上展示，不动数据与接口。DIY 位置：`index.vue` `<style scoped>` 内 `.erp-list-table :deep(.bom-list-cell-wrap)` 等覆盖规则。
-- **模式行/查询按钮字体统一**：顶部「管理BOM资料 / BOM资料添加 / 转向物料查询 / MOQ查询」模式按钮，以及筛选区「查询 / 重置」按钮，字号与粗细都与主列表列数据一致（`--erp-table-data-size` + `--erp-font-weight-body`）；仅改屏上展示，不动查询逻辑与接口。DIY 位置：`index.vue` `<style scoped>` 内 `.bom-mode-btn`、`.bom-filter-action-btn`。
+- **模式行按钮字体统一**：顶部「管理BOM资料 / BOM资料添加 / 转向物料查询 / MOQ查询」模式按钮，字号与粗细与主列表列数据一致（`--erp-table-data-size` + `--erp-font-weight-body`）；仅改屏上展示。DIY 位置：`index.vue` `<style scoped>` 内 `.bom-mode-btn`。
+- **筛选区按钮字体统一**：管理页筛选区第一行「批量审核（仅当前页）/ 批量运算（当前页）」与第二行「查询 / 重置」，字号与粗细均与「管理BOM资料」一致；仅改屏上展示，不动查询与审核逻辑。DIY 位置：`index.vue` `<style scoped>` 内 `.bom-filter-unified-btn-font`（父级挂在 `.bom-filter-bar`）；查询/重置保留 `.bom-filter-action-btn` 作锚点。
 - **操作按钮字号统一**：BOM 基础资料「是否客供 / 工作方式 / 是否保税」是/否按钮，详情/编辑页头「返回列表 / 重置 / 保存主档 / 保存配件明细」，配件明细工具条（含「+ 增加配件明细」行）与表格操作列（「添加配件 / 编辑配件 / 查看」），以及联动弹窗同类按钮，字号与粗细均与「管理BOM资料」一致；仅改屏上展示。DIY 位置：`index.vue`、联动弹窗 `BomLinkedDetailDialog.vue` 内 `.bom-unified-btn-font`；`BomBasicForm.vue` 内 `.bom-basic-buttons :deep(.el-button)`；「编辑配件」伪元素见 `index.vue` `.bom-part-edit-child-action-btn`。
 - **基础资料字体统一**：查看详情/编辑「BOM基础资料」左侧字段名与右侧输入值（含下拉、备注）字号与粗细与主列表「分类」列一致（常规字号、非粗体）；仅改屏上展示，不动数据与接口。DIY 位置：`BomBasicForm.vue` `<style scoped>` 内 `.bom-basic-label`、`.bom-basic-field :deep(.el-input__inner)` 等覆盖规则；字段值字号变量 `--bom-basic-control-font-size`（默认跟 `--erp-table-data-size`）。
 - **默认**：列表 `pass=1`（已审核）
@@ -122,6 +123,7 @@
 - **展开明细可读性**：对应成品与 PI 明细两张表改为固定列宽（不再用 `min-width` 拉伸整行），并将「PI号」列名改为「对应PI号」，避免短值列占据过宽区域。
 - **主页成本用量列展示**：`成本：kcac04合计,kcac06合计` 统一按 4 位小数格式化并去掉无意义尾零（例如 `1.2300` 显示 `1.23`，`80.0000` 显示 `80`）。
 - BOM资料页面及下钻弹窗里的数量、损耗、合计、金额类显示统一去掉无意义尾零，例如 `1.000000` 显示 `1`、`0.00` 显示 `0`、`1.230000` 显示 `1.23`；查看详情的配件明细为只读，工具栏不再显示「保存配件明细」，且只显示查看按钮不显示删除按钮；编辑弹窗内「保存配件明细」成功后会自动切回「BOM资料」页签。只改显示与交互，不改保存值和计算精度。
+- **配件明细 Tab 铺满 / 展开（2026-07）**：**独立全屏窗**（新标签 `bom-data-window`）仍用 `bom-parts-tab-fill` 纵向 flex——工具栏在上、表格 `height:100%` 吃满中间、**「实际用量总和」**（`bom-parts-sum-row--dock`）钉在 Tab 最底。**当前页面内查看/编辑**（列表点「查看详情」或「编辑」后切到「配件明细」）不再给表格固定高度或最大高度，配件明细按内容自然展开，纵向滚动交给页面最外层，视觉高度与「BOM基础资料」保持一致；横向滚动仍保留在表格外层。独立全屏编辑页配件 Tab 无底栏（保存走工具栏）。DIY：`index.vue` 搜 `bomPartsTableMaxHeight`、`bomEditPartsTableHeight`、`bom-parts-tab-fill`、`bom-edit-dialog--parts-tab`。
 
 ## MOQ查询（复刻旧系统）
 
@@ -141,5 +143,5 @@
 - `BOM资料` 列表里的「查看详情」使用浏览器原生新页打开 `/inventory/basic/bom-data-window?mode=detail&code=...`；新页不显示 ERP 左侧栏、列表筛选、分页和列表操作，只显示当前 BOM 详情数据区，详情页签内原有运算、导出、打印等按钮保持可用。
 - **四模式按钮右键（2026-07）**：顶部「管理BOM资料 / BOM资料添加 / 转向物料查询 / MOQ查询」按钮右键 →「在新标签页中打开」，在新标签打开干净独立页（无侧栏、无模式切换条），URL 分别为 `bom-data-window?mode=manage|create|material-trace|moq`；左键仍在当前页切换模式。权限：`manage`/`material-trace`/`moq` 需 `view`，`create` 需 `add`。DIY：`index.vue` `.bom-mode-bar` 的 `@contextmenu` 与 `buildBomModeWindowUrl` / `onBomModeBtnContextMenu`。
 - **独立页新增/编辑底栏（2026-07）**：`bom-data-window?mode=create|edit` 时，「关闭 / 重置（仅新增）/ 保存主档 / 保存配件明细」固定在弹窗底栏（`el-dialog` `#footer`），无需滚动即可见；内嵌页仍用面板顶栏 `.bom-page-panel-header`。DIY：`index.vue` 编辑弹窗 `#footer` 与全局样式 `.bom-edit-dialog--standalone`。
-- **列表行右键（2026-07）**：在「管理BOM资料」主列表（含 `mode=manage` 干净独立页）、详情/独立页内「配件明细」「BOM用量表运算」「成本BOM用量表」、编辑弹窗「配件明细」等表格行上右键，菜单项「在新标签页中打开」与对应操作列按钮同效果（干净独立页）；无 `view` 权限或无编码时不弹自定义菜单（无编码时菜单项灰显）。通用组件 `ErpListRowContextMenu.vue`；主列表 `onBomListRowContextMenu`，详情子表 `onBomDetailPartsRowContextMenu` / `onBomUsageOrCostRowContextMenu` / `onBomEditPartsRowContextMenu`。
+- **列表行右键（2026-07）**：在「管理BOM资料」主列表（含 `mode=manage` 干净独立页）、详情/独立页内「配件明细」「BOM用量表运算」「成本BOM用量表」、编辑弹窗「配件明细」等表格行上右键，菜单项「在新标签页中打开」与对应操作列按钮同效果（干净独立页）；**开启「显示未审核」且当前行未审时，主列表右键打开 `mode=edit` 编辑独立页**（含添加/删除配件、保存主档等），已审或默认已审列表仍为 `mode=detail` 只读详情。无 `view`/`edit` 权限或无编码时不弹自定义菜单（无编码时菜单项灰显）。通用组件 `ErpListRowContextMenu.vue`；主列表 `resolveBomListRowContextMenuMode` / `onBomListRowContextMenu`，详情子表 `onBomDetailPartsRowContextMenu` / `onBomUsageOrCostRowContextMenu` / `onBomEditPartsRowContextMenu`。
 - 独立页里的「成本BOM用量表」按表格内容自然增高；行数少时合计紧跟明细，不再把表体强行撑满整屏，行数多时仍保留最大高度和滚动显示。

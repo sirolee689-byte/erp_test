@@ -4,6 +4,7 @@ import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
  */
 export const SALES_ORDER_HEADER_TABLE = 'UB_ERP_Sales_order'
 const HEADER_FROM = `dbo.[${SALES_ORDER_HEADER_TABLE}]`
+const PI_COST_FROM = 'dbo.[UB_ERP_Bom_pi_cost]'
 
 /**
  * 在册 / 回收站 del 条件
@@ -104,20 +105,22 @@ export function pickSalesOrderCalcStatusColumn(colNames) {
 
 /** @param {string} col */
 export function buildSalesOrderCalcStatusExpr(col) {
-  const c = String(col ?? 'is_pur').replace(/[^a-zA-Z0-9_]/g, '')
-  return `CASE WHEN LTRIM(RTRIM(ISNULL(h.[${c}], N''))) = N'1' THEN N'已运算' ELSE N'未运算' END`
+  return `CASE WHEN EXISTS (
+    SELECT 1
+    FROM ${PI_COST_FROM} AS pc_calc
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(pc_calc.[sid], N'')))) =
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.xsaj01, N''))))
+      AND ISNULL(pc_calc.[isok], 0) = 1
+  ) THEN NCHAR(24050) + NCHAR(36816) + NCHAR(31639)
+    ELSE NCHAR(26410) + NCHAR(36816) + NCHAR(31639) END`
 }
 
 /**
  * 列表分页 SQL（禁止 OFFSET-FETCH）
- * @param {{ whereSql: string, calcStatusExpr: string }} opts
+ * @param {{ whereSql: string, calcStatusExpr?: string }} opts
  */
 export function buildSalesOrderListPagedSql(opts) {
   const whereSql = String(opts?.whereSql ?? '')
-  const calcStatusExpr = String(opts?.calcStatusExpr ?? `N'未运算'`)
-  const calcStatusCol =
-    calcStatusExpr.match(/h\.\[([a-zA-Z0-9_]+)\]/)?.[1]?.replace(/[^a-zA-Z0-9_]/g, '') || 'is_pur'
-
   const sqlText = `
         SELECT
           h.[id],
@@ -130,7 +133,6 @@ export function buildSalesOrderListPagedSql(opts) {
           h.[xsaj08] AS deliveryDate,
           LTRIM(RTRIM(ISNULL(h.[pass], N''))) AS pass,
           LTRIM(RTRIM(ISNULL(h.[del], N''))) AS del,
-          ${calcStatusExpr} AS calcStatus,
           h.[rn]
         FROM (
           SELECT
@@ -144,7 +146,6 @@ export function buildSalesOrderListPagedSql(opts) {
             h.[xsaj08],
             h.[pass],
             h.[del],
-            h.[${calcStatusCol}],
             ROW_NUMBER() OVER (ORDER BY h.[id] DESC) AS rn
           FROM ${HEADER_FROM} AS h
           WHERE 1 = 1

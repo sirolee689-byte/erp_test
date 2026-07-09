@@ -147,6 +147,7 @@ async function fetchPiCostPqSetByPi(pool, piNos) {
     FROM ${PI_COST_FROM} AS c
     WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.[sid], N'')))) IN (${inList})
       AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[pq], N'')))) <> N''
+      AND ISNULL(c.[isok], 0) = 1
     GROUP BY
       LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.[sid], N'')))),
       LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[pq], N''))))
@@ -155,6 +156,27 @@ async function fetchPiCostPqSetByPi(pool, piNos) {
     const piNo = text(row.piNo)
     if (!out.has(piNo)) out.set(piNo, new Set())
     out.get(piNo).add(normKcaa01(row.pq))
+  }
+  return out
+}
+
+async function fetchSalesOrderCalcStatusByPi(pool, piNos) {
+  const list = uniqueTexts(piNos)
+  const out = new Map(list.map((piNo) => [piNo, '未运算']))
+  if (!list.length) return out
+  const req = pool.request()
+  const inList = bindNVarCharList(req, 'calcPi', list, 200).join(',')
+  const r = await req.query(`
+    SELECT
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.[sid], N'')))) AS piNo
+    FROM ${PI_COST_FROM} AS c
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.[sid], N'')))) IN (${inList})
+      AND ISNULL(c.[isok], 0) = 1
+    GROUP BY LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.[sid], N''))))
+  `)
+  for (const row of r.recordset ?? []) {
+    const piNo = text(row.piNo)
+    if (piNo) out.set(piNo, '已运算')
   }
   return out
 }
@@ -208,6 +230,7 @@ async function fetchSalesOrderPiCostUsageByPq(pool, piNo, pqValues) {
     FROM ${PI_COST_FROM} AS c
     WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.[sid], N'')))) = @piNo
       AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[pq], N'')))) IN (${inList})
+      AND ISNULL(c.[isok], 0) = 1
     GROUP BY LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[pq], N''))))
   `)
   for (const row of r.recordset ?? []) {
@@ -266,8 +289,6 @@ export function registerSalesOrderRoutes(app, deps) {
     try {
       const pool = await getPool()
       const q = parseSalesOrderListQuery(req.query ?? {})
-      const calcCol = await ensureSalesOrderCalcStatusColumn(pool)
-      const calcStatusExpr = buildSalesOrderCalcStatusExpr(calcCol)
       const { whereSql } = buildSalesOrderListWhereSql({
         recycled: q.recycled,
         pass: q.pass,
@@ -323,12 +344,18 @@ export function registerSalesOrderRoutes(app, deps) {
       if (q.salesDateFrom) listReq.input('salesDateFrom', sql.DateTime, new Date(q.salesDateFrom))
       if (q.salesDateTo) listReq.input('salesDateTo', sql.DateTime, new Date(q.salesDateTo))
 
-      const { sql: listSql } = buildSalesOrderListPagedSql({ whereSql, calcStatusExpr })
+      const { sql: listSql } = buildSalesOrderListPagedSql({ whereSql })
       const listResult = await listReq.query(listSql)
-      const list = await enrichSalesOrderOperationFlags(
-        pool,
-        (listResult.recordset ?? []).map((row) => serializeRow(row)),
-      )
+      const pageRows = (listResult.recordset ?? []).map((row) => serializeRow(row))
+      const piNos = uniqueTexts(pageRows.map((row) => row.piNo))
+      const [calcStatusMap] = await Promise.all([
+        fetchSalesOrderCalcStatusByPi(pool, piNos),
+        enrichSalesOrderOperationFlags(pool, pageRows),
+      ])
+      const list = pageRows.map((row) => ({
+        ...row,
+        calcStatus: calcStatusMap.get(text(row.piNo)) ?? '未运算',
+      }))
 
       res.json({ code: 200, msg: 'success', data: { total, list } })
     } catch (err) {

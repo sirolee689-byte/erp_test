@@ -213,6 +213,7 @@ export async function fetchSalesOrderMaterialBill(pool, id) {
       LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([top_kcaa02], N'')))) AS topKcaa02
     FROM ${PI_COST_FROM}
     WHERE LTRIM(RTRIM(ISNULL([sid], N''))) = @pi
+      AND ISNULL([isok], 0) = 1
     ORDER BY
       LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL([pq], N'')))) ASC,
       CASE WHEN [px] IS NULL THEN 1 ELSE 0 END ASC,

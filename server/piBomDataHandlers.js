@@ -744,6 +744,7 @@ async function fetchPiBomDetailCostRows(pool, piNo, productKcaa01) {
       FROM ${PI_COST_FROM} AS c
       WHERE LTRIM(RTRIM(ISNULL(c.[sid], N''))) = @pi
         AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[pq], N'')))) = @product
+        AND ISNULL(c.[isok], 0) = 1
       ORDER BY
         CASE WHEN c.[px] IS NULL THEN 1 ELSE 0 END ASC,
         c.[px] ASC,
@@ -1012,6 +1013,7 @@ export function registerPiBomDataRoutes(app, { getPool }) {
               ISNULL(SUM(ISNULL(CONVERT(decimal(18, 6), c.[kcac04]), 0)), 0) AS totalKcac04,
               ISNULL(SUM(ISNULL(CONVERT(decimal(18, 6), c.[kcac06]), 0)), 0) AS totalKcac06
             FROM ${PI_COST_FROM} AS c
+            WHERE ISNULL(c.[isok], 0) = 1
             GROUP BY
               LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.[sid], N'')))),
               LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[pq], N''))))

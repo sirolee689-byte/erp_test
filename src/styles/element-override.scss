@@ -361,25 +361,23 @@ html[data-ui='comfortable'] .erp-module-page .erp-list-table .el-table__body td.
   font-weight: var(--erp-font-weight-body) !important;
 }
 
-/* 视口底横条激活后：禁止表内可见滚动条（仍可由 JS 同步 scrollLeft） */
-.erp-table-viewport-hscroll-active .el-table__body-wrapper .el-scrollbar__wrap,
-.erp-table-viewport-hscroll-active .el-table__header-wrapper .el-scrollbar__wrap {
+/* 视口底横条激活后：仅隐藏主表根节点自身的表内横滚 UI（展开行/弹窗内嵌套 el-table 保留横滚条） */
+.erp-table-viewport-hscroll-active > .el-table__inner-wrapper > .el-table__body-wrapper > .el-scrollbar > .el-scrollbar__wrap,
+.erp-table-viewport-hscroll-active > .el-table__inner-wrapper > .el-table__header-wrapper {
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
 
-.erp-table-viewport-hscroll-active .el-table__body-wrapper .el-scrollbar__wrap::-webkit-scrollbar,
-.erp-table-viewport-hscroll-active .el-table__header-wrapper .el-scrollbar__wrap::-webkit-scrollbar {
+.erp-table-viewport-hscroll-active > .el-table__inner-wrapper > .el-table__body-wrapper > .el-scrollbar > .el-scrollbar__wrap::-webkit-scrollbar,
+.erp-table-viewport-hscroll-active > .el-table__inner-wrapper > .el-table__header-wrapper::-webkit-scrollbar {
   width: 0;
   height: 0;
 }
 
-.erp-table-viewport-hscroll-active .el-table__body-wrapper .el-scrollbar__bar.is-horizontal,
-.erp-table-viewport-hscroll-active .el-table__body-wrapper .el-scrollbar__bar.is-vertical,
-.erp-table-viewport-hscroll-active .el-table__header-wrapper .el-scrollbar__bar.is-horizontal,
-.erp-table-viewport-hscroll-active .el-table__header-wrapper .el-scrollbar__bar.is-vertical {
+.erp-table-viewport-hscroll-active > .el-table__inner-wrapper > .el-table__body-wrapper > .el-scrollbar > .el-scrollbar__bar.is-horizontal,
+.erp-table-viewport-hscroll-active > .el-table__inner-wrapper > .el-table__body-wrapper > .el-scrollbar > .el-scrollbar__bar.is-vertical {
   display: none !important;
 }
 

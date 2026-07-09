@@ -1,23 +1,27 @@
 <template>
   <el-dialog
     :model-value="modelValue"
-    width="96vw"
-    top="10px"
+    :width="fullscreen ? '100%' : '96vw'"
+    :top="fullscreen ? '0' : '10px'"
     append-to-body
-    :draggable="multiple"
+    :draggable="multiple && !fullscreen"
     destroy-on-close
     :close-on-click-modal="false"
     :close-on-press-escape="false"
-    class="pq-material-selector-dialog erp-page-dialog erp-detail-form-context"
+    :class="[
+      'pq-material-selector-dialog',
+      'erp-page-dialog',
+      'erp-detail-form-context',
+      { 'pq-material-selector-dialog--fullscreen': fullscreen },
+    ]"
     @update:model-value="onDialogVisible"
   >
-    <p class="ms-tip">
-      <template v-if="multiple">
-        <br />
-        <span class="ms-tip-strong">批量模式：</span>勾选左侧复选框或单击数据行加入「待添加」列表；再次单击可取消。完成后点击右下角确认。
-      </template>
-    </p>
-    <div class="ms-search">
+    <div class="ms-fill-layout" :class="{ 'ms-fill-layout--fullscreen': fullscreen }">
+      <div class="ms-fill-head">
+        <p v-if="multiple" class="ms-tip">
+          <span class="ms-tip-strong">批量模式：</span>勾选左侧复选框或单击数据行加入「待添加」列表；再次单击可取消。完成后点击右下角确认。
+        </p>
+        <div class="ms-search">
       <el-input
         v-model="keywordKw"
         clearable
@@ -51,22 +55,26 @@
         <el-option label="不包含裁片编码（排除 CUT- 开头）" :value="0" />
         <el-option label="仅裁片编码（仅 CUT- 开头）" :value="1" />
       </el-select>
-    </div>
-    <el-table
-      ref="msTableRef"
-      v-loading="loading"
-      :data="rows"
-      row-key="code"
-      border
-      size="small"
-      class="ms-table"
-      :highlight-current-row="!multiple"
-      style="width: 100%; margin-top: 10px"
-      :max-height="tableMaxHeight"
-      @selection-change="onSelectionChange"
-      @row-click="onRowClick"
-      @row-dblclick="onRowDblclick"
-    >
+        </div>
+      </div>
+      <div class="ms-fill-table-wrap">
+        <el-table
+          ref="msTableRef"
+          v-loading="loading"
+          :data="rows"
+          row-key="code"
+          border
+          size="small"
+          class="ms-table"
+          :class="{ 'ms-table--fill': fullscreen }"
+          :highlight-current-row="!multiple"
+          style="width: 100%"
+          :height="tableHeight"
+          :max-height="tableMaxHeight"
+          @selection-change="onSelectionChange"
+          @row-click="onRowClick"
+          @row-dblclick="onRowDblclick"
+        >
       <el-table-column
         v-if="!multiple"
         label="操作"
@@ -97,9 +105,10 @@
       <el-table-column prop="name" label="名称" min-width="140" show-overflow-tooltip />
       <el-table-column prop="spec" label="规格" min-width="100" show-overflow-tooltip />
       <el-table-column prop="unit" label="单位" width="80" show-overflow-tooltip />
-    </el-table>
-    <div class="ms-pager">
-      <el-pagination
+        </el-table>
+      </div>
+      <div class="ms-pager" :class="{ 'ms-pager--dock': fullscreen }">
+        <el-pagination
         v-model:current-page="page"
         v-model:page-size="pageSize"
         background
@@ -109,6 +118,7 @@
         @current-change="loadList"
         @size-change="onSizeChange"
       />
+      </div>
     </div>
     <template v-if="multiple" #footer>
       <div class="ms-footer">
@@ -139,13 +149,16 @@ const props = defineProps({
   /** 批量模式：多选 + 确认添加 */
   multiple: { type: Boolean, default: false },
   initialKeyword: { type: String, default: '' },
+  /** 全屏铺满：表体吃满中间，分页钉底（BOM 配件明细「添加配件」） */
+  fullscreen: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['update:modelValue', 'picked', 'batchConfirm'])
 
 const tableMaxHeight = computed(() =>
-  props.multiple ? MS_TABLE_MAX_HEIGHT_BATCH : MS_TABLE_MAX_HEIGHT,
+  props.fullscreen ? undefined : props.multiple ? MS_TABLE_MAX_HEIGHT_BATCH : MS_TABLE_MAX_HEIGHT,
 )
+const tableHeight = computed(() => (props.fullscreen ? '100%' : undefined))
 
 /** 单一关键词：后端 OR 匹配 kcaa01 / kcaa02 */
 const keywordKw = ref('')
@@ -297,6 +310,11 @@ async function loadList() {
     total.value = 0
   } finally {
     loading.value = false
+    if (props.fullscreen) {
+      nextTick(() => {
+        msTableRef.value?.doLayout?.()
+      })
+    }
   }
 }
 
@@ -497,5 +515,87 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: 10px;
   margin-left: auto;
+}
+/* 全屏铺满：表体纵向吃满，分页钉在弹窗最底 */
+.ms-fill-layout--fullscreen {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  box-sizing: border-box;
+}
+.ms-fill-layout--fullscreen .ms-fill-head {
+  flex-shrink: 0;
+}
+.ms-fill-layout--fullscreen .ms-fill-table-wrap {
+  flex: 1 1 0;
+  height: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  margin-top: 10px;
+}
+.ms-fill-layout--fullscreen .ms-table--fill {
+  flex: 1 1 0;
+  height: 100% !important;
+  min-height: 0;
+}
+.ms-fill-layout--fullscreen .ms-pager--dock {
+  flex-shrink: 0;
+  margin-top: 0;
+  padding-top: 8px;
+}
+</style>
+
+<style>
+.pq-material-selector-dialog--fullscreen.erp-page-dialog.el-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  border-radius: 0;
+}
+.pq-material-selector-dialog--fullscreen.el-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-height: none;
+  margin: 0 !important;
+  border-radius: 0;
+}
+.pq-material-selector-dialog--fullscreen.erp-page-dialog.el-dialog .el-dialog__body,
+.pq-material-selector-dialog--fullscreen.el-dialog .el-dialog__body {
+  box-sizing: border-box;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden !important;
+  padding: 12px 14px 10px !important;
+}
+.pq-material-selector-dialog--fullscreen.el-dialog .el-dialog__header {
+  flex-shrink: 0;
+}
+.pq-material-selector-dialog--fullscreen.el-dialog .el-dialog__footer {
+  flex-shrink: 0;
+}
+.pq-material-selector-dialog--fullscreen .ms-table--fill.el-table {
+  height: 100% !important;
+}
+.pq-material-selector-dialog--fullscreen .ms-table--fill .el-table__inner-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100% !important;
+}
+.pq-material-selector-dialog--fullscreen .ms-table--fill .el-table__body-wrapper {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto !important;
 }
 </style>

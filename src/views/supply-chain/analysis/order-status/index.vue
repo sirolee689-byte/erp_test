@@ -320,7 +320,17 @@ function pad2(n) {
 }
 function todayText() {
   const d = new Date()
+  return dateTextFromDate(d)
+}
+function dateTextFromDate(d) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+}
+function monthOffsetDateText(offset) {
+  const now = new Date()
+  const firstOfTargetMonth = new Date(now.getFullYear(), now.getMonth() + offset, 1)
+  const lastDay = new Date(firstOfTargetMonth.getFullYear(), firstOfTargetMonth.getMonth() + 1, 0).getDate()
+  const day = Math.min(now.getDate(), lastDay)
+  return dateTextFromDate(new Date(firstOfTargetMonth.getFullYear(), firstOfTargetMonth.getMonth(), day))
 }
 function formatNow() {
   const d = new Date()
@@ -365,13 +375,7 @@ function addTotals(target, row, withAmount) {
 function buildDisplayRows(rows, withAmount) {
   const out = []
   const total = createTotals()
-  let currentSupplier = ''
   for (const row of rows) {
-    const supplier = row.supplier || row.supplierName || row.supplierCode || '未指定供应商'
-    if (supplier !== currentSupplier) {
-      currentSupplier = supplier
-      out.push({ rowKey: `group-${supplier}`, rowType: 'group', label: `供应商：${supplier}` })
-    }
     out.push(row)
     addTotals(total, row, withAmount)
   }
@@ -598,7 +602,7 @@ async function exportReportXlsx() {
 onMounted(async () => {
   await Promise.all([loadPrintConfig(), fetchSuppliers(''), fetchMaterials('')])
   const today = todayText()
-  form.startDate = today
+  form.startDate = monthOffsetDateText(-3)
   form.endDate = today
   checkedColumnKeys.value = [...defaultColumnKeys.value]
   loadColumnSetting()

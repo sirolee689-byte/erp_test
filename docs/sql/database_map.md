@@ -82,6 +82,7 @@
 | 业务功能 | 物理表 | 关键字段 / 说明 |
 |----------|--------|-----------------|
 | 销售订单来源 | `UB_ERP_Sales_order` + `UB_ERP_Sales_order_list` | `xsak03` 销售数量；主表 `pass=1`、`del=0`、`closed=0` |
+| 销售订单运算状态 | `UB_ERP_Sales_order` + `UB_ERP_Bom_pi_cost` | 销售订单列表、详情、物料单入口、PI-BOM资料首页统一按 `UB_ERP_Bom_pi_cost.sid = xsaj01` 且 `isok=1` 判断；存在有效行显示已运算，否则显示未运算。主表 `isok/is_pur/sign` 不再作为显示状态主判断。 |
 | 已派工扣减 | `UB_ERP_Dispatch_order` + `UB_ERP_Dispatch_order_list` | `GET /api/dispatch-order/goods-options`；保存校验同口径；**本厂/大板**：按 `scaj04`(PI)+`scaj05`(车间)+`kcaa01` 独立池，不同车间互不占用；委外保留 `cj like '%生产%'` 或按 `scaj05` 特殊口径 |
 | 接口 | — | `GET /api/dispatch-order/goods-options`；`POST/PUT /api/dispatch-order` 保存前数量校验 |
 

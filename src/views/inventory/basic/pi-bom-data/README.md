@@ -40,7 +40,7 @@
 | 录入时间 | 优先 `UB_ERP_Sales_order_list.addtime`，为空取 `UB_ERP_Sales_order.addtime` |
 | PI号 | `UB_ERP_Sales_order_list.xsak01` |
 | 编码 | `UB_ERP_Sales_order_list.kcaa01` |
-| 是否运算 | 销售订单主表运算状态列，沿用销售订单的 `isok` / `is_pur` 探测口径 |
+| 是否运算 | 按 `UB_ERP_Bom_pi_cost.sid = PI号` 判断；存在 `isok=1` 行显示已运算，否则显示未运算 |
 | 成本用量 | `UB_ERP_Bom_pi_cost` 按 `sid = PI号`、`pq = 编码` 汇总 `kcac04` 和 `kcac06` |
 | 名称(中文) | `UB_ERP_Sales_order_list.kcaa02` |
 | 客户款号 | `UB_ERP_Sales_order_list.kcaa06` |

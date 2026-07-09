@@ -101,13 +101,13 @@
 
 2. **禁止** 主列表 `:max-height` / `useErpListTable()` 的 `tableMaxHeight`（页面可纵向变长，只用**页面**竖滚）。
 
-3. **必须** 视口底横向滚动：`<ErpTableViewportHScroll>` 包裹表，或 `v-erp-list-h-scroll`（与表体 `scrollLeft` 同步；表内横竖滚动条 UI 由全局 CSS 隐藏）。
+3. **必须** 视口底横向滚动：`<ErpTableViewportHScroll>` 包裹表，或 `v-erp-list-h-scroll`（与表体 `scrollLeft` 同步；**仅主表根节点**表内横竖滚动条 UI 由全局 CSS 隐藏，展开行等嵌套 `el-table` 仍保留自身横滚条）。
 
 4. 操作列：`erp-col-actions` + `<ErpTableActions>`（左对齐紧凑排版；列数见 `src/utils/erpTableActionsLayout.js`）。
 
 5. 数值列：`erp-col-number` 右对齐；双行时间/多行：`erp-col-datetime` / `erp-col-multiline`。
 
-6. 弹窗/Tab 内**子表**可单独 `max-height`（与主列表规范分开）。
+6. 弹窗/Tab 内**子表**、主列表**展开行明细**可单独 `max-height` 与表内横滚（不走视口底横条；与主列表规范分开）。
 
 
 

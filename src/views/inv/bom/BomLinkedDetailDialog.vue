@@ -163,7 +163,7 @@
                 <span>实际用量总和：<strong>{{ formatQtySumFooter(partsSumActualUsage) }}</strong></span>
                 <span class="bom-parts-sum-gap">总成本：<strong>{{ formatMoney(partsSumCost) }}</strong></span>
               </div>
-              <MaterialSelector v-model="materialSelectorVisible" @picked="onMaterialPicked" />
+              <MaterialSelector v-model="materialSelectorVisible" fullscreen @picked="onMaterialPicked" />
             </el-tab-pane>
           </el-tabs>
         </template>

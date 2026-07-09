@@ -54,7 +54,7 @@
       </template>
      
 
-      <div class="bom-filter-bar">
+      <div class="bom-filter-bar bom-filter-unified-btn-font">
         <div class="bom-filter-row bom-filter-row--top">
           <el-select
             v-if="!showRecycle"
@@ -116,10 +116,10 @@
               @keyup.enter="onSearch"
             />
           </div>
-          <el-button class="bom-filter-action-btn" type="primary" size="small" @click="onSearch">
+          <el-button class="bom-filter-action-btn" type="primary" @click="onSearch">
             查询
           </el-button>
-          <el-button class="bom-filter-action-btn" size="small" @click="onReset">重置</el-button>
+          <el-button class="bom-filter-action-btn" @click="onReset">重置</el-button>
           <div class="bom-filter-divider" aria-hidden="true" />
           <div class="audit-switch">
             <span class="switch-label">回收站</span>
@@ -849,35 +849,43 @@
                   class="bom-parts-alert"
                   title="主档缺少 systemcode，无法加载或保存配件明细。"
                 />
-                <div v-else class="bom-parts-toolbar bom-unified-btn-font">
-                  <el-button
-                    type="primary"
-                    :disabled="partsReadOnly || !bomSystemcode"
-                    @click="materialSelectorVisible = true"
+                <div v-else :class="bomPartsUseFillLayout ? 'bom-parts-tab-fill' : undefined">
+                  <div :class="bomPartsUseFillLayout ? 'bom-parts-tab-fill__head' : undefined">
+                    <div class="bom-parts-toolbar bom-unified-btn-font">
+                      <el-button
+                        type="primary"
+                        :disabled="partsReadOnly || !bomSystemcode"
+                        @click="materialSelectorVisible = true"
+                      >
+                        添加配件
+                      </el-button>
+                      <el-button
+                        :disabled="partsReadOnly || !bomSystemcode || partsLoading"
+                        @click="onRefreshBomPartsClick"
+                      >
+                        刷新
+                      </el-button>
+                    </div>
+                    <el-alert v-if="partsError" :title="partsError" type="error" show-icon class="bom-parts-alert" />
+                  </div>
+                  <div
+                    class="bom-parts-table-wrap"
+                    :class="{ 'bom-parts-table-outer--fill': bomPartsUseFillLayout }"
                   >
-                    添加配件
-                  </el-button>
-                  <el-button
-                    :disabled="partsReadOnly || !bomSystemcode || partsLoading"
-                    @click="onRefreshBomPartsClick"
-                  >
-                    刷新
-                  </el-button>
-                </div>
-                <el-alert v-if="partsError" :title="partsError" type="error" show-icon class="bom-parts-alert" />
-                <div class="bom-parts-table-wrap">
-                  <el-table
-                    v-loading="partsLoading"
-                    :data="partsList"
-                    border
-                    stripe
-                    :size="detailTableSize"
-                    class="bom-parts-table bom-unified-btn-font"
-                    :empty-text="partsLoading ? '加载中…' : '暂无配件'"
-                    :row-key="partsRowKey"
-                    :max-height="bomPartsTableMaxHeight"
-                    @row-contextmenu="onBomDetailPartsRowContextMenu"
-                  >
+                    <el-table
+                      v-loading="partsLoading"
+                      :data="partsList"
+                      border
+                      stripe
+                      :size="detailTableSize"
+                      class="bom-parts-table bom-unified-btn-font"
+                      :class="{ 'bom-parts-table--fill': bomPartsUseFillLayout }"
+                      :empty-text="partsLoading ? '加载中…' : '暂无配件'"
+                      :row-key="partsRowKey"
+                      :height="bomPartsTableFillHeight"
+                      :max-height="bomPartsTableMaxHeight"
+                      @row-contextmenu="onBomDetailPartsRowContextMenu"
+                    >
                     <el-table-column
                       type="index"
                       label="序号"
@@ -1026,16 +1034,21 @@
                       </template>
                     </el-table-column>
                   </el-table>
+                  </div>
+                  <div
+                    class="bom-parts-sum-row"
+                    :class="{ 'bom-parts-sum-row--dock': bomPartsUseFillLayout }"
+                  >
+                    <span>实际用量总和：<strong>{{ formatQtySumFooter(partsSumActualUsage) }}</strong></span>
+                    <span class="bom-parts-sum-gap">总成本：<strong>{{ formatMoney(partsSumCost) }}</strong></span>
+                  </div>
+                  <MaterialSelector
+                    v-model="materialSelectorVisible"
+                    fullscreen
+                    :initial-keyword="partsMaterialSelectorInitialKeyword"
+                    @picked="onMaterialPicked"
+                  />
                 </div>
-                <div class="bom-parts-sum-row">
-                  <span>实际用量总和：<strong>{{ formatQtySumFooter(partsSumActualUsage) }}</strong></span>
-                  <span class="bom-parts-sum-gap">总成本：<strong>{{ formatMoney(partsSumCost) }}</strong></span>
-                </div>
-                <MaterialSelector
-                  v-model="materialSelectorVisible"
-                  :initial-keyword="partsMaterialSelectorInitialKeyword"
-                  @picked="onMaterialPicked"
-                />
               </el-tab-pane>
               <el-tab-pane label="BOM用量表运算" name="usageCalc" lazy :disabled="!bomBasic">
                 <div class="bom-parts-toolbar bom-usage-calc-toolbar">
@@ -1301,7 +1314,15 @@
       destroy-on-close
       :close-on-click-modal="false"
       :close-on-press-escape="false"
-      :class="['bom-edit-dialog', 'erp-detail-form-context', 'bom-page-panel', { 'bom-edit-dialog--standalone': isBomStandaloneWindow }]"
+      :class="[
+        'bom-edit-dialog',
+        'erp-detail-form-context',
+        'bom-page-panel',
+        {
+          'bom-edit-dialog--standalone': isBomStandaloneWindow,
+          'bom-edit-dialog--parts-tab': editVisible && editActiveTab === 'parts' && isBomStandaloneWindow,
+        },
+      ]"
       @closed="onEditClosed"
     >
       <div v-if="!isBomStandaloneWindow" class="bom-page-panel-header">
@@ -1372,35 +1393,40 @@
               class="bom-parts-alert"
               title="请先在「BOM基础资料」中填写必填项并点击「保存主档」，生成系统编码后即可添加与保存配件。"
             />
-            <template v-else>
-              <div class="bom-parts-toolbar bom-unified-btn-font">
-                <el-button
-                  type="primary"
-                  :disabled="editPartsReadOnly || !editBomSystemcode"
-                  @click="appendEditPartBlankRow"
-                >
-                  + 增加配件明细
-                </el-button>
-                <el-button
-                  :disabled="editPartsReadOnly || !editBomSystemcode || editPartsLoading"
-                  @click="batchRemoveEditPartsSelected"
-                >
-                  - 删除选定明细
-                </el-button>
-                <el-button :disabled="editPartsReadOnly || !editBomSystemcode || editPartsLoading" @click="loadEditBomParts">
-                  刷新
-                </el-button>
-                <el-button
-                  type="success"
-                  :loading="editPartsSaving"
-                  :disabled="editPartsReadOnly || !editBomSystemcode || editPartsLoading || editPartsSaving"
-                  @click="saveEditBomParts"
-                >
-                  保存配件明细
-                </el-button>
+            <div v-else :class="bomPartsUseFillLayout ? 'bom-parts-tab-fill' : undefined">
+              <div :class="bomPartsUseFillLayout ? 'bom-parts-tab-fill__head' : undefined">
+                <div class="bom-parts-toolbar bom-unified-btn-font">
+                  <el-button
+                    type="primary"
+                    :disabled="editPartsReadOnly || !editBomSystemcode"
+                    @click="appendEditPartBlankRow"
+                  >
+                    + 增加配件明细
+                  </el-button>
+                  <el-button
+                    :disabled="editPartsReadOnly || !editBomSystemcode || editPartsLoading"
+                    @click="batchRemoveEditPartsSelected"
+                  >
+                    - 删除选定明细
+                  </el-button>
+                  <el-button :disabled="editPartsReadOnly || !editBomSystemcode || editPartsLoading" @click="loadEditBomParts">
+                    刷新
+                  </el-button>
+                  <el-button
+                    type="success"
+                    :loading="editPartsSaving"
+                    :disabled="editPartsReadOnly || !editBomSystemcode || editPartsLoading || editPartsSaving"
+                    @click="saveEditBomParts"
+                  >
+                    保存配件明细
+                  </el-button>
+                </div>
+                <el-alert v-if="editPartsError" :title="editPartsError" type="error" show-icon class="bom-parts-alert" />
               </div>
-              <el-alert v-if="editPartsError" :title="editPartsError" type="error" show-icon class="bom-parts-alert" />
-              <div class="bom-parts-table-wrap">
+              <div
+                class="bom-parts-table-wrap"
+                :class="{ 'bom-parts-table-outer--fill': bomPartsUseFillLayout }"
+              >
                 <el-table
                   v-loading="editPartsLoading"
                   :data="editPartsList"
@@ -1408,9 +1434,10 @@
                   stripe
                   :size="detailTableSize"
                   class="bom-parts-table bom-parts-table--edit bom-unified-btn-font"
+                  :class="{ 'bom-parts-table--fill': bomPartsUseFillLayout }"
                   :empty-text="editPartsLoading ? '加载中…' : '暂无配件'"
                   :row-key="partsRowKey"
-                  :max-height="bomEditPartsTableMaxHeight"
+                  :height="bomEditPartsTableHeight"
                   @row-contextmenu="onBomEditPartsRowContextMenu"
                 >
                   <el-table-column label="选择" width="78" align="center" fixed="left">
@@ -1542,34 +1569,28 @@
                   </el-table-column>
                 </el-table>
               </div>
-              <div class="bom-parts-sum-row">
+              <div
+                class="bom-parts-sum-row"
+                :class="{ 'bom-parts-sum-row--dock': bomPartsUseFillLayout }"
+              >
                 <span>实际用量总和：<strong>{{ formatQtySumFooter(editPartsSumActualUsage) }}</strong></span>
                 <span class="bom-parts-sum-gap">总成本：<strong>{{ formatMoney(editPartsSumCost) }}</strong></span>
               </div>
               <MaterialSelector
                 v-model="editPartsMaterialSelectorVisible"
+                fullscreen
                 :initial-keyword="editPartsMaterialSelectorInitialKeyword"
                 @picked="onEditMaterialPicked"
               />
-            </template>
+            </div>
           </el-tab-pane>
         </el-tabs>
       </div>
-      <!-- 独立页：操作钮固定在 dialog footer，避免被正文挤出视口 -->
-      <template v-if="isBomStandaloneWindow" #footer>
+      <!-- 独立页：基础资料 Tab 底栏保留保存主档；配件明细 Tab 无底栏（保存走工具栏，关闭用右上角 ×） -->
+      <template v-if="isBomStandaloneWindow && editActiveTab === 'main'" #footer>
         <div class="bom-page-panel-footer bom-page-panel-footer--dialog bom-unified-btn-font">
-          <el-button @click="closeEditWindowOrDialog">关闭</el-button>
           <el-button v-if="editMode === 'add'" @click="resetCurrentEditPanel">重置</el-button>
-          <el-button v-if="editActiveTab === 'main'" type="primary" :loading="editSaving" @click="submitBomEdit">保存主档</el-button>
-          <el-button
-            v-if="editActiveTab === 'parts'"
-            type="success"
-            :loading="editPartsSaving"
-            :disabled="!editBomSystemcode || editPartsReadOnly || editPartsLoading || editPartsSaving"
-            @click="saveEditBomParts"
-          >
-            保存配件明细
-          </el-button>
+          <el-button type="primary" :loading="editSaving" @click="submitBomEdit">保存主档</el-button>
         </div>
       </template>
     </component>
@@ -1766,6 +1787,10 @@ const detailDialogClass = computed(() => {
   if (isBomStandaloneWindow.value && bomWindowMode.value === 'detail') cls.push('bom-window-standalone-detail')
   if (detailVisible.value && detailActiveTab.value === 'costBomUsage') {
     cls.push('bom-main-detail-dialog--cost-usage-tab')
+  }
+  // 配件明细纵向铺满仅独立全屏窗；内嵌 section 无完整 flex 高度链，勿挂 --parts-tab
+  if (detailVisible.value && detailActiveTab.value === 'parts' && isBomStandaloneWindow.value) {
+    cls.push('bom-main-detail-dialog--parts-tab')
   }
   return cls.join(' ')
 })
@@ -2476,16 +2501,21 @@ const editVisible = ref(false)
 const editMode = ref('add')
 const editSaving = ref(false)
 
-/** 查看详情 / 联动查看：配件明细表纵向可视高度（表内滚动） */
-const bomPartsTableMaxHeight = 'calc(100vh - 320px)'
+/** 独立全屏窗：配件表纵向铺满；内嵌查看仍用 max-height，避免 flex+height:0 把表体挤没 */
+const bomPartsUseFillLayout = computed(() => isBomStandaloneWindow.value)
+const bomPartsTableFillHeight = computed(() => (bomPartsUseFillLayout.value ? '100%' : undefined))
+const bomPartsTableMaxHeight = computed(() => undefined)
+// DIY：内嵌编辑配件表固定 height（max-height 会随行数缩短，小屏只见两三行）；想让表更高把 380 调小
+/** 内嵌编辑配件明细：固定表高，表内纵向滚动 */
+const bomEditEmbeddedPartsTableHeight = computed(() => undefined)
+/** 编辑配件表 height：独立全屏 100%，内嵌编辑用固定 calc */
+const bomEditPartsTableHeight = computed(() =>
+  bomPartsUseFillLayout.value ? bomPartsTableFillHeight.value : bomEditEmbeddedPartsTableHeight.value,
+)
 // DIY：成本BOM用量表可视高度。此值是表格真正的封顶（el-table :max-height）。
 // 想让表格离窗口底更近就把 190 调小、想留更多空白就调大；须与下方独立窗口 CSS
-// 「.bom-window-standalone-detail...--fill { max-height }」（约 5912 行）保持一致。
+// 「.bom-window-standalone-detail...--fill { max-height }」保持一致。
 const bomCostUsageTableMaxHeight = 'calc(100vh - 190px)'
-/** 编辑弹窗配件明细：与查看一致，另扣底栏按钮区约 60px */
-const bomEditPartsTableMaxHeight = 'calc(100vh - 380px)'
-
-/** 新增/编辑弹窗标签：基础资料 | 配件明细 */
 const editActiveTab = ref('main')
 /** 当前编辑主档审核状态（'1' 已审则配件只读） */
 const editMasterPass = ref('0')
@@ -3216,8 +3246,8 @@ async function submitBomEdit() {
 /** 主档 systemcode 为空则无法加载配件表 */
 const bomSystemcode = computed(() => String(bomBasic.value?.systemcode ?? '').trim())
 
-/** 查看详情只读；只有配件编辑页且主档未审核时才允许改配件 */
-const partsReadOnly = computed(() => bomWindowMode.value !== 'parts-edit' || rowIsAudited(detailListRow.value))
+/** 查看详情配件只读；配件编辑独立页（parts-edit）允许改配件（含已审主档，见 README） */
+const partsReadOnly = computed(() => bomWindowMode.value !== 'parts-edit')
 
 /** 与 server bomPartsDelLooksActive 一致：空 / '0' / 数值 0 视为在册可编辑 */
 function bomPartDelLooksActive(delVal) {
@@ -4561,6 +4591,18 @@ function canOpenBomInNewTab() {
   return hasPageAction(model, getBomMenuPermissionPath(), 'view')
 }
 
+function canOpenBomEditInNewTab() {
+  const model = getPermissionModelFromStorage()
+  return hasPageAction(model, getBomMenuPermissionPath(), 'edit')
+}
+
+/** 列表行右键：未审列表且行未审 → 新标签打开编辑页；否则打开查看详情 */
+function resolveBomListRowContextMenuMode(row) {
+  if (showRecycle.value) return 'detail'
+  if (showUnAudited.value && !rowIsAudited(row) && canOpenBomEditInNewTab()) return 'edit'
+  return 'detail'
+}
+
 function extractBomContextRowCode(row) {
   return String(row?.code ?? row?.kcaa01 ?? '').trim()
 }
@@ -4572,7 +4614,11 @@ function extractBomContextRowCode(row) {
  * @param {'detail' | 'parts-edit' | 'edit'} mode
  */
 function openBomRowContextMenu(event, row, mode = 'detail') {
-  if (!canOpenBomInNewTab()) return
+  if (mode === 'edit' || mode === 'parts-edit') {
+    if (!canOpenBomEditInNewTab()) return
+  } else if (!canOpenBomInNewTab()) {
+    return
+  }
 
   const code = extractBomContextRowCode(row)
   const items = [
@@ -4591,7 +4637,7 @@ function openBomRowContextMenu(event, row, mode = 'detail') {
 /** 管理BOM资料主列表行右键 */
 function onBomListRowContextMenu(row, _column, event) {
   if (pageMode.value !== 'manage') return
-  openBomRowContextMenu(event, row, 'detail')
+  openBomRowContextMenu(event, row, resolveBomListRowContextMenuMode(row))
 }
 
 /** 顶部四模式按钮右键：在新标签页打开对应干净独立页 */
@@ -4631,6 +4677,10 @@ function openBomStandaloneWindow(mode, row) {
   const code = String(row?.code ?? row?.kcaa01 ?? '').trim()
   if (!code) {
     ElMessage.warning(mode === 'edit' ? '当前行无编码，无法编辑' : '当前行无编码，无法查看详情')
+    return
+  }
+  if (mode === 'edit' && rowIsAudited(row)) {
+    ElMessage.warning('该数据已审核，需要先反审后才能编辑。')
     return
   }
   const win = window.open(buildBomStandaloneWindowUrl(mode, code), '_blank')
@@ -5319,6 +5369,11 @@ if (isBomWindowRoute.value) {
   font-size: var(--erp-table-data-size) !important;
   font-weight: var(--erp-font-weight-body) !important;
 }
+/* 筛选区按钮字号：与模式行「管理BOM资料」一致（批量审核/批量运算/查询/重置） */
+.bom-filter-unified-btn-font :deep(.el-button) {
+  font-size: var(--erp-table-data-size) !important;
+  font-weight: var(--erp-font-weight-body) !important;
+}
 .bom-filter-bar {
   display: flex;
   flex-direction: column;
@@ -5364,11 +5419,6 @@ if (isBomWindowRoute.value) {
   margin: 0 18px;
   background: var(--el-border-color);
   flex-shrink: 0;
-}
-/* 查询/重置按钮字体：与 BOM 列数据统一；覆盖 size=small 的默认小字号 */
-.bom-filter-action-btn {
-  font-size: var(--erp-table-data-size) !important;
-  font-weight: var(--erp-font-weight-body) !important;
 }
 .audit-switch {
   display: inline-flex;
@@ -5759,6 +5809,23 @@ if (isBomWindowRoute.value) {
   width: 100%;
   overflow-x: auto;
 }
+/* 配件明细 Tab：表格外框纵向 flex 铺满（合计行在表格外、Tab 最底；行数少也占满） */
+.bom-parts-table-outer--fill {
+  flex: 1 1 0;
+  height: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  width: 100%;
+}
+.bom-parts-table--fill {
+  flex: 1 1 0;
+  height: 100% !important;
+  min-height: 0;
+  width: 100%;
+  min-width: 100%;
+}
 .bom-parts-table {
   min-width: 1100px;
 }
@@ -5802,9 +5869,29 @@ if (isBomWindowRoute.value) {
   font-size: var(--erp-table-data-size);
 }
 .bom-parts-sum-row {
-  margin-top: 10px;
   color: var(--el-text-color-regular);
   line-height: var(--erp-line-height-body, 1.6);
+}
+.bom-parts-sum-row:not(.bom-parts-sum-row--dock) {
+  margin-top: 10px;
+}
+.bom-parts-tab-fill {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  box-sizing: border-box;
+}
+.bom-parts-tab-fill__head {
+  flex-shrink: 0;
+}
+.bom-parts-sum-row--dock {
+  flex-shrink: 0;
+  margin-top: 0;
+  padding: 8px 2px 4px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  background: var(--erp-surface, var(--el-bg-color));
 }
 .bom-parts-sum-gap {
   margin-left: 24px;
@@ -6186,7 +6273,147 @@ if (isBomWindowRoute.value) {
   flex: initial;
 }
 
+/* 配件明细 Tab：表体 flex 铺满中间，「实际用量总和」钉在 Tab 最底 */
+.bom-main-detail-dialog.bom-main-detail-dialog--parts-tab.el-dialog,
+.bom-edit-dialog.bom-edit-dialog--parts-tab.el-dialog {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 16px);
+}
+.bom-window-standalone-dialog.bom-main-detail-dialog--parts-tab.el-dialog,
+.bom-edit-dialog--standalone.bom-edit-dialog--parts-tab.el-dialog {
+  max-height: none;
+  height: 100vh;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--parts-tab.el-dialog .el-dialog__body,
+.bom-edit-dialog--standalone.bom-edit-dialog--parts-tab.el-dialog .el-dialog__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.bom-window-standalone-dialog.bom-main-detail-dialog--parts-tab.el-dialog .el-dialog__body,
+.bom-edit-dialog--standalone.bom-edit-dialog--parts-tab.el-dialog .el-dialog__body {
+  height: 100vh;
+  overflow: hidden;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--parts-tab .bom-detail-tabs {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--parts-tab .bom-detail-tabs > .el-tabs__header {
+  flex-shrink: 0;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--parts-tab .bom-detail-tabs > .el-tabs__content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--parts-tab .bom-detail-tabs > .el-tabs__content > .el-tab-pane,
+.bom-main-detail-dialog.bom-main-detail-dialog--parts-tab #pane-parts {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+}
+.bom-edit-dialog.bom-edit-dialog--parts-tab .bom-edit-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-height: none;
+}
+.bom-edit-dialog.bom-edit-dialog--parts-tab:not(.bom-edit-dialog--standalone) .bom-edit-body {
+  max-height: calc(100vh - 160px);
+}
+.bom-edit-dialog.bom-edit-dialog--parts-tab .bom-edit-tabs {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+.bom-edit-dialog.bom-edit-dialog--parts-tab .bom-edit-tabs > .el-tabs__content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.bom-edit-dialog.bom-edit-dialog--parts-tab .bom-edit-tabs > .el-tabs__content > .el-tab-pane,
+.bom-edit-dialog.bom-edit-dialog--parts-tab #pane-parts {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--parts-tab .el-dialog__body > .bom-page-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  box-sizing: border-box;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--parts-tab .el-skeleton {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--parts-tab .bom-parts-table-outer--fill,
+.bom-edit-dialog.bom-edit-dialog--parts-tab .bom-parts-table-outer--fill {
+  flex: 1 1 0;
+  height: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  width: 100%;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--parts-tab .bom-parts-table--fill,
+.bom-edit-dialog.bom-edit-dialog--parts-tab .bom-parts-table--fill {
+  flex: 1 1 0;
+  height: 100% !important;
+  min-height: 0;
+  width: 100%;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--parts-tab .bom-parts-table--fill .el-table__inner-wrapper,
+.bom-edit-dialog.bom-edit-dialog--parts-tab .bom-parts-table--fill .el-table__inner-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100% !important;
+}
+.bom-main-detail-dialog.bom-main-detail-dialog--parts-tab .bom-parts-table--fill .el-table__body-wrapper,
+.bom-edit-dialog.bom-edit-dialog--parts-tab .bom-parts-table--fill .el-table__body-wrapper {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto !important;
+}
+
 /* 成本 BOM 用量表：浏览器打印（与 onPrintBomCostUsage 的 html class 配合） */
+.bom-edit-dialog.bom-page-panel.bom-edit-dialog--parts-tab:not(.bom-edit-dialog--standalone) .bom-edit-body,
+.bom-edit-dialog.bom-page-panel.bom-edit-dialog--parts-tab:not(.bom-edit-dialog--standalone) .bom-edit-tabs,
+.bom-edit-dialog.bom-page-panel.bom-edit-dialog--parts-tab:not(.bom-edit-dialog--standalone)
+  .bom-edit-tabs
+  > .el-tabs__content,
+.bom-edit-dialog.bom-page-panel.bom-edit-dialog--parts-tab:not(.bom-edit-dialog--standalone)
+  .bom-edit-tabs
+  > .el-tabs__content
+  > .el-tab-pane,
+.bom-edit-dialog.bom-page-panel.bom-edit-dialog--parts-tab:not(.bom-edit-dialog--standalone) #pane-parts {
+  display: block;
+  height: auto;
+  max-height: none;
+  min-height: 0;
+  overflow: visible;
+}
+
 @media print {
   /* 纸张纵向、页码由 onPrintBomCostUsage 注入 #bom-cost-print-page-style */
   /*

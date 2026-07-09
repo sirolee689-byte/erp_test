@@ -28,6 +28,7 @@ export async function allOrderLinesHavePiCost(pool, piNo, lineCodes) {
     FROM ${PI_COST_FROM} AS c
     WHERE LTRIM(RTRIM(ISNULL(c.[sid], N''))) = @pi
       AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[pq], N'')))) IN (${or.join(', ')})
+      AND ISNULL(c.[isok], 0) = 1
     GROUP BY LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[pq], N''))))
   `)
   const covered = new Set((r.recordset ?? []).map((row) => normKcaa01(row.pq)).filter(Boolean))

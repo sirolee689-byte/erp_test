@@ -29,6 +29,7 @@ import {
 const HEADER_FROM = `dbo.[${SALES_ORDER_HEADER_TABLE}]`
 const LINE_TABLE = 'UB_ERP_Sales_order_list'
 const LINE_FROM = `dbo.[${LINE_TABLE}]`
+const PI_COST_FROM = 'dbo.[UB_ERP_Bom_pi_cost]'
 const CUSTOMER_FROM = 'dbo.[UB_ERP_System_sales_customer]'
 const CURRENCY_FROM = 'dbo.[UB_ERP_System_currency]'
 const SALES_ORDER_EMPTY_TEXT = ''
@@ -395,6 +396,21 @@ export async function fetchOrderLinesForCompare(pool, orderId) {
 }
 
 /**
+ * @param {import('mssql').Transaction} tx
+ * @param {string} piNo
+ */
+async function deletePiCostByPiNo(tx, piNo) {
+  const pi = normKcaa01(piNo)
+  if (!pi) return
+  const req = new sql.Request(tx)
+  req.input('pi', sql.NVarChar(200), pi)
+  await req.query(`
+    DELETE FROM ${PI_COST_FROM}
+    WHERE LTRIM(RTRIM(ISNULL([sid], N''))) = @pi
+  `)
+}
+
+/**
  * @param {{
  *   pool: import('mssql').ConnectionPool,
  *   body: Record<string, unknown>,
@@ -618,6 +634,10 @@ export async function updateSalesOrder(opts) {
       existingPiBomKcaa01: existingBom,
     })
     await applyPiBomAlignPlan(tx, pool, piNo, plan.toDelete, plan.toCreate, actorRow)
+
+    if (markUncalc) {
+      await deletePiCostByPiNo(tx, piNo)
+    }
 
     await tx.commit()
     return { ok: true, id, markUncalc }

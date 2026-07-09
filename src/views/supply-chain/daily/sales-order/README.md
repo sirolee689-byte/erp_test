@@ -67,7 +67,7 @@
      │
      ├─► 改 PI 用量（PUT pi-bom）──► 未运算
      ├─► 同步 BOM（行内选择 + 批量）► 未运算
-     └─► 改货品行/订货数量（保存）──► 未运算
+     └─► 改货品行/订货数量（保存）──► 未运算，并清空该 PI 的 pi_cost
 
 未运算 ──► 一键运算（读 PI BOM）──► 已运算 ──► 物料单有效
 已运算 + 仅部分款同步后运算 ──► 只重算 syncedKcaa01 中的款
@@ -75,9 +75,12 @@
 
 ## 运算状态规则
 
-- 展示字段 **`calcStatus`**：`已运算` / `未运算`（库列探测顺序：`isok` → `is_pur`）
+- 展示“已运算/未运算”以 `UB_ERP_Bom_pi_cost` 为准：当前 PI 只要存在 `isok=1` 的运算行，就显示 **已运算**；没有 `isok=1` 行则显示 **未运算**。
+- 展开明细用量、物料单、PI-BOM资料里的成本用量只读取 `UB_ERP_Bom_pi_cost.isok=1` 的有效行。
+
+- 展示字段 **`calcStatus`**：`已运算` / `未运算`；列表页先查当前页主表，再按当前页 PI 批量读取 `UB_ERP_Bom_pi_cost.isok=1` 回填状态，避免分页 SQL 对大表逐行 `EXISTS`。
 - 下列操作后标 **未运算**（`is_pur='0'` 或等价）：
-  - 保存时变更明细 **货品编码集合** 或 **订货数量**
+  - 保存时变更明细 **货品编码集合** 或 **订货数量**：同时删除该 PI 在 `UB_ERP_Bom_pi_cost` 中的旧运算结果；不清 `UB_ERP_Bom_pi_consumption`
   - **同步 BOM**（按行）
   - **保存 PI BOM**（PUT pi-bom）
 - **一键运算** 只读 **PI BOM**（`UB_ERP_Bom_Sales_list`），写入 `UB_ERP_Bom_pi_*`，**不乘订货数量**；**无 BOM 层数上限**（与主 BOM 用量树一致；循环引用仍失败）；隐藏前缀与 BOM 资料内置列表一致（`server/bomCostHidePrefixes.js`）；下游订料时 **用量 × 订货数量**
@@ -128,7 +131,8 @@
 
 ## 列表交互
 
-- 列表默认每页 **10 条**；后端 `/api/sales-order/list` 也以 10 条作为缺省页大小。列表查询先完成主表分页，再只对当前页订单计算散件/按钮状态，避免打开页面时为大量历史订单提前计算操作状态。
+- 列表默认每页 **10 条**；后端 `/api/sales-order/list` 也以 10 条作为缺省页大小。列表查询先完成主表分页，再只对当前页订单批量补运算状态、散件/按钮状态，避免打开页面时为大量历史订单提前计算操作状态。
+- **UI 对齐 BOM 资料（2026-07）**：顶部「管理销售订单 / 销售订单添加」模式按钮、筛选区「查询 / 重置 / 刷新」字号与主列表列数据一致（`--erp-table-data-size` + `--erp-font-weight-body`）；主列表用 `ErpTableViewportHScroll` 视口底横滚（**仅主表**表内横条隐藏；展开行内嵌套明细表保留自身横滚条）；展开/收起后会 `doLayout` + `refreshErpTableViewportHScroll`；新增/编辑面板底栏、明细工具条与行操作钮走 `.so-unified-btn-font`；主表表单字段字号与列数据对齐。DIY：`index.vue` 搜 `.so-mode-btn`、`.so-filter-action-btn`、`.so-unified-btn-font`；全局变量 `element-override.scss` 搜 `--erp-table-data-size`。
 - 顶部只保留一个关键词搜索框，同时匹配 PI 号、系统单号、客户名称；日期范围仍独立筛选。
 - 列表列调整：新增 `PO号` 列，移除 `系统单号` 列（系统单号仍保留在详情接口中）。
 - 默认显示已审核销售订单（`pass=1`）；打开“显示未审核”后只查未审核（`pass=0`）。

@@ -3,6 +3,7 @@
     <!-- 销售订单 issue 01：列表 + 只读详情（主表 Tab / 明细 Tab） -->
     <div v-if="!isSalesOrderStandaloneWindow" class="so-mode-bar">
       <el-button
+        class="so-mode-btn"
         :type="pageMode === 'manage' ? 'primary' : 'default'"
         plain
         @click="switchToManage"
@@ -12,6 +13,7 @@
       </el-button>
       <el-button
         v-permission="'add'"
+        class="so-mode-btn"
         :type="pageMode === 'create' ? 'primary' : 'default'"
         plain
         @click="switchToCreate"
@@ -34,7 +36,7 @@
               class="so-keyword-input"
               @keyup.enter="onSearch"
             />
-            <el-button type="primary" size="small" @click="onSearch">查询</el-button>
+            <el-button class="so-filter-action-btn" type="primary" size="small" @click="onSearch">查询</el-button>
             <div class="audit-switch">
               <span class="switch-label">回收站</span>
               <el-switch v-model="showRecycle" @change="onRecycleChange" />
@@ -43,10 +45,10 @@
               <span class="switch-label">显示未审核</span>
               <el-switch v-model="showUnAudited" @change="onSearch" />
             </div>
-            <el-button size="small" @click="onReset">重置</el-button>
+            <el-button class="so-filter-action-btn" size="small" @click="onReset">重置</el-button>
           </div>
           <div class="so-command-actions">
-            <el-button class="btn-view" size="small" :loading="loading" @click="loadData">
+            <el-button class="btn-view so-filter-action-btn" size="small" :loading="loading" @click="loadData">
               <el-icon class="btn-icon"><Refresh /></el-icon>
               刷新
             </el-button>
@@ -72,9 +74,9 @@
 
       <el-skeleton :loading="loading" animated :rows="6">
         <template #default>
+          <ErpTableViewportHScroll>
           <el-table
             ref="mainTableRef"
-            v-erp-list-h-scroll
             class="erp-list-table so-main-table"
             :data="tableList"
             row-key="id"
@@ -242,14 +244,14 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="PI 号" prop="piNo" min-width="132" show-overflow-tooltip>
+            <el-table-column label="PI 号" prop="piNo" min-width="132">
               <template #default="{ row }">
                 <span class="code-bold">{{ formatCell(row.piNo) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="PO 号" prop="poNo" min-width="132" show-overflow-tooltip />
-            <el-table-column label="客户" prop="customerName" min-width="160" show-overflow-tooltip />
-            <el-table-column label="币别" prop="currencyName" width="88" show-overflow-tooltip />
+            <el-table-column label="PO 号" prop="poNo" min-width="132" />
+            <el-table-column label="客户" prop="customerName" min-width="160" />
+            <el-table-column label="币别" prop="currencyName" width="88" />
             <el-table-column label="交货日期" width="118">
               <template #default="{ row }">{{ formatSalesOrderDate(row.deliveryDate) }}</template>
             </el-table-column>
@@ -266,6 +268,7 @@
               </template>
             </el-table-column>
           </el-table>
+          </ErpTableViewportHScroll>
 
           <div class="pagination-row pagination-row--bottom">
             <el-pagination
@@ -631,11 +634,10 @@
             <p class="so-lines-hint">
               选材后填写订货数量；删除行仅影响界面，点击保存后才会落库并同步 PI BOM 对齐。
             </p>
-            <div class="lines-toolbar">
+            <div class="lines-toolbar so-unified-btn-font">
               <el-button
                 type="primary"
                 plain
-                size="small"
                 :disabled="editDetailLocked"
                 @click="openMaterialPicker"
               >
@@ -646,7 +648,6 @@
                 v-permission="'edit'"
                 type="primary"
                 plain
-                size="small"
                 :disabled="editDetailLocked || !syncBomSelectedCount || syncBomBatchLoading"
                 :loading="syncBomBatchLoading"
                 @click="batchSyncBomFromEdit"
@@ -682,13 +683,12 @@
                 class-name="erp-col-actions"
               >
                 <template #default="{ row, $index }">
-                  <div class="action-bar so-line-actions">
+                  <div class="action-bar so-line-actions so-unified-btn-font">
                     <el-button
                       v-if="editMode === 'edit' && editId"
                       v-permission="'edit'"
                       type="info"
                       plain
-                      size="small"
                       :disabled="editDetailLocked"
                       @click="openPiBomTab(row, 'edit')"
                     >
@@ -697,7 +697,6 @@
                     <el-button
                       v-if="editMode === 'edit' && editId"
                       v-permission="'edit'"
-                      size="small"
                       class="so-sync-bom-mark-btn"
                       :class="{ 'so-sync-bom-mark-btn--on': isSyncBomSelected(row.kcaa01) }"
                       :disabled="editDetailLocked || syncBomBatchLoading"
@@ -708,7 +707,6 @@
                     <el-button
                       type="danger"
                       plain
-                      size="small"
                       :disabled="editDetailLocked"
                       @click="confirmRemoveLine($index)"
                     >
@@ -769,7 +767,7 @@
               <el-empty description="请先保存订单后再维护 PI BOM" />
             </div>
             <template v-else>
-              <div class="so-pi-bom-toolbar">
+              <div class="so-pi-bom-toolbar so-unified-btn-font">
                 <span class="so-pi-bom-label">成品款</span>
                 <el-select
                   v-model="piBomProduct"
@@ -790,7 +788,6 @@
                   v-permission="'edit'"
                   type="primary"
                   plain
-                  size="small"
                   :disabled="editDetailLocked || !piBomProduct || !piBomTree.length"
                   :loading="piBomSaveLoading"
                   @click="savePiBom('edit')"
@@ -858,14 +855,13 @@
           </el-tab-pane>
         </el-tabs>
       </div>
-      <div class="so-edit-panel__footer">
+      <div class="so-edit-panel__footer so-unified-btn-font">
         <div class="action-bar action-bar--footer">
-          <el-button size="small" @click="closeEditWindowOrDialog">取消</el-button>
+          <el-button @click="closeEditWindowOrDialog">取消</el-button>
           <el-button
             v-if="editMode === 'create'"
             v-permission="'add'"
             type="primary"
-            size="small"
             :loading="saveLoading"
             @click="onSave"
           >
@@ -875,7 +871,6 @@
             v-else
             v-permission="'edit'"
             type="primary"
-            size="small"
             :loading="saveLoading"
             :disabled="editDetailLocked"
             @click="onSave"
@@ -894,7 +889,9 @@
 import { useErpListRowContextMenu, useErpModeBtnContextMenu } from '@/composables/useErpListRowContextMenu'
 import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
-import { computed, onUnmounted, reactive, ref } from 'vue'
+import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
+import ErpTableViewportHScroll from '@/components/erp/ErpTableViewportHScroll.vue'
+import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
@@ -933,6 +930,16 @@ const page = ref(1)
 const pageSize = ref(5)
 
 const mainTableRef = ref(null)
+
+/** 主列表加载后重算列宽并刷新视口底横滚（与 BOM 资料一致） */
+watch([tableList, loading], async () => {
+  if (loading.value) return
+  await nextTick()
+  mainTableRef.value?.doLayout?.()
+  const el = mainTableRef.value?.$el
+  if (el) refreshErpTableViewportHScroll(el)
+})
+
 const detailCache = new Map()
 const detailRequestCache = new Map()
 const DETAIL_CACHE_LIMIT = 80
@@ -2035,8 +2042,20 @@ function onPageSizeChange(ps) {
 
 async function onExpandChange(row, expandedRows) {
   const open = expandedRows.some((r) => r.id === row.id)
-  if (!open) return
-  if (row.__linesLoaded) return
+  if (!open) {
+    await nextTick()
+    mainTableRef.value?.doLayout?.()
+    const el = mainTableRef.value?.$el
+    if (el) refreshErpTableViewportHScroll(el)
+    return
+  }
+  if (row.__linesLoaded) {
+    await nextTick()
+    mainTableRef.value?.doLayout?.()
+    const el = mainTableRef.value?.$el
+    if (el) refreshErpTableViewportHScroll(el)
+    return
+  }
   row.__linesLoading = true
   try {
     const detail = await fetchOrderDetail(row.id)
@@ -2047,6 +2066,10 @@ async function onExpandChange(row, expandedRows) {
     row.__lines = []
   } finally {
     row.__linesLoading = false
+    await nextTick()
+    mainTableRef.value?.doLayout?.()
+    const el = mainTableRef.value?.$el
+    if (el) refreshErpTableViewportHScroll(el)
   }
 }
 
@@ -2143,12 +2166,28 @@ onUnmounted(() => {
 }
 .so-mode-bar {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 10px;
   margin-bottom: 12px;
   padding: 10px 12px;
-  border-left: 4px solid var(--el-color-primary);
-  background: var(--el-fill-color-lighter);
+  background: var(--erp-surface, #fff);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+}
+/* 模式行字体：与主列表数据列统一（常规字号、非粗体） */
+.so-mode-btn {
+  font-size: var(--erp-table-data-size) !important;
+  font-weight: var(--erp-font-weight-body) !important;
+}
+/* 查询/重置/刷新按钮字体：与列数据统一；覆盖 size=small 的默认小字号 */
+.so-filter-action-btn {
+  font-size: var(--erp-table-data-size) !important;
+  font-weight: var(--erp-font-weight-body) !important;
+}
+/* 新增/编辑面板操作钮字号：与模式行「管理销售订单」一致 */
+.so-unified-btn-font :deep(.el-button) {
+  font-size: var(--erp-table-data-size) !important;
+  font-weight: var(--erp-font-weight-body) !important;
 }
 .so-toolbar {
   margin-bottom: 12px;
@@ -2182,7 +2221,7 @@ onUnmounted(() => {
   gap: 6px;
 }
 .switch-label {
-  font-size: 13px;
+  font-size: var(--erp-table-data-size);
   color: var(--el-text-color-regular);
 }
 .error-alert,
@@ -2265,6 +2304,18 @@ onUnmounted(() => {
 .so-edit-form :deep(.el-form-item) {
   margin-bottom: 16px;
 }
+/* DIY：主表表单字段字号与主列表列数据一致 */
+.so-edit-form :deep(.el-form-item__label) {
+  font-size: var(--erp-table-data-size) !important;
+  font-weight: var(--erp-font-weight-body) !important;
+}
+.so-edit-form :deep(.el-input__inner),
+.so-edit-form :deep(.el-select__selected-item),
+.so-edit-form :deep(.el-select__placeholder),
+.so-edit-form :deep(.el-textarea__inner) {
+  font-size: var(--erp-table-data-size) !important;
+  font-weight: var(--erp-font-weight-body) !important;
+}
 .so-edit-form :deep(.el-input),
 .so-edit-form :deep(.el-select),
 .so-edit-form :deep(.el-date-editor),
@@ -2274,7 +2325,7 @@ onUnmounted(() => {
 }
 .so-lines-hint {
   margin: 0 0 8px;
-  font-size: var(--so-lines-hint-size, 13px);
+  font-size: var(--erp-table-data-size);
   color: var(--el-text-color-secondary);
 }
 .lines-toolbar {
@@ -2285,7 +2336,7 @@ onUnmounted(() => {
   margin-bottom: 8px;
 }
 .so-sync-bom-selected-hint {
-  font-size: var(--so-lines-hint-size, 13px);
+  font-size: var(--erp-table-data-size);
   color: var(--el-text-color-secondary);
 }
 /** 明细行「同步 BOM」：未选＝主色，已选＝灰 */
@@ -2319,7 +2370,7 @@ onUnmounted(() => {
   margin-bottom: 10px;
 }
 .so-pi-bom-label {
-  font-size: 13px;
+  font-size: var(--erp-table-data-size);
   color: var(--el-text-color-regular);
 }
 .so-pi-bom-table-wrap {

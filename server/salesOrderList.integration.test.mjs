@@ -6,7 +6,6 @@ import dotenv from 'dotenv'
 import sql from 'mssql'
 import { describe, test } from 'node:test'
 import {
-  buildSalesOrderCalcStatusExpr,
   buildSalesOrderListPagedSql,
   buildSalesOrderListWhereSql,
 } from './salesOrderListQuery.js'
@@ -16,7 +15,7 @@ dotenv.config()
 const hasDb = Boolean(process.env.DB_SERVER && process.env.DB_USER)
 
 describe('salesOrder list SQL integration', { skip: !hasDb }, () => {
-  test('在册分页查询返回 piNo 与 calcStatus 列', async () => {
+  test('在册分页查询返回 piNo，分页 SQL 不直接计算 calcStatus', async () => {
     const pool = await sql.connect({
       user: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
@@ -34,7 +33,6 @@ describe('salesOrder list SQL integration', { skip: !hasDb }, () => {
       const { whereSql } = buildSalesOrderListWhereSql({ recycled: false })
       const { sql: listSql } = buildSalesOrderListPagedSql({
         whereSql,
-        calcStatusExpr: buildSalesOrderCalcStatusExpr('is_pur'),
       })
       const r = await pool
         .request()
@@ -46,8 +44,7 @@ describe('salesOrder list SQL integration', { skip: !hasDb }, () => {
       if ((r.recordset ?? []).length > 0) {
         const row = r.recordset[0]
         assert.ok('piNo' in row)
-        assert.ok('calcStatus' in row)
-        assert.match(String(row.calcStatus), /已运算|未运算/)
+        assert.ok(!('calcStatus' in row))
       }
     } finally {
       await pool.close()
