@@ -84,7 +84,7 @@
         :empty-text="loading ? '加载中' : '暂无数据'"
         @expand-change="onExpandChange"
         @row-click="onListRowClick"
-      >
+       @row-contextmenu="onErpListRowContextMenu">
         <el-table-column type="expand" width="48">
           <template #default="{ row }">
             <div v-loading="row.__linesLoading" class="stock-expand-inner" @click.stop>
@@ -847,6 +847,8 @@
 </template>
 
 <script setup>
+import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
+import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
@@ -915,6 +917,7 @@ import {
 import StockOutMaterialTracePanel from './material-trace-panel.vue'
 
 const MENU_PATH = 'inventory/daily/stock-out'
+const { onErpListRowContextMenu } = useErpListRowContextMenu()
 const OUTBOUND_TYPES = [
   { value: '0', label: '其他出库' },
   { value: '1', label: '采购退货' },
@@ -2093,6 +2096,16 @@ async function viewOrder(row) {
     ElMessage.error(err?.response?.data?.msg || err.message || '读取出库单失败')
   }
 }
+
+useErpDeepLinkOpen({
+  handlers: {
+    view: async (recordId) => {
+      const id = Number(recordId)
+      if (!Number.isFinite(id) || id <= 0) return
+      await viewOrder({ id })
+    },
+  },
+})
 
 function printKey(row) {
   return String(row?.systemcode ?? row?.systemCode ?? '').trim()

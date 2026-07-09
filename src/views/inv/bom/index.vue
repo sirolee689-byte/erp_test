@@ -4,39 +4,51 @@
       v1.1.8：BOM 主档列表（UB_ERP_Bom_000），严格服务端分页；合并关键词搜索（kcaa01/kcaa02 全模糊 OR）。
       性能约定：关键词仅在后端「满 3 字」时生效（参数化 LIKE），降低大表扫描风险。
     -->
-    <div v-if="!isBomStandaloneWindow" class="bom-mode-bar">
+    <div v-if="!isBomWindowRoute" class="bom-mode-bar">
       <el-button
+        class="bom-mode-btn"
         :type="pageMode === 'manage' ? 'primary' : 'default'"
         plain
         @click="switchBomPageMode('manage')"
+        @contextmenu.prevent="onBomModeBtnContextMenu('manage', $event)"
       >
         管理BOM资料
       </el-button>
       <el-button
         v-permission="'add'"
+        class="bom-mode-btn"
         :type="pageMode === 'create' ? 'primary' : 'default'"
         plain
         @click="switchBomPageMode('create')"
+        @contextmenu.prevent="onBomModeBtnContextMenu('create', $event)"
       >
         BOM资料添加
       </el-button>
       <el-button
+        class="bom-mode-btn"
         :type="pageMode === 'material-trace' ? 'primary' : 'default'"
         plain
         @click="switchBomPageMode('material-trace')"
+        @contextmenu.prevent="onBomModeBtnContextMenu('material-trace', $event)"
       >
         转向物料查询
       </el-button>
       <el-button
+        class="bom-mode-btn"
         :type="pageMode === 'moq' ? 'primary' : 'default'"
         plain
         @click="switchBomPageMode('moq')"
+        @contextmenu.prevent="onBomModeBtnContextMenu('moq', $event)"
       >
         MOQ查询
       </el-button>
     </div>
 
-    <el-card v-if="!isBomStandaloneWindow" v-show="pageMode === 'manage'" shadow="never">
+    <el-card
+      v-if="!isBomWindowRoute || bomWindowMode === 'manage'"
+      v-show="pageMode === 'manage'"
+      shadow="never"
+    >
       <template #header>
         <span class="page-title">{{ pageTitle }}</span>
       </template>
@@ -104,8 +116,10 @@
               @keyup.enter="onSearch"
             />
           </div>
-          <el-button type="primary" size="small" @click="onSearch">查询</el-button>
-          <el-button size="small" @click="onReset">重置</el-button>
+          <el-button class="bom-filter-action-btn" type="primary" size="small" @click="onSearch">
+            查询
+          </el-button>
+          <el-button class="bom-filter-action-btn" size="small" @click="onReset">重置</el-button>
           <div class="bom-filter-divider" aria-hidden="true" />
           <div class="audit-switch">
             <span class="switch-label">回收站</span>
@@ -172,6 +186,7 @@
             style="width: 100%"
             row-key="rowKey"
             :empty-text="loading ? '加载中…' : '暂无数据'"
+            @row-contextmenu="onBomListRowContextMenu"
           >
             <el-table-column
               label="操作"
@@ -505,11 +520,15 @@
       </el-skeleton>
     </el-card>
 
-    <section v-if="!isBomStandaloneWindow && pageMode === 'material-trace'" class="bom-material-trace-panel">
+    <section
+      v-if="pageMode === 'material-trace' && (!isBomWindowRoute || bomWindowMode === 'material-trace')"
+      class="bom-material-trace-panel"
+    >
       <div class="bom-page-panel-header">
         <strong>转向物料查询</strong>
-        <div class="bom-page-panel-actions">
-          <el-button @click="switchBomPageMode('manage')">返回列表</el-button>
+        <div class="bom-page-panel-actions bom-unified-btn-font">
+          <el-button v-if="isBomWindowRoute" @click="closeStandaloneBrowserWindow">关闭</el-button>
+          <el-button v-else @click="switchBomPageMode('manage')">返回列表</el-button>
         </div>
       </div>
       <div class="bom-trace-filter-bar">
@@ -678,11 +697,15 @@
       </div>
     </section>
 
-    <section v-if="!isBomStandaloneWindow && pageMode === 'moq'" class="bom-material-trace-panel">
+    <section
+      v-if="pageMode === 'moq' && (!isBomWindowRoute || bomWindowMode === 'moq')"
+      class="bom-material-trace-panel"
+    >
       <div class="bom-page-panel-header">
         <strong>MOQ查询</strong>
-        <div class="bom-page-panel-actions">
-          <el-button @click="switchBomPageMode('manage')">返回列表</el-button>
+        <div class="bom-page-panel-actions bom-unified-btn-font">
+          <el-button v-if="isBomWindowRoute" @click="closeStandaloneBrowserWindow">关闭</el-button>
+          <el-button v-else @click="switchBomPageMode('manage')">返回列表</el-button>
         </div>
       </div>
       <div class="bom-trace-filter-bar">
@@ -782,7 +805,7 @@
     >
       <div v-if="!isBomStandaloneWindow" class="bom-page-panel-header">
         <strong>{{ detailDialogTitle }}</strong>
-        <div class="bom-page-panel-actions">
+        <div class="bom-page-panel-actions bom-unified-btn-font">
           <el-button @click="switchBomPageMode('manage')">返回列表</el-button>
         </div>
       </div>
@@ -826,7 +849,7 @@
                   class="bom-parts-alert"
                   title="主档缺少 systemcode，无法加载或保存配件明细。"
                 />
-                <div v-else class="bom-parts-toolbar">
+                <div v-else class="bom-parts-toolbar bom-unified-btn-font">
                   <el-button
                     type="primary"
                     :disabled="partsReadOnly || !bomSystemcode"
@@ -840,14 +863,6 @@
                   >
                     刷新
                   </el-button>
-                  <el-button
-                    type="success"
-                    :loading="partsSaving"
-                    :disabled="partsReadOnly || !bomSystemcode || partsLoading || partsSaving"
-                    @click="saveBomParts"
-                  >
-                    保存配件明细
-                  </el-button>
                 </div>
                 <el-alert v-if="partsError" :title="partsError" type="error" show-icon class="bom-parts-alert" />
                 <div class="bom-parts-table-wrap">
@@ -857,10 +872,11 @@
                     border
                     stripe
                     :size="detailTableSize"
-                    class="bom-parts-table"
+                    class="bom-parts-table bom-unified-btn-font"
                     :empty-text="partsLoading ? '加载中…' : '暂无配件'"
                     :row-key="partsRowKey"
                     :max-height="bomPartsTableMaxHeight"
+                    @row-contextmenu="onBomDetailPartsRowContextMenu"
                   >
                     <el-table-column
                       type="index"
@@ -926,7 +942,7 @@
                     />
                     <el-table-column prop="kcaa11" label="颜色" width="80" show-overflow-tooltip />
                     <el-table-column prop="kcaa04" label="单位" width="64" show-overflow-tooltip />
-                    <el-table-column label="单位用量" width="118">
+                    <el-table-column label="单位用量" width="90">
                       <template #default="{ row }">
                         <span v-if="partLineReadonly(row)" class="bom-parts-readonly-num">
                           {{ formatPartNumberDisplay(row.kcac04) }}
@@ -972,10 +988,10 @@
                       </template>
                     </el-table-column>
                     <!-- 用量合计紧跟用量/损耗，避免窄屏需滚过单价才可见 -->
-                    <el-table-column label="用量合计(kcac06)" width="124" align="right">
+                    <el-table-column label="用量合计(kcac06)" width="88" align="right">
                       <template #default="{ row }">{{ formatUsageTotal(row) }}</template>
                     </el-table-column>
-                    <el-table-column label="单价" width="112">
+                    <el-table-column label="单价" width="70">
                       <template #default="{ row }">
                         <span v-if="partLineReadonly(row)" class="bom-parts-readonly-num">
                           {{ formatMoney(row.cost_price) }}
@@ -995,7 +1011,7 @@
                         />
                       </template>
                     </el-table-column>
-                    <el-table-column label="成本合计" width="110" align="right">
+                    <el-table-column label="成本合计" width="88" align="right">
                       <template #default="{ row }">{{ formatMoney(partCostSum(row)) }}</template>
                     </el-table-column>
                     <el-table-column label="备注" :min-width="partsDetailColumnWidths.remark">
@@ -1069,19 +1085,20 @@
                       :tree-props="{ children: 'children' }"
                       default-expand-all
                       max-height="calc(100vh - 280px)"
+                      @row-contextmenu="onBomUsageOrCostRowContextMenu"
                     >
                       <el-table-column prop="kcaa01" label="编码" min-width="200" fixed="left" show-overflow-tooltip />
                       <el-table-column prop="kcaa02" label="名称" min-width="120" show-overflow-tooltip />
                       <el-table-column prop="kcaa03" label="规格" min-width="120" show-overflow-tooltip />
                       <el-table-column prop="kcaa04" label="单位" width="72" align="center" show-overflow-tooltip />
                       <el-table-column label="用量(kcac04)" width="118" align="right">
-                        <template #default="{ row }">{{ formatQty(row.kcac04) }}</template>
+                        <template #default="{ row }">{{ formatUsageCalcQty(row.kcac04) }}</template>
                       </el-table-column>
                       <el-table-column label="损耗(kcac05)" width="118" align="right">
-                        <template #default="{ row }">{{ formatQty(row.kcac05) }}</template>
+                        <template #default="{ row }">{{ formatUsageCalcQty(row.kcac05) }}</template>
                       </el-table-column>
-                      <el-table-column label="备用损耗(kcaa33)" width="132" align="right">
-                        <template #default="{ row }">{{ formatQty(row.kcaa33) }}</template>
+                      <el-table-column label="合计(kcac06)" width="132" align="right">
+                        <template #default="{ row }">{{ formatUsageCalcQty(partUsageSum(row)) }}</template>
                       </el-table-column>
                       <el-table-column prop="Describe" label="备注" min-width="100" show-overflow-tooltip />
                       <el-table-column prop="Seq" label="Seq" width="64" align="center" />
@@ -1130,6 +1147,7 @@
                       show-summary
                       :summary-method="bomCostUsageSummaryMethod"
                       :max-height="bomCostUsageTableMaxHeight"
+                      @row-contextmenu="onBomUsageOrCostRowContextMenu"
                     >
                       <el-table-column label="编码" min-width="200" fixed="left" class-name="bom-cost-usage-wrap-cell">
                         <template #default="{ row }">
@@ -1288,7 +1306,7 @@
     >
       <div v-if="!isBomStandaloneWindow" class="bom-page-panel-header">
         <strong>{{ editDialogTitle }}</strong>
-        <div class="bom-page-panel-actions">
+        <div class="bom-page-panel-actions bom-unified-btn-font">
           <el-button @click="closeEditWindowOrDialog">返回列表</el-button>
           <el-button v-if="editMode === 'add'" @click="resetCurrentEditPanel">重置</el-button>
           <el-button v-if="editActiveTab === 'main'" type="primary" :loading="editSaving" @click="submitBomEdit">保存主档</el-button>
@@ -1355,7 +1373,7 @@
               title="请先在「BOM基础资料」中填写必填项并点击「保存主档」，生成系统编码后即可添加与保存配件。"
             />
             <template v-else>
-              <div class="bom-parts-toolbar">
+              <div class="bom-parts-toolbar bom-unified-btn-font">
                 <el-button
                   type="primary"
                   :disabled="editPartsReadOnly || !editBomSystemcode"
@@ -1389,10 +1407,11 @@
                   border
                   stripe
                   :size="detailTableSize"
-                  class="bom-parts-table bom-parts-table--edit"
+                  class="bom-parts-table bom-parts-table--edit bom-unified-btn-font"
                   :empty-text="editPartsLoading ? '加载中…' : '暂无配件'"
                   :row-key="partsRowKey"
                   :max-height="bomEditPartsTableMaxHeight"
+                  @row-contextmenu="onBomEditPartsRowContextMenu"
                 >
                   <el-table-column label="选择" width="78" align="center" fixed="left">
                     <template #default="{ row }">
@@ -1536,20 +1555,27 @@
           </el-tab-pane>
         </el-tabs>
       </div>
-      <div v-if="isBomStandaloneWindow" class="bom-page-panel-footer bom-page-panel-footer--dialog">
-        <el-button @click="closeEditWindowOrDialog">关闭</el-button>
-        <el-button v-if="editActiveTab === 'main'" type="primary" :loading="editSaving" @click="submitBomEdit">保存主档</el-button>
-        <el-button
-          v-if="editActiveTab === 'parts'"
-          type="success"
-          :loading="editPartsSaving"
-          :disabled="!editBomSystemcode || editPartsReadOnly || editPartsLoading || editPartsSaving"
-          @click="saveEditBomParts"
-        >
-          保存配件明细
-        </el-button>
-      </div>
+      <!-- 独立页：操作钮固定在 dialog footer，避免被正文挤出视口 -->
+      <template v-if="isBomStandaloneWindow" #footer>
+        <div class="bom-page-panel-footer bom-page-panel-footer--dialog bom-unified-btn-font">
+          <el-button @click="closeEditWindowOrDialog">关闭</el-button>
+          <el-button v-if="editMode === 'add'" @click="resetCurrentEditPanel">重置</el-button>
+          <el-button v-if="editActiveTab === 'main'" type="primary" :loading="editSaving" @click="submitBomEdit">保存主档</el-button>
+          <el-button
+            v-if="editActiveTab === 'parts'"
+            type="success"
+            :loading="editPartsSaving"
+            :disabled="!editBomSystemcode || editPartsReadOnly || editPartsLoading || editPartsSaving"
+            @click="saveEditBomParts"
+          >
+            保存配件明细
+          </el-button>
+        </div>
+      </template>
     </component>
+
+    <!-- 列表行右键菜单（BOM 试点）：在新标签页打开干净独立详情页 -->
+    <ErpListRowContextMenu ref="bomListRowContextMenuRef" />
   </div>
 </template>
 
@@ -1565,6 +1591,8 @@ import { useUiDensity } from '@/composables/useUiDensity'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
 import ErpPageDialog from '@/components/erp/ErpPageDialog.vue'
+import ErpListRowContextMenu from '@/components/erp/ErpListRowContextMenu.vue'
+import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
 import BomBasicForm from './BomBasicForm.vue'
 import BomLinkedDetailDialog from './BomLinkedDetailDialog.vue'
 import ExcelJS from 'exceljs'
@@ -1589,16 +1617,24 @@ const pageTitle = computed(() => {
 
 const bomWindowMode = computed(() => String(route.query?.mode ?? '').trim().toLowerCase())
 const bomWindowCode = computed(() => String(route.query?.code ?? '').trim())
-const isBomStandaloneWindow = computed(() =>
-  bomWindowMode.value === 'detail' ||
-  bomWindowMode.value === 'edit' ||
-  bomWindowMode.value === 'parts-edit' ||
-  bomWindowMode.value === 'cost-print',
+
+/** 干净独立页：四模式（manage/create/material-trace/moq）与单条记录（detail/edit 等） */
+const BOM_MODE_WINDOW_MODES = ['manage', 'create', 'material-trace', 'moq']
+const BOM_RECORD_WINDOW_MODES = ['detail', 'edit', 'parts-edit', 'cost-print']
+
+const isBomWindowRoute = computed(
+  () => route.path.replace(/\/+$/, '') === '/inventory/basic/bom-data-window',
+)
+const isBomModeWindow = computed(() => BOM_MODE_WINDOW_MODES.includes(bomWindowMode.value))
+const isBomRecordWindow = computed(() => BOM_RECORD_WINDOW_MODES.includes(bomWindowMode.value))
+const isBomStandaloneWindow = computed(
+  () => isBomWindowRoute.value && (isBomModeWindow.value || isBomRecordWindow.value),
 )
 const pageMode = ref('manage')
 const loading = ref(false)
 const errorMessage = ref('')
 const listTableRef = ref(null)
+const bomListRowContextMenuRef = ref(null)
 const tableList = ref([])
 const materialTraceTableRef = ref(null)
 const materialTraceLoading = ref(false)
@@ -1829,7 +1865,7 @@ const bomCostUsageHeaderText = computed(() => formatBomCostUsageHeaderText(bomBa
 const bomCostUsagePrintHeaderFontSize = ref('')
 
 /** 打印抬头字号上限，与 --bom-cost-print-header-font-size 保持一致 */
-const BOM_COST_PRINT_HEADER_FONT_MAX_PX = 17
+const BOM_COST_PRINT_HEADER_FONT_MAX_PX = 15
 /** 打印抬头字号下限，防止超长编码缩到看不清 */
 const BOM_COST_PRINT_HEADER_FONT_MIN_PX = 9
 /** A4 纵向内容区可用宽（210mm - 左右各 8mm 页边距，96dpi 约 733px，留安全余量） */
@@ -2052,6 +2088,7 @@ function applyBomCostUsageExportTableStyle(ws, rowNumber, opts = {}) {
       horizontal: colNumber >= 6 ? 'right' : 'left',
       wrapText: true,
     }
+    if (opts.font) cell.font = { ...(cell.font || {}), ...opts.font }
     if (opts.bold) cell.font = { ...(cell.font || {}), bold: true }
     if (opts.fill) cell.fill = opts.fill
   })
@@ -2087,20 +2124,24 @@ async function exportBomCostUsageXls(downloadFileName = bomCostUsageDefaultExpor
   })
   ws.addRow([headerText])
   ws.mergeCells(1, 1, 1, BOM_COST_USAGE_EXPORT_HEADERS.length)
-  ws.getRow(1).font = { bold: true, size: 14 }
+  ws.getRow(1).font = { name: 'Arial', size: 10, bold: true }
   ws.getRow(1).height = 24
   ws.getCell(1, 1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
   ws.addRow([...BOM_COST_USAGE_EXPORT_HEADERS])
   applyBomCostUsageExportTableStyle(ws, 2, {
+    font: { name: 'Arial', size: 10 },
     bold: true,
     fill: BOM_COST_USAGE_EXPORT_HEADER_FILL,
   })
   for (const row of rows) {
     const added = ws.addRow(bomCostUsageRowToExportCells(row))
-    applyBomCostUsageExportTableStyle(ws, added.number)
+    applyBomCostUsageExportTableStyle(ws, added.number, {
+      font: { name: 'Arial', size: 10 },
+    })
   }
   ws.addRow(['合计', '', '', '', '', formatQty(sumYl), '', formatQty(sumTotalQty)])
   applyBomCostUsageExportTableStyle(ws, ws.rowCount, {
+    font: { name: 'Arial', size: 10 },
     bold: true,
     fill: BOM_COST_USAGE_EXPORT_SUMMARY_FILL,
   })
@@ -2646,7 +2687,8 @@ function buildBomBasicFormFromBasic(b) {
   f.kcaa09 = String(b.kcaa09 ?? '')
   f.kcaa10 = String(b.kcaa10 ?? '')
   f.kcaa11 = String(b.kcaa11 ?? '')
-  f.kcaa11_display = f.kcaa11
+  const colorName = String(b.colorName ?? '').trim()
+  f.kcaa11_display = f.kcaa11 ? (colorName ? `${f.kcaa11},${colorName}` : f.kcaa11) : ''
   f.location = String(b.location ?? '').trim() || '国内'
   f.kcaa04 = String(b.kcaa04 ?? '')
   f.decimal = String(b.decimal ?? '2') || '2'
@@ -3294,8 +3336,13 @@ function formatQty(n) {
   return formatBomDisplayNumber(n, 4)
 }
 
+/** BOM用量表运算专用：用量/合计固定6位小数并去尾0（仅展示） */
+function formatUsageCalcQty(n) {
+  return formatBomDisplayNumber(n, 6)
+}
+
 function formatLossRate(n) {
-  return formatBomDisplayNumber(n, 2)
+  return formatBomDisplayNumber(n, 6)
 }
 
 /** 底部「实际用量总和」等与 kcac06 精度一致 */
@@ -3726,6 +3773,8 @@ async function saveEditBomParts() {
     resetBomUsageBlockState()
     editPartsPendingDeleteIds.value = []
     await loadEditBomParts()
+    // 保存配件明细后自动回到 BOM 资料页，避免停留在明细页重复操作
+    editActiveTab.value = 'main'
     await loadData()
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '保存失败'))
@@ -4461,6 +4510,25 @@ function buildBomStandaloneWindowUrl(mode, code) {
   return url.toString()
 }
 
+/** 四模式按钮右键：干净独立页 URL（无 code） */
+function buildBomModeWindowUrl(mode) {
+  const url = new URL(window.location.href)
+  url.pathname = '/inventory/basic/bom-data-window'
+  url.search = ''
+  url.hash = ''
+  url.searchParams.set('mode', mode)
+  return url.toString()
+}
+
+function openBomModeWindow(mode) {
+  const win = window.open(buildBomModeWindowUrl(mode), '_blank')
+  if (!win) {
+    ElMessage.warning('浏览器拦截了新窗口，请允许本站弹出窗口后重试')
+  } else {
+    win.focus?.()
+  }
+}
+
 function bomStandaloneWindowHref(mode, code) {
   const c = String(code ?? '').trim()
   return c ? buildBomStandaloneWindowUrl(mode, c) : ''
@@ -4477,6 +4545,86 @@ function guardBomStandaloneLink(ev, mode, row) {
     ev?.preventDefault?.()
     ElMessage.warning('该数据已审核，需要先反审后才能编辑。')
   }
+}
+
+/** 当前 BOM 页权限 path（独立窗用 meta.permissionPath，与 v-permission 对齐） */
+function getBomMenuPermissionPath() {
+  const override = route.meta?.permissionPath
+  if (override != null && String(override).trim() !== '') {
+    return String(override).replace(/^\/+/, '').replace(/\/+$/, '')
+  }
+  return route.path.replace(/^\/+/, '').replace(/\/+$/, '')
+}
+
+function canOpenBomInNewTab() {
+  const model = getPermissionModelFromStorage()
+  return hasPageAction(model, getBomMenuPermissionPath(), 'view')
+}
+
+function extractBomContextRowCode(row) {
+  return String(row?.code ?? row?.kcaa01 ?? '').trim()
+}
+
+/**
+ * 通用 BOM 行右键：在新标签页打开干净独立页（与操作列「查看详情/查看配件」同路由）
+ * @param {MouseEvent} event
+ * @param {Record<string, unknown>} row
+ * @param {'detail' | 'parts-edit' | 'edit'} mode
+ */
+function openBomRowContextMenu(event, row, mode = 'detail') {
+  if (!canOpenBomInNewTab()) return
+
+  const code = extractBomContextRowCode(row)
+  const items = [
+    {
+      key: 'open-detail-new-tab',
+      label: '在新标签页中打开',
+      disabled: !code,
+      onSelect: code ? () => openBomStandaloneWindow(mode, row) : undefined,
+    },
+  ]
+
+  event?.preventDefault?.()
+  bomListRowContextMenuRef.value?.open(event, items)
+}
+
+/** 管理BOM资料主列表行右键 */
+function onBomListRowContextMenu(row, _column, event) {
+  if (pageMode.value !== 'manage') return
+  openBomRowContextMenu(event, row, 'detail')
+}
+
+/** 顶部四模式按钮右键：在新标签页打开对应干净独立页 */
+function onBomModeBtnContextMenu(mode, event) {
+  if (isBomWindowRoute.value) return
+  const action = mode === 'create' ? 'add' : 'view'
+  const model = getPermissionModelFromStorage()
+  if (!hasPageAction(model, getBomMenuPermissionPath(), action)) return
+
+  const items = [
+    {
+      key: 'open-mode-new-tab',
+      label: '在新标签页中打开',
+      onSelect: () => openBomModeWindow(mode),
+    },
+  ]
+  event?.preventDefault?.()
+  bomListRowContextMenuRef.value?.open(event, items)
+}
+
+/** 详情/独立页「配件明细」行右键 */
+function onBomDetailPartsRowContextMenu(row, _column, event) {
+  openBomRowContextMenu(event, row, detailPartChildActionMode.value)
+}
+
+/** 编辑弹窗「配件明细」行右键 */
+function onBomEditPartsRowContextMenu(row, _column, event) {
+  openBomRowContextMenu(event, row, 'parts-edit')
+}
+
+/** 「BOM用量表运算 / 成本BOM用量表」行右键：按编码打开子 BOM 详情独立页 */
+function onBomUsageOrCostRowContextMenu(row, _column, event) {
+  openBomRowContextMenu(event, row, 'detail')
 }
 
 function openBomStandaloneWindow(mode, row) {
@@ -5077,6 +5225,27 @@ async function openCopyBom(row) {
 async function openBomStandaloneFromRoute() {
   const mode = bomWindowMode.value
   const code = bomWindowCode.value
+
+  if (mode === 'manage') {
+    pageMode.value = 'manage'
+    loadBomCodeCategoryOptions()
+    await loadData()
+    return
+  }
+  if (mode === 'create') {
+    openAddBom()
+    return
+  }
+  if (mode === 'material-trace') {
+    pageMode.value = 'material-trace'
+    loadBomCodeCategoryOptions()
+    return
+  }
+  if (mode === 'moq') {
+    pageMode.value = 'moq'
+    return
+  }
+
   if (!code) {
     ElMessage.error('新窗口缺少 BOM 编码，无法打开')
     return
@@ -5104,10 +5273,12 @@ async function openBomStandaloneFromRoute() {
   }
   if (mode === 'edit') {
     await loadEditDialog({ code })
+    return
   }
+  ElMessage.error(`新窗口模式不支持：${mode || '(空)'}`)
 }
 
-if (isBomStandaloneWindow.value) {
+if (isBomWindowRoute.value) {
   void openBomStandaloneFromRoute()
 } else {
   loadBomCodeCategoryOptions()
@@ -5133,9 +5304,20 @@ if (isBomStandaloneWindow.value) {
   gap: 10px;
   margin-bottom: 12px;
   padding: 10px 12px;
-  background: #fff;
+  /* 底色跟随皮肤面色（暗黑/豆沙绿/暖色下不再是大白块） */
+  background: var(--erp-surface, #fff);
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 4px;
+}
+/* BOM 模式行字体：与主列表数据列统一（常规字号、非粗体） */
+.bom-mode-btn {
+  font-size: var(--erp-table-data-size) !important;
+  font-weight: var(--erp-font-weight-body) !important;
+}
+/* BOM 操作按钮字号：与模式行「管理BOM资料」一致（页头/底栏/配件工具条/配件表格操作列） */
+.bom-unified-btn-font :deep(.el-button) {
+  font-size: var(--erp-table-data-size) !important;
+  font-weight: var(--erp-font-weight-body) !important;
 }
 .bom-filter-bar {
   display: flex;
@@ -5182,6 +5364,11 @@ if (isBomStandaloneWindow.value) {
   margin: 0 18px;
   background: var(--el-border-color);
   flex-shrink: 0;
+}
+/* 查询/重置按钮字体：与 BOM 列数据统一；覆盖 size=small 的默认小字号 */
+.bom-filter-action-btn {
+  font-size: var(--erp-table-data-size) !important;
+  font-weight: var(--erp-font-weight-body) !important;
 }
 .audit-switch {
   display: inline-flex;
@@ -5243,7 +5430,8 @@ if (isBomStandaloneWindow.value) {
 .bom-page-panel,
 .bom-material-trace-panel {
   padding: 12px;
-  background: #fff;
+  /* 底色跟随皮肤面色 */
+  background: var(--erp-surface, #fff);
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 4px;
 }
@@ -5334,7 +5522,8 @@ if (isBomStandaloneWindow.value) {
 }
 .bom-trace-expand-table {
   width: auto;
-  background: #fff;
+  /* 底色跟随皮肤面色 */
+  background: var(--erp-surface, #fff);
 }
 .bom-moq-keyword {
   width: 320px;
@@ -5390,6 +5579,18 @@ if (isBomStandaloneWindow.value) {
 /* 用量（成本）：与时间列同字号，文案由接口返回「成本：x,y」 */
 .bom-list-usage-cost {
   font-variant-numeric: tabular-nums;
+}
+/* DIY：BOM 主列表列数据字体统一（与「分类」列一致：常规字号、不加粗）——只影响展示，不动数据 */
+/* 位置：src/views/inv/bom/index.vue <style scoped>；变量 --erp-table-data-size / --erp-font-weight-body */
+.erp-list-table :deep(.bom-list-cell-wrap),
+.erp-list-table :deep(.bom-list-datetime),
+.erp-list-table :deep(.bom-list-usage-cost),
+.erp-list-table :deep(.bom-list-operator),
+.erp-list-table :deep(.bom-list-datetime > div),
+.erp-list-table :deep(.bom-list-usage-cost > div),
+.erp-list-table :deep(.bom-list-operator > div) {
+  font-size: var(--erp-table-data-size) !important;
+  font-weight: var(--erp-font-weight-body) !important;
 }
 .bom-detail-alert {
   margin-bottom: 12px;
@@ -5598,7 +5799,7 @@ if (isBomStandaloneWindow.value) {
 }
 .bom-part-edit-child-action-btn :deep(span)::after {
   content: '编辑配件';
-  font-size: var(--el-font-size-base);
+  font-size: var(--erp-table-data-size);
 }
 .bom-parts-sum-row {
   margin-top: 10px;
@@ -5727,6 +5928,8 @@ if (isBomStandaloneWindow.value) {
 <style>
 .bom-window-standalone-dialog.el-dialog,
 .bom-edit-dialog--standalone.el-dialog {
+  display: flex;
+  flex-direction: column;
   width: 100vw !important;
   height: 100vh;
   max-height: none;
@@ -5760,7 +5963,8 @@ if (isBomStandaloneWindow.value) {
 .bom-window-standalone-dialog.el-dialog .el-dialog__body,
 .bom-edit-dialog--standalone.el-dialog .el-dialog__body {
   box-sizing: border-box;
-  height: 100vh;
+  flex: 1;
+  min-height: 0;
   padding: 10px 12px 12px !important;
   overflow: auto;
 }
@@ -5797,19 +6001,26 @@ if (isBomStandaloneWindow.value) {
   box-sizing: border-box;
 }
 
-.bom-edit-dialog--standalone.el-dialog .el-dialog__body {
-  height: calc(100vh - 48px);
-}
-
 .bom-edit-dialog--standalone.el-dialog .el-dialog__footer {
   box-sizing: border-box;
-  height: 48px;
+  flex-shrink: 0;
   padding: 8px 12px !important;
   border-top: 1px solid var(--el-border-color-light);
+  background: var(--erp-surface, var(--el-bg-color));
+}
+
+.bom-edit-dialog--standalone.el-dialog .bom-page-panel-footer--dialog {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border-top: 0;
 }
 
 .bom-edit-dialog--standalone.el-dialog .bom-edit-body {
-  max-height: calc(100vh - 70px);
+  max-height: none;
+  overflow-y: visible;
 }
 
 .bom-edit-dialog--standalone.el-dialog .bom-edit-body--parts-tab {
@@ -5986,7 +6197,7 @@ if (isBomStandaloneWindow.value) {
   html.print-bom-cost-usage {
     --bom-cost-print-font-size: 12px;
     --bom-cost-print-font-weight: 700;
-    --bom-cost-print-header-font-size: 17px;
+    --bom-cost-print-header-font-size: 15px;
     --bom-cost-print-header-font-weight: 700;
     --bom-cost-print-cell-padding: 5px 6px;
     --bom-cost-print-col-code: 21%;

@@ -96,7 +96,7 @@
             :default-expand-all="treeMode"
             :tree-props="treeMode ? { children: 'children' } : undefined"
             @current-change="onCurrentRowChange"
-          >
+           @row-contextmenu="onErpListRowContextMenu">
             <el-table-column prop="code" label="编码" min-width="100" show-overflow-tooltip />
             <el-table-column prop="name" label="名称" min-width="160" show-overflow-tooltip>
               <template #default="{ row }">
@@ -233,12 +233,15 @@
 </template>
 
 <script setup>
+import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
+import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+const { onErpListRowContextMenu } = useErpListRowContextMenu()
 
 /** 页面标题 */
 const pageTitle = '部门资料'
@@ -509,6 +512,16 @@ async function openEdit(row) {
   dialogVisible.value = true
   void nextTick(() => formRef.value?.clearValidate?.())
 }
+
+useErpDeepLinkOpen({
+  handlers: {
+    edit: async (recordId) => {
+      const id = Number(recordId)
+      const row = tableList.value.find((r) => Number(r?.id) === id)
+      if (row) await openEdit(row)
+    },
+  },
+})
 
 /** 新增岗位：默认所属部门为当前选中的部门 */
 async function openCreatePost() {

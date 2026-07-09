@@ -4029,6 +4029,7 @@ app.get('/api/inventory/bom/:id/brief', async (req, res) => {
  * BOM 主档详情（基础资料步骤）：仅选取约定列，不查询 kcaa16
  * GET /api/inventory/bom/:id — :id 为 kcaa01（URL 编码，支持含 / 的编码）
  * - LEFT JOIN UB_ERP_Stocks_material：kcaa05=code，带出 categoryName；分类展示名称
+ * - LEFT JOIN UB_ERP_Stocks_colorcode：kcaa11=code，带出 colorName；颜色展示为“编码,名称”
  * - LEFT JOIN UB_ERP_Stocks_workshop：kcaa15=code，workshopName；workshop_display 为「编码, 名称」
  * - unit_conversion：采购/报价与使用的转换方向（po_to_use 等）及转换率；sale_price、kcaa34_display；kpname 开票名称
  * - systemcode：主档稳定键，供 UB_ERP_Bom_parts.kcac01 关联
@@ -4057,6 +4058,7 @@ app.get('/api/inventory/bom/:id', async (req, res) => {
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kpname, N'')))) AS kpname,
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa03, N'')))) AS kcaa03,
         LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.kcaa11, N'')))) AS kcaa11,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(color.name, N'')))) AS colorName,
         LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.kcaa05, N'')))) AS kcaa05,
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(cat.name, N'')))) AS categoryName,
         LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.kcaa10, N'')))) AS kcaa10,
@@ -4090,6 +4092,8 @@ app.get('/api/inventory/bom/:id', async (req, res) => {
       FROM ${INV_BOM_MASTER_FROM} AS b
       LEFT JOIN ${BOM_MATERIAL_FROM} AS cat
         ON LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(200), b.kcaa05), N''))) = LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(200), cat.code), N'')))
+      LEFT JOIN ${BOM_COLOR_FROM} AS color
+        ON LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(200), b.kcaa11), N''))) = LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(200), color.code), N'')))
       LEFT JOIN ${BOM_STOCKS_WORKSHOP_FROM} AS ws
         ON LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(200), b.kcaa15), N''))) = LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(200), ws.code), N'')))
       LEFT JOIN ${SYS_SUPPLIER_FROM} AS sup
@@ -4146,6 +4150,7 @@ app.get('/api/inventory/bom/:id', async (req, res) => {
       kpname: str(row.kpname),
       kcaa03: str(row.kcaa03),
       kcaa11: str(row.kcaa11),
+      colorName: str(row.colorName),
       kcaa05: str(row.kcaa05),
       categoryName: str(row.categoryName),
       kcaa10: str(row.kcaa10),

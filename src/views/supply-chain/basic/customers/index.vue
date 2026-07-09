@@ -66,7 +66,7 @@
 
       <el-skeleton :loading="loading" animated :rows="6">
         <template #default>
-          <el-table :data="tableList" border stripe row-key="id" style="width: 100%" :empty-text="loading ? '加载中…' : '暂无数据'">
+          <el-table :data="tableList" border stripe row-key="id" style="width: 100%" :empty-text="loading ? '加载中…' : '暂无数据'" @row-contextmenu="onErpListRowContextMenu">
             <el-table-column prop="s_code" label="编码" width="140" fixed="left" show-overflow-tooltip>
               <template #default="{ row }">
                 <span class="code-bold">{{ row.s_code || '—' }}</span>
@@ -298,12 +298,15 @@
 </template>
 
 <script setup>
+import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
+import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { onMounted, reactive, ref, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import axios from 'axios'
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+const { onErpListRowContextMenu } = useErpListRowContextMenu()
 
 /** 页面标题（与左侧菜单一致） */
 const pageTitle = '销售客户'
@@ -634,6 +637,16 @@ async function openViewDialog(row) {
     viewLoading.value = false
   }
 }
+useErpDeepLinkOpen({
+  handlers: {
+    view: async (recordId) => {
+      const id = Number(recordId)
+      if (!Number.isFinite(id) || id <= 0) return
+      await openViewDialog({ id })
+    },
+  },
+})
+
 
 onMounted(() => {
   loadSettlementMethodOptions()

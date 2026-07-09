@@ -330,7 +330,7 @@ onMounted(() => {
 
 .stock-surplus-batch-header { margin-bottom: 12px; }
 .stock-surplus-batch-title { margin: 0 0 6px; font-size: 22px; }
-.stock-surplus-batch-subtitle { margin: 0; color: #606266; font-size: 15px; }
+.stock-surplus-batch-subtitle { margin: 0; color: var(--el-text-color-regular); font-size: 15px; }
 
 .stock-surplus-batch-toolbar {
   display: flex;
@@ -338,18 +338,18 @@ onMounted(() => {
   gap: 12px;
   margin-bottom: 12px;
   padding: 12px;
-  background: #fff;
+  background: var(--erp-surface, #fff);
   border-radius: 8px;
 }
 
-.stock-surplus-batch-label { color: #606266; }
+.stock-surplus-batch-label { color: var(--el-text-color-regular); }
 .stock-surplus-batch-query-input { width: 320px; }
 .stock-surplus-batch-selected { margin-left: auto; color: #409eff; }
 .stock-surplus-batch-close-hint { margin-bottom: 12px; }
 
 .stock-surplus-batch-table-wrap {
   overflow: auto;
-  background: #fff;
+  background: var(--erp-surface, #fff);
   border-radius: 8px;
 }
 
@@ -362,13 +362,13 @@ onMounted(() => {
 
 .stock-surplus-batch-table th,
 .stock-surplus-batch-table td {
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--el-border-color-lighter);
   padding: 8px 10px;
   white-space: nowrap;
 }
 
 .stock-surplus-batch-table th {
-  background: #f5f7fa;
+  background: var(--el-fill-color-light, #f5f7fa);
   font-weight: 600;
 }
 
@@ -378,7 +378,7 @@ onMounted(() => {
   text-align: center;
 }
 
-.stock-surplus-batch-row--picked { background: #f0f9eb; }
+.stock-surplus-batch-row--picked { background: var(--el-color-success-light-9, #f0f9eb); }
 
 .stock-surplus-batch-pagination {
   display: flex;
@@ -386,7 +386,7 @@ onMounted(() => {
   justify-content: space-between;
   margin-top: 12px;
   padding: 10px 12px;
-  background: #fff;
+  background: var(--erp-surface, #fff);
   border-radius: 8px;
 }
 </style>

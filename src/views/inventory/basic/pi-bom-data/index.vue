@@ -67,7 +67,7 @@
               row-key="id"
               style="width: 100%"
               :empty-text="loading ? '加载中...' : '暂无数据'"
-            >
+             @row-contextmenu="onErpListRowContextMenu">
               <el-table-column
                 label="操作"
                 :width="listActionsColWidth"
@@ -436,6 +436,7 @@
 </template>
 
 <script setup>
+import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, nextTick, ref, watch } from 'vue'
 import axios from 'axios'
@@ -450,6 +451,7 @@ import PiBomMaterialReplacePanel from './PiBomMaterialReplacePanel.vue'
 
 defineOptions({ name: 'inventory-basic-pi-bom-data' })
 
+const { onErpListRowContextMenu } = useErpListRowContextMenu()
 const pageMode = ref('list')
 const loading = ref(false)
 const errorMessage = ref('')

@@ -93,7 +93,7 @@
             stripe
             style="width: 100%"
             :empty-text="loading ? '加载中…' : '暂无数据'"
-          >
+           @row-contextmenu="onErpListRowContextMenu">
             <el-table-column prop="code" label="工号" min-width="100" show-overflow-tooltip />
             <el-table-column prop="name" label="姓名" min-width="110" show-overflow-tooltip />
             <el-table-column prop="sex" label="性别" width="70" show-overflow-tooltip />
@@ -522,12 +522,15 @@
 </template>
 
 <script setup>
+import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
+import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 import { Plus, Refresh, Upload } from '@element-plus/icons-vue'
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+const { onErpListRowContextMenu } = useErpListRowContextMenu()
 
 /** 页面标题（与左侧菜单一致） */
 const pageTitle = '员工档案资料'
@@ -937,6 +940,16 @@ async function openView(row) {
     ElMessage.error(String(msg ?? e?.message ?? '请求失败'))
   }
 }
+useErpDeepLinkOpen({
+  handlers: {
+    view: async (recordId) => {
+      const id = Number(recordId)
+      if (!Number.isFinite(id) || id <= 0) return
+      await openView({ id })
+    },
+  },
+})
+
 
 async function submitForm() {
   try {

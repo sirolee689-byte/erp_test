@@ -129,6 +129,7 @@
             stripe
             style="width: 100%"
             :empty-text="loading ? '加载中...' : '暂无数据'"
+            @row-contextmenu="onErpListRowContextMenu"
           >
             <!-- 主键 UserID 仅作 row-key，不在表格中展示 -->
             <el-table-column prop="Usercode" label="登录账号" min-width="140" show-overflow-tooltip>
@@ -314,6 +315,8 @@
 </template>
 
 <script setup>
+import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
+import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -323,6 +326,8 @@ import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
 
 /** 页面标题（与左侧菜单一致） */
 const pageTitle = '操作员管理'
+
+const { onErpListRowContextMenu } = useErpListRowContextMenu()
 
 /**
  * 页面状态
@@ -490,6 +495,16 @@ async function openViewDialog(row) {
     ElMessage.error(e?.response?.data?.msg || '请求详情失败')
   }
 }
+useErpDeepLinkOpen({
+  handlers: {
+    view: async (recordId) => {
+      const id = Number(recordId)
+      if (!Number.isFinite(id) || id <= 0) return
+      await openViewDialog({ UserID: id })
+    },
+  },
+})
+
 
 /** v1.0.7：新增操作员时默认选中 Viewer（若尚未加载角色则返回 undefined） */
 function defaultRoleIdForCreate() {

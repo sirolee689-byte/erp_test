@@ -388,22 +388,22 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.stock-in-other-batch-window { min-height: 100vh; padding: 16px 20px 24px; background: #f5f7fa; box-sizing: border-box; }
+.stock-in-other-batch-window { min-height: 100vh; padding: 16px 20px 24px; background: var(--erp-app-bg, #f5f7fa); box-sizing: border-box; }
 .stock-in-other-batch-header { margin-bottom: 12px; }
 .stock-in-other-batch-title { margin: 0 0 6px; font-size: 22px; }
-.stock-in-other-batch-subtitle { margin: 0; color: #606266; font-size: 15px; }
-.stock-in-other-batch-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; padding: 12px; background: #fff; border-radius: 8px; }
-.stock-in-other-batch-label { color: #606266; }
+.stock-in-other-batch-subtitle { margin: 0; color: var(--el-text-color-regular); font-size: 15px; }
+.stock-in-other-batch-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; padding: 12px; background: var(--erp-surface, #fff); border-radius: 8px; }
+.stock-in-other-batch-label { color: var(--el-text-color-regular); }
 .stock-in-other-batch-category { width: 120px; }
 .stock-in-other-batch-query-input { width: 320px; }
 .stock-in-other-batch-selected { margin-left: auto; color: #409eff; font-weight: 600; }
 .stock-in-other-batch-close-hint { margin-bottom: 12px; }
-.stock-in-other-batch-table-wrap { overflow: auto; max-height: calc(100vh - 240px); background: #fff; border-radius: 8px; }
+.stock-in-other-batch-table-wrap { overflow: auto; max-height: calc(100vh - 240px); background: var(--erp-surface, #fff); border-radius: 8px; }
 .stock-in-other-batch-table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 13px; }
-.stock-in-other-batch-table th, .stock-in-other-batch-table td { border: 1px solid #ebeef5; padding: 8px 10px; white-space: nowrap; vertical-align: middle; }
-.stock-in-other-batch-table th { background: #f5f7fa; position: sticky; top: 0; z-index: 1; }
-.col-action { position: sticky; left: 0; z-index: 2; background: #fff; }
-.stock-in-other-batch-table th.col-action { background: #f5f7fa; z-index: 3; }
+.stock-in-other-batch-table th, .stock-in-other-batch-table td { border: 1px solid var(--el-border-color-lighter); padding: 8px 10px; white-space: nowrap; vertical-align: middle; }
+.stock-in-other-batch-table th { background: var(--el-fill-color-light, #f5f7fa); position: sticky; top: 0; z-index: 1; }
+.col-action { position: sticky; left: 0; z-index: 2; background: var(--erp-surface, #fff); }
+.stock-in-other-batch-table th.col-action { background: var(--el-fill-color-light, #f5f7fa); z-index: 3; }
 .col-num { text-align: right; }
 .col-book,
 .stock-in-other-batch-table th.col-book { color: #dc2626; }
@@ -412,6 +412,6 @@ onMounted(() => {
 .col-actual,
 .stock-in-other-batch-table th.col-actual { color: #1d4ed8; }
 .col-actual--zero { color: #dc2626 !important; }
-.stock-in-other-batch-row--picked { background: #f0f9eb; }
-.stock-in-other-batch-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding: 10px 12px; background: #fff; border-radius: 8px; }
+.stock-in-other-batch-row--picked { background: var(--el-color-success-light-9, #f0f9eb); }
+.stock-in-other-batch-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding: 10px 12px; background: var(--erp-surface, #fff); border-radius: 8px; }
 </style>

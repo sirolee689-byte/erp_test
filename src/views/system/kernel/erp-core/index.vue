@@ -252,8 +252,8 @@ onMounted(loadConfig)
   max-width: 1120px;
   min-height: 420px;
   padding: 22px 26px 24px;
-  background: #fff;
-  border: 1px solid #dcdfe6;
+  background: var(--erp-surface, #fff);
+  border: 1px solid var(--el-border-color);
 }
 
 .mail-panel__head {

@@ -888,6 +888,17 @@ export function matchApiPermissionRule(method, path, body, params) {
   ) {
     return { menuPath: 'inventory/analysis/flow-ledger', action: 'view' }
   }
+  if (
+    m === 'GET' &&
+    [
+      '/api/purchase-order-status/print-header',
+      '/api/purchase-order-status/supplier-options',
+      '/api/purchase-order-status/material-options',
+      '/api/purchase-order-status/report',
+    ].includes(path)
+  ) {
+    return { menuPath: 'supply-chain/analysis/order-status', action: 'view' }
+  }
   if (m === 'PUT' && /^\/api\/stock-out\/\d+$/.test(path)) {
     return { menuPath: 'inventory/daily/stock-out', action: 'edit' }
   }

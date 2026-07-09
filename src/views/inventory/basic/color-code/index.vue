@@ -79,7 +79,7 @@
             row-key="code"
             style="width: 100%"
             :empty-text="loading ? '加载中…' : '暂无数据'"
-          >
+           @row-contextmenu="onErpListRowContextMenu">
             <el-table-column
               prop="in_time"
               label="录入时间"
@@ -246,12 +246,15 @@
 </template>
 
 <script setup>
+import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
+import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { ref, computed } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+const { onErpListRowContextMenu } = useErpListRowContextMenu()
 const pageTitle = '颜色编码'
 
 const loading = ref(false)
@@ -463,6 +466,16 @@ function openEditDialog(row) {
   editFormRef.value?.clearValidate?.()
   editVisible.value = true
 }
+useErpDeepLinkOpen({
+  handlers: {
+    edit: async (recordId) => {
+      const id = Number(recordId)
+      if (!Number.isFinite(id) || id <= 0) return
+      await openEditDialog({ id })
+    },
+  },
+})
+
 
 function resetEditForm() {
   editForm.value = { code: '', name: '', ename: '', info: '' }

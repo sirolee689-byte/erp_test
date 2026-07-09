@@ -251,6 +251,14 @@
 | 采购单打印抬头 | `UB_ERP_System_Head` | `GET /api/buy-order/print-data?p_sum=&print_mx=&print_cn=` 返回 `printConfig.logoSrc` 与 `printConfig.headerHtml/info`；前端按“LOGO 在上、表头内容在下”显示。 |
 | 采购单打印内容 | `UB_ERP_Buy_order` + `UB_ERP_Buy_order_list` + `UB_ERP_Buy_order_money` | 打印页“交货地址”固定为 `中山市卓越皮具有限公司`；数量、单价、金额、税点和合计只改变显示格式，按统一数字展示规则去掉尾 0，不改变数据库原值。 |
 | 采购单打印签字栏 | 登录态 | “订单编写”只取当前登录态 `truename`；没有 `truename` 时为空，不使用 `utruename` 兜底。 |
+## 采购订单情况表 · 销售/采购/外协统计分析（第一期）
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|----------|--------|-----------------|
+| 报表来源 | `UB_ERP_Buy_order` + `UB_ERP_Buy_order_list` | `GET /api/purchase-order-status/report`；主从按 `h.kcaj01 = l.kcak01`；采购主表 `del=0`、采购明细 `del=0`；采购日期 `kcaj02 >= 开始日 00:00:00` 且 `< 结束日次日 00:00:00`；不强制采购单 `pass=1`，未审核采购单保留显示并在采购单号旁标记“未审”。 |
+| 查询字段 | 同上 + `UB_ERP_System_supplier` + `UB_ERP_Bom_000` | 供应商候选来自 `UB_ERP_System_supplier` 已审未删采购/共用供应商，主查询按 `h.kcaj05` 精确筛选；采购单号按 `h.kcaj01` 模糊筛选；材料候选来自 BOM 主档，选择后优先按采购明细 `l.systemcode` 精确筛选，并回填材料编码、名称、规格。 |
+| 入库与退货统计 | `UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list` + `UB_ERP_Stocks_out` + `UB_ERP_Stocks_out_list` | 已审核入库和未审入库按入库主表 `kcan04=采购单号`、入库明细 `GUID=采购明细 GUID` 汇总 `kcao031`；入库金额按已审核入库含税金额 `kcao051` 汇总；采购退货按出库主表 `del=0/pass=1/kcap03=1/kcap04=采购单号`、出库明细 `kcaa01=采购明细物料编码` 汇总 `kcaq03/kcaq051`；最终入库金额=已审入库含税金额-已审退货含税金额。 |
+| 展示与权限 | 同上 + `UB_ERP_Stocks_colorcode` | 采购数量按 `kcak03`、`kcaa26`、`kcaa27` 换算到使用单位；差数=换算后采购数量-（已审核入库数量-采购退货数量），入库未审数量只展示不参与差数；颜色通过 `UB_ERP_Stocks_colorcode.code=kcaa11` 取名称；入库金额受 `supply-chain/analysis/order-status:price` 控制，导出受 `export` 控制。 |
 ## 材料流水账 · 单物料结存流水（第一期）
 
 | 业务功能 | 物理表 | 关键字段 / 说明 |

@@ -1,5 +1,5 @@
 <template>
-  <div class="erp-module-page">
+  <div class="erp-module-page paper-unified-font">
     <el-tabs v-model="importPageTab" class="paper-import-tabs">
       <el-tab-pane label="上传区" name="upload">
     <el-card shadow="never" class="block-card">
@@ -244,7 +244,6 @@
         <div class="material-top-block">
           <h3 class="sub-title material-top-title">Material 列表</h3>
           <div v-show="!hideMaterialTable">
-            <p class="hint material-top-hint">材料单位与损耗来自 UB_ERP_Bom_000；ERP 是否可导入请在顶部「智能校验」中确认。</p>
             <p v-if="materialBomFieldsLoading" class="hint">正在加载材料单位与默认损耗（UB_ERP_Bom_000）…</p>
             <el-table :data="materialPreviewRows" border size="small" class="preview-table" empty-text="无">
               <el-table-column prop="groupNo" label="分组" width="88" />
@@ -703,6 +702,7 @@ const smartCheckPassed = computed(() => {
   if (isSmartCheckPassValid(fp, fid)) return true
   const payload = readWorkbenchPayload()
   if (!payload) return false
+  if (payload.fileId && fid && payload.fileId !== fid) return false
   const colorNos =
     Array.isArray(payload.colorNos) && payload.colorNos.length > 0
       ? payload.colorNos
@@ -1236,6 +1236,7 @@ function goSmartCheck() {
   try {
     persistImportPageSession()
     saveWorkbenchPayload({
+      fileId: parseFileId.value,
       materials: parseResult.value.materials || [],
       accessories: parseResult.value.accessories || [],
       colorNos: smartCheckColorNos.value,
@@ -1577,6 +1578,41 @@ async function onUploadParse() {
 </script>
 
 <style scoped>
+/* 纸格页全文字号：与 BOM「管理BOM资料」一致（DIY：--erp-table-data-size / --erp-font-weight-body） */
+.paper-unified-font :deep(.el-button) {
+  font-size: var(--erp-table-data-size) !important;
+  font-weight: var(--erp-font-weight-body) !important;
+}
+.paper-unified-font .page-title,
+.paper-unified-font .sub-title,
+.paper-unified-font .sub-title.sm,
+.paper-unified-font .color-block-title,
+.paper-unified-font .color-block-tag,
+.paper-unified-font .form-label,
+.paper-unified-font .hint,
+.paper-unified-font .confirm-desc,
+.paper-unified-font .main-bom-line,
+.paper-unified-font .cut-preview-color-row .k,
+.paper-unified-font .first-color-badge,
+.paper-unified-font .picked-name,
+.paper-unified-font .picked-placeholder {
+  font-size: var(--erp-table-data-size) !important;
+  font-weight: var(--erp-font-weight-body) !important;
+}
+.paper-unified-font :deep(.el-table .cell),
+.paper-unified-font :deep(.el-table th.el-table__cell .cell),
+.paper-unified-font :deep(.el-input__inner),
+.paper-unified-font :deep(.el-input-number .el-input__inner),
+.paper-unified-font :deep(.el-select .el-input__inner),
+.paper-unified-font :deep(.el-alert__title),
+.paper-unified-font :deep(.el-alert__description),
+.paper-unified-font :deep(.el-divider__text),
+.paper-unified-font :deep(.el-tag) {
+  font-size: var(--erp-table-data-size) !important;
+}
+.paper-unified-font :deep(.el-table th.el-table__cell) {
+  font-weight: var(--erp-font-weight-heading);
+}
 .erp-module-page {
   min-height: 200px;
 }
@@ -1636,14 +1672,10 @@ async function onUploadParse() {
 }
 .color-block-title {
   margin: 0 0 12px;
-  font-size: 15px;
-  font-weight: 600;
   color: var(--el-text-color-primary);
 }
 .color-block-tag {
   margin-left: 8px;
-  font-size: 13px;
-  font-weight: 500;
   color: var(--el-color-primary);
 }
 .confirm-grid-second {
@@ -1654,7 +1686,6 @@ async function onUploadParse() {
 }
 .first-color-badge {
   margin-left: 10px;
-  font-size: 12px;
   color: var(--el-color-warning);
 }
 .cut-preview-color-row {
@@ -1664,16 +1695,11 @@ async function onUploadParse() {
   margin-bottom: 10px;
 }
 .cut-preview-color-row .k {
-  font-size: 13px;
   color: var(--el-text-color-secondary);
   flex-shrink: 0;
 }
 .cut-preview-color-select {
   min-width: 160px;
-}
-.page-title {
-  font-size: 18px;
-  font-weight: 600;
 }
 .section {
   display: flex;
@@ -1695,7 +1721,6 @@ async function onUploadParse() {
   color: var(--el-text-color-placeholder);
 }
 .hint {
-  font-size: 13px;
   color: var(--el-text-color-secondary);
 }
 .warn-list {
@@ -1713,7 +1738,6 @@ async function onUploadParse() {
 }
 .confirm-desc {
   margin: 0 0 12px;
-  font-size: 13px;
   color: var(--el-text-color-secondary);
   line-height: 1.5;
 }
@@ -1724,7 +1748,6 @@ async function onUploadParse() {
   margin-bottom: 12px;
 }
 .form-label {
-  font-size: 13px;
   color: var(--el-text-color-regular);
   margin-bottom: 6px;
 }
@@ -1774,10 +1797,8 @@ async function onUploadParse() {
   align-items: baseline;
   gap: 10px;
   margin-bottom: 12px;
-  font-size: 15px;
 }
 .main-bom-line .k {
-  font-weight: 600;
   color: var(--el-text-color-primary);
 }
 .main-bom-line .v {
@@ -1787,12 +1808,9 @@ async function onUploadParse() {
 }
 .sub-title {
   margin: 16px 0 8px;
-  font-size: 15px;
-  font-weight: 600;
 }
 .sub-title.sm {
   margin: 0 0 8px;
-  font-size: 14px;
 }
 .preview-table {
   margin-bottom: 8px;

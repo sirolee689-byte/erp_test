@@ -117,7 +117,7 @@ test('成本用量表：CUT 不吃自身数量，但必须保留 TAG/BAG 的上�
   assert.equal(round4(hit.sumby), 2.7494)
 })
 
-test('UB_ERP_Bom_cost 写库：CUT 自身数量要放大下层子编码用量', () => {
+test('UB_ERP_Bom_cost 写库：CUT 中间层数量按 1 跳过，不放大下层子编码用量', () => {
   const tree = [
     {
       kcaa01: 'CUT-BAGPQ3633A1/BLU4<6-1>',
@@ -144,10 +144,10 @@ test('UB_ERP_Bom_cost 写库：CUT 自身数量要放大下层子编码用量', 
   assert.ok(displayMaterial)
   assert.ok(bomCostMaterial)
   assert.equal(round4(displayMaterial.yl), 0.0612)
-  assert.equal(round4(bomCostMaterial.yl), 0.1224)
+  assert.equal(round4(bomCostMaterial.yl), 0.0612)
 })
 
-test('UB_ERP_Bom_cost write: CUT quantity keeps multiplying deeper child BOM rows', () => {
+test('UB_ERP_Bom_cost 写库：CUT 中间层不继续放大更深层子 BOM', () => {
   const tree = [
     {
       kcaa01: 'CUT-SSPQ3122I2/GRN<5-1>',
@@ -187,6 +187,56 @@ test('UB_ERP_Bom_cost write: CUT quantity keeps multiplying deeper child BOM row
   assert.ok(bomCostBn8)
   assert.equal(round4(displayBn5.yl), 0.0037)
   assert.equal(round4(displayBn8.yl), 0.0037)
-  assert.equal(round4(bomCostBn5.yl), 0.0074)
-  assert.equal(round4(bomCostBn8.yl), 0.0074)
+  assert.equal(round4(bomCostBn5.yl), 0.0037)
+  assert.equal(round4(bomCostBn8.yl), 0.0037)
+})
+
+test('UB_ERP_Bom_cost 写库：非 CUT 父层数量仍逐层相乘', () => {
+  const tree = [
+    {
+      kcaa01: 'PQ-3188A3/GRN',
+      kcaa02: '主档',
+      kcac04: 1,
+      kcac05: 0,
+      children: [
+        {
+          kcaa01: 'BAG-PQ3188A3/GRN',
+          kcaa02: '子件',
+          kcac04: 2,
+          kcac05: 0,
+          children: [
+            {
+              kcaa01: 'LA-0240/GR3',
+              kcaa02: '里布',
+              kcac04: 0.1673,
+              kcac05: 0,
+              children: [],
+            },
+          ],
+        },
+      ],
+    },
+  ]
+
+  const bomCostFlat = flattenBomPartsCostUsageFlatForBomCost(tree, null, [])
+  const material = bomCostFlat.find((r) => r.kcaa01 === 'LA-0240/GR3')
+  assert.ok(material)
+  assert.equal(round4(material.yl), 0.3346)
+})
+
+test('BOM usage flatten keeps actual kcac05 precision when computing total_qty', () => {
+  const tree = [
+    {
+      kcaa01: 'LA-0240/N',
+      kcaa02: 'DAYTONA皮',
+      kcac04: 2,
+      kcac05: 0.23456,
+      children: [],
+    },
+  ]
+
+  const flat = flattenBomPartsCostUsageFlatForBomCost(tree, null, [])
+  assert.equal(flat.length, 1)
+  assert.equal(flat[0].loss_rate, 0.23456)
+  assert.equal(flat[0].total_qty, 2.46912)
 })

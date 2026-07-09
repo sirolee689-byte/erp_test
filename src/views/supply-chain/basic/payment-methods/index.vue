@@ -73,7 +73,7 @@
             row-key="id"
             style="width: 100%"
             :empty-text="loading ? '加载中…' : '暂无数据'"
-          >
+           @row-contextmenu="onErpListRowContextMenu">
             <el-table-column prop="code" label="编码" min-width="120" show-overflow-tooltip>
               <template #default="{ row }">
                 <span class="code-bold">{{ row.code || '—' }}</span>
@@ -216,12 +216,15 @@
 </template>
 
 <script setup>
+import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
+import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { ref, computed } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+const { onErpListRowContextMenu } = useErpListRowContextMenu()
 
 /** 页面标题（与左侧菜单一致） */
 const pageTitle = '结算方式'
@@ -442,6 +445,16 @@ function openEditDialog(row) {
   editFormRef.value?.clearValidate?.()
   editVisible.value = true
 }
+useErpDeepLinkOpen({
+  handlers: {
+    edit: async (recordId) => {
+      const id = Number(recordId)
+      if (!Number.isFinite(id) || id <= 0) return
+      await openEditDialog({ id })
+    },
+  },
+})
+
 
 function resetEditForm() {
   editForm.value = { id: 0, code: '', name: '', payfor: '', info: '' }

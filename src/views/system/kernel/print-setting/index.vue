@@ -396,8 +396,8 @@ onMounted(loadConfig)
   max-width: 1180px;
   min-height: 520px;
   padding: 22px 26px 24px;
-  background: #fff;
-  border: 1px solid #dcdfe6;
+  background: var(--erp-surface, #fff);
+  border: 1px solid var(--el-border-color);
 }
 
 .print-panel__head {
@@ -476,8 +476,8 @@ onMounted(loadConfig)
   overflow: auto;
   line-height: 1.6;
   color: #303133;
-  background: #fff;
-  border: 1px solid #dcdfe6;
+  background: var(--erp-surface, #fff);
+  border: 1px solid var(--el-border-color);
   outline: none;
 }
 

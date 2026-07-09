@@ -61,7 +61,7 @@
       stripe
       class="lodging-table"
       :empty-text="loading ? '加载中…' : '暂无数据'"
-    >
+     @row-contextmenu="onErpListRowContextMenu">
       <el-table-column prop="apply_date" label="申请日期" min-width="110" align="center" show-overflow-tooltip />
       <el-table-column prop="in_time" label="入住时间" min-width="120" align="center" show-overflow-tooltip />
       <el-table-column prop="staff_code" label="工号" min-width="100" align="center" show-overflow-tooltip />
@@ -132,11 +132,13 @@
 </template>
 
 <script setup>
+import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { ref, watch, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+const { onErpListRowContextMenu } = useErpListRowContextMenu()
 
 const auditListActionsColWidth = getErpTableActionsColMinWidth(2)
 

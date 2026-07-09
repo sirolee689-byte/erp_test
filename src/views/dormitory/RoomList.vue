@@ -93,7 +93,7 @@
       empty-text="暂无数据"
       style="width: 100%"
       data-testid="room-list-table"
-    >
+     @row-contextmenu="onErpListRowContextMenu">
       <el-table-column prop="in_lou" label="楼号" min-width="90" align="center" show-overflow-tooltip />
       <el-table-column prop="s_code" label="编码" min-width="80" align="center" show-overflow-tooltip />
       <el-table-column prop="name" label="名称" min-width="90" align="center" show-overflow-tooltip />
@@ -204,12 +204,14 @@
 </template>
 
 <script setup>
+import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ElectricManage from './ElectricManage.vue'
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+const { onErpListRowContextMenu } = useErpListRowContextMenu()
 
 const roomListActionsColWidth = getErpTableActionsColMinWidth(4, { compact: true })
 

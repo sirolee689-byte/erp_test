@@ -395,7 +395,7 @@ onMounted(() => {
 .stock-out-batch-window {
   min-height: 100vh;
   padding: 16px 20px 24px;
-  background: #f5f7fa;
+  background: var(--erp-app-bg, #f5f7fa);
   box-sizing: border-box;
 }
 .stock-out-batch-header {
@@ -407,7 +407,7 @@ onMounted(() => {
 }
 .stock-out-batch-subtitle {
   margin: 0;
-  color: #606266;
+  color: var(--el-text-color-regular);
   font-size: 15px;
 }
 .stock-out-batch-toolbar {
@@ -417,11 +417,11 @@ onMounted(() => {
   gap: 10px;
   margin-bottom: 12px;
   padding: 12px;
-  background: #fff;
+  background: var(--erp-surface, #fff);
   border-radius: 8px;
 }
 .stock-out-batch-label {
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 .stock-out-batch-category {
   width: 120px;
@@ -440,7 +440,7 @@ onMounted(() => {
 .stock-out-batch-table-wrap {
   overflow: auto;
   max-height: calc(100vh - 240px);
-  background: #fff;
+  background: var(--erp-surface, #fff);
   border-radius: 8px;
 }
 .stock-out-batch-table {
@@ -451,13 +451,13 @@ onMounted(() => {
 }
 .stock-out-batch-table th,
 .stock-out-batch-table td {
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--el-border-color-lighter);
   padding: 8px 10px;
   white-space: nowrap;
   vertical-align: middle;
 }
 .stock-out-batch-table th {
-  background: #f5f7fa;
+  background: var(--el-fill-color-light, #f5f7fa);
   position: sticky;
   top: 0;
   z-index: 1;
@@ -466,10 +466,10 @@ onMounted(() => {
   position: sticky;
   left: 0;
   z-index: 2;
-  background: #fff;
+  background: var(--erp-surface, #fff);
 }
 .stock-out-batch-table th.col-action {
-  background: #f5f7fa;
+  background: var(--el-fill-color-light, #f5f7fa);
   z-index: 3;
 }
 .col-num {
@@ -487,7 +487,7 @@ onMounted(() => {
   color: #dc2626 !important;
 }
 .stock-out-batch-row--picked {
-  background: #f0f9eb;
+  background: var(--el-color-success-light-9, #f0f9eb);
 }
 .stock-out-batch-pagination {
   display: flex;
@@ -497,7 +497,7 @@ onMounted(() => {
   gap: 10px;
   margin-top: 12px;
   padding: 10px 12px;
-  background: #fff;
+  background: var(--erp-surface, #fff);
   border-radius: 8px;
 }
 </style>

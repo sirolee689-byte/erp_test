@@ -105,7 +105,7 @@ export function flattenBomPartsCostUsageFlat(
 }
 
 /**
- * UB_ERP_Bom_cost 写库专用平铺：CUT 自身用量要继续放大下层材料。
+ * UB_ERP_Bom_cost 写库专用平铺：路径逐层累乘，但 CUT- 中间层系数按 1 跳过（不放大子层）。
  * @param {any[]} treeNodes
  * @param {number|null|undefined} parentYl
  * @param {any[]} [acc]
@@ -121,7 +121,7 @@ export function flattenBomPartsCostUsageFlatForBomCost(
     treeNodes,
     parentYl,
     acc,
-    true,
+    false,
     parentTopKcaa01,
     parentTopKcaa02,
   )

@@ -94,7 +94,7 @@
         :empty-text="loading ? '加载中' : '暂无数据'"
         @expand-change="onExpandChange"
         @row-click="onListRowClick"
-      >
+       @row-contextmenu="onErpListRowContextMenu">
         <el-table-column type="expand" width="48">
           <template #default="{ row }">
             <div v-loading="row.__linesLoading" class="stock-expand-inner" @click.stop>
@@ -665,6 +665,8 @@
 </template>
 
 <script setup>
+import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
+import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
@@ -689,6 +691,7 @@ import {
 
 defineOptions({ name: 'inventory-daily-stock-in' })
 
+const { onErpListRowContextMenu } = useErpListRowContextMenu()
 const MENU_PATH = 'inventory/daily/stock-in'
 const permissionModel = computed(() => getPermissionModelFromStorage())
 const hasPricePermission = computed(() => hasPageAction(permissionModel.value, MENU_PATH, 'price'))
@@ -1309,6 +1312,16 @@ async function viewReceipt(row) {
   detail.lines = data.lines || []
   detailVisible.value = true
 }
+
+useErpDeepLinkOpen({
+  handlers: {
+    view: async (recordId) => {
+      const id = Number(recordId)
+      if (!Number.isFinite(id) || id <= 0) return
+      await viewReceipt({ id })
+    },
+  },
+})
 
 function printKey(row) {
   return String(row?.receiptNo ?? row?.kcan01 ?? '').trim()

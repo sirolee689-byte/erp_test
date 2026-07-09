@@ -70,7 +70,7 @@
             stripe
             style="width: 100%"
             :empty-text="loading ? '加载中…' : '暂无数据'"
-          >
+           @row-contextmenu="onErpListRowContextMenu">
             <el-table-column prop="in_lou" label="楼栋" min-width="100" show-overflow-tooltip />
             <el-table-column prop="s_code" label="房号" min-width="90" show-overflow-tooltip />
             <el-table-column prop="code" label="房型" min-width="100" show-overflow-tooltip />
@@ -195,12 +195,15 @@
 </template>
 
 <script setup>
+import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
+import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { ref, watch, computed } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+const { onErpListRowContextMenu } = useErpListRowContextMenu()
 
 const pageTitle = '房间管理'
 
@@ -284,6 +287,16 @@ async function openViewDetail(row) {
     viewLoading.value = false
   }
 }
+useErpDeepLinkOpen({
+  handlers: {
+    view: async (recordId) => {
+      const id = Number(recordId)
+      if (!Number.isFinite(id) || id <= 0) return
+      await openViewDetail({ id })
+    },
+  },
+})
+
 
 /** 已审核列表中：反审（需 audit 权限） */
 async function doUnaudit(row) {

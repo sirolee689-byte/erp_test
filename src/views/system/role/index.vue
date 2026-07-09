@@ -89,7 +89,7 @@
             stripe
             style="width: 100%"
             :empty-text="loading ? '加载中...' : '暂无数据'"
-          >
+           @row-contextmenu="onErpListRowContextMenu">
             <el-table-column prop="RoleID" label="角色 ID" min-width="100" />
             <el-table-column prop="RoleName" label="角色名称" min-width="140" show-overflow-tooltip />
             <el-table-column prop="Description" label="描述" min-width="200" show-overflow-tooltip />
@@ -235,6 +235,8 @@
 </template>
 
 <script setup>
+import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
+import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -242,6 +244,7 @@ import axios from 'axios'
 import { Plus, Refresh, RefreshLeft, Setting } from '@element-plus/icons-vue'
 import menuDump from '../../../../erp_structure_dump.json'
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+const { onErpListRowContextMenu } = useErpListRowContextMenu()
 
 /** 页面标题（与左侧菜单「角色管理」一致） */
 const pageTitle = '角色管理'
@@ -670,6 +673,16 @@ function openEditDialog(row) {
   }
   dialogVisible.value = true
 }
+useErpDeepLinkOpen({
+  handlers: {
+    edit: async (recordId) => {
+      const id = Number(recordId)
+      if (!Number.isFinite(id) || id <= 0) return
+      await openEditDialog({ id })
+    },
+  },
+})
+
 
 /** 提交新增或编辑 */
 async function submitForm() {

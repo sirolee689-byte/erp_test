@@ -728,7 +728,7 @@ defineExpose({
   padding: 0 14px;
   border: 1px solid var(--el-border-color);
   border-radius: 4px;
-  background: #fff;
+  background: var(--erp-surface, #fff);
   color: var(--el-text-color-primary);
   font-size: inherit;
   line-height: 1.4;

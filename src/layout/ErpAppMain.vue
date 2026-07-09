@@ -16,7 +16,8 @@ defineOptions({ name: 'ErpAppMain' })
 .erp-main {
   flex: 1;
   min-height: 0;
-  background: #f3f5f7;
+  /* 面色走皮肤变量（全白=#f3f5f7，暖色皮肤在 element-override.scss 覆盖） */
+  background: var(--erp-app-bg, #f3f5f7);
   padding: 16px;
   min-width: 0;
   /* 纵向滚动收进内容区；横向仍由表体/视口底横条处理 */
@@ -24,7 +25,7 @@ defineOptions({ name: 'ErpAppMain' })
   overflow-y: auto;
 }
 .erp-content-card {
-  background: #fff;
+  background: var(--erp-surface, #fff);
   border-radius: 12px;
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
   padding: 16px;
@@ -44,7 +45,8 @@ defineOptions({ name: 'ErpAppMain' })
   z-index: 30;
   margin: -4px 0 12px;
   padding: 8px 0 4px;
-  background: #f3f5f7;
+  /* 悬顶页签背景跟随皮肤，避免滚动时露出旧冷灰 */
+  background: var(--erp-app-bg, #f3f5f7);
 }
 .erp-app-main-root .erp-route-tabs .el-tabs__content {
   display: none;

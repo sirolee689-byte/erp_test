@@ -16,9 +16,9 @@
         :collapse-transition="false"
         :unique-opened="true"
         class="erp-menu"
-        background-color="#0b1f3a"
-        text-color="#ffffff"
-        active-text-color="#5aa7ff"
+        background-color="var(--erp-sidebar-bg)"
+        text-color="var(--erp-sidebar-text)"
+        active-text-color="var(--erp-sidebar-active-text)"
       >
         <ErpMenuTree :nodes="menuNodes" />
       </el-menu>
@@ -46,7 +46,8 @@ defineProps({
 <style scoped>
 .erp-aside {
   flex-shrink: 0;
-  background-color: #0b1f3a;
+  /* 侧栏底色跟随皮肤（默认深蓝；暖色/暗黑/豆沙绿在 element-override.scss 覆盖） */
+  background-color: var(--erp-sidebar-bg, #0b1f3a);
   display: flex;
   flex-direction: column;
   transition: width 0.18s ease;
@@ -58,8 +59,8 @@ defineProps({
   padding: 0 16px;
   font-size: var(--erp-sidebar-logo-size, 16px);
   font-weight: 600;
-  color: #fff;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--erp-sidebar-logo-color, #fff);
+  border-bottom: 1px solid var(--erp-sidebar-border, rgba(255, 255, 255, 0.12));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -81,16 +82,16 @@ defineProps({
 }
 .erp-menu :deep(.el-menu-item),
 .erp-menu :deep(.el-sub-menu__title) {
-  color: #ffffff !important;
+  color: var(--erp-sidebar-text, #ffffff) !important;
 }
 .erp-menu :deep(.el-menu-item:hover),
 .erp-menu :deep(.el-sub-menu__title:hover) {
-  background-color: rgba(90, 167, 255, 0.16) !important;
+  background-color: var(--erp-sidebar-hover-bg, rgba(90, 167, 255, 0.16)) !important;
 }
 .erp-menu :deep(.el-menu-item.is-active) {
-  background-color: rgba(90, 167, 255, 0.22) !important;
+  background-color: var(--erp-sidebar-active-bg, rgba(90, 167, 255, 0.22)) !important;
 }
 .erp-menu :deep(.el-sub-menu.is-active > .el-sub-menu__title) {
-  background-color: rgba(90, 167, 255, 0.12) !important;
+  background-color: var(--erp-sidebar-active-subbg, rgba(90, 167, 255, 0.12)) !important;
 }
 </style>

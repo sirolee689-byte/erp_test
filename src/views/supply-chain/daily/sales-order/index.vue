@@ -6,6 +6,7 @@
         :type="pageMode === 'manage' ? 'primary' : 'default'"
         plain
         @click="switchToManage"
+        @contextmenu.prevent="onErpModeBtnContextMenu('manage', $event)"
       >
         管理销售订单
       </el-button>
@@ -14,6 +15,7 @@
         :type="pageMode === 'create' ? 'primary' : 'default'"
         plain
         @click="switchToCreate"
+        @contextmenu.prevent="onErpModeBtnContextMenu('create', $event)"
       >
         销售订单添加
       </el-button>
@@ -82,7 +84,7 @@
             :empty-text="loading ? '加载中…' : '暂无数据'"
             @expand-change="onExpandChange"
             @row-click="onMainRowClick"
-          >
+           @row-contextmenu="onErpListRowContextMenu">
             <el-table-column
               label="操作"
               :width="salesOrderActionsColWidth"
@@ -889,6 +891,8 @@
 </template>
 
 <script setup>
+import { useErpListRowContextMenu, useErpModeBtnContextMenu } from '@/composables/useErpListRowContextMenu'
+import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, onUnmounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
@@ -906,6 +910,8 @@ import {
 
 defineOptions({ name: 'supply-chain-daily-sales-order' })
 
+const { onErpListRowContextMenu } = useErpListRowContextMenu()
+const { onErpModeBtnContextMenu } = useErpModeBtnContextMenu()
 const route = useRoute()
 const SALES_ORDER_WINDOW_REFRESH_KEY = 'erp:sales-order:list-refresh'
 const DEFAULT_CREATE_CUSTOMER_CODE = '7001'
@@ -2080,6 +2086,20 @@ async function openView(row) {
     viewLoading.value = false
   }
 }
+
+useErpDeepLinkOpen({
+  handlers: {
+    view: async (recordId) => {
+      const id = Number(recordId)
+      if (!Number.isFinite(id) || id <= 0) return
+      await openView({ id })
+    },
+    manage: async () => switchToManage(),
+    create: async () => {
+      await switchToCreate()
+    },
+  },
+})
 
 async function openSalesOrderStandaloneFromRoute() {
   if (salesOrderWindowMode.value === 'create') {

@@ -2,6 +2,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { aggregateBomCostUsageFlatForDisplay } from './bomCostUsageAggregate.js'
 
+function round6(n) {
+  return Math.round(Number(n) * 1e6) / 1e6
+}
+
 test('aggregateBomCostUsageFlatForDisplay sorts by Seq instead of code', () => {
   const rows = [
     { kcaa01: 'NN-0021/xx', Describe: '', yl: 1, loss_rate: 0, total_qty: 1, Seq: 2 },
@@ -106,4 +110,90 @@ test('aggregateBomCostUsageFlatForDisplay keeps same code adjacent when another 
     out.map((r) => r.kcaa01),
     ['GM-0002/419', 'GM-0002/419', 'GP-0002/419', 'GP-0002/419'],
   )
+})
+
+test('aggregateBomCostUsageFlatForDisplay keeps 6-decimal actual loss rate', () => {
+  const rows = [
+    {
+      kcaa01: 'LA-0240/N',
+      Describe: 'main',
+      yl: 1,
+      loss_rate: 0.23456,
+      total_qty: 1.23456,
+      Seq: 1,
+    },
+  ]
+  const out = aggregateBomCostUsageFlatForDisplay(rows, [])
+  assert.equal(out.length, 1)
+  assert.equal(round6(out[0].loss_rate), 0.23456)
+  assert.equal(round6(out[0].total_qty), 1.23456)
+})
+
+test('aggregateBomCostUsageFlatForDisplay keeps actual loss when total is rounded', () => {
+  const rows = [
+    {
+      kcaa01: 'LA-TEST/N',
+      Describe: 'main',
+      yl: 0.123456,
+      loss_rate: 0.2432,
+      total_qty: 0.15348,
+      Seq: 1,
+    },
+  ]
+  const out = aggregateBomCostUsageFlatForDisplay(rows, [])
+  assert.equal(out.length, 1)
+  assert.equal(out[0].loss_rate, 0.2432)
+  assert.equal(out[0].total_qty, 0.15348)
+})
+
+test('aggregateBomCostUsageFlatForDisplay keeps same loss after merging rows', () => {
+  const rows = [
+    {
+      kcaa01: 'LA-TEST/N',
+      Describe: 'main',
+      yl: 0.123456,
+      loss_rate: 0.2433,
+      total_qty: 0.153492,
+      Seq: 1,
+    },
+    {
+      kcaa01: 'LA-TEST/N',
+      Describe: 'main',
+      yl: 0.222222,
+      loss_rate: 0.2433,
+      total_qty: 0.276289,
+      Seq: 1,
+    },
+  ]
+  const out = aggregateBomCostUsageFlatForDisplay(rows, [])
+  assert.equal(out.length, 1)
+  assert.equal(out[0].loss_rate, 0.2433)
+  assert.equal(round6(out[0].yl), 0.345678)
+  assert.equal(round6(out[0].total_qty), 0.429781)
+})
+
+test('aggregateBomCostUsageFlatForDisplay computes weighted loss without 2-decimal truncation', () => {
+  const rows = [
+    {
+      kcaa01: 'LA-0240/N',
+      Describe: 'main',
+      yl: 1,
+      loss_rate: 0.23456,
+      total_qty: 1.23456,
+      Seq: 1,
+    },
+    {
+      kcaa01: 'LA-0240/N',
+      Describe: 'main',
+      yl: 3,
+      loss_rate: 0.34567,
+      total_qty: 4.03701,
+      Seq: 1,
+    },
+  ]
+  const out = aggregateBomCostUsageFlatForDisplay(rows, [])
+  assert.equal(out.length, 1)
+  assert.equal(out[0].yl, 4)
+  assert.equal(round6(out[0].total_qty), 5.27157)
+  assert.equal(Math.round(Number(out[0].loss_rate) * 1e8) / 1e8, 0.3178925)
 })

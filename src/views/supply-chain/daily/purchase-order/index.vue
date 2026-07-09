@@ -5,6 +5,7 @@
         :type="pageMode === 'manage' ? 'primary' : 'default'"
         plain
         @click="switchToManage"
+        @contextmenu.prevent="onErpModeBtnContextMenu('manage', $event)"
       >
         管理采购订单
       </el-button>
@@ -13,6 +14,7 @@
         :type="pageMode === 'create' ? 'primary' : 'default'"
         plain
         @click="switchToCreate"
+        @contextmenu.prevent="onErpModeBtnContextMenu('create', $event)"
       >
         采购订单添加
       </el-button>
@@ -20,6 +22,7 @@
         :type="pageMode === 'material-trace' ? 'primary' : 'default'"
         plain
         @click="switchMaterialTrace"
+        @contextmenu.prevent="onErpModeBtnContextMenu('material-trace', $event)"
       >
         转向物料查询
       </el-button>
@@ -149,7 +152,7 @@
           empty-text="暂无采购单"
           @expand-change="onExpandChange"
           @row-click="onListRowClick"
-        >
+         @row-contextmenu="onErpListRowContextMenu">
         <el-table-column type="expand" width="48">
           <template #default="{ row }">
             <div v-loading="row.expandedLoading" class="buy-expand-inner">
@@ -684,6 +687,8 @@
 </template>
 
 <script setup>
+import { useErpListRowContextMenu, useErpModeBtnContextMenu } from '@/composables/useErpListRowContextMenu'
+import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, defineComponent, h, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
@@ -709,6 +714,8 @@ import {
 
 defineOptions({ name: 'supply-chain-daily-purchase-order' })
 
+const { onErpListRowContextMenu } = useErpListRowContextMenu()
+const { onErpModeBtnContextMenu } = useErpModeBtnContextMenu()
 const menuPath = 'supply-chain/daily/purchase-order'
 const model = getPermissionModelFromStorage()
 const hasPrice = computed(() => hasPageAction(model, menuPath, 'price'))
@@ -1706,6 +1713,21 @@ async function openDetail(row) {
   detailVisible.value = true
 }
 
+useErpDeepLinkOpen({
+  handlers: {
+    view: async (recordId) => {
+      const id = Number(recordId)
+      if (!Number.isFinite(id) || id <= 0) return
+      await openDetail({ id })
+    },
+    manage: async () => switchToManage(),
+    create: async () => {
+      await switchToCreate()
+    },
+    'material-trace': async () => switchMaterialTrace(),
+  },
+})
+
 function printKey(row) {
   return String(row?.buyOrderNo ?? row?.kcaj01 ?? '').trim()
 }
@@ -2333,7 +2355,8 @@ onUnmounted(() => {
 
 .buy-material-trace-panel {
   padding: 12px;
-  background: #fff;
+  /* 底色跟随皮肤面色 */
+  background: var(--erp-surface, #fff);
 }
 
 .detail-title { font-weight: 700; margin-bottom: 10px; }

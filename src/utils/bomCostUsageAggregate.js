@@ -39,7 +39,7 @@ export function bomCostFlatRowPxSortKey(r) {
  */
 export function aggregateBomCostUsageFlatForDisplay(flatRows, hidePrefixes) {
   if (!Array.isArray(flatRows) || !flatRows.length) return []
-  /** @type {Map<string, { kcaa01: string, kcaa02: string, kcaa03: string, kcaa04: string, Describe: string, sumYl: number, sumTotal: number, minSort: number, minPx: number | null, firstFlatIndex: number }>} */
+  /** @type {Map<string, { kcaa01: string, kcaa02: string, kcaa03: string, kcaa04: string, Describe: string, sumYl: number, sumTotal: number, firstLoss: number, hasMixedLoss: boolean, minSort: number, minPx: number | null, firstFlatIndex: number }>} */
   const map = new Map()
   /** @type {string[]} */
   const order = []
@@ -64,6 +64,8 @@ export function aggregateBomCostUsageFlatForDisplay(flatRows, hidePrefixes) {
         Describe: remark,
         sumYl: 0,
         sumTotal: 0,
+        firstLoss: Number.isFinite(loss) ? loss : 0,
+        hasMixedLoss: false,
         minSort: sortKey,
         minPx: pxSortKey,
         firstFlatIndex: i,
@@ -74,6 +76,9 @@ export function aggregateBomCostUsageFlatForDisplay(flatRows, hidePrefixes) {
       if (!g.kcaa02 && r?.kcaa02) g.kcaa02 = String(r.kcaa02)
       if (!g.kcaa03 && r?.kcaa03) g.kcaa03 = String(r.kcaa03)
       if (!g.kcaa04 && r?.kcaa04) g.kcaa04 = String(r.kcaa04)
+      if (Math.abs((Number.isFinite(loss) ? loss : 0) - g.firstLoss) > 1e-9) {
+        g.hasMixedLoss = true
+      }
       if (sortKey < g.minSort) g.minSort = sortKey
       if (pxSortKey != null && (g.minPx == null || pxSortKey < g.minPx)) g.minPx = pxSortKey
     }
@@ -86,9 +91,9 @@ export function aggregateBomCostUsageFlatForDisplay(flatRows, hidePrefixes) {
     const g = map.get(order[j])
     if (!g) continue
     const sumYl = g.sumYl
-    let loss_rate = 0
-    if (sumYl > 0) loss_rate = g.sumTotal / sumYl - 1
-    const total_qty = sumYl * (1 + loss_rate)
+    let loss_rate = g.hasMixedLoss ? 0 : g.firstLoss
+    if (g.hasMixedLoss && sumYl > 0) loss_rate = g.sumTotal / sumYl - 1
+    const total_qty = g.sumTotal
     out.push({
       kcaa01: g.kcaa01,
       kcaa02: g.kcaa02,

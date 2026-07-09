@@ -385,7 +385,8 @@ defineProps({
   --bom-basic-input-b: 220px;
   --bom-basic-input-a: calc(var(--bom-basic-input-b) * 2);
   --bom-basic-input-height: 40px;
-  --bom-basic-control-font-size: 16px;
+  /* DIY：字段值字号，与主列表数据列 --erp-table-data-size 对齐（标准/舒适模式自动切换） */
+  --bom-basic-control-font-size: var(--erp-table-data-size);
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -412,6 +413,7 @@ defineProps({
   align-items: center;
   justify-content: flex-end;
   font-size: 14px;
+  font-weight: var(--erp-font-weight-body);
   color: var(--el-text-color-primary);
   white-space: nowrap;
 }
@@ -430,10 +432,14 @@ defineProps({
 .bom-basic-field :deep(.el-textarea__inner) {
   min-height: var(--bom-basic-input-height);
 }
+/* DIY：基础资料字段值字体统一（与主列表「分类」列一致：常规字号、不加粗）——只影响展示，不动数据 */
+/* 位置：BomBasicForm.vue <style scoped>；变量 --erp-table-data-size / --erp-font-weight-body */
 .bom-basic-field :deep(.el-input__inner),
+.bom-basic-field :deep(.el-select__selected-item),
 .bom-basic-field :deep(.el-select__placeholder),
 .bom-basic-field :deep(.el-textarea__inner) {
-  font-size: var(--bom-basic-control-font-size);
+  font-size: var(--erp-table-data-size) !important;
+  font-weight: var(--erp-font-weight-body) !important;
 }
 .bom-basic-control--a {
   width: var(--bom-basic-input-a);
@@ -447,8 +453,10 @@ defineProps({
   gap: 12px;
   min-height: var(--bom-basic-input-height);
 }
-.bom-basic-buttons .el-button {
+.bom-basic-buttons :deep(.el-button) {
   min-width: 72px;
+  font-size: var(--erp-table-data-size) !important;
+  font-weight: var(--erp-font-weight-body) !important;
 }
 @media (max-width: 720px) {
   .bom-basic-layout {

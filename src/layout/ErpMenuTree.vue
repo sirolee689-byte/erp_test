@@ -9,7 +9,11 @@
       </template>
       <ErpMenuTree :nodes="node.children" :parent-path="segmentPath(parentPath, node)" />
     </el-sub-menu>
-    <el-menu-item v-else :index="'/' + segmentPath(parentPath, node)">
+    <el-menu-item
+      v-else
+      :index="'/' + segmentPath(parentPath, node)"
+      @contextmenu.prevent="onMenuItemContextMenu('/' + segmentPath(parentPath, node), $event)"
+    >
       <el-icon class="menu-icon">
         <component :is="iconFor(node)" />
       </el-icon>
@@ -20,6 +24,7 @@
 
 <script setup>
 import ErpMenuTree from './ErpMenuTree.vue'
+import { useErpMenuContextMenu } from '@/composables/useErpListRowContextMenu'
 import {
   Box,
   Connection,
@@ -42,6 +47,8 @@ defineProps({
   /** 父级路径（不含前导 /） */
   parentPath: { type: String, default: '' },
 })
+
+const { onErpMenuContextMenu: onMenuItemContextMenu } = useErpMenuContextMenu()
 
 /**
  * @param {string} parent

@@ -5,6 +5,7 @@
         :type="pageMode === 'manage' ? 'primary' : 'default'"
         plain
         @click="switchToManage"
+        @contextmenu.prevent="onErpModeBtnContextMenu('manage', $event)"
       >
         管理外协订单
       </el-button>
@@ -13,6 +14,7 @@
         :type="pageMode === 'create' ? 'primary' : 'default'"
         plain
         @click="switchToCreate"
+        @contextmenu.prevent="onErpModeBtnContextMenu('create', $event)"
       >
         外协订单添加
       </el-button>
@@ -127,7 +129,7 @@
           :empty-text="loading ? '加载中...' : '暂无外协订单'"
           @expand-change="onExpandChange"
           @row-click="onListRowClick"
-        >
+         @row-contextmenu="onErpListRowContextMenu">
       <el-table-column type="expand">
         <template #default="{ row }">
           <div v-loading="row.expandedLoading" class="assist-expand-inner">
@@ -518,6 +520,8 @@
 </template>
 
 <script setup>
+import { useErpListRowContextMenu, useErpModeBtnContextMenu } from '@/composables/useErpListRowContextMenu'
+import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
@@ -550,6 +554,8 @@ import {
 
 defineOptions({ name: 'supply-chain-daily-outsourcing-order' })
 
+const { onErpListRowContextMenu } = useErpListRowContextMenu()
+const { onErpModeBtnContextMenu } = useErpModeBtnContextMenu()
 const pageMode = ref('manage')
 const createPanelInitialized = ref(false)
 
@@ -1566,6 +1572,20 @@ async function openView(row) {
     detailLoading.value = false
   }
 }
+
+useErpDeepLinkOpen({
+  handlers: {
+    view: async (recordId) => {
+      const id = Number(recordId)
+      if (!Number.isFinite(id) || id <= 0) return
+      await openView({ id })
+    },
+    manage: async () => switchToManage(),
+    create: async () => {
+      await switchToCreate()
+    },
+  },
+})
 
 const LIFECYCLE_CONFIRM = {
   audit: (label) => ({

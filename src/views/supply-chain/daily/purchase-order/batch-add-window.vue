@@ -645,15 +645,15 @@ onMounted(async () => {
 .buy-batch-window {
   min-height: 100vh;
   padding: 12px 14px 22px;
-  background: #f4f6f8;
-  color: #111827;
+  background: var(--erp-app-bg, #f4f6f8);
+  color: var(--el-text-color-primary);
 }
 
 .buy-batch-header,
 .buy-batch-toolbar,
 .buy-batch-table-wrap {
-  background: #fff;
-  border: 1px solid #d8dde3;
+  background: var(--erp-surface, #fff);
+  border: 1px solid var(--el-border-color);
   border-radius: 4px;
 }
 
@@ -689,7 +689,7 @@ onMounted(async () => {
 
 .buy-batch-query-label {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
   white-space: nowrap;
 }
 
@@ -725,14 +725,14 @@ onMounted(async () => {
 .buy-batch-table th,
 .buy-batch-table td {
   padding: 8px 10px;
-  border-bottom: 1px solid #e3e7ec;
-  border-right: 1px solid #e8ebef;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  border-right: 1px solid var(--el-border-color-lighter);
   white-space: nowrap;
 }
 
 .buy-batch-table th {
-  background: #f8fafc;
-  color: #374151;
+  background: var(--el-fill-color-light, #f8fafc);
+  color: var(--el-text-color-primary);
   font-weight: 600;
   text-align: left;
 }
@@ -792,8 +792,8 @@ onMounted(async () => {
 }
 
 .buy-batch-status--unknown {
-  color: #606266;
-  background: #f4f4f5;
+  color: var(--el-text-color-regular);
+  background: var(--el-fill-color-light, #f4f4f5);
 }
 
 .buy-batch-pagination {
@@ -804,13 +804,13 @@ onMounted(async () => {
   gap: 10px;
   margin-top: 10px;
   padding: 10px 12px;
-  background: #fff;
-  border: 1px solid #d8dde3;
+  background: var(--erp-surface, #fff);
+  border: 1px solid var(--el-border-color);
   border-radius: 4px;
 }
 
 .buy-batch-pagination-info {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 </style>

@@ -78,7 +78,7 @@
             row-key="id"
             style="width: 100%"
             :empty-text="loading ? '加载中…' : '暂无数据'"
-          >
+           @row-contextmenu="onErpListRowContextMenu">
             <el-table-column prop="id" label="ID" width="88" align="center" header-align="center" />
             <el-table-column
               prop="name"
@@ -197,12 +197,14 @@
 </template>
 
 <script setup>
+import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { ref, computed } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+const { onErpListRowContextMenu } = useErpListRowContextMenu()
 const pageTitle = '使用单位'
 
 const loading = ref(false)

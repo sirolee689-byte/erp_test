@@ -22,6 +22,17 @@
           - 这里负责把用户名显示出来，并提供下拉菜单（修改密码 / 退出登录）
         -->
         <div class="erp-header-right">
+          <!-- 皮肤切换：放在「显示」左边，默认全白，暖色为护眼米黄；设置存本浏览器 -->
+          <div class="erp-ui-density erp-ui-theme" title="切换界面配色，设置会保存在本浏览器">
+            <span class="erp-ui-density-label">皮肤</span>
+            <el-select v-model="uiThemeModel" size="small" class="erp-ui-theme-select">
+              <el-option :value="UI_THEME_LIGHT" label="全白" />
+              <el-option :value="UI_THEME_WARM" label="暖色护眼" />
+              <el-option :value="UI_THEME_LIGHTBLUE" label="淡蓝" />
+              <el-option :value="UI_THEME_DARK" label="暗黑" />
+              <el-option :value="UI_THEME_BEANGREEN" label="豆沙绿" />
+            </el-select>
+          </div>
           <div class="erp-ui-density" title="调整字号与按钮大小，设置会保存在本浏览器">
             <span class="erp-ui-density-label">显示</span>
             <el-radio-group v-model="uiDensityModel" size="small">
@@ -126,10 +137,13 @@
       <el-button type="primary" :loading="changePwdSaving" @click="submitChangePassword">确定修改</el-button>
     </template>
   </el-dialog>
+
+  <!-- 全局右键菜单浮层：列表行 / 左侧菜单 / 模式按钮共用 -->
+  <ErpListRowContextMenu ref="erpGlobalContextMenuRef" />
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, provide, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import rawMenuStructure from '../../erp_structure_dump.json'
 import {
@@ -139,8 +153,11 @@ import {
 } from '@/utils/menuPermission'
 import { useTagsViewStore } from '@/store/modules/tagsView'
 import { useUiDensity } from '@/composables/useUiDensity'
+import { useUiTheme } from '@/composables/useUiTheme'
 import ErpAppMain from './ErpAppMain.vue'
 import ErpSidebar from './ErpSidebar.vue'
+import ErpListRowContextMenu from '@/components/erp/ErpListRowContextMenu.vue'
+import { ERP_CONTEXT_MENU_KEY } from '@/composables/erpContextMenuKey'
 import { resolveRouteAliveComponent } from './resolveRouteAliveComponent.js'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -148,6 +165,11 @@ import { ArrowDown, Edit, Expand, Fold, SwitchButton, UserFilled } from '@elemen
 
 const route = useRoute()
 const router = useRouter()
+
+const erpGlobalContextMenuRef = ref(null)
+provide(ERP_CONTEXT_MENU_KEY, {
+  open: (event, items) => erpGlobalContextMenuRef.value?.open(event, items),
+})
 
 const {
   density: uiDensity,
@@ -159,6 +181,21 @@ const {
 const uiDensityModel = computed({
   get: () => uiDensity.value,
   set: (v) => setUiDensity(v),
+})
+
+const {
+  theme: uiTheme,
+  setTheme: setUiTheme,
+  UI_THEME_LIGHT,
+  UI_THEME_WARM,
+  UI_THEME_LIGHTBLUE,
+  UI_THEME_DARK,
+  UI_THEME_BEANGREEN,
+} = useUiTheme()
+
+const uiThemeModel = computed({
+  get: () => uiTheme.value,
+  set: (v) => setUiTheme(v),
 })
 
 const active = computed(() => route.path)
@@ -514,7 +551,8 @@ async function submitChangePassword() {
   align-items: center;
   gap: 8px;
   padding: 0 12px;
-  background: #fff;
+  /* 顶栏底色跟随皮肤（全白=#fff，暖色皮肤在 element-override.scss 覆盖） */
+  background: var(--erp-header-bg, #fff);
   border-bottom: 1px solid var(--el-border-color-lighter);
 }
 .erp-header-right {
@@ -537,6 +575,10 @@ async function submitChangePassword() {
   font-size: var(--erp-text-secondary-size, 13px);
   color: var(--el-text-color-regular);
   white-space: nowrap;
+}
+/* 皮肤下拉宽度：够放「暖色护眼」四字即可，想加宽改这里 */
+.erp-ui-theme-select {
+  width: 108px;
 }
 .erp-user {
   /* 关键：工业感小标签 */

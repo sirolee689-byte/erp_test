@@ -2,7 +2,7 @@
  * 纸格导入：智能校验（ERP 物料）会话态与指纹
  * Material 校验/指纹使用 codesByColor 全码（与正式导入 UB_ERP_Bom_parts 一致）
  */
-import { erpCodeLookupKey, normalizeErpCodeDisplay } from '@/utils/paperPatternErpCodeNormalize.js'
+import { erpCodeLookupKey, normalizeErpCodeDisplay } from './paperPatternErpCodeNormalize.js'
 
 export const ERP_WORKBENCH_STORAGE = 'paperPatternErpWorkbenchPayloadV1'
 export const SMART_CHECK_PASS_STORAGE = 'paperPatternSmartCheckPassV1'
@@ -401,7 +401,7 @@ export function isSmartCheckPassValid(fingerprint, fileId) {
 }
 
 /**
- * @param {{ materials?: any[], accessories?: any[], colorNos?: string[] } | any[]} payload
+ * @param {{ fileId?: string, materials?: any[], accessories?: any[], colorNos?: string[] } | any[]} payload
  * @param {any[]} [accessoriesLegacy]
  */
 export function saveWorkbenchPayload(payload, accessoriesLegacy) {
@@ -416,6 +416,7 @@ export function saveWorkbenchPayload(payload, accessoriesLegacy) {
     ERP_WORKBENCH_STORAGE,
     JSON.stringify({
       savedAt: Date.now(),
+      fileId: String(p?.fileId ?? '').trim(),
       materials: Array.isArray(p.materials) ? p.materials : [],
       accessories: Array.isArray(p.accessories) ? p.accessories : [],
       colorNos: Array.isArray(p.colorNos) ? p.colorNos : [],
@@ -423,13 +424,14 @@ export function saveWorkbenchPayload(payload, accessoriesLegacy) {
   )
 }
 
-/** @returns {{ materials: any[], accessories: any[], colorNos: string[] } | null} */
+/** @returns {{ fileId: string, materials: any[], accessories: any[], colorNos: string[] } | null} */
 export function readWorkbenchPayload() {
   try {
     const raw = sessionStorage.getItem(ERP_WORKBENCH_STORAGE)
     if (!raw) return null
     const o = JSON.parse(raw)
     return {
+      fileId: String(o?.fileId ?? '').trim(),
       materials: Array.isArray(o?.materials) ? o.materials : [],
       accessories: Array.isArray(o?.accessories) ? o.accessories : [],
       colorNos: Array.isArray(o?.colorNos) ? o.colorNos : [],

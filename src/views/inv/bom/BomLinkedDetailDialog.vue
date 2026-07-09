@@ -26,7 +26,7 @@
                 class="bom-parts-alert"
                 title="主档缺少 systemcode，无法加载配件明细。"
               />
-              <div v-else class="bom-parts-toolbar">
+              <div v-else class="bom-parts-toolbar bom-unified-btn-font">
                 <el-button type="primary" :disabled="partsReadOnly || !bomSystemcode" @click="materialSelectorVisible = true">
                   添加配件
                 </el-button>
@@ -49,7 +49,7 @@
                   border
                   stripe
                   :size="detailTableSize"
-                  class="bom-parts-table"
+                  class="bom-parts-table bom-unified-btn-font"
                   :empty-text="partsLoading ? '加载中…' : '暂无配件'"
                   :row-key="partsRowKey"
                   max-height="calc(100vh - 320px)"
@@ -683,6 +683,11 @@ watch(
 </script>
 
 <style scoped>
+/* BOM 操作按钮字号：与模式行「管理BOM资料」一致 */
+.bom-unified-btn-font :deep(.el-button) {
+  font-size: var(--erp-table-data-size) !important;
+  font-weight: var(--erp-font-weight-body) !important;
+}
 .bom-parts-readonly-num {
   display: block;
   width: 100%;

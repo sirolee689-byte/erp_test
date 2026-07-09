@@ -652,16 +652,16 @@ onMounted(async () => {
 <style scoped>
 .assist-batch-window {
   min-height: 100vh;
-  background: #f4f6f8;
+  background: var(--erp-app-bg, #f4f6f8);
   padding: 12px 14px 22px;
-  color: #111827;
+  color: var(--el-text-color-primary);
 }
 
 .assist-batch-header {
   margin-bottom: 10px;
   padding: 10px 12px;
-  background: #fff;
-  border: 1px solid #d8dde3;
+  background: var(--erp-surface, #fff);
+  border: 1px solid var(--el-border-color);
   border-radius: 4px;
 }
 
@@ -680,8 +680,8 @@ onMounted(async () => {
 .assist-batch-toolbar {
   margin-bottom: 10px;
   padding: 10px 12px;
-  background: #fff;
-  border: 1px solid #d8dde3;
+  background: var(--erp-surface, #fff);
+  border: 1px solid var(--el-border-color);
   border-radius: 4px;
 }
 
@@ -722,14 +722,14 @@ onMounted(async () => {
 
 .assist-batch-selected-count {
   font-size: 13px;
-  color: #111827;
+  color: var(--el-text-color-primary);
   font-weight: 600;
   white-space: nowrap;
 }
 
 .assist-batch-query-label {
   font-size: 13px;
-  color: #606266;
+  color: var(--el-text-color-regular);
   white-space: nowrap;
 }
 
@@ -758,8 +758,8 @@ onMounted(async () => {
 
 .assist-batch-table-wrap {
   overflow: auto;
-  background: #fff;
-  border: 1px solid #d3d8de;
+  background: var(--erp-surface, #fff);
+  border: 1px solid var(--el-border-color);
   border-radius: 4px;
   box-shadow: 0 1px 2px rgb(17 24 39 / 5%);
 }
@@ -770,13 +770,13 @@ onMounted(async () => {
   gap: 14px;
   margin-top: 10px;
   padding: 8px 10px;
-  background: #fff;
-  border: 1px solid #d3d8de;
+  background: var(--erp-surface, #fff);
+  border: 1px solid var(--el-border-color);
   border-radius: 4px;
 }
 
 .assist-batch-pagination-info {
-  color: #111827;
+  color: var(--el-text-color-primary);
   font-size: 13px;
   white-space: nowrap;
 }
@@ -791,7 +791,7 @@ onMounted(async () => {
 
 .assist-batch-table th,
 .assist-batch-table td {
-  border: 1px solid #d8dde3;
+  border: 1px solid var(--el-border-color);
   padding: 0 8px;
   height: 36px;
   vertical-align: middle;
@@ -803,7 +803,7 @@ onMounted(async () => {
 
 .assist-batch-table th {
   background: #f1f2f4;
-  color: #111827;
+  color: var(--el-text-color-primary);
   font-weight: 600;
   height: 42px;
   line-height: 18px;
@@ -812,8 +812,8 @@ onMounted(async () => {
 
 /* 父行边框 DIY：batch-add-window.vue .assist-batch-row--style --assist-batch-style-border */
 .assist-batch-row--style {
-  --assist-batch-style-border: 1px solid #d8dde3;
-  background: #fff;
+  --assist-batch-style-border: 1px solid var(--el-border-color);
+  background: var(--erp-surface, #fff);
 }
 
 .assist-batch-row--style > td {
@@ -848,7 +848,7 @@ onMounted(async () => {
 
 .assist-batch-subtable th,
 .assist-batch-subtable td {
-  border: 1px solid #d8dde3;
+  border: 1px solid var(--el-border-color);
   padding: 0 8px;
   height: 34px;
   vertical-align: middle;
@@ -858,7 +858,7 @@ onMounted(async () => {
 
 .assist-batch-subtable th {
   background: #f1f2f4;
-  color: #111827;
+  color: var(--el-text-color-primary);
   font-weight: 600;
   height: 38px;
   line-height: 18px;
@@ -866,7 +866,7 @@ onMounted(async () => {
 }
 
 .assist-batch-subrow {
-  background: #fff;
+  background: var(--erp-surface, #fff);
 }
 
 .col-seq {

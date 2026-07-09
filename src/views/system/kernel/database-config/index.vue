@@ -260,8 +260,8 @@ onMounted(loadConfig)
   max-width: 1240px;
   min-height: 620px;
   padding: 22px 26px 24px;
-  background: #fff;
-  border: 1px solid #dcdfe6;
+  background: var(--erp-surface, #fff);
+  border: 1px solid var(--el-border-color);
 }
 
 .database-panel__head {

@@ -468,12 +468,12 @@ onMounted(() => {
 .stock-out-pi-batch-window {
   min-height: 100vh;
   padding: 16px 20px 24px;
-  background: #f5f7fa;
+  background: var(--erp-app-bg, #f5f7fa);
   box-sizing: border-box;
 }
 .stock-out-pi-batch-header { margin-bottom: 12px; }
 .stock-out-pi-batch-title { margin: 0 0 6px; font-size: 22px; }
-.stock-out-pi-batch-subtitle { margin: 0; color: #606266; font-size: 15px; }
+.stock-out-pi-batch-subtitle { margin: 0; color: var(--el-text-color-regular); font-size: 15px; }
 .stock-out-pi-batch-mode-tag { color: #e6a23c; font-weight: 600; }
 .stock-out-pi-batch-toolbar {
   display: flex;
@@ -482,18 +482,18 @@ onMounted(() => {
   gap: 10px;
   margin-bottom: 12px;
   padding: 12px;
-  background: #fff;
+  background: var(--erp-surface, #fff);
   border-radius: 8px;
 }
-.stock-out-pi-batch-label { color: #606266; }
+.stock-out-pi-batch-label { color: var(--el-text-color-regular); }
 .stock-out-pi-batch-query-input { width: 320px; }
 .stock-out-pi-batch-selected { margin-left: auto; color: #409eff; }
 .stock-out-pi-batch-close-hint { margin-bottom: 12px; }
-.stock-out-pi-batch-table-wrap { overflow: auto; background: #fff; border-radius: 8px; }
+.stock-out-pi-batch-table-wrap { overflow: auto; background: var(--erp-surface, #fff); border-radius: 8px; }
 .stock-out-pi-batch-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 14px; }
 .stock-out-pi-batch-table th,
-.stock-out-pi-batch-table td { border: 1px solid #ebeef5; padding: 8px 10px; vertical-align: top; }
-.stock-out-pi-batch-table th { background: #f5f7fa; font-weight: 600; }
+.stock-out-pi-batch-table td { border: 1px solid var(--el-border-color-lighter); padding: 8px 10px; vertical-align: top; }
+.stock-out-pi-batch-table th { background: var(--el-fill-color-light, #f5f7fa); font-weight: 600; }
 /* 仅数字/操作列不换行；名称规格等由下方 .pi-batch-cell-text 强制折行 */
 .stock-out-pi-batch-table th.col-action,
 .stock-out-pi-batch-table td.col-action,
@@ -508,7 +508,7 @@ onMounted(() => {
 .col-color { width: 56px; }
 .col-unit { width: 48px; }
 .stock-out-pi-batch-table th.col-dispatch-source,
-.stock-out-pi-batch-table td.col-dispatch-source { width: 150px; color: #606266; font-size: 13px; line-height: 1.45; }
+.stock-out-pi-batch-table td.col-dispatch-source { width: 150px; color: var(--el-text-color-regular); font-size: 13px; line-height: 1.45; }
 .dispatch-source-block div + div { margin-top: 2px; }
 /* DIY：格内 div 限宽折行，避免长字串溢出到邻列 — production-issue-batch-window.vue .pi-batch-cell-text */
 .pi-batch-cell-text {
@@ -548,15 +548,15 @@ onMounted(() => {
 .col-actual-ok { color: #2563eb; font-weight: 600; }
 .col-actual-bad { color: #dc2626; font-weight: 700; }
 .col-issueable { color: #991b1b; font-weight: 700; }
-.stock-out-pi-picked-btn { color: #606266; border-color: #c0c4cc; background: #f4f4f5; }
-.stock-out-pi-batch-row--picked { background: #f0f9eb; }
+.stock-out-pi-picked-btn { color: var(--el-text-color-regular); border-color: var(--el-border-color); background: var(--el-fill-color-light, #f4f4f5); }
+.stock-out-pi-batch-row--picked { background: var(--el-color-success-light-9, #f0f9eb); }
 .stock-out-pi-batch-pagination {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   margin-top: 12px;
   padding: 8px 12px;
-  background: #fff;
+  background: var(--erp-surface, #fff);
   border-radius: 8px;
 }
 </style>

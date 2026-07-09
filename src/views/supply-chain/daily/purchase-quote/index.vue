@@ -82,7 +82,7 @@
             :empty-text="loading ? '加载中…' : '暂无数据'"
             @expand-change="onExpandChange"
             @row-click="onPqMainRowClick"
-          >
+           @row-contextmenu="onErpListRowContextMenu">
             <el-table-column type="expand">
               <template #default="{ row }">
                 <div v-loading="row.__linesLoading" class="expand-inner">
@@ -626,11 +626,14 @@
 </template>
 
 <script setup>
+import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
+import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, reactive, ref, watch } from 'vue'
 
 // 与 router 生成的 route.name 一致，供布局 keep-alive 按组件名缓存
 defineOptions({ name: 'supply-chain-daily-purchase-quote' })
+const { onErpListRowContextMenu } = useErpListRowContextMenu()
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { DocumentCopy, Refresh, Search } from '@element-plus/icons-vue'
 import axios from 'axios'
@@ -1348,6 +1351,16 @@ async function openView(row) {
     viewLoading.value = false
   }
 }
+useErpDeepLinkOpen({
+  handlers: {
+    view: async (recordId) => {
+      const id = Number(recordId)
+      if (!Number.isFinite(id) || id <= 0) return
+      await openView({ id })
+    },
+  },
+})
+
 
 async function openBomDetail(line) {
   const code = String(lineField(line, 'kcaa01') ?? '').trim()

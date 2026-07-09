@@ -1,5 +1,5 @@
 <template>
-  <div class="erp-module-page paper-pattern-smart-check-page">
+  <div class="erp-module-page paper-pattern-smart-check-page paper-unified-font">
     <el-card shadow="never">
       <template #header>
         <span class="page-title">纸格资料导入 · 智能校验</span>
@@ -131,7 +131,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onActivated, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
@@ -174,6 +174,8 @@ const accessoryRows = ref([])
 let hydrating = false
 let debounceTimer = null
 let materialTableLayoutTimer = 0
+let sourceLoadSeq = 0
+let activatedOnce = false
 
 function refreshMaterialTableLayout() {
   return new Promise((resolve) => {
@@ -398,6 +400,7 @@ function syncMaterialRowsToSource() {
 function persistWorkbenchPayload() {
   syncMaterialRowsToSource()
   saveWorkbenchPayload({
+    fileId: fileId.value,
     materials: sourceMaterials.value,
     accessories: accessoryRows.value.map((r) => ({
       seqNo: r.seqNo,
@@ -516,8 +519,10 @@ async function loadFromFileId() {
 }
 
 async function reloadSource() {
+  const seq = ++sourceLoadSeq
   workbenchReady.value = false
   checkedOnce.value = false
+  okKeySet.value = new Set()
   hydrating = true
   try {
     if (fileId.value) await loadFromFileId()
@@ -525,7 +530,9 @@ async function reloadSource() {
   } finally {
     hydrating = false
   }
+  if (seq !== sourceLoadSeq) return
   await runCheckNow()
+  if (seq !== sourceLoadSeq) return
   await revealWorkbench()
 }
 
@@ -584,18 +591,16 @@ function onCodeEdited() {
   }, 450)
 }
 
-onMounted(async () => {
-  workbenchReady.value = false
-  checkedOnce.value = false
-  hydrating = true
-  try {
-    if (fileId.value) await loadFromFileId()
-    else loadFromSession()
-  } finally {
-    hydrating = false
+onMounted(() => {
+  reloadSource()
+})
+
+onActivated(() => {
+  if (!activatedOnce) {
+    activatedOnce = true
+    return
   }
-  await runCheckNow()
-  await revealWorkbench()
+  reloadSource()
 })
 
 onUnmounted(() => {
@@ -605,19 +610,55 @@ onUnmounted(() => {
 
 watch(materialRows, scheduleMaterialTableLayout, { deep: true, flush: 'post' })
 watch(materialColorColumns, scheduleMaterialTableLayout, { flush: 'post' })
+watch(fileId, () => {
+  reloadSource()
+})
 </script>
 
 <style scoped>
+/* 纸格页全文字号：与 BOM「管理BOM资料」一致（DIY：--erp-table-data-size / --erp-font-weight-body） */
+.paper-unified-font :deep(.el-button) {
+  font-size: var(--erp-table-data-size) !important;
+  font-weight: var(--erp-font-weight-body) !important;
+}
+.paper-unified-font .page-title,
+.paper-unified-font .page-desc,
+.paper-unified-font .loading-title,
+.paper-unified-font .loading-subtitle,
+.paper-unified-font .banner-lines p,
+.paper-unified-font .muted-cell,
+.paper-unified-font .st-ok,
+.paper-unified-font .st-bad,
+.paper-unified-font .prefix-mismatch-line,
+.paper-unified-font .missing-code-line,
+.paper-unified-font .empty-code-line {
+  font-size: var(--erp-table-data-size) !important;
+}
+.paper-unified-font .page-title,
+.paper-unified-font .page-desc,
+.paper-unified-font .loading-title,
+.paper-unified-font .loading-subtitle {
+  font-weight: var(--erp-font-weight-body) !important;
+}
+.paper-unified-font :deep(.el-table .cell),
+.paper-unified-font :deep(.el-table th.el-table__cell .cell),
+.paper-unified-font :deep(.el-input__inner),
+.paper-unified-font :deep(.el-input-number .el-input__inner),
+.paper-unified-font :deep(.el-select .el-input__inner),
+.paper-unified-font :deep(.el-alert__title),
+.paper-unified-font :deep(.el-alert__description),
+.paper-unified-font :deep(.el-divider__text),
+.paper-unified-font :deep(.el-tag) {
+  font-size: var(--erp-table-data-size) !important;
+}
+.paper-unified-font :deep(.el-table th.el-table__cell) {
+  font-weight: var(--erp-font-weight-heading);
+}
 .erp-module-page {
   min-height: 200px;
 }
-.page-title {
-  font-size: 18px;
-  font-weight: 600;
-}
 .page-desc {
   margin: 0 0 12px;
-  font-size: 13px;
   color: var(--el-text-color-secondary);
 }
 .toolbar {
@@ -670,13 +711,10 @@ watch(materialColorColumns, scheduleMaterialTableLayout, { flush: 'post' })
   animation: loading-spin 1s linear infinite;
 }
 .loading-title {
-  font-size: 15px;
-  font-weight: 600;
   color: var(--el-text-color-primary);
 }
 .loading-subtitle {
   margin-top: 6px;
-  font-size: 13px;
   color: var(--el-text-color-secondary);
 }
 .table-loading-wrap {

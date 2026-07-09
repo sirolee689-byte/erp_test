@@ -6,6 +6,7 @@ import '@/styles/element-override.scss'
 import '@/styles/erp-module-page.css'
 import '@/styles/erp-detail-form.css'
 import { initUiDensityOnBoot } from '@/utils/uiDensity'
+import { initUiThemeOnBoot } from '@/utils/uiTheme'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
@@ -62,6 +63,7 @@ axios.interceptors.response.use(
 )
 
 initUiDensityOnBoot()
+initUiThemeOnBoot()
 
 const app = createApp(App)
 

@@ -20,8 +20,13 @@
 | `erp-detail-form.css` | 详情/大表单 **蓝灰专业系**：`erp-detail-form-context`（`ErpPageDialog` 默认）+ `erp-detail-form` + `erp-detail-form-surface`；变量 `--erp-detail-*` |
 | `components/erp/ErpPageDialog.vue` | 页面级详情/大表单弹窗封装（近全屏方案 A） |
 | `components/erp/ErpTableActions.vue` | 表格操作列容器（Grid 两行、按可见按钮数设列） |
+| `components/erp/ErpListRowContextMenu.vue` | 列表行/左侧菜单/模式按钮右键浮层（Teleport）；全站由 `ErpLayout` 挂载一份并通过 `useErpListRowContextMenu` 调用；菜单项「在新标签页中打开」；DIY 变量 `--erp-list-row-contextmenu-*` |
+| `composables/useErpListRowContextMenu.js` | 列表行 `onErpListRowContextMenu`、模式条 `onErpModeBtnContextMenu`、侧栏 `onErpMenuContextMenu` |
+| `utils/erpListRowContextMenuRegistry.js` | 按路由注册行右键目标 URL（干净独立页或 `?erpOpen=view&erpRecordId=` 深链） |
+| `composables/useErpDeepLinkOpen.js` | 新标签打开后根据 `erpOpen` / `erpMode` / `erpRecordId` 自动切模式或弹查看/编辑 |
 
 | `utils/uiDensity.js` | `comfortable`（默认）/ `standard` 切换，写入 `localStorage` + `html[data-ui]` |
+| `utils/uiTheme.js` | 皮肤 `light`（默认全白）/ `warm`（暖色护眼）/ `lightblue`（淡蓝）/ `dark`（暗黑）/ `beangreen`（豆沙绿）切换，写入 `localStorage` + `html[data-theme]`；组合式 `composables/useUiTheme.js` |
 
 
 
@@ -46,6 +51,17 @@
 
 
 顶栏 **显示 → 舒适/标准** 可切换；刷新后记忆。
+
+
+
+## 皮肤（配色主题 `data-theme`）
+
+- 顶栏「**皮肤**」下拉（在「显示」左边）：**全白**（默认）/ **暖色护眼**（米黄纸色）/ **淡蓝**（清爽低刺激）/ **暗黑**（深灰底浅字）/ **豆沙绿**（淡绿护眼）；与密度开关相互独立，各自记忆在本浏览器。
+- 换「**面色**」——内容区底、卡片/表格、顶栏，以及**左侧菜单栏**（暖色=深咖、淡蓝=深蓝、暗黑=近黑、豆沙绿=深墨绿）；按钮语义色（蓝/绿/红）不动；**暗黑**会同步调浅文字色以保证可读。
+- 单源与调色：`element-override.scss` 末尾 `html[data-theme='warm']` / `lightblue` / `dark` / `beangreen` 各段。想更暖/更淡/更深就改各段开头的基准值（`--erp-app-bg` / `--erp-surface` / 表头填充 / 边框 / `--erp-sidebar-*`），其余 Element Plus 面色变量随之统一。
+- 布局壳（`ErpAppMain.vue` `.erp-main`/`.erp-content-card`、`ErpLayout.vue` `.erp-header`、`ErpSidebar.vue` `.erp-aside`/`.erp-menu`）读这些变量，勿再在 scoped 写死底色。
+- **批量选单窗**（`*-batch-window.vue`、采购/外协 `batch-add-window.vue`）及 BOM 模式条等自定义面板：底色/表头/边框应映射 `var(--erp-surface)`、`var(--erp-app-bg)`、`var(--el-fill-color-light)`、`var(--el-border-color*)`；**打印页**（`print.vue`/`label-print.vue`）与**白纸报表**（`inventory/analysis/*` 的 `.report-shell`）可保留 `#fff`。
+- 新增一档皮肤：`utils/uiTheme.js` 的 `UI_THEME_VALUES` 登记取值 → `element-override.scss` 加 `html[data-theme='xxx']` 一段 → `ErpLayout.vue` 下拉加一个 `el-option`。
 
 
 
@@ -95,6 +111,15 @@
 
 
 
+## 表格行背景（斑马纹已全局关闭 · 2026-07）
+
+- **现象**：部分表格「一行白、一行浅蓝」来自 Element Plus `el-table` 的 `stripe` 斑马纹，不是业务 bug。
+- **全站处理**：`element-override.scss` 搜索「**关闭表格斑马纹**」，将 `.el-table__row--striped` 背景强制与普行一致（`--el-table-tr-bg-color` / `--erp-surface`），五档皮肤自动跟随；**鼠标悬停**（hover）亦与普通行同色（`--el-table-row-hover-bg-color`），避免隔行无反应。
+- 各页模板里的 `stripe` 属性可留可删，视觉效果已无隔行色差；若要源码干净可后续批量删 `stripe`。
+- **保留**：报表小计/合计行、采购明细标记行等 `row-class-name` 业务着色不受影响。
+
+
+
 ## 页面级弹窗（近全屏 · 方案 A）
 
 
@@ -135,6 +160,15 @@
 
 5. 树形/无分页视图（如部门资料 `treeMode`）不显示分页。
 
+
+
+## 右键「在新标签页中打开」（2026-07 全站）
+
+- **左侧菜单**：叶子菜单项右键 → 新标签打开该功能页（带完整顶栏+侧栏）。
+- **主列表行**：带 `erp-list-table` 的列表右键 → 按 `erpListRowContextMenuRegistry.js` 打开干净独立页（如 BOM/PI-BOM）或同页深链 `?erpOpen=view&erpRecordId=`（采购/销售/出入库等自动弹出查看）。
+- **模式条按钮**：采购单/外协单/销售单顶部模式按钮右键 → 新标签打开对应模式（`?erpMode=` 或已有独立窗路由）。
+- **BOM** 仍保留自有子表/四模式逻辑；注册表对 `inventory/basic/bom-data` 设为 `skip`，由 `inv/bom/index.vue` 自管。
+- 新模块接入：主表加 `@row-contextmenu="onErpListRowContextMenu"` + `useErpListRowContextMenu()`；若有查看弹窗再加 `useErpDeepLinkOpen({ handlers: { view: ... } })`。
 
 
 ## 扩展

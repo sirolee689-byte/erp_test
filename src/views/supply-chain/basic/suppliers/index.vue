@@ -80,7 +80,7 @@
             row-key="id"
             style="width: 100%"
             :empty-text="loading ? '加载中…' : '暂无数据'"
-          >
+           @row-contextmenu="onErpListRowContextMenu">
             <el-table-column
               prop="s_code"
               label="编码"
@@ -408,12 +408,15 @@
 </template>
 
 <script setup>
+import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
+import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { nextTick, onMounted, reactive, ref, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import axios from 'axios'
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+const { onErpListRowContextMenu } = useErpListRowContextMenu()
 /** 页面标题（与左侧菜单一致） */
 const pageTitle = '供应商资料'
 
@@ -708,6 +711,16 @@ async function openEditDialog(row) {
   await nextTick()
   formRef.value?.clearValidate?.()
 }
+useErpDeepLinkOpen({
+  handlers: {
+    edit: async (recordId) => {
+      const id = Number(recordId)
+      if (!Number.isFinite(id) || id <= 0) return
+      await openEditDialog({ id })
+    },
+  },
+})
+
 
 async function submitForm() {
   try {

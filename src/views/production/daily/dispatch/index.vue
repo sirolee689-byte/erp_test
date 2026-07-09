@@ -57,7 +57,7 @@
         :empty-text="loading ? '加载中' : '暂无数据'"
         @row-click="onListRowClick"
         @expand-change="onListExpandChange"
-      >
+       @row-contextmenu="onErpListRowContextMenu">
         <el-table-column type="expand" width="48">
           <template #default="{ row }">
             <div class="dispatch-row-detail" @click.stop>
@@ -324,6 +324,8 @@
 </template>
 
 <script setup>
+import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
+import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
@@ -332,6 +334,7 @@ import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
 
 defineOptions({ name: 'production-daily-dispatch' })
 
+const { onErpListRowContextMenu } = useErpListRowContextMenu()
 const pageMode = ref('list')
 const loading = ref(false)
 const saving = ref(false)
@@ -586,6 +589,16 @@ async function viewOrder(row) {
   detail.lines = res.data?.data?.lines ?? []
   viewVisible.value = true
 }
+
+useErpDeepLinkOpen({
+  handlers: {
+    view: async (recordId) => {
+      const id = Number(recordId)
+      if (!Number.isFinite(id) || id <= 0) return
+      await viewOrder({ id })
+    },
+  },
+})
 
 async function editOrder(row) {
   const res = await axios.get(`/api/dispatch-order/${row.id}`)
@@ -943,7 +956,7 @@ onMounted(() => {
   padding: 0 12px;
   border: 1px solid var(--el-border-color);
   border-radius: 4px;
-  background: #fff;
+  background: var(--erp-surface, #fff);
   color: var(--el-text-color-primary);
   line-height: 1.4;
   cursor: pointer;

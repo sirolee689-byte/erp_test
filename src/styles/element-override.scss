@@ -49,6 +49,23 @@
   --erp-sidebar-logo-size: 16px;
   --erp-sidebar-menu-size: 14px;
 
+  /* ---------- 皮肤面色（全白基准；暖色皮肤在 html[data-theme='warm'] 覆盖）----------
+     只控制「面」的颜色：内容区底、卡片/表格、顶栏；文字与按钮语义色不在这里。
+     想微调全白底色就改这三个默认值。 */
+  --erp-app-bg: #f3f5f7;      /* 内容区/页面底色 */
+  --erp-surface: #ffffff;     /* 卡片、表格、内容卡片的白面 */
+  --erp-header-bg: #ffffff;   /* 顶栏底色 */
+
+  /* 左侧菜单栏面色（默认深蓝；其它皮肤在对应 data-theme 块覆盖） */
+  --erp-sidebar-bg: #0b1f3a;                        /* 侧栏底色 */
+  --erp-sidebar-text: #ffffff;                      /* 菜单文字 */
+  --erp-sidebar-active-text: #5aa7ff;               /* 选中项文字 */
+  --erp-sidebar-hover-bg: rgba(90, 167, 255, 0.16); /* 悬停底 */
+  --erp-sidebar-active-bg: rgba(90, 167, 255, 0.22);/* 选中项底 */
+  --erp-sidebar-active-subbg: rgba(90, 167, 255, 0.12); /* 展开的父级底 */
+  --erp-sidebar-border: rgba(255, 255, 255, 0.12);  /* logo 下分隔线 */
+  --erp-sidebar-logo-color: #ffffff;                /* 顶部 LOGO 文字 */
+
   /* ---------- 详情/大表单 · 蓝灰专业系（erp-detail-form.css）DIY ---------- */
   /* 弹窗正文浅蓝灰底 */
   --erp-detail-page-bg: #eef2f7;
@@ -205,6 +222,17 @@ html[data-ui='comfortable'] {
 .el-table th.el-table__cell {
   font-weight: var(--erp-font-weight-heading);
   font-size: var(--el-font-size-base);
+}
+
+/* 全站关闭表格斑马纹：stripe 奇偶行背景与普行一致（DIY：改此处或恢复隔行色） */
+.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
+  background-color: var(--el-table-tr-bg-color, var(--erp-surface, #fff));
+}
+
+/* stripe 行悬停与普通行一致（EP 用 :hover 与 .hover-row 两种） */
+.el-table--enable-row-hover .el-table__body tr.el-table__row--striped:hover > td.el-table__cell,
+.el-table__body tr.el-table__row--striped.hover-row > td.el-table__cell {
+  background-color: var(--el-table-row-hover-bg-color) !important;
 }
 
 html[data-ui='comfortable'] .el-table--default .el-table__cell {
@@ -866,4 +894,239 @@ html[data-ui='comfortable'] .preview-table .cell {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ==========================================================================
+ * 暖色护眼皮肤（米黄/纸色）· 单源
+ * 由顶栏「皮肤」下拉切换，写 html[data-theme='warm']（见 utils/uiTheme.js）。
+ * 设计约束（用户定稿）：只换「面色」——背景/卡片/表格/边框 + 侧栏改暖调，
+ * 文字色、按钮语义色（蓝/绿/红）不动。
+ *
+ * DIY 调色（想更暖/更淡就改这几个基准值，其它都是从它们派生的）：
+ *   --erp-app-bg     内容区/页面底（越黄越暖）
+ *   --erp-surface    卡片/表格白面
+ *   面色-2  #efe8d8   表头/填充（比白面略深一档）
+ *   边框    #e5ddcb   暖灰边线
+ *   --erp-sidebar-*  左侧菜单栏（深咖暖调）
+ * ========================================================================== */
+html[data-theme='warm'] {
+  /* 布局壳三块面（供 ErpAppMain / ErpLayout 的 var 读取） */
+  --erp-app-bg: #f5f1e8;
+  --erp-surface: #faf6ee;
+  --erp-header-bg: #faf6ee;
+
+  /* 左侧菜单栏：深咖暖调（仍是深色底 + 浅字，选中用暖金）——想更浅/更深改这里 */
+  --erp-sidebar-bg: #33291b;
+  --erp-sidebar-text: #f3ead9;
+  --erp-sidebar-active-text: #e6b35c;
+  --erp-sidebar-hover-bg: rgba(230, 179, 92, 0.16);
+  --erp-sidebar-active-bg: rgba(230, 179, 92, 0.24);
+  --erp-sidebar-active-subbg: rgba(230, 179, 92, 0.12);
+  --erp-sidebar-border: rgba(243, 234, 217, 0.14);
+  --erp-sidebar-logo-color: #f3ead9;
+
+  /* Element Plus 全局面色：覆盖后 el-card / el-table / el-input / el-dialog
+     / el-dropdown 等自动变暖，无需逐组件改 */
+  --el-bg-color: #faf6ee;
+  --el-bg-color-page: #f5f1e8;
+  --el-bg-color-overlay: #faf6ee;
+
+  --el-fill-color-blank: #faf6ee;
+  --el-fill-color: #ece3d3;
+  --el-fill-color-light: #efe8d8;
+  --el-fill-color-lighter: #f2ece0;
+  --el-fill-color-extra-light: #f6f1e6;
+
+  --el-border-color: #d9cfb9;
+  --el-border-color-light: #e0d7c3;
+  --el-border-color-lighter: #e5ddcb;
+  --el-border-color-extra-light: #ede6d6;
+
+  /* 表格面色（表头略深、悬停/选中用暖调） */
+  --el-table-bg-color: #faf6ee;
+  --el-table-tr-bg-color: #faf6ee;
+  --el-table-header-bg-color: #efe8d8;
+  --el-table-row-hover-bg-color: #f0e7d3;
+  --el-table-current-row-bg-color: #f0e6cf;
+  --el-table-border-color: #e5ddcb;
+  --el-table-header-text-color: var(--el-text-color-regular);
+}
+
+/* ==========================================================================
+ * 淡蓝皮肤 · 单源
+ * 浅蓝底 + 深蓝侧栏；清爽低刺激，适合白天长时间看表。
+ * DIY：改 --erp-app-bg / --erp-surface / 表头填充 / 边框 / --erp-sidebar-*。
+ * ========================================================================== */
+html[data-theme='lightblue'] {
+  --erp-app-bg: #eaf2ff;
+  --erp-surface: #f4f8ff;
+  --erp-header-bg: #f4f8ff;
+
+  /* 左侧菜单栏：深蓝 */
+  --erp-sidebar-bg: #1f3a5f;
+  --erp-sidebar-text: #e8f0ff;
+  --erp-sidebar-active-text: #8fc1ff;
+  --erp-sidebar-hover-bg: rgba(143, 193, 255, 0.18);
+  --erp-sidebar-active-bg: rgba(143, 193, 255, 0.26);
+  --erp-sidebar-active-subbg: rgba(143, 193, 255, 0.14);
+  --erp-sidebar-border: rgba(232, 240, 255, 0.16);
+  --erp-sidebar-logo-color: #e8f0ff;
+
+  --el-bg-color: #f4f8ff;
+  --el-bg-color-page: #eaf2ff;
+  --el-bg-color-overlay: #f4f8ff;
+
+  --el-fill-color-blank: #f4f8ff;
+  --el-fill-color: #dfe9fb;
+  --el-fill-color-light: #d4e1f8;
+  --el-fill-color-lighter: #e2ebfb;
+  --el-fill-color-extra-light: #edf3ff;
+
+  --el-border-color: #b8cde8;
+  --el-border-color-light: #c4d6ed;
+  --el-border-color-lighter: #d0def1;
+  --el-border-color-extra-light: #dbe6f6;
+
+  --el-table-bg-color: #f4f8ff;
+  --el-table-tr-bg-color: #f4f8ff;
+  --el-table-header-bg-color: #d4e1f8;
+  --el-table-row-hover-bg-color: #e2ebfb;
+  --el-table-current-row-bg-color: #dae6fa;
+  --el-table-border-color: #d0def1;
+  --el-table-header-text-color: var(--el-text-color-regular);
+}
+
+/* ==========================================================================
+ * 暗黑皮肤 · 单源
+ * 深灰底 + 浅字；侧栏近黑。暗黑必须同步调文字色，否则深底深字不可读。
+ * DIY：改 --erp-app-bg / --erp-surface / --erp-sidebar-* 及 --el-text-color-* 基准值。
+ * ========================================================================== */
+html[data-theme='dark'] {
+  --erp-app-bg: #141414;
+  --erp-surface: #1d1d1d;
+  --erp-header-bg: #1d1d1d;
+
+  /* 左侧菜单栏：近黑深灰 */
+  --erp-sidebar-bg: #0a0a0a;
+  --erp-sidebar-text: #e5e5e5;
+  --erp-sidebar-active-text: #5aa7ff;
+  --erp-sidebar-hover-bg: rgba(90, 167, 255, 0.14);
+  --erp-sidebar-active-bg: rgba(90, 167, 255, 0.22);
+  --erp-sidebar-active-subbg: rgba(90, 167, 255, 0.10);
+  --erp-sidebar-border: rgba(255, 255, 255, 0.10);
+  --erp-sidebar-logo-color: #e5e5e5;
+
+  --el-bg-color: #1d1d1d;
+  --el-bg-color-page: #141414;
+  --el-bg-color-overlay: #1d1d1d;
+
+  --el-fill-color-blank: #1d1d1d;
+  --el-fill-color: #262727;
+  --el-fill-color-light: #2b2b2c;
+  --el-fill-color-lighter: #313233;
+  --el-fill-color-extra-light: #363637;
+
+  --el-border-color: #4c4d4f;
+  --el-border-color-light: #414243;
+  --el-border-color-lighter: #363637;
+  --el-border-color-extra-light: #2b2b2c;
+
+  --el-text-color-primary: #e5eaf3;
+  --el-text-color-regular: #cfd3dc;
+  --el-text-color-secondary: #a3a6ad;
+  --el-text-color-placeholder: #8d9095;
+  --el-text-color-disabled: #6c6e72;
+
+  --el-table-bg-color: #1d1d1d;
+  --el-table-tr-bg-color: #1d1d1d;
+  --el-table-header-bg-color: #262727;
+  --el-table-row-hover-bg-color: #262727;
+  --el-table-current-row-bg-color: #2b2b2c;
+  --el-table-border-color: #363637;
+  --el-table-header-text-color: var(--el-text-color-regular);
+}
+
+/* ==========================================================================
+ * 豆沙绿皮肤 · 单源
+ * 淡绿护眼底 + 深绿侧栏；经典护眼绿调，比暖黄更清亮。
+ * DIY：改 --erp-app-bg / --erp-surface / 表头填充 / 边框 / --erp-sidebar-*。
+ * ========================================================================== */
+html[data-theme='beangreen'] {
+  --erp-app-bg: #e3f0e5;
+  --erp-surface: #f0faf2;
+  --erp-header-bg: #f0faf2;
+
+  /* 左侧菜单栏：深墨绿 */
+  --erp-sidebar-bg: #1e3d2f;
+  --erp-sidebar-text: #dcefe3;
+  --erp-sidebar-active-text: #7dd3a0;
+  --erp-sidebar-hover-bg: rgba(125, 211, 160, 0.16);
+  --erp-sidebar-active-bg: rgba(125, 211, 160, 0.24);
+  --erp-sidebar-active-subbg: rgba(125, 211, 160, 0.12);
+  --erp-sidebar-border: rgba(220, 239, 227, 0.14);
+  --erp-sidebar-logo-color: #dcefe3;
+
+  --el-bg-color: #f0faf2;
+  --el-bg-color-page: #e3f0e5;
+  --el-bg-color-overlay: #f0faf2;
+
+  --el-fill-color-blank: #f0faf2;
+  --el-fill-color: #d4e8d9;
+  --el-fill-color-light: #c9e3cf;
+  --el-fill-color-lighter: #d8ede0;
+  --el-fill-color-extra-light: #e6f4ea;
+
+  --el-border-color: #b5d4bc;
+  --el-border-color-light: #c0dcc7;
+  --el-border-color-lighter: #c9e3cf;
+  --el-border-color-extra-light: #d4e8d9;
+
+  --el-table-bg-color: #f0faf2;
+  --el-table-tr-bg-color: #f0faf2;
+  --el-table-header-bg-color: #c9e3cf;
+  --el-table-row-hover-bg-color: #d8ede0;
+  --el-table-current-row-bg-color: #d0e9d6;
+  --el-table-border-color: #c9e3cf;
+  --el-table-header-text-color: var(--el-text-color-regular);
+}
+
+/* 顶栏「皮肤/显示」与用户名小标签底，跟随非全白皮肤 */
+html[data-theme='warm'] .erp-ui-density,
+html[data-theme='warm'] .erp-user,
+html[data-theme='beangreen'] .erp-ui-density,
+html[data-theme='beangreen'] .erp-user {
+  background: rgba(120, 90, 40, 0.06);
+  border-color: rgba(120, 90, 40, 0.12);
+}
+
+html[data-theme='lightblue'] .erp-ui-density,
+html[data-theme='lightblue'] .erp-user {
+  background: rgba(31, 58, 95, 0.06);
+  border-color: rgba(31, 58, 95, 0.12);
+}
+
+html[data-theme='dark'] .erp-ui-density,
+html[data-theme='dark'] .erp-user {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.10);
+}
+
+html[data-theme='dark'] .erp-user-icon {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+html[data-theme='dark'] .erp-user-arrow {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+html[data-theme='dark'] .erp-user-text {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+html[data-theme='dark'] .erp-user-dropdown:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme='dark'] .collapse-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
 }

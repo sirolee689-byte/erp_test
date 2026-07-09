@@ -868,7 +868,7 @@ function onPrintMaterialSheet() {
 .material-sheet-page {
   min-height: calc(100vh - 118px);
   padding: 16px;
-  background: #f5f7fb;
+  background: var(--erp-app-bg, #f5f7fb);
 }
 .top-search-row {
   display: flex;
@@ -876,9 +876,9 @@ function onPrintMaterialSheet() {
   gap: 12px;
   margin-bottom: 12px;
   padding: 16px;
-  border: 1px solid #e3e8f2;
+  border: 1px solid var(--el-border-color-lighter);
   border-radius: 8px;
-  background: #fff;
+  background: var(--erp-surface, #fff);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 .pi-search {
@@ -888,10 +888,10 @@ function onPrintMaterialSheet() {
 .report-shell {
   min-height: calc(100vh - 170px);
   overflow: hidden;
-  border: 1px solid #dce3ee;
+  border: 1px solid var(--el-border-color);
   border-left: 4px solid #1c7c73;
   border-radius: 8px;
-  background: #fff;
+  background: var(--erp-surface, #fff);
   box-shadow: 0 12px 30px rgba(15, 23, 42, 0.07);
 }
 .report-action-strip {
@@ -900,15 +900,15 @@ function onPrintMaterialSheet() {
   align-items: center;
   gap: 10px;
   padding: 14px 18px;
-  border-bottom: 1px solid #e5eaf2;
-  background: #f7f9fc;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  background: var(--el-fill-color-light, #f7f9fc);
 }
 .report-tool-row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   padding: 12px 18px 6px;
-  background: #fff;
+  background: var(--erp-surface, #fff);
 }
 .report-meta-row {
   display: flex;

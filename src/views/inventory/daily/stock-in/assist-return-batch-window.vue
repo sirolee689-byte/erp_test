@@ -481,7 +481,7 @@ onMounted(() => {
 .stock-return-batch-window {
   min-height: 100vh;
   padding: 16px 20px 24px;
-  background: #f5f7fa;
+  background: var(--erp-app-bg, #f5f7fa);
   box-sizing: border-box;
 }
 .stock-return-batch-header {
@@ -493,7 +493,7 @@ onMounted(() => {
 }
 .stock-return-batch-subtitle {
   margin: 0;
-  color: #606266;
+  color: var(--el-text-color-regular);
 }
 .stock-return-batch-toolbar {
   display: flex;
@@ -502,7 +502,7 @@ onMounted(() => {
   gap: 10px;
   margin-bottom: 12px;
   padding: 12px;
-  background: #fff;
+  background: var(--erp-surface, #fff);
   border-radius: 8px;
 }
 .stock-return-batch-query-input {
@@ -519,7 +519,7 @@ onMounted(() => {
 .stock-return-batch-table-wrap {
   overflow: auto;
   max-height: calc(100vh - 220px);
-  background: #fff;
+  background: var(--erp-surface, #fff);
   border-radius: 8px;
 }
 .stock-return-batch-table,
@@ -533,14 +533,14 @@ onMounted(() => {
 .stock-return-batch-table td,
 .stock-return-batch-subtable th,
 .stock-return-batch-subtable td {
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--el-border-color-lighter);
   padding: 8px 10px;
   white-space: nowrap;
   vertical-align: middle;
 }
 .stock-return-batch-table th,
 .stock-return-batch-subtable th {
-  background: #f5f7fa;
+  background: var(--el-fill-color-light, #f5f7fa);
   position: sticky;
   top: 0;
   z-index: 1;
@@ -549,11 +549,11 @@ onMounted(() => {
   position: sticky;
   left: 0;
   z-index: 2;
-  background: #fff;
+  background: var(--erp-surface, #fff);
 }
 .stock-return-batch-table th.col-action,
 .stock-return-batch-subtable th.col-action {
-  background: #f5f7fa;
+  background: var(--el-fill-color-light, #f5f7fa);
   z-index: 3;
 }
 .col-num {
@@ -569,7 +569,7 @@ onMounted(() => {
   word-break: break-all;
 }
 .stock-return-batch-row--picked {
-  background: #f0f9eb;
+  background: var(--el-color-success-light-9, #f0f9eb);
 }
 .stock-return-batch-nested-cell {
   padding: 12px;
@@ -585,7 +585,7 @@ onMounted(() => {
   justify-content: space-between;
   margin-top: 12px;
   padding: 8px 12px;
-  background: #fff;
+  background: var(--erp-surface, #fff);
   border-radius: 8px;
 }
 </style>
