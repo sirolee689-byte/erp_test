@@ -1,9 +1,31 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { buildAssistOrderPrintDocument, normalizePrintSetup } from './assistOrderPrintData.js'
+import { buildAssistOrderPrintDocument, normalizePrintSetup, readAndSaveAssistOrderPrintSetup } from './assistOrderPrintData.js'
+
+function createPrintSetupPool(existing = null) {
+  const calls = []
+  return {
+    calls,
+    request() {
+      const inputs = {}
+      const req = {
+        input(name, _type, value) {
+          inputs[name] = value
+          return req
+        },
+        async query(sqlText) {
+          calls.push({ sqlText, inputs: { ...inputs } })
+          if (/SELECT TOP 1 \[id\], \[print_s\]/i.test(sqlText)) return { recordset: existing ? [existing] : [] }
+          return { recordset: [] }
+        },
+      }
+      return req
+    },
+  }
+}
 
 describe('assist order print data', () => {
-  test('builds fixed wxgs=0 pages with fee rows and tax-included totals', () => {
+  test('builds paged wxgs=0 documents with fee rows and tax-included totals', () => {
     const setup = normalizePrintSetup({ rowsPerPage: 3, priceDecimals: 4 })
     const doc = buildAssistOrderPrintDocument({
       header: {
@@ -45,6 +67,39 @@ describe('assist order print data', () => {
     assert.equal(doc.totals.amount, '61.09')
     assert.ok(doc.contractTerms.length >= 12)
     assert.equal(doc.signature.makerName, '测试用户')
-    assert.equal(Object.hasOwn(doc.pages[0].rows[0], 'describe'), false)
+    assert.equal(doc.pages[0].pageTotal, 2)
+    assert.equal(doc.pages[0].rows[0].describe, '')
+  })
+
+  test('wxgs=1 includes material describe and fee remark as outsourcing content', () => {
+    const doc = buildAssistOrderPrintDocument({
+      header: { assistOrderNo: 'WX26060902', taxIncluded: '2' },
+      lines: [{ kcaa01: 'M001', wxak03: 1, wxak04: 10, wxak05: 10, describe: '车缝加工' }],
+      fees: [{ feeCode: 'F01', feeName: '运费', money: 2, remark: '送货费' }],
+    }, { wxgs: '1' })
+
+    assert.equal(doc.wxgs, 1)
+    assert.equal(doc.showDescribeColumn, true)
+    assert.equal(doc.pages[0].rows[0].describe, '车缝加工')
+    assert.equal(doc.pages[0].rows[1].describe, '送货费')
+    assert.equal(doc.totals.amount, '12.00')
+  })
+
+  test('creates or updates the per-user print setup with the selected p_sum', async () => {
+    const firstPool = createPrintSetupPool()
+    const setup = await readAndSaveAssistOrderPrintSetup(firstPool, { uidInt: 42, uname: 'u01', utruename: '张三' }, {
+      pSum: 'WX26060901,WX26060902',
+      rowsPerPage: 8,
+    })
+    assert.equal(setup.rowsPerPage, 8)
+    assert.match(firstPool.calls[1].sqlText, /INSERT INTO\s+dbo\.\[UB_ERP_User_print_setup\]/i)
+    assert.equal(firstPool.calls[1].inputs.uid, '42')
+    assert.equal(firstPool.calls[1].inputs.printCode, 'WX26060901,WX26060902')
+
+    const existingPool = createPrintSetupPool({ id: 9, rowsPerPage: 12 })
+    await readAndSaveAssistOrderPrintSetup(existingPool, { uidInt: 42 }, { pSum: 'WX26060903', rowsPerPage: 15 })
+    assert.match(existingPool.calls[1].sqlText, /UPDATE\s+dbo\.\[UB_ERP_User_print_setup\]/i)
+    assert.equal(existingPool.calls[1].inputs.id, 9)
+    assert.equal(existingPool.calls[1].inputs.printS, 15)
   })
 })

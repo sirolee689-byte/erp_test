@@ -14,4 +14,14 @@ describe('outsourcing-order index static UI contract', () => {
     assert.match(source, /:readonly="isReadonlyForm"/)
     assert.match(formSource, /readonly:\s*\{\s*type:\s*Boolean/)
   })
+
+  test('opens two standalone print formats from the selected order-number queue', () => {
+    assert.doesNotMatch(source, /openBatchPrint/)
+    assert.doesNotMatch(source, /assist-print-dialog/)
+    assert.match(source, /openSelectedPrint\('1'\)/)
+    assert.match(source, /openSelectedPrint\('0'\)/)
+    assert.match(source, /p_sum: selected\.join\(','\)/)
+    assert.match(source, /outsourcing-order-print/)
+    assert.match(source, /v-permission="'print'"/)
+  })
 })

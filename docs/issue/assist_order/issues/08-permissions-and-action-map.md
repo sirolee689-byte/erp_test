@@ -11,7 +11,7 @@
 
 把外协订单所有接口、按钮和菜单入口接入 ERP 标准权限模型，确保用户看到的按钮和后端允许的动作一致。
 
-权限沿用标准 `view/add/edit/audit/delete`：打印归 `view`，结案和反结案归 `audit`，删除、恢复、彻底删除归 `delete`。
+权限沿用标准 `view/add/edit/audit/delete/print`：打印选择和两种打印格式归 `print`，结案和反结案归 `audit`，删除、恢复、彻底删除归 `delete`。
 
 ## Acceptance criteria
 

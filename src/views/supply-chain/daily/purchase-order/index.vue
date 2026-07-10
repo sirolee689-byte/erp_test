@@ -161,7 +161,7 @@
                 </el-table-column>
                 <el-table-column label="操作" width="88" align="center">
                   <template #default="{ row: line }">
-                    <el-button v-if="line._rowType !== 'fee'" size="small" type="primary" plain @click.stop="openExpandedLinePiBom(line, row)">查看</el-button>
+                    <el-button v-if="line._rowType !== 'fee'" size="small" type="primary" plain @click.stop="openExpandedLineBom(line)">查看</el-button>
                     <span v-else>-</span>
                   </template>
                 </el-table-column>
@@ -274,6 +274,13 @@
                   >
                     删除
                   </el-button>
+                  <el-button
+                    plain
+                    :type="isPrintSelected(row) ? 'primary' : 'default'"
+                    @click.stop="togglePrintSelect(row)"
+                  >
+                    {{ isPrintSelected(row) ? '已选择' : '打印选择' }}
+                  </el-button>
                 </template>
                 <template v-else>
                   <el-button
@@ -285,14 +292,14 @@
                   >
                     反审
                   </el-button>
+                  <el-button
+                    plain
+                    :type="isPrintSelected(row) ? 'primary' : 'default'"
+                    @click.stop="togglePrintSelect(row)"
+                  >
+                    {{ isPrintSelected(row) ? '已选择' : '打印选择' }}
+                  </el-button>
                 </template>
-                <el-button
-                  plain
-                  :type="isPrintSelected(row) ? 'primary' : 'default'"
-                  @click.stop="togglePrintSelect(row)"
-                >
-                  {{ isPrintSelected(row) ? '已选择' : '打印选择' }}
-                </el-button>
               </template>
             </ErpTableActions>
           </template>
@@ -794,8 +801,8 @@ const currentPageAuditableRows = computed(() => rows.value.filter((row) => Strin
 
 const buyOrderActionsColWidth = computed(() => {
   if (recycled.value) return getErpTableActionsColMinWidth(2)
-  if (showUnaudited.value) return getErpTableActionsColMinWidth(5)
-  return getErpTableActionsColMinWidth(3)
+  if (showUnaudited.value) return getErpTableActionsColMinWidth(2)
+  return getErpTableActionsColMinWidth(2)
 })
 
 watch([rows, loading, recycled, showUnaudited], async () => {
@@ -1496,27 +1503,13 @@ async function resolveOrderIdByPi(piNo) {
     return null
   }
 }
-async function openExpandedLinePiBom(row, parentRow) {
-  const product = String(row?.topKcaa01 || row?.kcaa01 || '').trim()
-  if (!product) {
-    ElMessage.warning('当前明细缺少款号/编码，无法查看原资料')
+function openExpandedLineBom(row) {
+  const materialCode = String(row?.kcaa01 || '').trim()
+  if (!materialCode) {
+    ElMessage.warning('当前明细缺少物料编码，无法查看 BOM 资料')
     return
   }
-  const refNo = String(row?.Reference || parentRow?.referenceNo || '').split(',')[0].trim()
-  if (!refNo) {
-    ElMessage.warning('当前明细缺少关联 PI 号，无法查看原资料')
-    return
-  }
-  let orderId = Number(row?.referenceOrderId ?? 0)
-  if (!Number.isFinite(orderId) || orderId <= 0) {
-    orderId = await resolveOrderIdByPi(refNo)
-    if (orderId) row.referenceOrderId = orderId
-  }
-  if (!orderId) {
-    ElMessage.warning('无法解析销售订单，请确认关联 PI 号是否正确')
-    return
-  }
-  const url = `/inventory/basic/pi-bom-data-window?mode=edit&orderId=${encodeURIComponent(orderId)}&kcaa01=${encodeURIComponent(product)}`
+  const url = `/inventory/basic/bom-data-window?mode=detail&code=${encodeURIComponent(materialCode)}`
   const opened = window.open(url, '_blank')
   if (!opened) {
     ElMessage.error('无法打开新窗口，请检查浏览器是否拦截弹窗')
@@ -2478,6 +2471,20 @@ onUnmounted(() => {
     flex-wrap: wrap;
   }
 }
+
+/* 采购单操作列：flex 换行（非 Grid 同列对齐），避免「打印选择」撑宽导致查看/编辑或编辑/审核之间留白 */
+.buy-order-actions.erp-table-actions--grid {
+  display: flex !important;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: center;
+  align-content: flex-start;
+  column-gap: var(--erp-list-action-col-gap);
+  row-gap: var(--erp-list-action-row-gap);
+  max-height: calc(2 * var(--erp-list-action-btn-min-height) + var(--erp-list-action-row-gap));
+  overflow: visible;
+}
+
 @media print {
   :global(body *) { visibility: hidden; }
   :global(.print-dialog), :global(.print-dialog *) { visibility: visible; }

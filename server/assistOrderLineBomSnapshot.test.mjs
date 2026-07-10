@@ -72,4 +72,12 @@ describe('assistOrderLineBomSnapshot', () => {
     assert.equal(merged.snapshotRemark, 'BOM备注')
     assert.equal(merged.remark, '用户备注')
   })
+
+  test('maps and preserves the saved describe snapshot', () => {
+    const mapped = mapAssistOrderBomSnapshotRow({ kcaa01: 'MAT-1', Describe: 'sewing' })
+    const line = normalizeAssistOrderLine({ kcaa01: 'MAT-1', wxak03: 1 })
+    const merged = mergeBomSnapshotIntoAssistLine(line, mapped)
+    assert.equal(mapped.describe, 'sewing')
+    assert.equal(merged.describe, 'sewing')
+  })
 })

@@ -30,9 +30,9 @@ describe('assist order print route', () => {
     }
     const printCalls = []
     const printService = {
-      async fetchAssistOrderPrintDocuments(pool, ids, actor, setup) {
-        printCalls.push({ pool, ids, actor, setup })
-        return [{ header: { assistOrderNo: 'WX26060901' }, pages: [] }]
+      async fetchAssistOrderPrintDocuments(pool, selection, actor, setup) {
+        printCalls.push({ pool, selection, actor, setup })
+        return { ok: true, list: [{ header: { assistOrderNo: 'WX26060901' }, pages: [] }], setup: {}, printConfig: {} }
       },
     }
 
@@ -42,15 +42,15 @@ describe('assist order print route', () => {
 
     const res = createMockRes()
     await handler(
-      { query: { ids: '8,9', rowsPerPage: '12', priceDecimals: '4' }, user: { trueName: 'Zhang San' } },
+      { query: { p_sum: 'WX26060901,WX26060902', wxgs: '1', rowsPerPage: '12', priceDecimals: '4' }, user: { trueName: 'Zhang San' } },
       res,
     )
 
     assert.equal(res.statusCode, 200)
     assert.equal(res.body.code, 200)
     assert.equal(res.body.data.list.length, 1)
-    assert.deepEqual(printCalls[0].ids, [8, 9])
+    assert.deepEqual(printCalls[0].selection, { pSum: 'WX26060901,WX26060902', ids: [] })
     assert.equal(printCalls[0].actor.trueName, 'Zhang San')
-    assert.deepEqual(printCalls[0].setup, { rowsPerPage: '12', priceDecimals: '4' })
+    assert.deepEqual(printCalls[0].setup, { rowsPerPage: '12', priceDecimals: '4', wxgs: '1' })
   })
 })

@@ -221,6 +221,7 @@
               <el-checkbox label="unreview">反复核</el-checkbox>
               <el-checkbox label="price">单价</el-checkbox>
               <el-checkbox label="export">导出</el-checkbox>
+              <el-checkbox label="print">打印</el-checkbox>
             </el-checkbox-group>
           </template>
           <el-empty v-else description="请点击左侧已勾选的菜单节点，配置操作权限" :image-size="72" />

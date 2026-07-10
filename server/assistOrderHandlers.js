@@ -473,26 +473,33 @@ export function registerAssistOrderRoutes(app, deps) {
 
   app.get('/api/assist-order/print-data', async (req, res) => {
     try {
+      const pSum = String(req.query?.p_sum ?? '').trim()
       const ids = String(req.query?.ids ?? '')
         .split(',')
         .map((id) => Number(id.trim()))
         .filter((id) => Number.isInteger(id) && id > 0)
-      if (!ids.length) {
+      if (!pSum && !ids.length) {
         res.status(400).json({ code: 400, msg: '澶栧崗璁㈠崟鎵撳嵃鍙傛暟鏃犳晥', data: null })
         return
       }
       const pool = await getPool()
+      const auditActor = await resolveActorAuditTripletFromReq(pool, req)
       const setup = {
         rowsPerPage: req.query?.rowsPerPage,
         priceDecimals: req.query?.priceDecimals,
+        wxgs: req.query?.wxgs,
       }
-      const list = await printService.fetchAssistOrderPrintDocuments(
+      const result = await printService.fetchAssistOrderPrintDocuments(
         pool,
-        ids,
-        req.user ?? req.session?.user ?? {},
+        { pSum, ids },
+        { ...(req.user ?? req.session?.user ?? {}), ...auditActor },
         setup,
       )
-      res.json({ code: 200, msg: 'success', data: { list } })
+      if (!result?.ok) {
+        res.status(result?.status ?? 400).json({ code: result?.status ?? 400, msg: result?.msg || '读取外协订单打印数据失败', data: null })
+        return
+      }
+      res.json({ code: 200, msg: 'success', data: { list: result.list, setup: result.setup, printConfig: result.printConfig } })
     } catch (err) {
       console.error('GET /api/assist-order/print-data failed:', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? 'database query failed')

@@ -1,4 +1,5 @@
 import { sql } from './db.js'
+import { fetchSystemPrintLogoConfig } from './systemPrintLogo.js'
 
 const HEADER_FROM = 'dbo.[UB_ERP_assist_order]'
 const LINE_FROM = 'dbo.[UB_ERP_assist_order_list]'
@@ -62,6 +63,17 @@ export function normalizePrintSetup(setup = {}) {
   }
 }
 
+export function normalizeAssistOrderPrintFormat(value) {
+  return text(value) === '1' ? 1 : 0
+}
+
+export function parseAssistOrderPrintNos(value) {
+  return String(value ?? '')
+    .split(',')
+    .map((item) => text(item))
+    .filter(Boolean)
+}
+
 function taxFlagText(value) {
   return text(value) === '2' ? '不含税' : '含税'
 }
@@ -93,6 +105,7 @@ function buildLineRows(lines, taxIncluded, setup) {
       amount: money(amount),
       deliveryDate: dateText(line.deliveryDate),
       tax: text(line.tax),
+      describe: text(line.describe),
     }
   })
 }
@@ -103,7 +116,8 @@ function buildFeeRows(fees, startSeq) {
     seq: startSeq + index,
     materialCode: text(fee.feeCode),
     materialName: text(fee.feeName),
-    spec: '',
+    invoiceName: text(fee.invoiceName),
+    spec: text(fee.spec),
     product: '',
     color: '',
     group: '',
@@ -113,6 +127,7 @@ function buildFeeRows(fees, startSeq) {
     amount: money(fee.money),
     deliveryDate: '',
     tax: text(fee.tax),
+    describe: text(fee.remark),
   }))
 }
 
@@ -125,11 +140,12 @@ function paginate(rows, rowsPerPage, orderHeader) {
       rows: rows.slice(i, i + rowsPerPage),
     })
   }
-  return pages
+  return pages.map((page) => ({ ...page, pageTotal: pages.length }))
 }
 
 export function buildAssistOrderPrintDocument(order, rawSetup = {}) {
   const setup = normalizePrintSetup(rawSetup)
+  const wxgs = normalizeAssistOrderPrintFormat(rawSetup.wxgs)
   const header = order?.header ?? {}
   const lineRows = buildLineRows(order?.lines ?? [], header.taxIncluded, setup)
   const feeRows = buildFeeRows(order?.fees ?? [], lineRows.length + 1)
@@ -158,8 +174,8 @@ export function buildAssistOrderPrintDocument(order, rawSetup = {}) {
   }
 
   return {
-    wxgs: 0,
-    showDescribeColumn: false,
+    wxgs,
+    showDescribeColumn: wxgs === 1,
     setup,
     header: printHeader,
     pages: paginate(rows, setup.rowsPerPage, printHeader),
@@ -181,60 +197,107 @@ export function buildAssistOrderPrintDocument(order, rawSetup = {}) {
   }
 }
 
-export async function readAssistOrderPrintSetup(pool, actor = {}, overrides = {}) {
-  const uid = text(actor.uid ?? actor.id ?? actor.userId)
-  let saved = {}
-  if (uid) {
-    const r = await pool.request().input('uid', sql.NVarChar(100), uid).query(`
-      SELECT TOP 1 [print_s] AS rowsPerPage
-      FROM ${PRINT_SETUP_FROM}
-      WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL([uid], N'')))) = @uid
-        AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL([code], N'')))) = N'assist_order'
-      ORDER BY [id] DESC
-    `)
-    saved = r.recordset?.[0] ?? {}
+function actorFields(actor = {}) {
+  return {
+    uid: text(actor.uidInt ?? actor.uid ?? actor.id ?? actor.userId),
+    uname: text(actor.uname ?? actor.username ?? actor.name),
+    truename: text(actor.utruename ?? actor.truename ?? actor.trueName ?? actor.name),
   }
-  return normalizePrintSetup({ ...saved, ...overrides })
 }
 
-export async function fetchAssistOrderPrintDocuments(pool, ids, actor = {}, setupOverrides = {}) {
-  const orderIds = (Array.isArray(ids) ? ids : [])
-    .map((id) => Math.trunc(Number(id)))
-    .filter((id) => Number.isInteger(id) && id > 0)
-  if (!orderIds.length) return []
-
-  const setup = await readAssistOrderPrintSetup(pool, actor, setupOverrides)
-  const docs = []
-  for (const id of orderIds) {
-    const headerResult = await pool.request().input('id', sql.Int, id).query(`
-      SELECT TOP 1
-        h.[id],
-        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj01], N'')))) AS assistOrderNo,
-        h.[wxaj02] AS assistDate,
-        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj04], N'')))) AS referenceNo,
-        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj05], N'')))) AS supplierCode,
-        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kehu], N'')))) AS supplierName,
-        LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(h.[wxaj06], N'')))) AS taxIncluded,
-        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[wxaj07], N'')))) AS currencyCode,
-        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[rmb], N'')))) AS currencyName,
-        LTRIM(RTRIM(CONVERT(nvarchar(1000), ISNULL(h.[remark], N'')))) AS remark,
-        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(s.[s_sname], N'')))) AS supplierShortName,
-        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(s.[s_payfor], N'')))) AS payFor,
-        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(s.[s_address], N'')))) AS address,
-        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[s_lxr], N'')))) AS contact,
-        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[s_tel], N'')))) AS tel
-      FROM ${HEADER_FROM} AS h
-      LEFT JOIN ${SUPPLIER_FROM} AS s
-        ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[s_code], N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj05], N''))))
-      WHERE h.[id] = @id
+export async function readAndSaveAssistOrderPrintSetup(pool, actor = {}, { pSum = '', ...overrides } = {}) {
+  const audit = actorFields(actor)
+  if (!audit.uid) return normalizePrintSetup(overrides)
+  const read = await pool.request()
+    .input('uid', sql.NVarChar(100), audit.uid)
+    .query(`
+      SELECT TOP 1 [id], [print_s] AS rowsPerPage
+      FROM ${PRINT_SETUP_FROM}
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL([uid], N'')))) = @uid
+        AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL([code], N'')))) = N'ub_erp_assist_order'
+      ORDER BY [id] DESC
     `)
-    const header = headerResult.recordset?.[0]
-    if (!header?.id) continue
+  const saved = read.recordset?.[0] ?? null
+  const setup = normalizePrintSetup({ ...(saved ?? {}), ...overrides })
+  const write = pool.request()
+    .input('uid', sql.NVarChar(100), audit.uid)
+    .input('uname', sql.NVarChar(100), audit.uname)
+    .input('truename', sql.NVarChar(100), audit.truename)
+    .input('printS', sql.Int, setup.rowsPerPage)
+    .input('printCode', sql.NVarChar(sql.MAX), text(pSum))
+  if (saved?.id) {
+    write.input('id', sql.Int, Number(saved.id))
+    await write.query(`
+      UPDATE ${PRINT_SETUP_FROM}
+      SET [print_s] = @printS, [print_time] = GETDATE(), [print_code] = @printCode
+      WHERE [id] = @id
+    `)
+  } else {
+    await write.query(`
+      INSERT INTO ${PRINT_SETUP_FROM} ([uid], [uname], [truename], [addtime], [code], [print_s], [print_time], [print_code])
+      VALUES (@uid, @uname, @truename, CONVERT(nvarchar(30), GETDATE(), 120), N'ub_erp_assist_order', @printS, GETDATE(), @printCode)
+    `)
+  }
+  return setup
+}
+
+async function fetchPrintHeaderByOrderNo(pool, orderNo) {
+  const result = await pool.request().input('orderNo', sql.NVarChar(200), orderNo).query(`
+    SELECT TOP 1
+      h.[id],
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj01], N'')))) AS assistOrderNo,
+      h.[wxaj02] AS assistDate,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj04], N'')))) AS referenceNo,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj05], N'')))) AS supplierCode,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kehu], N'')))) AS supplierName,
+      LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(h.[wxaj06], N'')))) AS taxIncluded,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[wxaj07], N'')))) AS currencyCode,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[rmb], N'')))) AS currencyName,
+      LTRIM(RTRIM(CONVERT(nvarchar(1000), ISNULL(h.[remark], N'')))) AS remark,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(s.[s_sname], N'')))) AS supplierShortName,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(s.[s_payfor], N'')))) AS payFor,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(s.[s_address], N'')))) AS address,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[s_lxr], N'')))) AS contact,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[s_tel], N'')))) AS tel
+    FROM ${HEADER_FROM} AS h
+    LEFT JOIN ${SUPPLIER_FROM} AS s
+      ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[s_code], N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj05], N''))))
+     AND (ISNULL(s.[del], N'') = N'' OR s.[del] = N'0')
+     AND LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(s.[pass], N'')))) = N'1'
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj01], N'')))) = @orderNo
+      AND (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
+  `)
+  return result.recordset?.[0] ?? null
+}
+
+export async function fetchAssistOrderPrintDocuments(pool, { pSum = '', ids = [] } = {}, actor = {}, setupOverrides = {}) {
+  let orderNos = parseAssistOrderPrintNos(pSum)
+  if (!orderNos.length && Array.isArray(ids) && ids.length) {
+    for (const rawId of ids) {
+      const id = Math.trunc(Number(rawId))
+      if (!Number.isInteger(id) || id <= 0) continue
+      const result = await pool.request().input('id', sql.Int, id).query(`
+        SELECT TOP 1 LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([wxaj01], N'')))) AS assistOrderNo
+        FROM ${HEADER_FROM}
+        WHERE [id] = @id AND (ISNULL([del], N'') = N'' OR [del] = N'0')
+      `)
+      const orderNo = text(result.recordset?.[0]?.assistOrderNo)
+      if (orderNo) orderNos.push(orderNo)
+    }
+  }
+  if (!orderNos.length) return { ok: false, status: 400, code: 'EMPTY_P_SUM', msg: '请选择需要打印的订单' }
+
+  const setup = await readAndSaveAssistOrderPrintSetup(pool, actor, { ...setupOverrides, pSum: orderNos.join(',') })
+  const printConfig = await fetchSystemPrintLogoConfig(pool)
+  const docs = []
+  for (let index = 0; index < orderNos.length; index += 1) {
+    const header = await fetchPrintHeaderByOrderNo(pool, orderNos[index])
+    if (!header?.id) return { ok: false, status: 404, code: 'MISSING_DOCUMENT', msg: `其中第 ${index + 1} 张单数据不存在，请返回检测` }
 
     const orderNo = text(header.assistOrderNo)
     const linesResult = await pool.request().input('orderNo', sql.NVarChar(200), orderNo).query(`
       SELECT
-        ROW_NUMBER() OVER (ORDER BY l.[id] ASC) AS seq,
+        ROW_NUMBER() OVER (ORDER BY ISNULL(l.[seq], l.[id]), l.[id]) AS seq,
         LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[Product], N'')))) AS product,
         LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa01], N'')))) AS kcaa01,
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[kcaa02], N'')))) AS kcaa02,
@@ -249,25 +312,29 @@ export async function fetchAssistOrderPrintDocuments(pool, ids, actor = {}, setu
         l.[wxak05],
         l.[wxak051],
         l.[tax],
-        l.[delivery_date] AS deliveryDate
+        l.[delivery_date] AS deliveryDate,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[Describe], N'')))) AS describe
       FROM ${LINE_FROM} AS l
       LEFT JOIN ${COLOR_FROM} AS c
         ON LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.[code], N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[kcaa11], N''))))
        AND (ISNULL(c.[del], N'') = N'' OR c.[del] = N'0')
       WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[wxak01], N'')))) = @orderNo
         AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
-      ORDER BY l.[id] ASC
+      ORDER BY ISNULL(l.[seq], l.[id]), l.[id]
     `)
     const feesResult = await pool.request().input('orderNo', sql.NVarChar(200), orderNo).query(`
       SELECT
         LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(m.[kcaa01], N'')))) AS feeCode,
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(NULLIF(m.[kcaa02], N''), m.[mtitle])))) AS feeName,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(m.[kpname], N'')))) AS invoiceName,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(m.[kcaa03], N'')))) AS spec,
         m.[money],
-        m.[tax]
+        m.[tax],
+        LTRIM(RTRIM(CONVERT(nvarchar(1000), ISNULL(m.[remark], N'')))) AS remark
       FROM ${MONEY_FROM} AS m
       WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(m.[assist_code], N'')))) = @orderNo
         AND ISNULL(m.[del], 0) = 0
-      ORDER BY m.[id] ASC
+      ORDER BY ISNULL(m.[kid], m.[id]), m.[id]
     `)
 
     docs.push(buildAssistOrderPrintDocument({
@@ -275,7 +342,7 @@ export async function fetchAssistOrderPrintDocuments(pool, ids, actor = {}, setu
       lines: linesResult.recordset ?? [],
       fees: feesResult.recordset ?? [],
       makerName: text(actor.trueName ?? actor.truename ?? actor.utruename ?? actor.name ?? actor.username),
-    }, setup))
+    }, { ...setup, wxgs: setupOverrides.wxgs }))
   }
-  return docs
+  return { ok: true, list: docs, setup, printConfig }
 }

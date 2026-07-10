@@ -20,7 +20,7 @@
       />
       <el-button type="primary" @click="reload">立即查询</el-button>
       <el-button @click="resetKeyword">重置</el-button>
-      <el-button @click="queryAll">查询全部</el-button>
+      <el-button :disabled="!rows.some((row) => row.selectable) || saving || submitted" @click="selectAllOnPage">全选</el-button>
       <el-button type="primary" :disabled="!selectedCount || saving || submitted" :loading="saving" @click="saveSelected">
         {{ submitted ? '已提交' : '保存已选数据' }}
       </el-button>
@@ -117,6 +117,7 @@ import {
   STOCK_BATCH_MSG_ACCEPTED,
   STOCK_BATCH_MSG_REJECTED,
   STOCK_BATCH_REJECT_WAREHOUSE_MISMATCH,
+  addSelectableStockBatchRows,
   readStockBatchContext,
   writeStockBatchResult,
 } from '@/utils/stockInBatchAdd'
@@ -143,7 +144,6 @@ const pickedKeys = ref(new Set())
 const pickedRows = ref(new Map())
 const closeHint = ref('')
 const hasSearched = ref(false)
-const allowEmptyKeyword = ref(false)
 
 const emptyText = computed(() => (hasSearched.value ? '查询结果：没有查询到相关信息' : '请输入关键字后点击查询'))
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value) || 1))
@@ -183,11 +183,15 @@ function togglePick(row) {
   pickedRows.value.set(row.lineKey, { ...row })
 }
 
-async function loadRows(options = {}) {
+function selectAllOnPage() {
+  pickedRows.value = addSelectableStockBatchRows(rows.value, pickedRows.value)
+  pickedKeys.value = new Set(pickedRows.value.keys())
+}
+
+async function loadRows() {
   if (!warehouseCode.value) return
   const kw = keyword.value.trim()
-  const canEmpty = !!options.allowEmptyKeyword
-  if (!kw && !canEmpty) {
+  if (!kw) {
     hasSearched.value = false
     rows.value = []
     total.value = 0
@@ -201,7 +205,7 @@ async function loadRows(options = {}) {
       params: {
         warehouseCode: warehouseCode.value,
         keyword: kw || undefined,
-        requireKeyword: kw ? undefined : (canEmpty ? '0' : '1'),
+        requireKeyword: '1',
         selectedKeys: [...pickedKeys.value, ...selectedKeysFromParent.value].join(','),
         page: page.value,
         pageSize: pageSize.value,
@@ -222,29 +226,20 @@ async function loadRows(options = {}) {
 }
 
 function reload() {
-  allowEmptyKeyword.value = false
   page.value = 1
   loadRows()
 }
 
 function resetKeyword() {
   keyword.value = ''
-  allowEmptyKeyword.value = false
   hasSearched.value = false
   rows.value = []
   total.value = 0
 }
 
-function queryAll() {
-  keyword.value = ''
-  allowEmptyKeyword.value = true
-  page.value = 1
-  loadRows({ allowEmptyKeyword: true })
-}
-
 function onPageSizeChange() {
   page.value = 1
-  loadRows({ allowEmptyKeyword: allowEmptyKeyword.value })
+  loadRows()
 }
 
 function closeWindow() {

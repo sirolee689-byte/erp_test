@@ -51,6 +51,7 @@ describe('rewriteAssistOrderLines', () => {
           deliveryDate: '2026-06-20',
           referenceNo: 'REF-1',
           remark: 'first',
+          describe: 'sewing',
         },
         {
           seq: 2,
@@ -102,6 +103,8 @@ describe('rewriteAssistOrderLines', () => {
     assert.match(recorder.calls[1].sqlText, /\[remark\]/i)
     assert.match(recorder.calls[1].sqlText, /\[ip\]/i)
     assert.equal(recorder.calls[1].inputs.wxak06, 'first')
+    assert.equal(recorder.calls[1].inputs.Describe, 'sewing')
+    assert.match(recorder.calls[1].sqlText, /\[Describe\]/i)
     assert.equal(recorder.calls[1].inputs.snapshotRemark, 'BOM快照备注')
     assert.equal(recorder.calls[1].inputs.type, 1)
     assert.equal(recorder.calls[1].inputs.ip, '192.168.1.20')

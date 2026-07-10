@@ -41,7 +41,7 @@ describe('assist order permission rules', () => {
     })
     assert.deepEqual(matchApiPermissionRule('GET', '/api/assist-order/print-data', {}, {}), {
       menuPath: 'supply-chain/daily/outsourcing-order',
-      action: 'view',
+      action: 'print',
     })
     assert.deepEqual(matchApiPermissionRule('POST', '/api/assist-order', {}, {}), {
       menuPath: 'supply-chain/daily/outsourcing-order',

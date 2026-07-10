@@ -76,3 +76,15 @@ export function validateStockBatchApply({
   }
   return { ok: true }
 }
+
+/** 仅追加当前页可选明细；保留跨页已选内容，不覆盖已有选择。 */
+export function addSelectableStockBatchRows(rows, pickedRows, keyOf = (row) => String(row?.lineKey ?? '').trim()) {
+  const nextPickedRows = new Map(pickedRows ?? [])
+  for (const row of rows ?? []) {
+    if (!row?.selectable) continue
+    const key = String(keyOf(row) ?? '').trim()
+    if (!key || nextPickedRows.has(key)) continue
+    nextPickedRows.set(key, JSON.parse(JSON.stringify(row)))
+  }
+  return nextPickedRows
+}

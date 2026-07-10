@@ -48,37 +48,35 @@
           <el-option label="订单外协" value="1" />
           <el-option label="订单外发" value="2" />
         </el-select>
-        <el-select v-model="filters.keywordField" clearable class="assist-filter-select" placeholder="条件项目">
-          <el-option label="全部字段" value="" />
-          <el-option label="外协订单号" value="assistOrderNo" />
-          <el-option label="外协日期" value="assistDate" />
-          <el-option label="关联单号" value="referenceNo" />
-          <el-option label="备注" value="remark" />
-        </el-select>
-        <el-button :disabled="printSelectedCount === 0" @click="openBatchPrint">批量打印</el-button>
-        <el-button :loading="loading" @click="loadData">
-          <el-icon><Refresh /></el-icon>
-          刷新
-        </el-button>
+        <span v-permission="'print'" class="assist-print-selected">已选择 {{ printSelectedCount }} 条</span>
+        <el-button v-permission="'print'" :disabled="printSelectedCount === 0" @click="openSelectedPrint('1')">打印外协订单（采购格式）</el-button>
+        <el-button v-permission="'print'" :disabled="printSelectedCount === 0" @click="openSelectedPrint('0')">打印外协订单（外协格式）</el-button>
       </div>
       <div class="assist-filter-row erp-filter-row">
-        <el-input
-          v-model="filters.keyword"
-          clearable
-          class="assist-keyword-input"
-          :placeholder="keywordPlaceholder"
-          @keyup.enter="onSearch"
-        />
+        <div class="assist-filter-field assist-filter-field--keyword">
+          <span class="assist-filter-label">查询内容</span>
+          <el-input
+            v-model="filters.keyword"
+            clearable
+            class="assist-keyword-input"
+            placeholder="单号 / 关联单号 / 备注"
+            @keyup.enter="onSearch"
+          />
+        </div>
         <el-button type="primary" size="small" @click="onSearch">查询</el-button>
-        <div class="audit-switch erp-filter-switch">
+        <el-button size="small" @click="onReset">重置</el-button>
+        <div class="assist-filter-divider erp-filter-divider" aria-hidden="true" />
+        <div class="assist-filter-switch erp-filter-switch">
           <span class="switch-label">回收站</span>
           <el-switch v-model="filters.recycled" @change="onRecycleChange" />
         </div>
-        <div v-if="!filters.recycled" class="audit-switch erp-filter-switch">
-          <span class="switch-label">显示未审核</span>
-          <el-switch v-model="filters.showUnaudited" @change="onSearch" />
-        </div>
-        <el-button size="small" @click="onReset">重置</el-button>
+        <template v-if="!filters.recycled">
+          <div class="assist-filter-divider erp-filter-divider" aria-hidden="true" />
+          <div class="assist-filter-switch erp-filter-switch">
+            <span class="switch-label">显示未审核</span>
+            <el-switch v-model="filters.showUnaudited" @change="onSearch" />
+          </div>
+        </template>
       </div>
     </div>
 
@@ -226,6 +224,7 @@
                 </el-button>
               </template>
               <el-button
+                v-permission="'print'"
                 plain
                 :type="isPrintSelected(row) ? 'primary' : 'default'"
                 @click.stop="togglePrintSelect(row)"
@@ -363,89 +362,6 @@
       />
     </div>
 
-    <el-dialog v-model="printVisible" title="外协单打印预览" width="1180px" top="3vh" class="assist-print-dialog">
-      <div class="assist-print-toolbar no-print">
-        <span>每页行数</span>
-        <el-input-number v-model="printSetup.rowsPerPage" :min="3" :max="15" :step="1" size="small" />
-        <span>单价小数位</span>
-        <el-input-number v-model="printSetup.priceDecimals" :min="2" :max="5" :step="1" size="small" />
-        <el-button type="primary" :loading="printLoading" @click="reloadPrintData">刷新预览</el-button>
-        <el-button type="success" :disabled="!printDocs.length" @click="printCurrentPreview">打印</el-button>
-      </div>
-      <el-skeleton :loading="printLoading" animated :rows="8">
-        <template #default>
-          <el-empty v-if="!printDocs.length" description="暂无打印数据" />
-          <section v-for="doc in printDocs" v-else :key="doc.header.assistOrderNo" class="assist-print-doc">
-            <article v-for="page in doc.pages" :key="`${doc.header.assistOrderNo}-${page.pageNo}`" class="assist-print-page">
-              <h2>外协单</h2>
-              <div class="assist-print-head">
-                <span>加工商：{{ doc.header.supplierShortName || doc.header.supplierName }}</span>
-                <span>结算方式：{{ doc.header.payFor || '-' }}</span>
-                <span>联系人：{{ doc.header.contact || '-' }}</span>
-                <span>电话：{{ doc.header.tel || '-' }}</span>
-                <span>地址：{{ doc.header.address || '-' }}</span>
-                <span>日期：{{ doc.header.date || '-' }}</span>
-                <span>PI号：{{ doc.header.piNo || '-' }}</span>
-                <span>币别：{{ doc.header.currencyName || '-' }}</span>
-                <span>是否含税：{{ doc.header.taxFlag || '-' }}</span>
-                <span>备注：{{ doc.header.remark || '-' }}</span>
-              </div>
-              <table class="assist-print-table">
-                <thead>
-                  <tr>
-                    <th>序号</th>
-                    <th>材料编码</th>
-                    <th>材料名称/规格</th>
-                    <th>对应款号</th>
-                    <th>配件颜色</th>
-                    <th>组别</th>
-                    <th>单位</th>
-                    <th>数量</th>
-                    <th>单价</th>
-                    <th>金额</th>
-                    <th>交期</th>
-                    <th>税点</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="row in page.rows" :key="`${page.pageNo}-${row.seq}`">
-                    <td>{{ row.seq }}</td>
-                    <td>{{ row.materialCode }}</td>
-                    <td>
-                      <div>{{ row.materialName }}</div>
-                      <div>{{ row.spec }}</div>
-                    </td>
-                    <td>{{ row.product }}</td>
-                    <td>{{ row.color }}</td>
-                    <td>{{ row.group }}</td>
-                    <td>{{ row.unit }}</td>
-                    <td class="num">{{ row.quantity }}</td>
-                    <td class="num">{{ row.price }}</td>
-                    <td class="num">{{ row.amount }}</td>
-                    <td>{{ row.deliveryDate }}</td>
-                    <td>{{ row.tax }}</td>
-                  </tr>
-                </tbody>
-              </table>
-              <div class="assist-print-total">数量合计：{{ doc.totals.quantity }}　金额合计：{{ doc.totals.amount }}</div>
-              <ol class="assist-print-terms">
-                <li v-for="term in doc.contractTerms" :key="term">{{ term }}</li>
-              </ol>
-              <div class="assist-print-sign">
-                <span>甲方：</span>
-                <span>应付会计：</span>
-                <span>乙方：</span>
-                <span>盖章：</span>
-                <span>厂长：</span>
-                <span>日期：</span>
-                <span>制表人：{{ doc.signature.makerName || '-' }}</span>
-                <span>核对：</span>
-              </div>
-            </article>
-          </section>
-        </template>
-      </el-skeleton>
-    </el-dialog>
   </div>
 </template>
 
@@ -456,7 +372,6 @@ import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh } from '@element-plus/icons-vue'
 import {
   recalcAssistOrderLineFromQuotedPrices,
   recalcAssistOrderLineFromTaxExcluded,
@@ -502,21 +417,13 @@ const currencyOptions = ref([])
 const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
-const printVisible = ref(false)
 const editTab = ref('header')
 const editMode = ref('create')
 const editId = ref(null)
 const viewId = ref(null)
 const activeFormRef = ref(null)
 const activeBatchSessionId = ref('')
-const printSelectedIds = ref(new Set())
-const printLoading = ref(false)
-const printDocs = ref([])
-const printIds = ref([])
-const printSetup = reactive({
-  rowsPerPage: 12,
-  priceDecimals: 2,
-})
+const printSelectedOrderNos = ref([])
 const filters = reactive({
   keyword: '',
   keywordField: '',
@@ -532,16 +439,7 @@ const assistOrderActionsColWidth = computed(() => {
   return getErpTableActionsColMinWidth(5)
 })
 
-const keywordPlaceholder = computed(() => {
-  const field = String(filters.keywordField ?? '').trim()
-  if (field === 'assistOrderNo') return '输入外协订单号'
-  if (field === 'assistDate') return '输入外协日期，如 2026-06-09'
-  if (field === 'referenceNo') return '输入关联单号'
-  if (field === 'remark') return '输入备注'
-  return '全字段模糊搜索'
-})
-
-const printSelectedCount = computed(() => printSelectedIds.value.size)
+const printSelectedCount = computed(() => printSelectedOrderNos.value.length)
 
 const pageSubtotal = computed(() => calcAssistOrderPageSubtotal(tableList.value))
 
@@ -871,17 +769,19 @@ function assistOrderDataLines(row) {
 }
 
 function isPrintSelected(row) {
-  const id = Number(row?.id)
-  return Number.isInteger(id) && id > 0 && printSelectedIds.value.has(id)
+  const orderNo = String(row?.assistOrderNo ?? '').trim()
+  return !!orderNo && printSelectedOrderNos.value.includes(orderNo)
 }
 
 function togglePrintSelect(row) {
-  const id = Number(row?.id)
-  if (!Number.isInteger(id) || id <= 0) return
-  const next = new Set(printSelectedIds.value)
-  if (next.has(id)) next.delete(id)
-  else next.add(id)
-  printSelectedIds.value = next
+  const orderNo = String(row?.assistOrderNo ?? '').trim()
+  if (!orderNo) {
+    ElMessage.warning('该外协订单缺少单号，不能加入打印')
+    return
+  }
+  printSelectedOrderNos.value = printSelectedOrderNos.value.includes(orderNo)
+    ? printSelectedOrderNos.value.filter((item) => item !== orderNo)
+    : [...printSelectedOrderNos.value, orderNo]
 }
 
 async function loadData() {
@@ -910,7 +810,6 @@ async function loadData() {
     tableList.value = []
     total.value = 0
   } finally {
-    printSelectedIds.value = new Set()
     loading.value = false
   }
 }
@@ -1444,54 +1343,15 @@ function onLineTaxIncludedChange(row) {
   applyLineCalc(row, recalcAssistOrderLineFromTaxIncluded(row, { priceDecimals: editForm.decimalPlaces }))
 }
 
-function openBatchPrint() {
-  const rows = tableList.value.filter((row) => isPrintSelected(row))
-  openPrint(rows)
-}
-
-async function openPrint(rows) {
-  const ids = (Array.isArray(rows) ? rows : [])
-    .map((row) => Number(row?.id))
-    .filter((id) => Number.isInteger(id) && id > 0)
-  if (!ids.length) {
-    ElMessage.warning('请先选择要打印的外协订单')
+function openSelectedPrint(wxgs) {
+  const selected = printSelectedOrderNos.value
+  if (!selected.length) {
+    ElMessage.warning('请选择需要打印的订单')
     return
   }
-  printIds.value = ids
-  printVisible.value = true
-  await reloadPrintData()
-}
-
-async function reloadPrintData() {
-  if (!printIds.value.length) return
-  printLoading.value = true
-  try {
-    const res = await axios.get('/api/assist-order/print-data', {
-      params: {
-        ids: printIds.value.join(','),
-        rowsPerPage: printSetup.rowsPerPage,
-        priceDecimals: printSetup.priceDecimals,
-      },
-    })
-    const body = res.data ?? {}
-    if (body.code !== 200) throw new Error(body.msg || '读取打印数据失败')
-    printDocs.value = Array.isArray(body.data?.list) ? body.data.list : []
-  } catch (err) {
-    printDocs.value = []
-    ElMessage.error(err?.response?.data?.msg || err?.message || '读取打印数据失败')
-  } finally {
-    printLoading.value = false
-  }
-}
-
-function printCurrentPreview() {
-  document.documentElement.classList.add('print-assist-order')
-  const cleanup = () => {
-    document.documentElement.classList.remove('print-assist-order')
-    window.removeEventListener('afterprint', cleanup)
-  }
-  window.addEventListener('afterprint', cleanup)
-  setTimeout(() => window.print(), 50)
+  const query = new URLSearchParams({ p_sum: selected.join(','), wxgs: String(wxgs) })
+  const opened = window.open(`/supply-chain/daily/outsourcing-order-print?${query.toString()}`, '_blank')
+  if (!opened) ElMessage.error('无法打开打印窗口，请检查浏览器是否拦截弹窗')
 }
 
 async function openView(row) {
@@ -1776,7 +1636,29 @@ onUnmounted(() => {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-start;
   gap: 8px;
+  width: 100%;
+}
+
+.assist-print-selected {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.assist-filter-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.assist-filter-label {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+  white-space: nowrap;
 }
 
 .assist-filter-select {
@@ -1785,11 +1667,21 @@ onUnmounted(() => {
 }
 
 .assist-keyword-input {
-  flex: 0 1 420px;
-  width: min(420px, 100%);
+  flex: 0 0 420px;
+  width: 420px;
+  min-width: 420px;
+  max-width: 420px;
 }
 
-.audit-switch {
+.assist-filter-divider {
+  width: 1px;
+  height: 22px;
+  margin: 0 20px;
+  background: var(--el-border-color);
+  flex-shrink: 0;
+}
+
+.assist-filter-switch {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1908,114 +1800,4 @@ onUnmounted(() => {
   padding-top: 10px;
 }
 
-.assist-print-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.assist-print-toolbar .el-input-number {
-  width: 120px;
-}
-
-.assist-print-doc {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.assist-print-page {
-  padding: 18px;
-  background: #fff;
-  color: #111;
-  border: 1px solid #d7dce3;
-}
-
-.assist-print-page h2 {
-  margin: 0 0 10px;
-  text-align: center;
-  font-size: 20px;
-}
-
-.assist-print-head,
-.assist-print-sign {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 6px 12px;
-  font-size: 12px;
-  margin-bottom: 10px;
-}
-
-.assist-print-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-
-.assist-print-table th,
-.assist-print-table td {
-  border: 1px solid #333;
-  padding: 4px 5px;
-  vertical-align: top;
-}
-
-.assist-print-table th {
-  background: #f5f5f5;
-}
-
-.assist-print-table .num {
-  text-align: right;
-}
-
-.assist-print-total {
-  margin-top: 8px;
-  text-align: right;
-  font-weight: 650;
-}
-
-.assist-print-terms {
-  margin: 10px 0;
-  padding-left: 20px;
-  font-size: 12px;
-  columns: 2;
-}
-
-@media print {
-  html.print-assist-order body * {
-    visibility: hidden;
-  }
-
-  html.print-assist-order .assist-print-dialog,
-  html.print-assist-order .assist-print-dialog * {
-    visibility: visible;
-  }
-
-  html.print-assist-order .no-print,
-  html.print-assist-order .el-dialog__header,
-  html.print-assist-order .el-dialog__footer {
-    display: none !important;
-  }
-
-  html.print-assist-order .assist-print-dialog {
-    position: absolute;
-    inset: 0;
-  }
-
-  html.print-assist-order .assist-print-dialog .el-dialog {
-    width: 100% !important;
-    margin: 0 !important;
-    box-shadow: none;
-  }
-
-  html.print-assist-order .assist-print-dialog .el-dialog__body {
-    padding: 0;
-  }
-
-  html.print-assist-order .assist-print-page {
-    page-break-after: always;
-    border: 0;
-    padding: 8mm;
-  }
-}
 </style>

@@ -16,7 +16,7 @@
       />
       <el-button type="primary" @click="reload">查询</el-button>
       <el-button v-if="isProductionReturnBatch" :loading="loading" @click="refreshProductionReturnRows">刷新数据</el-button>
-      <el-button @click="queryAll">查询全部</el-button>
+      <el-button :disabled="!rows.some((row) => row.selectable) || saving || submitted" @click="selectAllOnPage">全选</el-button>
       <el-button type="primary" :disabled="!selectedCount || saving || submitted" :loading="saving" @click="saveSelected">
         {{ submitted ? '已提交' : '保存已选数据' }}
       </el-button>
@@ -194,6 +194,7 @@ import {
   STOCK_BATCH_MSG_REJECTED,
   STOCK_BATCH_REJECT_SOURCE_MISMATCH,
   STOCK_BATCH_REJECT_SUPPLIER_MISMATCH,
+  addSelectableStockBatchRows,
   readStockBatchContext,
   writeStockBatchResult,
 } from '@/utils/stockInBatchAdd'
@@ -348,6 +349,11 @@ function resetSelection() {
   pickedRows.value = new Map()
 }
 
+function selectAllOnPage() {
+  pickedRows.value = addSelectableStockBatchRows(rows.value, pickedRows.value, (row) => String(row.lineKey ?? '').toLowerCase())
+  pickedKeys.value = new Set(pickedRows.value.keys())
+}
+
 async function loadRows() {
   if (!sourceOrderNo.value) return
   if (isProductionReturnBatch.value && allRowsCache.value.length && !loading.value) {
@@ -406,11 +412,6 @@ function reload() {
     return
   }
   loadRows()
-}
-
-function queryAll() {
-  keyword.value = ''
-  reload()
 }
 
 function refreshProductionReturnRows() {

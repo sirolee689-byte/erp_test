@@ -57,6 +57,7 @@ export function normalizeAssistOrderLine(line, index = 0) {
     deliveryDate: nullableDate(line?.deliveryDate ?? line?.delivery_date),
     referenceNo: text(line?.referenceNo ?? line?.reference),
     remark: text(line?.remark ?? line?.wxak06),
+    describe: text(line?.describe ?? line?.Describe),
     version: nullableNumber(line?.version),
     customerSupply: nullableNumber(line?.customerSupply ?? line?.Customer_supply),
     type: nullableNumber(line?.type),
@@ -166,6 +167,7 @@ export async function rewriteAssistOrderLines({
     req.input('delivery_date', sql.DateTime, enriched.deliveryDate)
     req.input('reference', sql.NVarChar(200), nullableText(enriched.referenceNo))
     req.input('wxak06', sql.NVarChar(1000), nullableText(enriched.remark))
+    req.input('Describe', sql.NVarChar(500), nullableText(enriched.describe))
     req.input('version', sql.Int, enriched.version)
     req.input('Customer_supply', sql.Int, enriched.customerSupply)
     req.input('type', sql.Int, enriched.type ?? 1)
@@ -184,7 +186,7 @@ export async function rewriteAssistOrderLines({
         [kcaa31], [kcaa32], [kcaa33], [kcaa34], [kcaa35],
         [wxak02], [GUID], [systemcode],
         [wxak03], [wxak04], [wxak041], [wxak05], [wxak051], [tax],
-        [delivery_date], [reference], [wxak06], [version], [Customer_supply], [type], [location], [sale_price], [cost_price],
+        [delivery_date], [reference], [wxak06], [Describe], [version], [Customer_supply], [type], [location], [sale_price], [cost_price],
         [Customer_Name], [uid], [uname], [utruename], [addtime], [remark], [pass], [ip], [del]
       )
       VALUES (
@@ -196,7 +198,7 @@ export async function rewriteAssistOrderLines({
         @kcaa31, @kcaa32, @kcaa33, @kcaa34, @kcaa35,
         @wxak02, @guid, @systemcode,
         @wxak03, @wxak04, @wxak041, @wxak05, @wxak051, @tax,
-        @delivery_date, @reference, @wxak06, @version, @Customer_supply, @type, @location, @sale_price, @cost_price,
+        @delivery_date, @reference, @wxak06, @Describe, @version, @Customer_supply, @type, @location, @sale_price, @cost_price,
         @Customer_Name, @uid, @uname, @utruename, @addtime, @snapshotRemark, N'1', @ip, N'0'
       )
     `)

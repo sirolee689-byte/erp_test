@@ -115,6 +115,13 @@ const purchaseOrderPrintRoute = {
   meta: { title: '打印采购订单', permissionPath: '/supply-chain/daily/purchase-order' },
 }
 
+const assistOrderPrintRoute = {
+  path: '/supply-chain/daily/outsourcing-order-print',
+  name: 'supply-chain-daily-outsourcing-order-print',
+  component: () => import('@/views/supply-chain/daily/outsourcing-order/print.vue'),
+  meta: { title: '打印外协订单', permissionPath: '/supply-chain/daily/outsourcing-order' },
+}
+
 const stockInPurchaseBatchWindowRoute = {
   path: '/inventory/daily/stock-in-purchase-batch-window',
   name: 'inventory-daily-stock-in-purchase-batch-window',
@@ -271,6 +278,7 @@ const router = createRouter({
     purchaseOrderBatchWindowRoute,
     purchaseOrderMaterialTraceWindowRoute,
     purchaseOrderPrintRoute,
+    assistOrderPrintRoute,
     stockInPurchaseBatchWindowRoute,
     stockInAssistBatchWindowRoute,
     stockInProductionBatchWindowRoute,

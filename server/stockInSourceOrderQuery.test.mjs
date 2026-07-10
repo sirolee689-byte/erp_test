@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import { describe, it } from 'node:test'
 import {
   __buildAssistSourceDetailCountSqlForTest,
@@ -34,6 +35,13 @@ function assertSql2008(sqlText) {
 }
 
 describe('stockIn source-order-page SQL', () => {
+  it('采购来源选择页声明预取页数常量，避免点击选择时引用未定义变量', () => {
+    const page = fs.readFileSync(new URL('../src/views/inventory/daily/stock-in/index.vue', import.meta.url), 'utf8')
+
+    assert.match(page, /const PURCHASE_SOURCE_PREFETCH_PAGES = 3/)
+    assert.match(page, /prefetchPages:\s*PURCHASE_SOURCE_PREFETCH_PAGES/)
+  })
+
   it('dispatch keyword search uses a detail LEFT JOIN instead of scalar subqueries', () => {
     const meta = __stockInSourceMetaForTest('4')
     const kwSql = __buildSourceOrderKeywordSqlForTest('4', meta)

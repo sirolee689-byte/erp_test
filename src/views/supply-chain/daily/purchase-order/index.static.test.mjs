@@ -80,4 +80,13 @@ describe('purchase-order index static UI contract', () => {
     assert.doesNotMatch(source, /v-model="row\.tax"[\s\S]*:precision="4"/)
     assert.doesNotMatch(source, /v-model="row\.taxIncludedPrice"[\s\S]*:precision="form\.header\.decimalPlaces"/)
   })
+
+  test('expanded purchase-order line opens the BOM master detail by material code', () => {
+    assert.match(source, /openExpandedLineBom\(line\)/)
+    assert.match(source, /function openExpandedLineBom\(row\)/)
+    assert.match(source, /row\?\.kcaa01/)
+    assert.match(source, /\/inventory\/basic\/bom-data-window\?mode=detail&code=/)
+    assert.doesNotMatch(source, /openExpandedLinePiBom/)
+    assert.doesNotMatch(source, /pi-bom-data-window/)
+  })
 })

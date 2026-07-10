@@ -692,6 +692,8 @@ import {
   writeStockBatchContext,
 } from '@/utils/stockInBatchAdd'
 
+const PURCHASE_SOURCE_PREFETCH_PAGES = 3
+
 defineOptions({ name: 'inventory-daily-stock-in' })
 
 const { onErpListRowContextMenu } = useErpListRowContextMenu()

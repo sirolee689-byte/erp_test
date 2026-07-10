@@ -17,7 +17,7 @@
         @keyup.enter="reload"
       />
       <el-button type="primary" @click="reload">查询</el-button>
-      <el-button @click="queryAll">查询全部</el-button>
+      <el-button :disabled="!parentRows.length || loading || saving || submitted" @click="selectAllOnPage">全选</el-button>
       <el-button type="primary" :disabled="!selectedCount || saving || submitted" :loading="saving" @click="saveSelected">
         {{ submitted ? '已提交' : '保存已选数据' }}
       </el-button>
@@ -202,6 +202,7 @@ import {
   STOCK_BATCH_MSG_REJECTED,
   STOCK_BATCH_REJECT_SOURCE_MISMATCH,
   STOCK_BATCH_REJECT_SUPPLIER_MISMATCH,
+  addSelectableStockBatchRows,
   readStockBatchContext,
   writeStockBatchResult,
 } from '@/utils/stockInBatchAdd'
@@ -299,6 +300,16 @@ function resetSelection() {
   pickedRows.value = new Map()
 }
 
+async function selectAllOnPage() {
+  await Promise.all(parentRows.value.map((row) => {
+    const state = bomState(row)
+    return state.list.length || state.loading ? Promise.resolve() : loadBomParts(row)
+  }))
+  const currentPageParts = parentRows.value.flatMap((row) => bomState(row).list || [])
+  pickedRows.value = addSelectableStockBatchRows(currentPageParts, pickedRows.value, (row) => String(row.lineKey ?? '').toLowerCase())
+  pickedKeys.value = new Set(pickedRows.value.keys())
+}
+
 async function loadBomParts(row) {
   const key = productKey(row)
   if (!key) return
@@ -371,11 +382,6 @@ async function loadParentRows() {
 function reload() {
   page.value = 1
   loadParentRows()
-}
-
-function queryAll() {
-  keyword.value = ''
-  reload()
 }
 
 function onPageSizeChange() {

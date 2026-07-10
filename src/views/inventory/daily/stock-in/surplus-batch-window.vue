@@ -16,7 +16,7 @@
       />
       <el-button type="primary" @click="reload">立即查询</el-button>
       <el-button @click="resetKeyword">重置</el-button>
-      <el-button @click="queryAll">查询全部</el-button>
+      <el-button :disabled="!rows.some((row) => row.selectable) || saving || submitted" @click="selectAllOnPage">全选</el-button>
       <el-button type="primary" :disabled="!selectedCount || saving || submitted" :loading="saving" @click="saveSelected">
         {{ submitted ? '已提交' : '保存已选数据' }}
       </el-button>
@@ -106,6 +106,7 @@ import {
   STOCK_BATCH_MSG_ACCEPTED,
   STOCK_BATCH_MSG_APPLY,
   STOCK_BATCH_MSG_REJECTED,
+  addSelectableStockBatchRows,
   readStockBatchContext,
   writeStockBatchResult,
 } from '@/utils/stockInBatchAdd'
@@ -151,6 +152,11 @@ function togglePick(row) {
   pickedRows.value.set(row.lineKey, { ...row })
 }
 
+function selectAllOnPage() {
+  pickedRows.value = addSelectableStockBatchRows(rows.value, pickedRows.value)
+  pickedKeys.value = new Set(pickedRows.value.keys())
+}
+
 async function loadRows() {
   loading.value = true
   errorMsg.value = ''
@@ -185,12 +191,6 @@ function reload() {
 function resetKeyword() {
   keyword.value = ''
   reload()
-}
-
-function queryAll() {
-  keyword.value = ''
-  page.value = 1
-  loadRows()
 }
 
 function onPageSizeChange() {
