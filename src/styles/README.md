@@ -156,7 +156,7 @@
 
 3. 头/底绑定同一套 `page` / `pageSize` / `total` 与翻页事件；`layout="total, sizes, prev, pager, next, jumper"` + `background`；`:page-sizes="ERP_PAGE_SIZE_OPTIONS"`（单源 `src/utils/erpPagination.js`：5～1000，各页默认条数仍各自 `ref`）。
 
-4. **左对齐**：勿在 scoped 写 `justify-content: flex-end`，使用 `erp-module-page.css` 全局规则。
+4. **左对齐**：勿在 scoped 写 `justify-content: flex-end`，使用 `erp-module-page.css` 全局规则；`element-override.scss` 中 `.pagination-row` / `.el-pagination` 已与之一致为 `flex-start`（2026-07 订单主列表统一）。
 
 5. 树形/无分页视图（如部门资料 `treeMode`）不显示分页。
 
@@ -173,6 +173,13 @@
 
 ## 扩展
 
+## 管理/单据页统一尺寸（2026-07）
+
+- 顶部模式按钮统一使用 `erp-mode-bar` + `erp-mode-btn`，例如「管理BOM资料 / BOM资料添加」「管理采购订单 / 采购订单添加」。
+- 查询筛选区统一使用 `erp-filter-bar`、`erp-filter-row`、`erp-filter-action-btn`、`erp-filter-divider`、`erp-filter-switch`。
+- 主列表继续使用 `erp-list-table`，数据列字号和字重统一走 `--erp-table-data-size`、`--erp-font-weight-body`。
+- 适用范围是管理页和单据页：BOM、采购订单、销售订单、外协订单、出入库单、库存基础资料等；统计分析/报表页不主动套这套规则，避免影响报表排版。
+
 
 
 - 新页面工具条使用 class：`search-row erp-action-row`（间距 ≥8px）
@@ -180,5 +187,4 @@
 - 勿在 scoped 写死 `12px` 表格字号，改用 `--erp-table-data-size`
 
 - 详情密集表：`:size="detailTableSize"`（见 `useUiDensity()`）
-
 

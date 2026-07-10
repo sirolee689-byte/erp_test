@@ -1,10 +1,6 @@
 <template>
   <div class="erp-module-page">
     <el-card shadow="never">
-      <template #header>
-        <span class="page-title">PI_BOM资料</span>
-      </template>
-
       <div class="pi-bom-mode-row">
         <el-button
           :type="pageMode === 'list' ? 'primary' : 'default'"

@@ -83,6 +83,7 @@
 |----------|--------|-----------------|
 | 销售订单来源 | `UB_ERP_Sales_order` + `UB_ERP_Sales_order_list` | `xsak03` 销售数量；主表 `pass=1`、`del=0`、`closed=0` |
 | 销售订单运算状态 | `UB_ERP_Sales_order` + `UB_ERP_Bom_pi_cost` | 销售订单列表、详情、物料单入口、PI-BOM资料首页统一按 `UB_ERP_Bom_pi_cost.sid = xsaj01` 且 `isok=1` 判断；存在有效行显示已运算，否则显示未运算。主表 `isok/is_pur/sign` 不再作为显示状态主判断。 |
+| 物料单颜色与搭配展示 | `UB_ERP_Bom_pi_cost` + `UB_ERP_Sales_order` + `UB_ERP_Sales_order_list` | `GET /api/sales-order/:id/material-bill`：颜色取 `pi_cost.kcaa11`（空值保持空）；搭配优先 `bnfo`（历史库兼容 `binfo`）再回退 `Describe`；汇总按“编码 + 搭配”合并时，颜色做去重后逗号拼接。 |
 | 已派工扣减 | `UB_ERP_Dispatch_order` + `UB_ERP_Dispatch_order_list` | `GET /api/dispatch-order/goods-options`；保存校验同口径；**本厂/大板**：按 `scaj04`(PI)+`scaj05`(车间)+`kcaa01` 独立池，不同车间互不占用；委外保留 `cj like '%生产%'` 或按 `scaj05` 特殊口径 |
 | 接口 | — | `GET /api/dispatch-order/goods-options`；`POST/PUT /api/dispatch-order` 保存前数量校验 |
 
@@ -258,7 +259,7 @@
 |----------|--------|-----------------|
 | 报表来源 | `UB_ERP_Buy_order` + `UB_ERP_Buy_order_list` | `GET /api/purchase-order-status/report`；主从按 `h.kcaj01 = l.kcak01`；采购主表 `del=0`、采购明细 `del=0`；采购日期 `kcaj02 >= 开始日 00:00:00` 且 `< 结束日次日 00:00:00`；不强制采购单 `pass=1`，未审核采购单保留显示并在采购单号旁标记“未审”。 |
 | 查询字段 | 同上 + `UB_ERP_System_supplier` + `UB_ERP_Bom_000` | 供应商候选来自 `UB_ERP_System_supplier` 已审未删采购/共用供应商，主查询按 `h.kcaj05` 精确筛选；采购单号按 `h.kcaj01` 模糊筛选；材料候选来自 BOM 主档，选择后优先按采购明细 `l.systemcode` 精确筛选，并回填材料编码、名称、规格。 |
-| 入库与退货统计 | `UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list` + `UB_ERP_Stocks_out` + `UB_ERP_Stocks_out_list` | 已审核入库和未审入库按入库主表 `kcan04=采购单号`、入库明细 `GUID=采购明细 GUID` 汇总 `kcao031`；入库金额按已审核入库含税金额 `kcao051` 汇总；采购退货按出库主表 `del=0/pass=1/kcap03=1/kcap04=采购单号`、出库明细 `kcaa01=采购明细物料编码` 汇总 `kcaq03/kcaq051`；最终入库金额=已审入库含税金额-已审退货含税金额。 |
+| 入库与退货统计 | `UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list` + `UB_ERP_Stocks_out` + `UB_ERP_Stocks_out_list` | 已审核入库和未审入库按入库主表 `kcan04=采购单号`、入库明细 `GUID=采购明细 GUID` 汇总 `kcao031`；入库金额按已审核入库含税金额 `kcao051` 汇总；采购退货按出库主表 `del=0/pass=1/kcap03=1/kcap04=采购单号`、出库明细 `kcaa01=采购明细物料编码` 汇总 `kcaq03/kcaq051`；最终入库金额=已审入库含税金额-已审退货含税金额；性能口径为先按当前采购明细形成 `采购单号+GUID`、`采购单号+物料编码` 键集，再收窄入库/退货汇总范围，避免全库汇总。 |
 | 展示与权限 | 同上 + `UB_ERP_Stocks_colorcode` | 采购数量按 `kcak03`、`kcaa26`、`kcaa27` 换算到使用单位；差数=换算后采购数量-（已审核入库数量-采购退货数量），入库未审数量只展示不参与差数；颜色通过 `UB_ERP_Stocks_colorcode.code=kcaa11` 取名称；入库金额受 `supply-chain/analysis/order-status:price` 控制，导出受 `export` 控制。 |
 ## 材料流水账 · 单物料结存流水（第一期）
 
@@ -278,3 +279,11 @@
 | 领用数量 | `UB_ERP_Stocks_out` + `UB_ERP_Stocks_out_list` | 主从 `l.kcaq01=h.kcap01`；出库类别 `kcap03 in (2,4,7,8)`；主表 `del=0`，明细 `del=0`；审核状态包含已审和未审：`h.pass in (0,1)`；仓库 `h.kcap06=当前仓库`；日期按 `h.kcap02`；PI 字段 `h.kcap08 like 'PI%'` 且在当前 PI 范围内；物料编码按 `l.kcaa01` 前缀过滤。 |
 | 退料数量 | `UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list` | 主从 `l.kcao01=h.kcan01`；入库类别 `kcan03 in (3,5)`；主表 `del=0/pass=1`，明细 `del=0`；仓库 `h.kcan06=当前仓库`；退料匹配 `h.kcan04=PI`、`l.kcaa01=物料编码`；第一期按旧系统口径不加退料日期范围。 |
 | 展示与计算 | 同上 | 每个 PI 单独一张表；列为序号、编码、名称、规格、单位、预算数量、领用数量、退料数量、实领数量、未领数量、备注；实领=`领用-退料`；未领=`预算-领用-退料`，不是 `预算-实领`；预算为 0 时未领显示 0；备注来自出库明细 `Describe`，多个备注用分号展示。 |
+## 历史价格查询 · 销售/采购/外协统计分析（第一期）
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|----------|--------|-----------------|
+| 基础物料 | `UB_ERP_Bom_000` | `GET /api/history-price-query/report`；基础物料只取 `del=0/pass=1`，物料编码 `kcaa01` 必填并支持模糊查询；展示字段为 `kcaa01/kcaa02/kcaa03/kcaa29/sale_price/kcaa25`。 |
+| 报价价格 | `UB_ERP_Buy_offer` + `UB_ERP_Buy_offer_list` | 主从按 `h.cgaa01 = l.cgab01`；主表取 `del=0/pass=1`，明细取 `del=0`；报价日期 `cgaa02 >= 开始日 00:00:00` 且 `< 结束日次日 00:00:00`；供应商按 `h.cgaa04`；物料按 `l.kcaa01`；价格取 `l.cgab04`，税率取 `l.Tax`，币别 `h.rmb`，供应商名称 `h.kehu`，来源单号 `h.cgaa01`。 |
+| 采购价格 | `UB_ERP_Buy_order` + `UB_ERP_Buy_order_list` | 主从按 `h.kcaj01 = l.kcak01`；主表取 `del=0/pass=1`，明细取 `del=0`；采购日期 `kcaj02 >= 开始日 00:00:00` 且 `< 结束日次日 00:00:00`；供应商按 `h.kcaj05`；物料按 `l.kcaa01`；价格取 `l.kcak04`，税率取 `l.Tax`，币别 `h.rmb`，供应商名称 `h.kehu`，来源单号 `h.kcaj01`。 |
+| 展示与性能 | 同上 | 报价和采购用 `UNION ALL` 合并后按物料分组、价格日期倒序展示；第一条为“最近价格”，其余为“历史价格”；含税价格按 `价格 + 价格 * Tax`，`Tax > 1` 时按百分数除以 100；不走单独 `price` 权限，导出受 `supply-chain/analysis/price-query:export` 控制；SQL 先圈定 BOM 物料集合，再批量查报价/采购，禁止逐物料循环查价，不使用全局中间表。 |

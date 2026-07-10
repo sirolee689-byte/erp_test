@@ -1,6 +1,6 @@
 <template>
-  <div class="erp-module-page stock-out-page" :class="{ 'stock-out-page--form': pageMode === 'form' }">
-    <div class="stock-out-mode-bar">
+  <div class="erp-module-page stock-out-page" :class="{ 'stock-out-page--form': pageMode === 'form' || pageMode === 'view' }">
+    <div class="stock-out-mode-bar erp-mode-bar">
       <el-button :type="pageMode === 'list' ? 'primary' : 'default'" plain @click="switchList">管理出库单</el-button>
       <el-button v-permission="'add'" :type="pageMode === 'form' && !editId ? 'primary' : 'default'" plain @click="newOrder">出库单添加</el-button>
       <el-button :type="pageMode === 'material-trace' ? 'primary' : 'default'" plain @click="switchMaterialTrace">转向物料查询</el-button>
@@ -8,8 +8,8 @@
     </div>
 
     <section v-show="pageMode === 'list'" class="erp-section">
-      <div class="stock-filter-bar">
-        <div class="stock-filter-row stock-filter-row--top">
+      <div class="stock-filter-bar erp-filter-bar">
+        <div class="stock-filter-row stock-filter-row--top erp-filter-row">
           <el-select
             v-model="filters.relatedParty"
             clearable
@@ -33,7 +33,7 @@
             <el-option v-for="opt in outboundTypeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
           </el-select>
           <template v-if="!showRecycle">
-            <div class="stock-filter-divider stock-filter-divider--print" aria-hidden="true" />
+            <div class="stock-filter-divider stock-filter-divider--print erp-filter-divider" aria-hidden="true" />
             <div class="stock-print-actions">
               <el-select v-model="printMode" size="small" class="stock-print-mode" aria-label="打印类型">
                 <el-option label="打印汇总" value="2" />
@@ -43,7 +43,7 @@
             </div>
           </template>
         </div>
-        <div class="stock-filter-row stock-filter-row--bottom">
+        <div class="stock-filter-row stock-filter-row--bottom erp-filter-row">
           <el-input
             v-model="filters.keyword"
             clearable
@@ -53,14 +53,14 @@
           />
           <el-button type="primary" size="small" @click="onSearch">查询</el-button>
           <el-button size="small" @click="resetSearch">重置</el-button>
-          <div class="stock-filter-divider" aria-hidden="true" />
-          <div class="stock-filter-switch">
+          <div class="stock-filter-divider erp-filter-divider" aria-hidden="true" />
+          <div class="stock-filter-switch erp-filter-switch">
             <span class="switch-label">回收站</span>
             <el-switch v-model="showRecycle" @change="onRecycleChange" />
           </div>
           <template v-if="!showRecycle">
-            <div class="stock-filter-divider" aria-hidden="true" />
-            <div class="stock-filter-switch">
+            <div class="stock-filter-divider erp-filter-divider" aria-hidden="true" />
+            <div class="stock-filter-switch erp-filter-switch">
               <span class="switch-label">显示未审核</span>
               <el-switch v-model="showUnaudited" @change="onSearch" />
             </div>
@@ -70,6 +70,19 @@
 
       <el-alert v-if="showRecycle" type="info" show-icon title="当前是回收站：只处理已软删除的待审核出库单。" class="stock-alert" />
       <el-alert v-else-if="showUnaudited" type="warning" show-icon title="当前显示待审核出库单，可编辑、审核或删除。" class="stock-alert" />
+
+      <div class="pagination-row pagination-row--top">
+        <el-pagination
+          v-model:current-page="pager.page"
+          v-model:page-size="pager.pageSize"
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="pager.total"
+          :page-sizes="ERP_PAGE_SIZE_OPTIONS"
+          @size-change="loadList"
+          @current-change="loadList"
+        />
+      </div>
 
       <el-table
         ref="listTableRef"
@@ -209,28 +222,33 @@
         <el-table-column label="备注" prop="remark" min-width="180" show-overflow-tooltip />
       </el-table>
 
-      <el-pagination
-        v-model:current-page="pager.page"
-        v-model:page-size="pager.pageSize"
-        :page-sizes="ERP_PAGE_SIZE_OPTIONS"
-        layout="total, sizes, prev, pager, next, jumper"
-        :total="pager.total"
-        class="pagination"
-        @size-change="loadList"
-        @current-change="loadList"
-      />
+      <div class="pagination-row pagination-row--bottom">
+        <el-pagination
+          v-model:current-page="pager.page"
+          v-model:page-size="pager.pageSize"
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="pager.total"
+          :page-sizes="ERP_PAGE_SIZE_OPTIONS"
+          @size-change="loadList"
+          @current-change="loadList"
+        />
+      </div>
     </section>
 
     <section v-if="pageMode === 'material-trace'" class="erp-section">
       <StockOutMaterialTracePanel />
     </section>
 
-    <section v-show="pageMode === 'form'" class="erp-section">
+    <section v-show="pageMode === 'form' || pageMode === 'view'" class="erp-section" :class="{ 'stock-form-section--readonly': isReadonlyForm }">
       <div class="form-head">
-        <strong>{{ editId ? '编辑出库单' : '新增出库单' }}</strong>
+        <strong>{{ pageMode === 'view' ? '查看出库单' : editId ? '编辑出库单' : '新增出库单' }}</strong>
         <div>
-          <el-button @click="resetForm">重置</el-button>
-          <el-button type="primary" :loading="saving" @click="saveOrder">保存</el-button>
+          <el-button v-if="pageMode === 'view'" @click="switchList">返回列表</el-button>
+          <template v-else>
+            <el-button @click="resetForm">重置</el-button>
+            <el-button type="primary" :loading="saving" @click="saveOrder">保存</el-button>
+          </template>
         </div>
       </div>
 
@@ -241,7 +259,7 @@
               <el-input :model-value="displayOutboundNo" readonly class="stock-unified-input" />
             </el-form-item>
             <el-form-item label="出库日期">
-              <el-date-picker v-model="form.outboundDate" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" class="stock-unified-input" />
+              <el-date-picker v-model="form.outboundDate" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" class="stock-unified-input" :disabled="isReadonlyForm" />
             </el-form-item>
             <el-form-item label="出库类型">
               <div class="stock-type-buttons">
@@ -252,7 +270,7 @@
                   class="stock-type-btn"
                   :type="form.outboundType === opt.value ? 'primary' : 'default'"
                   :plain="form.outboundType !== opt.value"
-                  :disabled="!!editId"
+                  :disabled="!!editId || isReadonlyForm"
                   @click="pickOutboundType(opt.value)"
                 >
                   {{ opt.label }}
@@ -264,38 +282,50 @@
                 v-if="isFreeSourceOrder"
                 v-model="form.sourceOrderNo"
                 class="stock-unified-input"
+                :readonly="isReadonlyForm"
                 clearable
                 placeholder="请输入关联单号（选填）"
               />
               <div v-else-if="isPurchaseReturnPicker" class="source-picker-field">
                 <el-input :model-value="form.sourceOrderNo" class="stock-unified-input" readonly placeholder="请选择采购单" />
-                <el-button type="primary" plain @click="openPurchaseSourcePicker">选择</el-button>
-                <el-button plain :disabled="!form.sourceOrderNo" @click="clearSourceOrder">清空</el-button>
+                <template v-if="!isReadonlyForm">
+                  <el-button type="primary" plain @click="openPurchaseSourcePicker">选择</el-button>
+                  <el-button plain :disabled="!form.sourceOrderNo" @click="clearSourceOrder">清空</el-button>
+                </template>
               </div>
               <div v-else-if="isAssistIssuePicker" class="source-picker-field">
                 <el-input :model-value="form.sourceOrderNo" class="stock-unified-input" readonly placeholder="请选择外协单" />
-                <el-button type="primary" plain @click="openAssistSourcePicker">选择</el-button>
-                <el-button plain :disabled="!form.sourceOrderNo" @click="clearSourceOrder">清空</el-button>
+                <template v-if="!isReadonlyForm">
+                  <el-button type="primary" plain @click="openAssistSourcePicker">选择</el-button>
+                  <el-button plain :disabled="!form.sourceOrderNo" @click="clearSourceOrder">清空</el-button>
+                </template>
               </div>
               <div v-else-if="isProductionIssuePicker" class="source-picker-field">
                 <el-input :model-value="form.sourceOrderNo" class="stock-unified-input" readonly placeholder="请选择派工单" />
-                <el-button type="primary" plain @click="openProductionDispatchSourcePicker">选择</el-button>
-                <el-button plain :disabled="!form.sourceOrderNo" @click="clearSourceOrder">清空</el-button>
+                <template v-if="!isReadonlyForm">
+                  <el-button type="primary" plain @click="openProductionDispatchSourcePicker">选择</el-button>
+                  <el-button plain :disabled="!form.sourceOrderNo" @click="clearSourceOrder">清空</el-button>
+                </template>
               </div>
               <div v-else-if="isSupplementProductionIssuePicker" class="source-picker-field">
                 <el-input :model-value="form.sourceOrderNo" class="stock-unified-input" readonly placeholder="请选择派工单（选填）" />
-                <el-button type="primary" plain @click="openProductionDispatchSourcePicker">选择</el-button>
-                <el-button plain :disabled="!form.sourceOrderNo" @click="clearSourceOrder">清空</el-button>
+                <template v-if="!isReadonlyForm">
+                  <el-button type="primary" plain @click="openProductionDispatchSourcePicker">选择</el-button>
+                  <el-button plain :disabled="!form.sourceOrderNo" @click="clearSourceOrder">清空</el-button>
+                </template>
               </div>
               <div v-else-if="isFinishedGoodsPicker" class="source-picker-field">
                 <el-input :model-value="form.sourceOrderNo" class="stock-unified-input" readonly placeholder="请选择销售订单" />
-                <el-button type="primary" plain @click="openFinishedGoodsSourcePicker">选择</el-button>
-                <el-button plain :disabled="!form.sourceOrderNo" @click="clearSourceOrder">清空</el-button>
+                <template v-if="!isReadonlyForm">
+                  <el-button type="primary" plain @click="openFinishedGoodsSourcePicker">选择</el-button>
+                  <el-button plain :disabled="!form.sourceOrderNo" @click="clearSourceOrder">清空</el-button>
+                </template>
               </div>
               <el-input
                 v-else-if="isLinkedType"
                 v-model="form.sourceOrderNo"
                 class="stock-unified-input"
+                :readonly="isReadonlyForm"
                 placeholder="关联型出库必须填写来源单号"
               />
               <el-input
@@ -315,6 +345,7 @@
                   remote
                   reserve-keyword
                   clearable
+                  :disabled="isReadonlyForm"
                   class="stock-unified-input assist-party-row__party"
                   :remote-method="fetchRelatedParties"
                   @focus="fetchRelatedParties('')"
@@ -333,6 +364,7 @@
                 v-else-if="form.outboundType === '0'"
                 v-model="otherOutboundRelatedPartyInput"
                 clearable
+                :disabled="isReadonlyForm"
                 class="stock-unified-input"
                 :fetch-suggestions="queryOtherOutboundRelatedParties"
                 placeholder="可选销售客户或手填关联单位"
@@ -345,6 +377,7 @@
                 remote
                 reserve-keyword
                 clearable
+                :disabled="isReadonlyForm"
                 class="stock-unified-input"
                 :remote-method="fetchRelatedParties"
                 @focus="fetchRelatedParties('')"
@@ -361,34 +394,34 @@
             </el-form-item>
             <el-form-item label="仓库" class="form-row-inline stock-inline-triple">
               <div class="form-inline-pairs form-inline-pairs--nowrap">
-                <el-select v-model="form.warehouseCode" filterable remote reserve-keyword clearable class="stock-inline-input" :remote-method="fetchWarehouses" @focus="fetchWarehouses('')" placeholder="请选择仓库">
+                <el-select v-model="form.warehouseCode" filterable remote reserve-keyword clearable :disabled="isReadonlyForm" class="stock-inline-input" :remote-method="fetchWarehouses" @focus="fetchWarehouses('')" placeholder="请选择仓库">
                   <el-option v-for="item in warehouseOptions" :key="item.code" :label="`${item.code} ${item.name}`" :value="item.code" />
                 </el-select>
                 <div class="inline-pair">
                   <span class="inline-pair__label">{{ isAssistIssuePicker || isProductionIssuePicker || supplementProductionIssueUsesPi ? 'PI单号' : (isFinishedGoodsPicker ? 'PO号' : '纸质单号') }}</span>
                   <el-input v-if="isAssistIssuePicker || isProductionIssuePicker || supplementProductionIssueUsesPi" :model-value="form.piNo" class="stock-inline-input" readonly :placeholder="isProductionIssuePicker || supplementProductionIssueUsesPi ? '选择派工单后自动带入' : '选择外协单后自动带入'" />
                   <el-input v-else-if="isFinishedGoodsPicker" :model-value="form.paperNo" class="stock-inline-input" readonly placeholder="选择销售订单后自动带入" />
-                  <el-input v-else v-model="form.paperNo" class="stock-inline-input" clearable placeholder="纸质单号" />
+                  <el-input v-else v-model="form.paperNo" class="stock-inline-input" :readonly="isReadonlyForm" clearable placeholder="纸质单号" />
                 </div>
                 <div class="inline-pair">
                   <span class="inline-pair__label">预留单号</span>
-                  <el-input v-model="form.reserveNo" class="stock-inline-input" clearable placeholder="预留单号" />
+                  <el-input v-model="form.reserveNo" class="stock-inline-input" :readonly="isReadonlyForm" clearable placeholder="预留单号" />
                 </div>
               </div>
             </el-form-item>
             <el-form-item label="是否含税">
-              <el-radio-group v-model="form.inTax">
+              <el-radio-group v-model="form.inTax" :disabled="isReadonlyForm">
                 <el-radio-button label="1">含税</el-radio-button>
                 <el-radio-button label="2">不含税</el-radio-button>
               </el-radio-group>
             </el-form-item>
             <el-form-item label="备注">
-              <el-input v-model="form.remark" class="stock-remark-input" type="textarea" :rows="3" />
+              <el-input v-model="form.remark" class="stock-remark-input" type="textarea" :rows="3" :readonly="isReadonlyForm" />
             </el-form-item>
           </el-form>
         </el-tab-pane>
         <el-tab-pane label="出库单明细" name="lines">
-          <div class="line-toolbar">
+          <div v-if="!isReadonlyForm" class="line-toolbar">
             <el-button type="primary" plain @click="openMaterialPicker">批量添加</el-button>
             <el-button type="danger" plain :disabled="!selectedLineKeys.length" @click="removeSelectedLines">删除选定明细</el-button>
             <el-button type="danger" plain :disabled="!form.lines.length" @click="removeAllLines">删除全部明细</el-button>
@@ -412,7 +445,7 @@
             class="erp-list-table stock-out-lines-table"
             :class="{ 'stock-out-lines-table--finished-goods': isFinishedGoodsPicker }"
           >
-            <el-table-column label="选择" fixed="left" width="90" align="center" class-name="erp-col-actions">
+            <el-table-column v-if="!isReadonlyForm" label="选择" fixed="left" width="90" align="center" class-name="erp-col-actions">
               <template #default="{ row }">
                 <el-button
                   size="small"
@@ -432,7 +465,9 @@
             <el-table-column v-if="!isFinishedGoodsPicker" label="单位" prop="kcaa04" width="90" show-overflow-tooltip />
             <el-table-column label="数量" :width="isFinishedGoodsPicker ? finishedGoodsLineColWidth.qty : 130">
               <template #default="{ row }">
+                <template v-if="isReadonlyForm">{{ formatOutboundQtyDisplay(row.kcaq03) }}</template>
                 <el-input-number
+                  v-else
                   v-model="row.kcaq03"
                   :min="0"
                   :precision="3"
@@ -446,7 +481,9 @@
             <template v-if="hasPricePermission">
               <el-table-column label="单价" :width="isFinishedGoodsPicker ? finishedGoodsLineColWidth.price : 140">
                 <template #default="{ row }">
+                  <template v-if="isReadonlyForm">{{ formatExpandDecimal(row.kcaq04) }}</template>
                   <el-input-number
+                    v-else
                     v-model="row.kcaq04"
                     :min="0"
                     :precision="4"
@@ -458,11 +495,16 @@
                 </template>
               </el-table-column>
               <el-table-column v-if="!isFinishedGoodsPicker" label="单价(含税)" width="140">
-                <template #default="{ row }"><el-input-number v-model="row.kcaq041" :min="0" :precision="4" controls-position="right" @change="reverseLine(row)" /></template>
+                <template #default="{ row }">
+                  <template v-if="isReadonlyForm">{{ formatExpandDecimal(row.kcaq041) }}</template>
+                  <el-input-number v-else v-model="row.kcaq041" :min="0" :precision="4" controls-position="right" @change="reverseLine(row)" />
+                </template>
               </el-table-column>
               <el-table-column label="税点" :width="isFinishedGoodsPicker ? finishedGoodsLineColWidth.tax : 120">
                 <template #default="{ row }">
+                  <template v-if="isReadonlyForm">{{ formatExpandDecimal(row.tax) }}</template>
                   <el-input-number
+                    v-else
                     v-model="row.tax"
                     :min="0"
                     :precision="4"
@@ -473,23 +515,31 @@
                   />
                 </template>
               </el-table-column>
-              <el-table-column label="金额" :width="isFinishedGoodsPicker ? finishedGoodsLineColWidth.amount : 110" prop="kcaq05" />
-              <el-table-column v-if="!isFinishedGoodsPicker" label="金额(含税)" width="120" prop="kcaq051" />
+              <el-table-column label="金额" :width="isFinishedGoodsPicker ? finishedGoodsLineColWidth.amount : 110">
+                <template #default="{ row }">{{ formatExpandDecimal(row.kcaq05) }}</template>
+              </el-table-column>
+              <el-table-column v-if="!isFinishedGoodsPicker" label="金额(含税)" width="120">
+                <template #default="{ row }">{{ formatExpandDecimal(row.kcaq051) }}</template>
+              </el-table-column>
             </template>
             <template v-if="isFinishedGoodsPicker">
               <el-table-column label="报关单号" :min-width="finishedGoodsLineColWidth.customsRef" class-name="stock-out-line-wide-col">
                 <template #default="{ row }">
-                  <el-input v-model="row.reference" class="stock-out-line-wide-input" />
+                  <template v-if="isReadonlyForm">{{ row.reference || '-' }}</template>
+                  <el-input v-else v-model="row.reference" class="stock-out-line-wide-input" />
                 </template>
               </el-table-column>
               <el-table-column label="报关型号" :min-width="finishedGoodsLineColWidth.customsModel" class-name="stock-out-line-wide-col">
                 <template #default="{ row }">
-                  <el-input v-model="row.Describe" class="stock-out-line-wide-input" />
+                  <template v-if="isReadonlyForm">{{ row.Describe || '-' }}</template>
+                  <el-input v-else v-model="row.Describe" class="stock-out-line-wide-input" />
                 </template>
               </el-table-column>
               <el-table-column label="报关单价" :width="finishedGoodsLineColWidth.customsPrice">
                 <template #default="{ row }">
+                  <template v-if="isReadonlyForm">{{ formatExpandDecimal(row.kcaq08) }}</template>
                   <el-input-number
+                    v-else
                     v-model="row.kcaq08"
                     :min="0"
                     :precision="4"
@@ -502,12 +552,14 @@
             <template v-else>
               <el-table-column label="厂款号/PI号" min-width="420" class-name="stock-out-line-wide-col">
                 <template #default="{ row }">
-                  <el-input v-model="row.reference" class="stock-out-line-wide-input" />
+                  <template v-if="isReadonlyForm">{{ row.reference || '-' }}</template>
+                  <el-input v-else v-model="row.reference" class="stock-out-line-wide-input" />
                 </template>
               </el-table-column>
               <el-table-column label="备注" min-width="420" class-name="stock-out-line-wide-col">
                 <template #default="{ row }">
-                  <el-input v-model="row.Describe" class="stock-out-line-wide-input" />
+                  <template v-if="isReadonlyForm">{{ row.Describe || '-' }}</template>
+                  <el-input v-else v-model="row.Describe" class="stock-out-line-wide-input" />
                 </template>
               </el-table-column>
             </template>
@@ -811,38 +863,6 @@
         <el-button type="primary" :loading="cuttingIssueConfigDialog.saving" @click="saveCuttingIssueConfig">保存</el-button>
       </template>
     </el-dialog>
-
-    <el-dialog v-model="detailVisible" title="出库单详情" width="86%">
-      <el-descriptions v-if="detail.header" :column="3" border>
-        <el-descriptions-item label="出库单号">{{ detail.header.kcap01 || detail.header.outboundNo }}</el-descriptions-item>
-        <el-descriptions-item label="出库类型">{{ outboundTypeText(detail.header.kcap03 || detail.header.outboundType) }}</el-descriptions-item>
-        <el-descriptions-item label="审核状态">{{ detail.header.pass === '1' ? '已审核' : '待审核' }}</el-descriptions-item>
-        <el-descriptions-item label="仓库">{{ detail.header.ck || detail.header.kcap06 }}</el-descriptions-item>
-        <el-descriptions-item label="关联方">{{ detail.header.kehu || detail.header.kcap05 }}</el-descriptions-item>
-        <el-descriptions-item label="关联单号">{{ detail.header.kcap04 || '-' }}</el-descriptions-item>
-      </el-descriptions>
-      <el-table :data="detail.lines" border stripe class="detail-lines">
-        <el-table-column type="index" label="序号" width="60" />
-        <el-table-column prop="kcaa01" label="材料编码" min-width="140" />
-        <el-table-column prop="kcaa02" label="名称" min-width="150" />
-        <el-table-column prop="kcaa03" label="规格" min-width="130" />
-        <el-table-column prop="kcaa11" label="颜色" width="100" />
-        <el-table-column prop="kcaq03" label="数量" width="110" />
-        <template v-if="hasPricePermission">
-          <el-table-column prop="kcaq04" label="单价" width="110" />
-          <el-table-column prop="kcaq05" label="金额" width="110" />
-        </template>
-        <template v-if="isFinishedOutbound(detail.header)">
-          <el-table-column prop="reference" label="报关单号" min-width="140" show-overflow-tooltip />
-          <el-table-column prop="Describe" label="报关型号" min-width="180" show-overflow-tooltip />
-          <el-table-column prop="kcaq08" label="报关单价" width="110" align="right" />
-        </template>
-        <template v-else>
-          <el-table-column prop="reference" label="PO/PI" min-width="120" show-overflow-tooltip />
-          <el-table-column prop="Describe" label="备注" min-width="180" show-overflow-tooltip />
-        </template>
-      </el-table>
-    </el-dialog>
   </div>
 </template>
 
@@ -915,6 +935,7 @@ import {
   writeStockOutFinishedGoodsBatchContext,
 } from '@/utils/stockOutFinishedGoodsBatchAdd'
 import StockOutMaterialTracePanel from './material-trace-panel.vue'
+import { createExpandPrefetch } from '@/utils/erpExpandPrefetch.js'
 
 const MENU_PATH = 'inventory/daily/stock-out'
 const { onErpListRowContextMenu } = useErpListRowContextMenu()
@@ -951,6 +972,7 @@ const loading = ref(false)
 const saving = ref(false)
 const list = ref([])
 const editId = ref(null)
+const viewId = ref(null)
 const suggestedNo = ref('')
 const warehouseOptions = ref([])
 const relatedPartyOptions = ref([])
@@ -958,8 +980,6 @@ const relatedPartyOptions = ref([])
 const otherOutboundRelatedPartyInput = ref('')
 const filterRelatedParties = ref([])
 const filterRelatedPartyLoading = ref(false)
-const detailVisible = ref(false)
-const detail = reactive({ header: null, lines: [] })
 const activeOtherBatchSessionId = ref('')
 const otherBatchChildWindow = ref(null)
 const activePurchaseReturnBatchSessionId = ref('')
@@ -1051,7 +1071,8 @@ const outboundTypeOptions = OUTBOUND_TYPES
 const addableOutboundTypes = computed(() => OUTBOUND_TYPES.filter((t) => !['3', '5'].includes(t.value)))
 const permissionModel = computed(() => getPermissionModelFromStorage())
 const hasPricePermission = computed(() => hasPageAction(permissionModel.value, MENU_PATH, 'price'))
-const displayOutboundNo = computed(() => form.outboundNo || suggestedNo.value || '保存时生成')
+const displayOutboundNo = computed(() => (editId.value || viewId.value ? form.outboundNo : suggestedNo.value || '保存时生成'))
+const isReadonlyForm = computed(() => pageMode.value === 'view')
 const isLinkedType = computed(() => ['1', '2', '3', '4', '5', '6'].includes(form.outboundType))
 const isFreeSourceOrder = computed(() => ['0', '9', '10'].includes(form.outboundType))
 const isPurchaseReturnPicker = computed(() => form.outboundType === '1')
@@ -1417,24 +1438,40 @@ async function fetchDetail(id) {
   return res.data?.data || { header: null, lines: [] }
 }
 
-async function loadExpandedLines(row) {
-  if (!row || row.__linesLoaded || row.__linesLoading) return
-  row.__linesLoading = true
-  try {
-    const data = await fetchDetail(row.id)
-    row.__lines = data.lines || []
+const expandPrefetch = createExpandPrefetch({
+  fetchBatch: async (ids) => {
+    const { data } = await axios.get('/api/stock-out/expand-lines/batch', { params: { ids: ids.join(',') } })
+    if (data.code !== 200) throw new Error(data.msg)
+    return data.data || {}
+  },
+  fetchSingle: async (id) => {
+    const detail = await fetchDetail(id)
+    return { lines: detail.lines || [] }
+  },
+  getRowId: (row) => Number(row?.id),
+  applyToRow: (row, payload) => {
+    row.__lines = payload?.lines || []
     row.__linesLoaded = true
-  } catch (err) {
-    row.__lines = []
-    ElMessage.error(err.response?.data?.msg || err.message || '读取出库单明细失败')
-  } finally {
     row.__linesLoading = false
-  }
+  },
+  resetRow: (row) => {
+    row.__lines = []
+    row.__linesLoaded = false
+    row.__linesLoading = false
+  },
+  onError: (msg) => ElMessage.error(msg),
+})
+
+async function loadExpandedLines(row) {
+  await expandPrefetch.ensureLoaded(row)
 }
 
 function onExpandChange(row, expandedRows) {
   expandedRowKeys.value = (expandedRows || []).map((item) => item.id)
-  if (expandedRowKeys.value.includes(row.id)) loadExpandedLines(row)
+  if (expandedRowKeys.value.includes(row.id)) {
+    if (row.__linesLoaded) return
+    loadExpandedLines(row)
+  }
 }
 
 function onListRowClick(row, column, event) {
@@ -1461,6 +1498,7 @@ async function loadList() {
     pager.total = Number(data?.data?.total || 0)
     expandedRowKeys.value = []
     reconcilePrintSelection()
+    expandPrefetch.prefetch(list.value)
   } catch (err) {
     ElMessage.error(err?.response?.data?.msg || err.message || '读取出库单列表失败')
   } finally {
@@ -1485,6 +1523,8 @@ function resetSearch() {
 
 function switchMaterialTrace() {
   pageMode.value = 'material-trace'
+  editId.value = null
+  viewId.value = null
 }
 
 function onRecycleChange() {
@@ -1546,11 +1586,14 @@ async function saveCuttingIssueConfig() {
 
 function switchList() {
   pageMode.value = 'list'
+  editId.value = null
+  viewId.value = null
   loadList()
 }
 
 async function newOrder() {
   editId.value = null
+  viewId.value = null
   Object.assign(form, defaultForm())
   form.lines = []
   otherOutboundRelatedPartyInput.value = ''
@@ -1615,57 +1658,62 @@ async function enrichProductionIssueLineQtyCaps() {
   }
 }
 
+async function loadOrderIntoForm(id, rowFallback = {}) {
+  const { data } = await axios.get(`/api/stock-out/${id}`)
+  const h = data?.data?.header || {}
+  const outboundType = String(h.kcap03 || rowFallback.outboundType || '0')
+  const isAssist = outboundType === '2'
+  const isProduction = outboundType === '4'
+  const isSupplementProduction = ['7', '8'].includes(outboundType)
+  const sourceOrderNo = h.kcap04 || ''
+  const usesPiNo = isAssist || isProduction || (isSupplementProduction && String(sourceOrderNo).trim())
+  Object.assign(form, {
+    outboundNo: h.kcap01 || rowFallback.outboundNo || '',
+    outboundDate: formatDateTime(h.kcap02 || rowFallback.outboundDate),
+    outboundType,
+    sourceOrderNo,
+    relatedPartyCode: h.kcap05 || '',
+    relatedPartyName: h.kehu || '',
+    warehouseCode: h.kcap06 || '',
+    handlerName: h.kcap07 || '',
+    paperNo: usesPiNo ? '' : (h.kcap08 || ''),
+    piNo: usesPiNo ? (h.kcap08 || '') : '',
+    reserveNo: h.kcap09 || '',
+    postProcessAssist: false,
+    workshopCode: '',
+    workshopName: '',
+    sourceSystemcodeId: '',
+    inTax: String(h.in_tax || '1'),
+    remark: h.remark || '',
+    lines: (data?.data?.lines || []).map((line, idx) => {
+      const enriched = { ...line, tax: Number(line.tax ?? line.Tax ?? 0) }
+      if (isAssist) {
+        const sourceLineCode = String(enriched.kcaq02 ?? enriched.sourceLineCode ?? '').trim()
+        enriched.sourceLineCode = sourceLineCode
+        enriched.lineKey = buildAssistIssueLineKey(sourceLineCode, enriched.kcaa01)
+      }
+      if (isProduction || (isSupplementProduction && String(sourceOrderNo).trim())) {
+        const sourceLineCode = String(enriched.kcaq02 ?? enriched.sourceLineCode ?? '').trim()
+        enriched.sourceLineCode = sourceLineCode
+        enriched.scak02 = sourceLineCode
+        enriched.lineKey = resolveProductionIssueBatchLineKey(enriched)
+      }
+      return wrapOutboundLine(enriched, idx)
+    }),
+  })
+  prevWorkshopCode.value = String(h.kcap05 || '').trim()
+  ensureRelatedPartyOptionSeed()
+  syncOtherOutboundRelatedPartyDisplay()
+  if (isProduction || (isSupplementProduction && String(sourceOrderNo).trim())) await enrichProductionIssueLineQtyCaps()
+}
+
 async function editOrder(row) {
   try {
-    const { data } = await axios.get(`/api/stock-out/${row.id}`)
-    const h = data?.data?.header || {}
-    const outboundType = String(h.kcap03 || row.outboundType || '0')
-    const isAssist = outboundType === '2'
-    const isProduction = outboundType === '4'
-    const isSupplementProduction = ['7', '8'].includes(outboundType)
-    const sourceOrderNo = h.kcap04 || ''
-    const usesPiNo = isAssist || isProduction || (isSupplementProduction && String(sourceOrderNo).trim())
+    await loadOrderIntoForm(row.id, row)
     editId.value = row.id
-    Object.assign(form, {
-      outboundNo: h.kcap01 || row.outboundNo || '',
-      outboundDate: formatDateTime(h.kcap02 || row.outboundDate),
-      outboundType,
-      sourceOrderNo,
-      relatedPartyCode: h.kcap05 || '',
-      relatedPartyName: h.kehu || '',
-      warehouseCode: h.kcap06 || '',
-      handlerName: h.kcap07 || '',
-      paperNo: usesPiNo ? '' : (h.kcap08 || ''),
-      piNo: usesPiNo ? (h.kcap08 || '') : '',
-      reserveNo: h.kcap09 || '',
-      postProcessAssist: false,
-      workshopCode: '',
-      workshopName: '',
-      sourceSystemcodeId: '',
-      inTax: String(h.in_tax || '1'),
-      remark: h.remark || '',
-      lines: (data?.data?.lines || []).map((line, idx) => {
-        const enriched = { ...line, tax: Number(line.tax ?? line.Tax ?? 0) }
-        if (isAssist) {
-          const sourceLineCode = String(enriched.kcaq02 ?? enriched.sourceLineCode ?? '').trim()
-          enriched.sourceLineCode = sourceLineCode
-          enriched.lineKey = buildAssistIssueLineKey(sourceLineCode, enriched.kcaa01)
-        }
-        if (isProduction || (isSupplementProduction && String(sourceOrderNo).trim())) {
-          const sourceLineCode = String(enriched.kcaq02 ?? enriched.sourceLineCode ?? '').trim()
-          enriched.sourceLineCode = sourceLineCode
-          enriched.scak02 = sourceLineCode
-          enriched.lineKey = resolveProductionIssueBatchLineKey(enriched)
-        }
-        return wrapOutboundLine(enriched, idx)
-      }),
-    })
+    viewId.value = null
     pageMode.value = 'form'
     formTab.value = 'base'
-    prevWorkshopCode.value = String(h.kcap05 || '').trim()
-    ensureRelatedPartyOptionSeed()
-    syncOtherOutboundRelatedPartyDisplay()
-    if (isProduction || (isSupplementProduction && String(sourceOrderNo).trim())) await enrichProductionIssueLineQtyCaps()
   } catch (err) {
     ElMessage.error(err?.response?.data?.msg || err.message || '读取出库单失败')
   }
@@ -2088,10 +2136,11 @@ async function saveOrder() {
 
 async function viewOrder(row) {
   try {
-    const data = await fetchDetail(row.id)
-    detail.header = data.header || null
-    detail.lines = data.lines || []
-    detailVisible.value = true
+    await loadOrderIntoForm(row.id, row)
+    viewId.value = row.id
+    editId.value = null
+    formTab.value = 'base'
+    pageMode.value = 'view'
   } catch (err) {
     ElMessage.error(err?.response?.data?.msg || err.message || '读取出库单失败')
   }
@@ -3109,10 +3158,6 @@ onUnmounted(() => {
   color: var(--el-text-color-secondary);
   font-size: 12px;
 }
-.pagination {
-  margin-top: 12px;
-  justify-content: flex-end;
-}
 .stock-out-data {
   display: flex;
   flex-direction: column;
@@ -3211,9 +3256,6 @@ onUnmounted(() => {
 .inline-pair__label {
   color: var(--el-text-color-regular);
   white-space: nowrap;
-}
-.detail-lines {
-  margin-top: 12px;
 }
 .assist-party-row {
   display: flex;

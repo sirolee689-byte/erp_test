@@ -34,6 +34,7 @@ import { fetchStockInPrintDocuments } from './stockInPrintData.js'
 import { fetchStockInLabelPrintDocuments } from './stockInLabelPrintData.js'
 import { fetchStockInMaterialQrInfo } from './stockInMaterialQrInfo.js'
 import { fetchStockInMaterialTrace } from './stockInMaterialTrace.js'
+import { bindIntInList, bindNVarCharInList, groupRowsByKey, normalizeIntIds } from './sqlInListHelpers.js'
 
 const HEADER_FROM = `dbo.[${STOCK_IN_HEADER_TABLE}]`
 const LINE_FROM = `dbo.[${STOCK_IN_LINE_TABLE}]`
@@ -58,7 +59,7 @@ function serializeRow(row) {
 }
 
 /** 入库明细：物理列 Tax 统一映射为前端小写 tax */
-function serializeStockInLineRow(row) {
+export function serializeStockInLineRow(row) {
   const out = serializeRow(row)
   if (out.tax == null && out.Tax != null) out.tax = out.Tax
   if (Object.prototype.hasOwnProperty.call(out, 'Tax')) delete out.Tax
@@ -1203,7 +1204,7 @@ async function queryStockInSumQty(pool, sourceOrderNo, materialCode, inboundType
   return toNumber(r.recordset?.[0]?.inboundQty)
 }
 
-async function enrichStockInLineRelationInfo(pool, inboundType, line) {
+export async function enrichStockInLineRelationInfo(pool, inboundType, line) {
   const sourceOrderNo = text(line?.kcan04)
   const materialCode = text(inboundType) === '1' ? text(line?.kcao02) : text(line?.kcaa01)
   if (!sourceOrderNo || !materialCode) {
@@ -1227,6 +1228,71 @@ async function enrichStockInLineRelationInfo(pool, inboundType, line) {
     relationDiffQty: diffQty > 0 ? diffQty : 0,
     relationOverflowQty: overflowQty,
   }
+}
+
+function stockInRelationCacheKey(inboundType, line) {
+  const sourceOrderNo = text(line?.kcan04)
+  const materialCode = text(inboundType) === '1' ? text(line?.kcao02) : text(line?.kcaa01)
+  return `${text(inboundType)}::${sourceOrderNo}::${materialCode}::${text(line?.kcaa26)}::${text(line?.kcaa27)}`
+}
+
+async function enrichStockInLinesWithRelationCache(pool, inboundType, rawLines) {
+  const cache = new Map()
+  const enriched = []
+  for (const row of rawLines) {
+    const base = serializeStockInLineRow(row)
+    const key = stockInRelationCacheKey(inboundType, base)
+    if (!cache.has(key)) {
+      cache.set(key, await enrichStockInLineRelationInfo(pool, inboundType, base))
+    }
+    enriched.push({ ...base, ...cache.get(key) })
+  }
+  return enriched
+}
+
+export async function fetchStockInExpandLinesBatch(pool, rawIds) {
+  const parsed = normalizeIntIds(rawIds)
+  if (!parsed.ok) {
+    return { ok: false, status: parsed.status, msg: `一次最多查询 ${ERP_MAX_PAGE_SIZE} 条入库单展开明细` }
+  }
+  const ids = parsed.ids
+  if (!ids.length) return { ok: true, data: {} }
+
+  const headerReq = pool.request()
+  const idIn = bindIntInList(headerReq, 'id', ids)
+  const headerR = await headerReq.query(`
+    SELECT
+      [id],
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([kcan01], N'')))) AS receiptNo,
+      LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL([kcan03], N'')))) AS inboundType
+    FROM ${HEADER_FROM}
+    WHERE [id] IN (${idIn.inSql})
+  `)
+  const headers = headerR.recordset ?? []
+  if (!headers.length) return { ok: true, data: {} }
+
+  const receiptNos = headers.map((row) => text(row.receiptNo)).filter(Boolean)
+  if (!receiptNos.length) return { ok: true, data: {} }
+
+  const lineReq = pool.request()
+  const receiptIn = bindNVarCharInList(lineReq, 'rno', receiptNos, 200)
+  const lineR = await lineReq.query(`
+    SELECT l.*, LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcao01], N'')))) AS receiptNo
+    FROM ${LINE_FROM} AS l
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcao01], N'')))) IN (${receiptIn.inSql})
+    ORDER BY LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcao01], N'')))), ISNULL(l.[seq], l.[id]), l.[id]
+  `)
+  const lineGroups = groupRowsByKey(lineR.recordset ?? [], (row) => row.receiptNo)
+
+  const data = {}
+  for (const header of headers) {
+    const receiptNo = text(header.receiptNo)
+    const inboundType = text(header.inboundType)
+    data[String(header.id)] = {
+      lines: await enrichStockInLinesWithRelationCache(pool, inboundType, lineGroups.get(receiptNo) ?? []),
+    }
+  }
+  return { ok: true, data }
 }
 
 export function registerStockInRoutes(app, deps) {
@@ -1845,6 +1911,18 @@ export function registerStockInRoutes(app, deps) {
       res.json({ code: 200, msg: 'success', data: result.info })
     } catch (err) {
       res.status(500).json({ code: 500, msg: `读取入库物料二维码信息失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
+  app.get('/api/stock-in/expand-lines/batch', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const ids = req.query?.ids ?? req.query?.id
+      const result = await fetchStockInExpandLinesBatch(pool, ids)
+      if (!result.ok) return res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+      res.json({ code: 200, msg: 'success', data: result.data })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `批量读取入库单展开明细失败：${String(err?.message ?? err)}`, data: null })
     }
   })
 

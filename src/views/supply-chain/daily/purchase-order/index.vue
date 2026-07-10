@@ -1,6 +1,6 @@
 <template>
   <div class="erp-module-page buy-order-page" :class="{ 'buy-order-page--form': isFormPanel }">
-    <div class="buy-mode-bar">
+    <div class="buy-mode-bar erp-mode-bar">
       <el-button
         :type="pageMode === 'manage' ? 'primary' : 'default'"
         plain
@@ -29,17 +29,8 @@
     </div>
 
     <div v-show="pageMode === 'manage'" class="buy-manage-panel">
-      <div class="buy-toolbar">
-        <div class="buy-toolbar__actions">
-          <el-button :loading="loading" @click="loadList">
-            <el-icon><Refresh /></el-icon>
-            刷新
-          </el-button>
-        </div>
-      </div>
-
-      <div class="buy-filter-bar">
-        <div class="buy-filter-row buy-filter-row--top">
+      <div class="buy-filter-bar erp-filter-bar">
+        <div class="buy-filter-row buy-filter-row--top erp-filter-row">
           <div class="buy-filter-field">
             <span class="buy-filter-label">供应商</span>
             <el-select
@@ -69,7 +60,7 @@
             </el-select>
           </div>
           <template v-if="!recycled">
-            <div class="buy-filter-divider buy-filter-divider--print" aria-hidden="true" />
+            <div class="buy-filter-divider buy-filter-divider--print erp-filter-divider" aria-hidden="true" />
             <div class="buy-print-actions">
               <el-select v-model="printMode" size="small" class="buy-print-select" aria-label="打印方式">
                 <el-option label="明细打印" value="1" />
@@ -83,7 +74,7 @@
             </div>
           </template>
         </div>
-        <div class="buy-filter-row buy-filter-row--bottom">
+        <div class="buy-filter-row buy-filter-row--bottom erp-filter-row">
           <div class="buy-filter-field buy-filter-field--keyword">
             <span class="buy-filter-label">查询内容</span>
             <el-input
@@ -96,14 +87,14 @@
           </div>
           <el-button type="primary" size="small" @click="onSearch">查询</el-button>
           <el-button size="small" @click="resetFilters">重置</el-button>
-          <div class="buy-filter-divider" aria-hidden="true" />
-          <div class="buy-filter-switch">
+          <div class="buy-filter-divider erp-filter-divider" aria-hidden="true" />
+          <div class="buy-filter-switch erp-filter-switch">
             <span class="switch-label">回收站</span>
             <el-switch v-model="recycled" @change="onRecycleChange" />
           </div>
           <template v-if="!recycled">
-            <div class="buy-filter-divider" aria-hidden="true" />
-            <div class="buy-filter-switch">
+            <div class="buy-filter-divider erp-filter-divider" aria-hidden="true" />
+            <div class="buy-filter-switch erp-filter-switch">
               <span class="switch-label">显示未审核</span>
               <el-switch v-model="showUnaudited" @change="onUnauditedChange" />
             </div>
@@ -375,15 +366,16 @@
     <div
       v-show="isFormPanel"
       ref="createPanelRef"
-      v-loading="pageMode === 'edit' && detailLoading"
+      v-loading="(pageMode === 'edit' || pageMode === 'view') && detailLoading"
       class="buy-create-panel"
+      :class="{ 'buy-create-panel--readonly': isReadonlyForm }"
     >
       <div class="buy-form-head">
-        <strong>{{ pageMode === 'edit' ? '编辑采购订单' : '新增采购订单' }}</strong>
+        <strong>{{ pageMode === 'view' ? '查看采购订单' : pageMode === 'edit' ? '编辑采购订单' : '新增采购订单' }}</strong>
         <div class="buy-form-head__actions">
-          <el-button v-if="pageMode === 'edit'" @click="switchToManage">返回列表</el-button>
+          <el-button v-if="pageMode === 'view' || pageMode === 'edit'" @click="switchToManage">返回列表</el-button>
           <el-button v-else @click="confirmAndResetCreateForm">重置</el-button>
-          <el-button type="primary" :loading="saving" @click="saveOrder">保存</el-button>
+          <el-button v-if="pageMode !== 'view'" type="primary" :loading="saving" @click="saveOrder">保存</el-button>
         </div>
       </div>
       <el-form ref="formRef" :model="form.header" :rules="rules" label-width="110px" class="buy-edit-form">
@@ -394,15 +386,15 @@
                 <div class="buy-basic-field">
                   <span class="buy-basic-label buy-basic-label--required">采购单号</span>
                   <el-form-item prop="buyOrderNo">
-                    <el-input v-model="form.header.buyOrderNo" class="buy-basic-input buy-basic-input--doc" :readonly="pageMode === 'edit'" />
+                    <el-input v-model="form.header.buyOrderNo" class="buy-basic-input buy-basic-input--doc" :readonly="pageMode === 'edit' || isReadonlyForm" />
                   </el-form-item>
                 </div>
                 <div class="buy-basic-field">
                   <span class="buy-basic-label">单号类型</span>
                   <div class="buy-basic-buttons">
-                    <el-button :type="form.header.numberType === 'ZY' ? 'primary' : ''" @click="chooseNumberType('ZY')">ZY</el-button>
-                    <el-button :type="form.header.numberType === 'PO' ? 'primary' : ''" @click="chooseNumberType('PO')">PO</el-button>
-                    <el-button :type="form.header.numberType === currentYear ? 'primary' : ''" @click="chooseNumberType(currentYear)">{{ currentYear }}</el-button>
+                    <el-button :type="form.header.numberType === 'ZY' ? 'primary' : ''" :disabled="isReadonlyForm" @click="chooseNumberType('ZY')">ZY</el-button>
+                    <el-button :type="form.header.numberType === 'PO' ? 'primary' : ''" :disabled="isReadonlyForm" @click="chooseNumberType('PO')">PO</el-button>
+                    <el-button :type="form.header.numberType === currentYear ? 'primary' : ''" :disabled="isReadonlyForm" @click="chooseNumberType(currentYear)">{{ currentYear }}</el-button>
                   </div>
                 </div>
               </div>
@@ -411,7 +403,7 @@
                 <div class="buy-basic-field">
                   <span class="buy-basic-label buy-basic-label--required">采购日期</span>
                   <el-form-item prop="buyDate">
-                    <el-date-picker v-model="form.header.buyDate" type="date" value-format="YYYY-MM-DD" class="buy-basic-input buy-basic-input--doc" />
+                    <el-date-picker v-model="form.header.buyDate" type="date" value-format="YYYY-MM-DD" class="buy-basic-input buy-basic-input--doc" :disabled="isReadonlyForm" />
                   </el-form-item>
                 </div>
                 <div class="buy-basic-field">
@@ -422,7 +414,7 @@
                         v-for="opt in buyTypeButtonOptions"
                         :key="opt.value"
                         :type="form.header.buyType === opt.value ? 'primary' : ''"
-                        :disabled="opt.disabled"
+                        :disabled="opt.disabled || isReadonlyForm"
                         @click="chooseBuyType(opt.value)"
                       >
                         {{ opt.label }}
@@ -437,9 +429,17 @@
                   <span class="buy-basic-label buy-basic-label--required">关联单号</span>
                   <el-form-item prop="referenceNo">
                     <div class="buy-reference-picker">
-                      <el-input v-model="form.header.referenceNo" class="buy-basic-input buy-basic-input--reference" placeholder="可手动填写，也可选择多个 PI" @input="syncSelectedPisFromReference" />
-                      <el-button type="primary" plain @click="openPiDialog">选择</el-button>
-                      <el-button plain :disabled="!form.header.referenceNo" @click="clearReferenceNo">清空</el-button>
+                      <el-input
+                        v-model="form.header.referenceNo"
+                        class="buy-basic-input buy-basic-input--reference"
+                        :placeholder="isReadonlyForm ? '' : '可手动填写，也可选择多个 PI'"
+                        :readonly="isReadonlyForm"
+                        @input="syncSelectedPisFromReference"
+                      />
+                      <template v-if="!isReadonlyForm">
+                        <el-button type="primary" plain @click="openPiDialog">选择</el-button>
+                        <el-button plain :disabled="!form.header.referenceNo" @click="clearReferenceNo">清空</el-button>
+                      </template>
                     </div>
                   </el-form-item>
                 </div>
@@ -449,7 +449,7 @@
                 <div class="buy-basic-field buy-basic-field--supplier">
                   <span class="buy-basic-label buy-basic-label--required">供应商</span>
                   <el-form-item prop="supplierCode">
-                    <el-select v-model="form.header.supplierCode" filterable remote reserve-keyword :remote-method="loadSuppliers" class="buy-basic-input buy-basic-input--supplier">
+                    <el-select v-model="form.header.supplierCode" filterable remote reserve-keyword :remote-method="loadSuppliers" class="buy-basic-input buy-basic-input--supplier" :disabled="isReadonlyForm">
                       <el-option v-for="s in suppliers" :key="s.code" :label="`${s.code} / ${s.name}`" :value="s.code" />
                     </el-select>
                   </el-form-item>
@@ -460,13 +460,13 @@
                 <div class="buy-basic-field">
                   <span class="buy-basic-label">装货港</span>
                   <el-form-item>
-                    <el-input v-model="form.header.loadingPort" class="buy-basic-input buy-basic-input--port" />
+                    <el-input v-model="form.header.loadingPort" class="buy-basic-input buy-basic-input--port" :readonly="isReadonlyForm" />
                   </el-form-item>
                 </div>
                 <div class="buy-basic-field">
                   <span class="buy-basic-label">卸货港</span>
                   <el-form-item>
-                    <el-input v-model="form.header.dischargePort" class="buy-basic-input buy-basic-input--port" />
+                    <el-input v-model="form.header.dischargePort" class="buy-basic-input buy-basic-input--port" :readonly="isReadonlyForm" />
                   </el-form-item>
                 </div>
               </div>
@@ -476,15 +476,15 @@
                   <span class="buy-basic-label buy-basic-label--required">是否含税</span>
                   <el-form-item prop="taxIncluded">
                     <div class="buy-basic-buttons">
-                      <el-button :type="form.header.taxIncluded === '1' ? 'primary' : ''" @click="chooseTaxIncluded('1')">是</el-button>
-                      <el-button :type="form.header.taxIncluded === '2' ? 'primary' : ''" @click="chooseTaxIncluded('2')">否</el-button>
+                      <el-button :type="form.header.taxIncluded === '1' ? 'primary' : ''" :disabled="isReadonlyForm" @click="chooseTaxIncluded('1')">是</el-button>
+                      <el-button :type="form.header.taxIncluded === '2' ? 'primary' : ''" :disabled="isReadonlyForm" @click="chooseTaxIncluded('2')">否</el-button>
                     </div>
                   </el-form-item>
                 </div>
                 <div class="buy-basic-field">
                   <span class="buy-basic-label buy-basic-label--required">币别</span>
                   <el-form-item prop="currencyCode">
-                    <el-select v-model="form.header.currencyCode" class="buy-basic-input buy-basic-input--currency">
+                    <el-select v-model="form.header.currencyCode" class="buy-basic-input buy-basic-input--currency" :disabled="isReadonlyForm">
                       <el-option v-for="c in currencies" :key="c.code" :label="`${c.code} / ${c.name}`" :value="c.code" />
                     </el-select>
                   </el-form-item>
@@ -493,7 +493,7 @@
                   <span class="buy-basic-label">小数点配置</span>
                   <el-form-item>
                     <div class="buy-decimal-field">
-                      <el-input-number v-model="form.header.decimalPlaces" :min="0" :max="8" :controls="false" class="buy-basic-input buy-basic-input--decimal" />
+                      <el-input-number v-model="form.header.decimalPlaces" :min="0" :max="8" :controls="false" class="buy-basic-input buy-basic-input--decimal" :disabled="isReadonlyForm" />
                       <span>位</span>
                     </div>
                   </el-form-item>
@@ -504,7 +504,7 @@
                 <div class="buy-basic-field buy-basic-field--full">
                   <span class="buy-basic-label">付款条件</span>
                   <el-form-item>
-                    <el-input v-model="form.header.paymentTerms" class="buy-basic-input buy-basic-input--full" />
+                    <el-input v-model="form.header.paymentTerms" class="buy-basic-input buy-basic-input--full" :readonly="isReadonlyForm" />
                   </el-form-item>
                 </div>
               </div>
@@ -513,20 +513,20 @@
                 <div class="buy-basic-field buy-basic-field--full">
                   <span class="buy-basic-label">备注</span>
                   <el-form-item>
-                    <el-input v-model="form.header.remark" type="textarea" :rows="2" class="buy-basic-input buy-basic-input--full" />
+                    <el-input v-model="form.header.remark" type="textarea" :rows="2" class="buy-basic-input buy-basic-input--full" :readonly="isReadonlyForm" />
                   </el-form-item>
                 </div>
               </div>
             </div>
           </el-tab-pane>
           <el-tab-pane label="采购订单明细" name="lines">
-            <div class="line-toolbar">
+            <div v-if="!isReadonlyForm" class="line-toolbar">
               <el-button type="danger" plain @click="deleteSelectedBuyLines">删除选定明细</el-button>
               <el-button type="danger" plain @click="deleteAllBuyLines">删除全部明细</el-button>
               <el-button type="primary" @click="openBuyBatchAdd">批量添加</el-button>
             </div>
             <el-table :data="form.lines" border class="buy-lines-table" :row-class-name="buyLineRowClassName">
-              <el-table-column label="选择" width="88" align="center" fixed="left">
+              <el-table-column v-if="!isReadonlyForm" label="选择" width="88" align="center" fixed="left">
                 <template #default="{ row }">
                   <el-button
                     size="small"
@@ -541,12 +541,7 @@
               <el-table-column label="序号" width="64" align="center" fixed="left">
                 <template #default="{ row }">{{ row.seq }}</template>
               </el-table-column>
-              <el-table-column label="操作" width="108" align="center" fixed="left">
-                <template #default="{ row }">
-                  <el-button size="small" type="primary" plain @click="openLinePiBom(row)">查看原资料</el-button>
-                </template>
-              </el-table-column>
-              <el-table-column label="材料编码" prop="kcaa01" min-width="130" fixed="left" show-overflow-tooltip />
+              <el-table-column label="材料编码" prop="kcaa01" min-width="180" fixed="left" show-overflow-tooltip />
               <el-table-column label="材料名称/送货名" min-width="180">
                 <template #default="{ row }">
                   <div class="buy-line-name-cell">
@@ -561,11 +556,13 @@
               <el-table-column label="采购单位" prop="kcaa25" width="96" show-overflow-tooltip />
               <el-table-column label="数量" width="120">
                 <template #default="{ row }">
-                  <div class="buy-line-qty-cell">
+                  <template v-if="isReadonlyForm">
+                    {{ formatErpQtyDisplay(row.quantity, '') || '-' }}
+                  </template>
+                  <div v-else class="buy-line-qty-cell">
                     <el-input-number
                       v-model="row.quantity"
                       :min="0"
-                      :precision="2"
                       :controls="false"
                       :formatter="formatQuantityInput"
                       :parser="parseQuantityInput"
@@ -578,22 +575,43 @@
                 </template>
               </el-table-column>
               <el-table-column v-if="hasPrice" label="单价" width="110" align="right">
-                <template #default="{ row }">{{ money(row.taxExcludedPrice) }}</template>
+                <template #default="{ row }">{{ formatErpPriceDisplay(row.taxExcludedPrice) }}</template>
               </el-table-column>
               <el-table-column v-if="hasPrice" label="单价(含税)" width="120">
                 <template #default="{ row }">
-                  <el-input-number v-model="row.taxIncludedPrice" :min="0" :precision="form.header.decimalPlaces" :controls="false" class="buy-line-input-num" @change="recalcLine(row)" />
+                  <template v-if="isReadonlyForm">{{ formatErpTrimDecimal(row.taxIncludedPrice, { maxDecimals: form.header.decimalPlaces, empty: '-' }) }}</template>
+                  <el-input-number
+                    v-else
+                    v-model="row.taxIncludedPrice"
+                    :min="0"
+                    :controls="false"
+                    :formatter="formatBuyLineTaxPriceInput"
+                    :parser="parseBuyLineNumInput"
+                    class="buy-line-input-num"
+                    @change="recalcLine(row)"
+                  />
                 </template>
               </el-table-column>
               <el-table-column v-if="hasPrice" label="金额" width="110" align="right">
-                <template #default="{ row }">{{ money(row.taxExcludedAmount) }}</template>
+                <template #default="{ row }">{{ formatErpMoneyDisplay(row.taxExcludedAmount) }}</template>
               </el-table-column>
               <el-table-column v-if="hasPrice" label="金额(含税)" width="110" align="right">
-                <template #default="{ row }">{{ money(row.taxIncludedAmount) }}</template>
+                <template #default="{ row }">{{ formatErpMoneyDisplay(row.taxIncludedAmount) }}</template>
               </el-table-column>
               <el-table-column v-if="hasPrice" label="税点" width="110">
                 <template #default="{ row }">
-                  <el-input-number v-model="row.tax" :min="0" :max="0.99" :precision="4" :controls="false" class="buy-line-input-num" @change="recalcLine(row)" />
+                  <template v-if="isReadonlyForm">{{ formatErpTrimDecimal(row.tax, { maxDecimals: 4, empty: '-' }) }}</template>
+                  <el-input-number
+                    v-else
+                    v-model="row.tax"
+                    :min="0"
+                    :max="0.99"
+                    :controls="false"
+                    :formatter="formatBuyLineTaxInput"
+                    :parser="parseBuyLineNumInput"
+                    class="buy-line-input-num"
+                    @change="recalcLine(row)"
+                  />
                 </template>
               </el-table-column>
               <el-table-column label="PO/PI" min-width="150" show-overflow-tooltip>
@@ -601,18 +619,20 @@
               </el-table-column>
               <el-table-column label="交货日期" width="160">
                 <template #default="{ row }">
-                  <el-date-picker v-model="row.deliveryDate" type="date" value-format="YYYY-MM-DD" />
+                  <template v-if="isReadonlyForm">{{ fmtDate(row.deliveryDate) || '-' }}</template>
+                  <el-date-picker v-else v-model="row.deliveryDate" type="date" value-format="YYYY-MM-DD" />
                 </template>
               </el-table-column>
               <el-table-column label="备注" min-width="150">
                 <template #default="{ row }">
-                  <el-input v-model="row.info" />
+                  <template v-if="isReadonlyForm">{{ row.info || '-' }}</template>
+                  <el-input v-else v-model="row.info" />
                 </template>
               </el-table-column>
             </el-table>
           </el-tab-pane>
           <el-tab-pane label="额外费用清单" name="fees">
-            <div class="line-toolbar">
+            <div v-if="!isReadonlyForm" class="line-toolbar">
               <el-select v-model="feePicked" filterable remote reserve-keyword placeholder="选择FEE费用" :remote-method="loadFees">
                 <el-option v-for="f in feeOptions" :key="f.feeCode" :label="`${f.feeCode} / ${f.feeName}`" :value="f.feeCode" />
               </el-select>
@@ -623,24 +643,27 @@
               <el-table-column prop="feeName" label="费用名称" min-width="160" />
               <el-table-column v-if="hasPrice" label="金额" width="130">
                 <template #default="{ row }">
+                  <template v-if="isReadonlyForm">{{ formatFeeMoneyBlankZero(row.money) || '-' }}</template>
                   <el-input
+                    v-else
                     :model-value="formatFeeMoneyBlankZero(row.money)"
                     class="buy-fee-money-input"
                     @update:model-value="(v) => { row.money = parseFeeMoneyInput(v) }"
                   />
                 </template>
               </el-table-column>
-              <el-table-column label="备注" min-width="150"><template #default="{ row }"><el-input v-model="row.remark" /></template></el-table-column>
-              <el-table-column label="操作" width="75"><template #default="{ $index }"><el-button link type="danger" @click="form.fees.splice($index, 1)">删除</el-button></template></el-table-column>
+              <el-table-column label="备注" min-width="150">
+                <template #default="{ row }">
+                  <template v-if="isReadonlyForm">{{ row.remark || '-' }}</template>
+                  <el-input v-else v-model="row.remark" />
+                </template>
+              </el-table-column>
+              <el-table-column v-if="!isReadonlyForm" label="操作" width="75"><template #default="{ $index }"><el-button link type="danger" @click="form.fees.splice($index, 1)">删除</el-button></template></el-table-column>
             </el-table>
           </el-tab-pane>
         </el-tabs>
       </el-form>
     </div>
-
-    <el-dialog v-model="detailVisible" title="采购单详情" width="1100px" top="4vh">
-      <detail-block :detail="detail" :has-price="hasPrice" />
-    </el-dialog>
 
     <el-dialog v-model="piDialog.visible" title="选择 PI" width="920px" class="buy-pi-dialog">
       <div class="buy-pi-toolbar">
@@ -690,9 +713,8 @@
 import { useErpListRowContextMenu, useErpModeBtnContextMenu } from '@/composables/useErpListRowContextMenu'
 import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
-import { computed, defineComponent, h, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
-import { Refresh } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ErpTableViewportHScroll from '@/components/erp/ErpTableViewportHScroll.vue'
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
@@ -711,6 +733,12 @@ import {
   validateBuyBatchApply,
   writeBuyBatchContext,
 } from '@/utils/buyOrderBatchAdd'
+import {
+  formatErpMoneyDisplay,
+  formatErpPriceDisplay,
+  formatErpQtyDisplay,
+  formatErpTrimDecimal,
+} from '@/utils/erpNumberDisplay'
 
 defineOptions({ name: 'supply-chain-daily-purchase-order' })
 
@@ -732,6 +760,7 @@ const batchAuditLoading = ref(false)
 const recycled = ref(false)
 const showUnaudited = ref(false)
 const rows = ref([])
+const expandPrefetchToken = ref(0)
 const page = reactive({ page: 1, pageSize: 5, total: 0 })
 const filters = reactive({ keyword: '', buyType: '', supplier: '' })
 const formRef = ref()
@@ -750,15 +779,15 @@ const materialPicked = ref('')
 const feePicked = ref('')
 const selectedPis = ref([])
 const piDialog = reactive({ visible: false, loading: false, keyword: '', list: [], selected: [], page: 1, pageSize: 10, total: 0 })
-const detailVisible = ref(false)
-const detail = ref({ header: {}, lines: [], fees: [] })
 const editId = ref(null)
+const viewId = ref(null)
 const activeBatchSessionId = ref('')
 const printMode = ref('1')
 const printLanguage = ref('1')
 const printSelectedOrderNos = ref(new Set())
 
-const isFormPanel = computed(() => pageMode.value === 'create' || pageMode.value === 'edit')
+const isFormPanel = computed(() => pageMode.value === 'create' || pageMode.value === 'edit' || pageMode.value === 'view')
+const isReadonlyForm = computed(() => pageMode.value === 'view')
 const isMultiPiMode = computed(() => form.header.buyType === '2')
 const taxIncludedPricePrecision = computed(() => (model.mode === 'full' ? 4 : 2))
 const currentPageAuditableRows = computed(() => rows.value.filter((row) => String(row?.pass ?? '') !== '1' && !recycled.value && showUnaudited.value))
@@ -819,45 +848,6 @@ const buyTypeButtonOptions = computed(() => {
   ]
 })
 
-const DetailBlock = defineComponent({
-  props: { detail: Object, hasPrice: Boolean },
-  setup(props) {
-    return () => h('div', { class: 'detail-block' }, [
-      h('div', { class: 'detail-title' }, `单号：${props.detail?.header?.kcaj01 || props.detail?.header?.buyOrderNo || ''}`),
-      h('div', { class: 'detail-grid' }, [
-        `日期：${fmtDate(props.detail?.header?.kcaj02 || props.detail?.header?.buyDate)}`,
-        `类型：${buyTypeText(props.detail?.header?.kcaj03 || props.detail?.header?.buyType)}`,
-        `关联单号：${props.detail?.header?.kcaj04 || props.detail?.header?.referenceNo || ''}`,
-        `供应商：${props.detail?.header?.kehu || props.detail?.header?.supplierName || ''}`,
-        `币别：${props.detail?.header?.rmb || props.detail?.header?.currencyName || ''}`,
-        `状态：${props.detail?.header?.pass === '1' ? '已审核' : '未审核'} / ${props.detail?.header?.closed === '1' ? '已结案' : '未结案'}`,
-      ].map((t) => h('span', t))),
-      h('h3', '采购明细'),
-      h('table', { class: 'plain-table' }, [
-        h('thead', h('tr', ['编码', '名称', '规格', '数量', ...(props.hasPrice ? ['含税单价', '税点', '含税金额'] : []), '备注'].map((x) => h('th', x)))),
-        h('tbody', (props.detail?.lines ?? []).map((line) => h('tr', [
-          h('td', line.kcaa01 || ''),
-          h('td', line.kcaa02 || ''),
-          h('td', line.kcaa03 || ''),
-          h('td', formatQuantity(line.kcak03 ?? line.quantity ?? 0)),
-          ...(props.hasPrice ? [h('td', line.kcak041 ?? ''), h('td', line.tax ?? ''), h('td', line.kcak051 ?? '')] : []),
-          h('td', line.info || ''),
-        ]))),
-      ]),
-      h('h3', '额外费用'),
-      h('table', { class: 'plain-table' }, [
-        h('thead', h('tr', ['编码', '名称', ...(props.hasPrice ? ['金额', '税点'] : []), '备注'].map((x) => h('th', x)))),
-        h('tbody', (props.detail?.fees ?? []).map((fee) => h('tr', [
-          h('td', fee.kcaa01 || fee.feeCode || ''),
-          h('td', fee.kcaa02 || fee.feeName || ''),
-          ...(props.hasPrice ? [h('td', fee.money ?? ''), h('td', fee.tax ?? '')] : []),
-          h('td', fee.remark || ''),
-        ]))),
-      ]),
-    ])
-  },
-})
-
 function fmtDate(v) {
   return v ? String(v).slice(0, 10) : ''
 }
@@ -888,12 +878,30 @@ function formatQuantityBlankZero(v) {
   return n === 0 ? '' : n.toFixed(2)
 }
 function formatQuantityInput(v) {
+  if (v === null || v === undefined || v === '') return ''
   const n = Number(v)
   if (!Number.isFinite(n) || n === 0) return ''
-  return n.toFixed(2)
+  return formatErpQtyDisplay(v, '')
 }
 function parseQuantityInput(v) {
-  const n = Number(String(v ?? '').replace(/,/g, ''))
+  const text = String(v ?? '').trim().replace(/,/g, '')
+  if (!text) return null
+  const n = Number(text)
+  return Number.isFinite(n) ? n : null
+}
+/** 明细税点/含税单价输入框：展示去尾 0，计算精度仍由 recalcLine 控制 */
+function formatBuyLineTaxInput(v) {
+  if (v === null || v === undefined || v === '') return ''
+  return formatErpTrimDecimal(v, { maxDecimals: 4, empty: '' })
+}
+function formatBuyLineTaxPriceInput(v) {
+  if (v === null || v === undefined || v === '') return ''
+  return formatErpTrimDecimal(v, { maxDecimals: form.header.decimalPlaces || 4, empty: '' })
+}
+function parseBuyLineNumInput(v) {
+  const text = String(v ?? '').trim().replace(/,/g, '')
+  if (!text) return 0
+  const n = Number(text)
   return Number.isFinite(n) ? n : 0
 }
 /** 额外费用金额：0 在输入框显示为空白，对齐明细数量体验 */
@@ -951,6 +959,7 @@ async function loadList() {
     rows.value = data.data.list || []
     page.total = data.data.total || 0
     reconcilePrintSelection()
+    prefetchExpandDetails(rows.value)
   } catch (err) {
     ElMessage.error(err?.response?.data?.msg || err.message || '读取采购单列表失败')
   } finally {
@@ -1028,6 +1037,9 @@ function chooseBuyType(type) {
 }
 function chooseTaxIncluded(value) {
   form.header.taxIncluded = value
+  form.lines.forEach((line) => {
+    line.tax = resolveLineTax(line.tax)
+  })
   recalcAll()
 }
 async function chooseNumberType(type) {
@@ -1105,12 +1117,15 @@ function resetFormData() {
   form.fees = []
   selectedPis.value = []
   editId.value = null
+  viewId.value = null
   formRef.value?.clearValidate?.()
 }
 
 function switchToManage() {
   if (pageMode.value === 'manage') return
   pageMode.value = 'manage'
+  editId.value = null
+  viewId.value = null
   loadList()
 }
 
@@ -1118,10 +1133,12 @@ async function switchToCreate() {
   if (pageMode.value === 'create') return
   const preserveDraft =
     createPanelInitialized.value &&
-    pageMode.value !== 'edit'
+    pageMode.value !== 'edit' &&
+    pageMode.value !== 'view'
 
   pageMode.value = 'create'
   editId.value = null
+  viewId.value = null
   activeTab.value = 'header'
 
   if (!preserveDraft) {
@@ -1137,6 +1154,7 @@ async function switchToCreate() {
 function switchMaterialTrace() {
   pageMode.value = 'material-trace'
   editId.value = null
+  viewId.value = null
 }
 
 async function confirmAndResetCreateForm() {
@@ -1183,6 +1201,7 @@ async function openEdit(row) {
     ElMessage.warning('采购单参数无效')
     return
   }
+  viewId.value = null
   editId.value = id
   activeTab.value = 'header'
   pageMode.value = 'edit'
@@ -1213,6 +1232,70 @@ async function fetchExpandDetail(id) {
   if (data.code !== 200) throw new Error(data.msg)
   return data.data
 }
+async function fetchExpandDetailBatch(ids) {
+  const list = [...new Set((Array.isArray(ids) ? ids : []).map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0))]
+  if (!list.length) return {}
+  const { data } = await axios.get('/api/buy-order/expand-detail/batch', { params: { ids: list.join(',') } })
+  if (data.code !== 200) throw new Error(data.msg)
+  return data.data || {}
+}
+function applyExpandDetailToRow(row, detailData) {
+  if (!row || !detailData) return
+  row.expandedRows = buildExpandedDisplayRows(detailData.lines, detailData.fees)
+  row.expandedSummary = detailData.summary || {}
+  row.expandedLoaded = true
+  row.expandedLoading = false
+}
+function resetRowExpandState(row) {
+  if (!row) return
+  row.expandedRows = []
+  row.expandedSummary = {}
+  row.expandedLoaded = false
+  row.expandedLoading = false
+}
+async function prefetchExpandDetails(listRows) {
+  const targetRows = Array.isArray(listRows) ? listRows : []
+  const ids = targetRows.map((row) => Number(row?.id)).filter((id) => Number.isFinite(id) && id > 0)
+  if (!ids.length) return
+  const token = ++expandPrefetchToken.value
+  targetRows.forEach((row) => {
+    resetRowExpandState(row)
+    row.expandedLoading = true
+  })
+  try {
+    const batch = await fetchExpandDetailBatch(ids)
+    if (token !== expandPrefetchToken.value) return
+    targetRows.forEach((row) => {
+      const detailData = batch[String(row.id)]
+      if (detailData) {
+        applyExpandDetailToRow(row, detailData)
+      } else {
+        resetRowExpandState(row)
+      }
+    })
+  } catch (err) {
+    if (token !== expandPrefetchToken.value) return
+    targetRows.forEach((row) => {
+      resetRowExpandState(row)
+    })
+    ElMessage.error(err?.response?.data?.msg || err.message || '预加载采购单展开明细失败')
+  }
+}
+async function ensureExpandDetailLoaded(row) {
+  if (!row || row.expandedLoaded) return
+  row.expandedLoading = true
+  try {
+    const data = await fetchExpandDetail(row.id)
+    applyExpandDetailToRow(row, data)
+  } catch (err) {
+    row.expandedRows = []
+    row.expandedSummary = {}
+    row.expandedLoaded = false
+    ElMessage.error(err?.response?.data?.msg || err.message || '读取采购单展开明细失败')
+  } finally {
+    row.expandedLoading = false
+  }
+}
 function buildExpandedDisplayRows(lines, fees) {
   const lineRows = (Array.isArray(lines) ? lines : []).map((line) => ({
     ...line,
@@ -1241,19 +1324,9 @@ function buildExpandedDisplayRows(lines, fees) {
 }
 async function onExpandChange(row, expandedRows) {
   const expanded = expandedRows.some((item) => item.id === row.id)
-  if (!expanded || row.expandedLoaded) return
-  row.expandedLoading = true
-  try {
-    const data = await fetchExpandDetail(row.id)
-    row.expandedRows = buildExpandedDisplayRows(data.lines, data.fees)
-    row.expandedSummary = data.summary || {}
-    row.expandedLoaded = true
-  } catch (err) {
-    row.expandedRows = []
-    ElMessage.error(err?.response?.data?.msg || err.message || '读取采购单展开明细失败')
-  } finally {
-    row.expandedLoading = false
-  }
+  if (!expanded) return
+  if (row.expandedLoaded) return
+  await ensureExpandDetailLoaded(row)
 }
 function onListRowClick(row, column, event) {
   if (!row?.id || !listTableRef.value) return
@@ -1362,6 +1435,7 @@ function hydrateForm(data) {
     content: l.content,
   }))
   form.fees = (data.fees || []).map((f, i) => ({ seq: f.kid || i + 1, feeCode: f.kcaa01, feeName: f.kcaa02, spec: f.kcaa03, money: Number(f.money || 0), tax: Number(f.tax || 0), remark: f.remark || '' }))
+  recalcAll()
 }
 function addMaterial() {
   const m = materials.value.find((x) => String(x.systemcode || x.GUID || x.kcaa01) === String(materialPicked.value))
@@ -1385,7 +1459,7 @@ function addMaterial() {
     taxExcludedPrice: 0,
     taxIncludedAmount: 0,
     taxExcludedAmount: 0,
-    tax: form.header.taxIncluded === '2' ? 0 : 0.13,
+    tax: resolveLineTax(),
     deliveryDate: '',
     info: '',
     _lineMarked: false,
@@ -1420,32 +1494,6 @@ async function resolveOrderIdByPi(piNo) {
     return Number.isFinite(id) && id > 0 ? id : null
   } catch {
     return null
-  }
-}
-async function openLinePiBom(row) {
-  const product = String(row?.topKcaa01 || row?.kcaa01 || '').trim()
-  if (!product) {
-    ElMessage.warning('当前明细缺少款号/编码，无法查看原资料')
-    return
-  }
-  const refNo = String(row?.referenceNo || form.header.referenceNo || '').split(',')[0].trim()
-  if (!refNo && String(form.header.buyType ?? '') === '1') {
-    ElMessage.warning('请先填写关联 PI 号')
-    return
-  }
-  let orderId = Number(form.header.referenceOrderId ?? 0)
-  if (!Number.isFinite(orderId) || orderId <= 0) {
-    orderId = await resolveOrderIdByPi(refNo)
-    if (orderId) form.header.referenceOrderId = orderId
-  }
-  if (!orderId) {
-    ElMessage.warning('无法解析销售订单，请确认关联 PI 号是否正确')
-    return
-  }
-  const url = `/inventory/basic/pi-bom-data-window?mode=edit&orderId=${encodeURIComponent(orderId)}&kcaa01=${encodeURIComponent(product)}`
-  const opened = window.open(url, '_blank')
-  if (!opened) {
-    ElMessage.error('无法打开新窗口，请检查浏览器是否拦截弹窗')
   }
 }
 async function openExpandedLinePiBom(row, parentRow) {
@@ -1518,15 +1566,20 @@ function buildBatchCurrentLines() {
     quantity: line.quantity,
   }))
 }
+/** 批量添加：仅来源行有明确大于 0 的数量才写入，否则留空待手工录入 */
+function resolveBatchLineQuantity(row, isRequisition) {
+  const raw = isRequisition ? row.quantity : (row.quantity ?? row.availableQty)
+  if (raw === null || raw === undefined || raw === '') return null
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
 function applyBatchAddLines(lines) {
   const list = Array.isArray(lines) ? lines : []
   if (!list.length) return
   const isRequisition = ['0', '2'].includes(String(form.header.buyType ?? ''))
   const refPi = String(form.header.referenceNo || '').split(',')[0].trim()
   const newLines = list.map((row, index) => {
-    const qty = isRequisition
-      ? Number(row.quantity ?? 0)
-      : Number(row.quantity ?? row.availableQty ?? 0)
+    const qty = resolveBatchLineQuantity(row, isRequisition)
     const lineRef = isRequisition && String(row.referenceNo || '').trim()
       ? String(row.referenceNo).trim()
       : refPi
@@ -1545,7 +1598,7 @@ function applyBatchAddLines(lines) {
       taxExcludedPrice: hasPrice.value ? Number(row.taxExcludedPrice ?? row.kcak04 ?? 0) : 0,
       taxIncludedAmount: hasPrice.value ? Number(row.taxIncludedAmount ?? row.kcak051 ?? 0) : 0,
       taxExcludedAmount: hasPrice.value ? Number(row.taxExcludedAmount ?? row.kcak05 ?? 0) : 0,
-      tax: form.header.taxIncluded === '2' ? 0 : Number(row.tax ?? 0),
+      tax: resolveLineTax(row.tax),
       deliveryDate: row.deliveryDate || '',
       info: row.info || '',
       _lineMarked: false,
@@ -1643,11 +1696,22 @@ function addFee() {
   form.fees.push({ seq: form.fees.length + 1, feeCode: f.feeCode, feeName: f.feeName, spec: f.spec, money: 0, tax: 0, remark: '' })
   feePicked.value = ''
 }
+/** 含税模式下明细税点默认 0.13；报价/库内 >0 则保留；不含税为 0 */
+const DEFAULT_TAX_RATE = 0.13
+function resolveLineTax(rawTax) {
+  if (form.header.taxIncluded === '2') return 0
+  const t = Number(rawTax)
+  return Number.isFinite(t) && t > 0 ? t : DEFAULT_TAX_RATE
+}
 function recalcLine(row) {
-  const qty = Number(Number(row.quantity || 0).toFixed(2))
-  row.quantity = qty
+  const rawQty = row.quantity
+  const hasQty = rawQty !== null && rawQty !== undefined && rawQty !== ''
+  const qty = hasQty ? Number(Number(rawQty).toFixed(2)) : 0
+  if (hasQty) {
+    row.quantity = qty
+  }
   const price = Number(row.taxIncludedPrice || 0)
-  const tax = form.header.taxIncluded === '2' ? 0 : Number(row.tax || 0)
+  const tax = resolveLineTax(row.tax)
   row.tax = tax
   row.taxExcludedPrice = Number((price / (1 + tax)).toFixed(form.header.decimalPlaces || 4))
   if (form.header.taxIncluded === '2') row.taxExcludedPrice = price
@@ -1709,8 +1773,28 @@ async function saveOrder() {
   }
 }
 async function openDetail(row) {
-  detail.value = await fetchDetail(row.id)
-  detailVisible.value = true
+  const id = Number(row?.id)
+  if (!Number.isFinite(id) || id <= 0) {
+    ElMessage.warning('采购单参数无效')
+    return
+  }
+  viewId.value = id
+  editId.value = null
+  activeTab.value = 'header'
+  pageMode.value = 'view'
+  createPanelInitialized.value = true
+  detailLoading.value = true
+  try {
+    await loadLookups()
+    const data = await fetchDetail(id)
+    hydrateForm(data)
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.msg || err.message || '读取采购单详情失败')
+    pageMode.value = 'manage'
+    viewId.value = null
+  } finally {
+    detailLoading.value = false
+  }
 }
 
 useErpDeepLinkOpen({
@@ -1924,19 +2008,6 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   margin-bottom: 4px;
-}
-
-.buy-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 16px;
-}
-
-.buy-toolbar__actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .buy-create-panel {
@@ -2359,10 +2430,6 @@ onUnmounted(() => {
   background: var(--erp-surface, #fff);
 }
 
-.detail-title { font-weight: 700; margin-bottom: 10px; }
-.detail-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
-.plain-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
-.plain-table th, .plain-table td { border: 1px solid #dcdfe6; padding: 6px 8px; text-align: left; }
 .print-page h2 { text-align: center; margin: 0 0 16px; }
 @media (max-width: 1200px) {
   .buy-filter-field {

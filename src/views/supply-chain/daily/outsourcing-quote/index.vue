@@ -648,6 +648,7 @@ import { DocumentCopy, Refresh, Search } from '@element-plus/icons-vue'
 import axios from 'axios'
 import MaterialSelector from '../purchase-quote/MaterialSelector.vue'
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import { createExpandPrefetch } from '@/utils/erpExpandPrefetch.js'
 
 const pageTitle = '外协报价'
 
@@ -1113,6 +1114,30 @@ function sanitizeLinesForApi() {
   return out
 }
 
+const expandPrefetch = createExpandPrefetch({
+  fetchBatch: async (ids) => {
+    const { data } = await axios.get('/api/supply-chain/outsourcing-quotations/lines/batch', { params: { ids: ids.join(',') } })
+    if (data.code !== 200) throw new Error(data.msg)
+    return data.data || {}
+  },
+  fetchSingle: async (id) => {
+    const res = await axios.get(`/api/supply-chain/outsourcing-quotations/${id}/lines`)
+    return { list: Array.isArray(res?.data?.data?.list) ? res.data.data.list : [] }
+  },
+  getRowId: (row) => Number(row?.id),
+  applyToRow: (row, payload) => {
+    row.__lines = Array.isArray(payload?.list) ? payload.list : []
+    row.__linesLoaded = true
+    row.__linesLoading = false
+  },
+  resetRow: (row) => {
+    row.__lines = null
+    row.__linesLoaded = false
+    row.__linesLoading = false
+  },
+  onError: (msg) => ElMessage.error(msg),
+})
+
 async function loadData() {
   loading.value = true
   errorMessage.value = ''
@@ -1136,6 +1161,7 @@ async function loadData() {
       __linesLoaded: false,
       __linesLoading: false,
     }))
+    expandPrefetch.prefetch(tableList.value)
   } catch (err) {
     const msg = err?.response?.data?.msg || err?.message || '加载失败'
     errorMessage.value = String(msg)
@@ -1177,17 +1203,7 @@ async function onExpandChange(row, expandedRows) {
   const open = expandedRows.some((r) => r.id === row.id)
   if (!open) return
   if (row.__linesLoaded) return
-  row.__linesLoading = true
-  try {
-    const res = await axios.get(`/api/supply-chain/outsourcing-quotations/${row.id}/lines`)
-    row.__lines = Array.isArray(res?.data?.data?.list) ? res.data.data.list : []
-    row.__linesLoaded = true
-  } catch (e) {
-    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '加载明细失败'))
-    row.__lines = []
-  } finally {
-    row.__linesLoading = false
-  }
+  await expandPrefetch.ensureLoaded(row)
 }
 
 /** 点击行任意单元格即可展开/收起（排除左侧箭头列与操作列按钮，避免重复切换或误触） */

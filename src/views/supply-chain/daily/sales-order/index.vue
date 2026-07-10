@@ -1,9 +1,9 @@
 <template>
   <div class="erp-module-page" :class="{ 'so-standalone-window': isSalesOrderStandaloneWindow }">
     <!-- 销售订单 issue 01：列表 + 只读详情（主表 Tab / 明细 Tab） -->
-    <div v-if="!isSalesOrderStandaloneWindow" class="so-mode-bar">
+    <div v-if="!isSalesOrderStandaloneWindow" class="so-mode-bar erp-mode-bar">
       <el-button
-        class="so-mode-btn"
+        class="so-mode-btn erp-mode-btn"
         :type="pageMode === 'manage' ? 'primary' : 'default'"
         plain
         @click="switchToManage"
@@ -13,7 +13,7 @@
       </el-button>
       <el-button
         v-permission="'add'"
-        class="so-mode-btn"
+        class="so-mode-btn erp-mode-btn"
         :type="pageMode === 'create' ? 'primary' : 'default'"
         plain
         @click="switchToCreate"
@@ -23,7 +23,7 @@
       </el-button>
     </div>
 
-    <el-card v-show="!isSalesOrderStandaloneWindow && pageMode === 'manage'" shadow="never">
+    <el-card v-show="!isSalesOrderStandaloneWindow && pageMode === 'manage' && !editVisible" shadow="never">
      
 
       <div class="so-toolbar">
@@ -36,19 +36,19 @@
               class="so-keyword-input"
               @keyup.enter="onSearch"
             />
-            <el-button class="so-filter-action-btn" type="primary" size="small" @click="onSearch">查询</el-button>
-            <div class="audit-switch">
+            <el-button class="so-filter-action-btn erp-filter-action-btn" type="primary" size="small" @click="onSearch">查询</el-button>
+            <div class="audit-switch erp-filter-switch">
               <span class="switch-label">回收站</span>
               <el-switch v-model="showRecycle" @change="onRecycleChange" />
             </div>
-            <div v-if="!showRecycle" class="audit-switch">
+            <div v-if="!showRecycle" class="audit-switch erp-filter-switch">
               <span class="switch-label">显示未审核</span>
               <el-switch v-model="showUnAudited" @change="onSearch" />
             </div>
-            <el-button class="so-filter-action-btn" size="small" @click="onReset">重置</el-button>
+            <el-button class="so-filter-action-btn erp-filter-action-btn" size="small" @click="onReset">重置</el-button>
           </div>
           <div class="so-command-actions">
-            <el-button class="btn-view so-filter-action-btn" size="small" :loading="loading" @click="loadData">
+            <el-button class="btn-view so-filter-action-btn erp-filter-action-btn" size="small" :loading="loading" @click="loadData">
               <el-icon class="btn-icon"><Refresh /></el-icon>
               刷新
             </el-button>
@@ -71,6 +71,19 @@
         show-icon
         class="audit-alert"
       />
+
+      <div class="pagination-row pagination-row--top">
+        <el-pagination
+          v-model:current-page="page"
+          v-model:page-size="pageSize"
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="total"
+          :page-sizes="ERP_PAGE_SIZE_OPTIONS"
+          @size-change="onPageSizeChange"
+          @current-change="onPageChange"
+        />
+      </div>
 
       <el-skeleton :loading="loading" animated :rows="6">
         <template #default>
@@ -191,6 +204,54 @@
                 </ErpTableActions>
               </template>
             </el-table-column>
+            <el-table-column label="状态" width="88">
+              <template #default="{ row }">
+                <el-tag v-if="passIsAudited(row)" type="success" size="small">已审</el-tag>
+                <el-tag v-else type="warning" size="small">未审</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="结案" width="88">
+              <template #default="{ row }">
+                <el-tag v-if="isSalesOrderClosed(row)" type="info" size="small">已结案</el-tag>
+                <el-tag v-else type="success" size="small">未结案</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="运算状态" width="100">
+              <template #default="{ row }">
+                <el-tag v-if="row.calcStatus === '已运算'" type="success" size="small">已运算</el-tag>
+                <el-tag v-else type="info" size="small">未运算</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="销售单号" prop="piNo" min-width="132">
+              <template #default="{ row }">
+                <span class="code-bold">{{ formatCell(row.piNo) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="销售日期" width="118">
+              <template #default="{ row }">{{ formatSalesOrderDate(row.salesDate) }}</template>
+            </el-table-column>
+            <el-table-column label="交货日期" width="118">
+              <template #default="{ row }">{{ formatSalesOrderDate(row.deliveryDate) }}</template>
+            </el-table-column>
+            <el-table-column label="PO 号" prop="poNo" min-width="132" />
+            <el-table-column label="销售数据" min-width="330">
+              <template #default="{ row }">
+                <div class="so-sales-data">
+                  <p>
+                    总项数：{{ formatSalesDataCount(row, 'lineCount') }}
+                    明细总量：{{ formatSalesDataQty(row, 'lineQtyTotal') }}
+                    物品总金额：{{ formatSalesDataMoney(row, 'lineAmountTotal') }} 元
+                  </p>
+                  <p>总出库数量：{{ formatSalesDataQty(row, 'stockOutQtyTotal') }}</p>
+                  <p>关联采购订单：{{ formatSalesDataCount(row, 'buyOrderTotal') }} 张</p>
+                  <p>关联外协订单：{{ formatSalesDataCount(row, 'assistOrderTotal') }} 张</p>
+                  <p>关联派工单：{{ formatSalesDataCount(row, 'dispatchOrderTotal') }} 张</p>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="币别" prop="currencyName" width="88" />
+            <el-table-column label="客户" prop="customerName" min-width="160" />
+            <el-table-column label="备注" prop="remark" min-width="180" show-overflow-tooltip />
             <el-table-column type="expand" width="48">
               <template #default="{ row }">
                 <div v-loading="row.__linesLoading" class="expand-inner">
@@ -244,29 +305,6 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="PI 号" prop="piNo" min-width="132">
-              <template #default="{ row }">
-                <span class="code-bold">{{ formatCell(row.piNo) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="PO 号" prop="poNo" min-width="132" />
-            <el-table-column label="客户" prop="customerName" min-width="160" />
-            <el-table-column label="币别" prop="currencyName" width="88" />
-            <el-table-column label="交货日期" width="118">
-              <template #default="{ row }">{{ formatSalesOrderDate(row.deliveryDate) }}</template>
-            </el-table-column>
-            <el-table-column label="审核" width="88">
-              <template #default="{ row }">
-                <el-tag v-if="passIsAudited(row)" type="success" size="small">已审</el-tag>
-                <el-tag v-else type="warning" size="small">未审</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="运算状态" width="100">
-              <template #default="{ row }">
-                <el-tag v-if="row.calcStatus === '已运算'" type="success" size="small">已运算</el-tag>
-                <el-tag v-else type="info" size="small">未运算</el-tag>
-              </template>
-            </el-table-column>
           </el-table>
           </ErpTableViewportHScroll>
 
@@ -275,7 +313,6 @@
               v-model:current-page="page"
               v-model:page-size="pageSize"
               background
-              size="small"
               layout="total, sizes, prev, pager, next, jumper"
               :total="total"
               :page-sizes="ERP_PAGE_SIZE_OPTIONS"
@@ -287,242 +324,33 @@
       </el-skeleton>
     </el-card>
 
-    <el-dialog
-      v-model="viewVisible"
-      title="查看销售订单"
-      width="85%"
-      top="5vh"
-      draggable
-      destroy-on-close
-      :close-on-click-modal="false"
-      class="so-view-dialog erp-page-dialog"
-    >
-      <div v-loading="viewLoading" class="detail-wrap">
-        <el-tabs v-model="viewActiveTab" @tab-change="onViewTabChange">
-          <el-tab-pane label="主表" name="header">
-            <el-descriptions v-if="viewHeader" :column="2" border size="small" class="so-header-desc">
-              <el-descriptions-item label="PI 号">{{ formatCell(viewHeader.piNo) }}</el-descriptions-item>
-              <el-descriptions-item label="PO 号">{{ formatCell(viewHeader.poNo) }}</el-descriptions-item>
-              <el-descriptions-item label="客户">{{ formatCell(viewHeader.customerName) }}</el-descriptions-item>
-              <el-descriptions-item label="币别">{{ formatCell(viewHeader.currencyName) }}</el-descriptions-item>
-              <el-descriptions-item label="交货日期">{{
-                formatSalesOrderDate(viewHeader.deliveryDate)
-              }}</el-descriptions-item>
-              <el-descriptions-item label="审核">
-                <el-tag v-if="passIsAudited(viewHeader)" type="success" size="small">已审</el-tag>
-                <el-tag v-else type="warning" size="small">未审</el-tag>
-              </el-descriptions-item>
-              <el-descriptions-item label="运算状态">
-                <el-tag v-if="viewHeader.calcStatus === '已运算'" type="success" size="small">已运算</el-tag>
-                <el-tag v-else type="info" size="small">未运算</el-tag>
-              </el-descriptions-item>
-              <el-descriptions-item label="小数位数">{{
-                formatCell(viewHeader.decimalPlaces)
-              }}</el-descriptions-item>
-              <el-descriptions-item label="备注" :span="2">{{
-                formatCell(viewHeader.remark)
-              }}</el-descriptions-item>
-            </el-descriptions>
-            <el-empty v-else description="无主表数据" />
-          </el-tab-pane>
-          <el-tab-pane label="明细" name="lines">
-            <div
-              v-if="viewHeader && !showRecycle && !passIsAudited(viewHeader) && viewLines.length"
-              class="lines-toolbar"
-            >
-              <el-button
-                v-permission="'edit'"
-                type="primary"
-                plain
-                size="small"
-                :disabled="!syncBomSelectedCount || syncBomBatchLoading"
-                :loading="syncBomBatchLoading"
-                @click="batchSyncBomFromView"
-              >
-                {{
-                  syncBomBatchLoading && syncBomBatchProgress.total
-                    ? `同步中 (${syncBomBatchProgress.current}/${syncBomBatchProgress.total})`
-                    : '批量同步 BOM'
-                }}
-              </el-button>
-              <span v-if="syncBomSelectedCount" class="so-sync-bom-selected-hint">
-                已选 {{ syncBomSelectedCount }} 款
-              </span>
-            </div>
-            <el-table
-              v-if="viewLines.length"
-              class="so-lines-table"
-              :data="viewLines"
-              border
-              size="small"
-              style="width: 100%"
-              scrollbar-always-on
-            >
-              <el-table-column type="index" label="序号" width="58" />
-              <el-table-column
-                v-if="viewHeader && !showRecycle"
-                label="操作"
-                :width="viewLineActionsColWidth"
-                fixed="left"
-                align="left"
-                header-align="center"
-                class-name="erp-col-actions"
-              >
-                <template #default="{ row }">
-                  <div class="action-bar so-line-actions">
-                    <el-button type="info" plain size="small" @click="openPiBomTab(row, 'view')">
-                      PI BOM
-                    </el-button>
-                    <el-button
-                      v-if="!passIsAudited(viewHeader)"
-                      v-permission="'edit'"
-                      size="small"
-                      class="so-sync-bom-mark-btn"
-                      :class="{ 'so-sync-bom-mark-btn--on': isSyncBomSelected(row.kcaa01) }"
-                      :disabled="syncBomBatchLoading"
-                      @click="toggleSyncBomSelection(row)"
-                    >
-                      {{ isSyncBomSelected(row.kcaa01) ? '已选择' : '同步 BOM' }}
-                    </el-button>
-                  </div>
-                </template>
-              </el-table-column>
-              <el-table-column label="编码" prop="kcaa01" min-width="128" show-overflow-tooltip />
-              <el-table-column label="数量" width="100" align="right">
-                <template #default="{ row }">{{ formatOrderQty(row.orderQty) }}</template>
-              </el-table-column>
-              <el-table-column label="单价" width="110" align="right">
-                <template #default="{ row }">{{ formatMoney(row.unitPrice) }}</template>
-              </el-table-column>
-              <el-table-column label="金额" width="118" align="right">
-                <template #default="{ row }">{{ formatMoney(getLineAmount(row)) }}</template>
-              </el-table-column>
-              <el-table-column label="客款号" prop="customerStyleNo" min-width="120" show-overflow-tooltip />
-              <el-table-column label="备注" prop="remark" min-width="140" show-overflow-tooltip />
-              <el-table-column label="用料名称(中文)" prop="materialNameCn" min-width="160" show-overflow-tooltip />
-              <el-table-column label="组别" prop="groupName" min-width="100" show-overflow-tooltip />
-              <el-table-column label="工厂款号" prop="factoryStyleNo" min-width="120" show-overflow-tooltip />
-              <el-table-column label="版本" prop="version" width="88" show-overflow-tooltip />
-            </el-table>
-            <el-empty v-else description="暂无明细" />
-          </el-tab-pane>
-          <el-tab-pane label="PI BOM" name="piBom">
-            <p class="so-lines-hint">
-              仅维护 PI 销售 BOM 用量，不从主 BOM 拉取（拉取请用明细「同步 BOM」）。改用量后须重新一键运算。
-            </p>
-            <div v-if="!viewHeader?.id" class="so-pi-bom-empty">
-              <el-empty description="请先保存订单后再查看 PI BOM" />
-            </div>
-            <template v-else>
-              <div class="so-pi-bom-toolbar">
-                <span class="so-pi-bom-label">成品款</span>
-                <el-select
-                  v-model="piBomProduct"
-                  filterable
-                  placeholder="选择明细款号"
-                  style="min-width: 280px"
-                  :loading="piBomLoading"
-                  @change="onPiBomProductChange('view')"
-                >
-                  <el-option
-                    v-for="p in piBomProducts"
-                    :key="p.kcaa01"
-                    :label="`${p.kcaa01}${p.hasBom ? '' : '（未建 BOM）'}`"
-                    :value="p.kcaa01"
-                  />
-                </el-select>
-              </div>
-              <div v-loading="piBomLoading" class="so-pi-bom-table-wrap">
-                <el-table
-                  v-if="piBomTree.length"
-                  :data="piBomTree"
-                  row-key="id"
-                  border
-                  size="small"
-                  class="so-lines-table so-pi-bom-tree-table"
-                  default-expand-all
-                  :tree-props="{ children: 'children' }"
-                  max-height="calc(80vh - 320px)"
-                  scrollbar-always-on
-                >
-                  <el-table-column label="子件编码" prop="kcaa01" min-width="128" show-overflow-tooltip />
-                  <el-table-column label="名称" prop="kcaa02" min-width="120" show-overflow-tooltip />
-                  <el-table-column label="规格" prop="kcaa03" min-width="96" show-overflow-tooltip />
-                  <el-table-column label="单位用量" width="120" align="right">
-                    <template #default="{ row }">{{ formatPiBomQty(row.kcac04) }}</template>
-                  </el-table-column>
-                  <el-table-column label="损耗" width="88" align="right">
-                    <template #default="{ row }">{{ formatPiBomQty(row.kcac05) }}</template>
-                  </el-table-column>
-                  <el-table-column label="备注" prop="Describe" min-width="100" show-overflow-tooltip />
-                </el-table>
-                <el-empty v-else-if="piBomProduct" description="该款暂无 PI BOM 子件" />
-                <el-empty v-else description="请选择成品款" />
-              </div>
-            </template>
-          </el-tab-pane>
-        </el-tabs>
-      </div>
-      <template #footer>
-        <div class="action-bar action-bar--footer">
-          <el-button size="small" @click="viewVisible = false">关闭</el-button>
-          <template v-if="viewHeader">
-            <template v-if="!showRecycle">
-              <el-button
-                v-if="!passIsAudited(viewHeader)"
-                v-permission="'edit'"
-                type="primary"
-                size="small"
-                @click="openEditFromView"
-              >
-                编辑
-              </el-button>
-              <el-button
-                v-if="!passIsAudited(viewHeader)"
-                v-permission="'audit'"
-                type="success"
-                size="small"
-                @click="auditRow(viewHeader)"
-              >
-                审核
-              </el-button>
-              <el-button
-                v-if="passIsAudited(viewHeader)"
-                v-permission="'audit'"
-                type="warning"
-                size="small"
-                @click="unauditRow(viewHeader)"
-              >
-                反审
-              </el-button>
-              <el-button v-permission="'delete'" type="danger" size="small" @click="softDeleteRow(viewHeader)">
-                删除
-              </el-button>
-            </template>
-            <template v-else>
-              <el-button v-permission="'edit'" type="primary" size="small" @click="restoreRow(viewHeader)">恢复</el-button>
-              <el-button v-permission="'delete'" type="danger" size="small" @click="hardDeleteRow(viewHeader)">
-                彻底删除
-              </el-button>
-            </template>
-          </template>
-        </div>
-      </template>
-    </el-dialog>
-
     <section
       v-show="editVisible"
-      :class="['so-edit-panel', { 'so-edit-panel--standalone': isSalesOrderStandaloneWindow }]"
+      :class="[
+        'so-edit-panel',
+        { 'so-edit-panel--standalone': isSalesOrderStandaloneWindow, 'so-edit-panel--readonly': isReadonlyForm },
+      ]"
     >
       <div class="so-edit-panel__header">
         <h2 class="so-edit-panel__title">
-          {{ editMode === 'create' ? '新增销售订单' : '编辑销售订单' }}
+          {{
+            editMode === 'view'
+              ? '查看销售订单'
+              : editMode === 'create'
+                ? '新增销售订单'
+                : '编辑销售订单'
+          }}
         </h2>
       </div>
       <div v-loading="editLoading" class="detail-wrap">
         <el-tabs v-model="editActiveTab" @tab-change="onEditTabChange">
           <el-tab-pane label="主表" name="header">
-            <el-form label-width="108px" class="so-edit-form" :disabled="editDetailLocked" @submit.prevent>
+            <el-form
+              label-width="108px"
+              class="so-edit-form"
+              :disabled="editDetailLocked || isReadonlyForm"
+              @submit.prevent
+            >
               <el-row :gutter="12">
                 <el-col :xs="24" :sm="12">
                   <el-form-item label="PI 号" required>
@@ -631,10 +459,10 @@
               :closable="false"
               class="audit-alert"
             />
-            <p class="so-lines-hint">
+            <p v-if="!isReadonlyForm" class="so-lines-hint">
               选材后填写订货数量；删除行仅影响界面，点击保存后才会落库并同步 PI BOM 对齐。
             </p>
-            <div class="lines-toolbar so-unified-btn-font">
+            <div v-if="!isReadonlyForm" class="lines-toolbar so-unified-btn-font">
               <el-button
                 type="primary"
                 plain
@@ -685,7 +513,15 @@
                 <template #default="{ row, $index }">
                   <div class="action-bar so-line-actions so-unified-btn-font">
                     <el-button
-                      v-if="editMode === 'edit' && editId"
+                      v-if="isReadonlyForm"
+                      type="info"
+                      plain
+                      @click="openPiBomTab(row, 'view')"
+                    >
+                      PI BOM
+                    </el-button>
+                    <el-button
+                      v-if="!isReadonlyForm && editMode === 'edit' && editId"
                       v-permission="'edit'"
                       type="info"
                       plain
@@ -695,7 +531,7 @@
                       PI BOM
                     </el-button>
                     <el-button
-                      v-if="editMode === 'edit' && editId"
+                      v-if="!isReadonlyForm && editMode === 'edit' && editId"
                       v-permission="'edit'"
                       class="so-sync-bom-mark-btn"
                       :class="{ 'so-sync-bom-mark-btn--on': isSyncBomSelected(row.kcaa01) }"
@@ -705,6 +541,7 @@
                       {{ isSyncBomSelected(row.kcaa01) ? '已选择' : '同步 BOM' }}
                     </el-button>
                     <el-button
+                      v-if="!isReadonlyForm"
                       type="danger"
                       plain
                       :disabled="editDetailLocked"
@@ -718,7 +555,9 @@
               <el-table-column label="编码" prop="kcaa01" min-width="128" show-overflow-tooltip />
               <el-table-column label="数量" width="120">
                 <template #default="{ row }">
+                  <template v-if="isReadonlyForm">{{ formatOrderQty(row.orderQty) }}</template>
                   <el-input-number
+                    v-else
                     v-model="row.orderQty"
                     :min="0"
                     :disabled="editDetailLocked"
@@ -729,7 +568,9 @@
               </el-table-column>
               <el-table-column label="单价" width="126">
                 <template #default="{ row }">
+                  <template v-if="isReadonlyForm">{{ formatMoney(row.unitPrice) }}</template>
                   <el-input-number
+                    v-else
                     v-model="row.unitPrice"
                     :min="0"
                     :disabled="editDetailLocked"
@@ -760,10 +601,13 @@
               :closable="false"
               class="audit-alert"
             />
-            <p v-else class="so-lines-hint">
+            <p v-else-if="!isReadonlyForm" class="so-lines-hint">
               修改 PI 内子件用量后请点击「保存 PI BOM」；订单将标为未运算。同步主 BOM 请回明细 Tab。
             </p>
-            <div v-if="editMode === 'create' || !editId" class="so-pi-bom-empty">
+            <p v-else class="so-lines-hint">
+              仅维护 PI 销售 BOM 用量，不从主 BOM 拉取（拉取请用明细「同步 BOM」）。改用量后须重新一键运算。
+            </p>
+            <div v-if="!(editMode === 'view' && viewId) && !editId" class="so-pi-bom-empty">
               <el-empty description="请先保存订单后再维护 PI BOM" />
             </div>
             <template v-else>
@@ -775,7 +619,7 @@
                   placeholder="选择明细款号"
                   style="min-width: 280px"
                   :loading="piBomLoading"
-                  @change="onPiBomProductChange('edit')"
+                  @change="onPiBomProductChange(isReadonlyForm ? 'view' : 'edit')"
                 >
                   <el-option
                     v-for="p in piBomProducts"
@@ -785,6 +629,7 @@
                   />
                 </el-select>
                 <el-button
+                  v-if="!isReadonlyForm"
                   v-permission="'edit'"
                   type="primary"
                   plain
@@ -813,7 +658,9 @@
                   <el-table-column label="规格" prop="kcaa03" min-width="96" show-overflow-tooltip />
                   <el-table-column label="单位用量" width="128" align="right">
                     <template #default="{ row }">
+                      <template v-if="isReadonlyForm">{{ formatPiBomQty(row.kcac04) }}</template>
                       <el-input-number
+                        v-else
                         v-model="row.kcac04"
                         :disabled="editDetailLocked"
                         :min="0"
@@ -826,7 +673,9 @@
                   </el-table-column>
                   <el-table-column label="损耗" width="108" align="right">
                     <template #default="{ row }">
+                      <template v-if="isReadonlyForm">{{ formatPiBomQty(row.kcac05) }}</template>
                       <el-input-number
+                        v-else
                         v-model="row.kcac05"
                         :disabled="editDetailLocked"
                         :min="0"
@@ -839,7 +688,9 @@
                   </el-table-column>
                   <el-table-column label="备注" min-width="120">
                     <template #default="{ row }">
+                      <template v-if="isReadonlyForm">{{ formatCell(row.Describe) }}</template>
                       <el-input
+                        v-else
                         v-model="row.Describe"
                         :disabled="editDetailLocked"
                         clearable
@@ -848,7 +699,7 @@
                     </template>
                   </el-table-column>
                 </el-table>
-                <el-empty v-else-if="piBomProduct" description="该款暂无 PI BOM 子件，请先保存订单建立 BOM" />
+                <el-empty v-else-if="piBomProduct" :description="isReadonlyForm ? '该款暂无 PI BOM 子件' : '该款暂无 PI BOM 子件，请先保存订单建立 BOM'" />
                 <el-empty v-else description="请选择成品款" />
               </div>
             </template>
@@ -857,26 +708,31 @@
       </div>
       <div class="so-edit-panel__footer so-unified-btn-font">
         <div class="action-bar action-bar--footer">
-          <el-button @click="closeEditWindowOrDialog">取消</el-button>
-          <el-button
-            v-if="editMode === 'create'"
-            v-permission="'add'"
-            type="primary"
-            :loading="saveLoading"
-            @click="onSave"
-          >
-            保存
-          </el-button>
-          <el-button
-            v-else
-            v-permission="'edit'"
-            type="primary"
-            :loading="saveLoading"
-            :disabled="editDetailLocked"
-            @click="onSave"
-          >
-            保存
-          </el-button>
+          <template v-if="isReadonlyForm">
+            <el-button @click="switchToManage">返回列表</el-button>
+          </template>
+          <template v-else>
+            <el-button @click="closeEditWindowOrDialog">取消</el-button>
+            <el-button
+              v-if="editMode === 'create'"
+              v-permission="'add'"
+              type="primary"
+              :loading="saveLoading"
+              @click="onSave"
+            >
+              保存
+            </el-button>
+            <el-button
+              v-else
+              v-permission="'edit'"
+              type="primary"
+              :loading="saveLoading"
+              :disabled="editDetailLocked"
+              @click="onSave"
+            >
+              保存
+            </el-button>
+          </template>
         </div>
       </div>
     </section>
@@ -889,6 +745,7 @@
 import { useErpListRowContextMenu, useErpModeBtnContextMenu } from '@/composables/useErpListRowContextMenu'
 import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
+import { formatErpMoneyDisplay, formatErpQtyDisplay } from '@/utils/erpNumberDisplay'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
 import ErpTableViewportHScroll from '@/components/erp/ErpTableViewportHScroll.vue'
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
@@ -896,6 +753,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import axios from 'axios'
+import { createExpandPrefetch } from '@/utils/erpExpandPrefetch.js'
 import MaterialSelector from '../purchase-quote/MaterialSelector.vue'
 import {
   buildSalesOrderListQueryParams,
@@ -954,8 +812,10 @@ function getActionBarColWidth(buttonCount, options = {}) {
 }
 const salesOrderActionsColWidth = computed(() => 268)
 const expandedLineActionsColWidth = computed(() => getActionBarColWidth(1, { buttonWidth: 64 }))
-const viewLineActionsColWidth = computed(() => getActionBarColWidth(2, { buttonWidth: 84 }))
 const editLineActionsColWidth = computed(() => {
+  if (editMode.value === 'view') {
+    return getActionBarColWidth(1, { buttonWidth: 84 })
+  }
   if (editMode.value === 'create' || !editId.value) {
     return getActionBarColWidth(1, { buttonWidth: 64 })
   }
@@ -995,6 +855,32 @@ function forgetDetail(orderId) {
   detailRequestCache.delete(key)
 }
 
+const expandPrefetch = createExpandPrefetch({
+  fetchBatch: async (ids) => {
+    const { data } = await axios.get('/api/sales-order/expand-lines/batch', { params: { ids: ids.join(',') } })
+    if (data.code !== 200) throw new Error(data.msg)
+    return data.data || {}
+  },
+  fetchSingle: async (id) => {
+    const detail = await fetchOrderDetail(id)
+    return { lines: detail.lines }
+  },
+  getRowId: (row) => Number(row?.id),
+  applyToRow: (row, payload) => {
+    const lines = Array.isArray(payload?.lines) ? payload.lines : []
+    rememberDetail(row?.id ?? getOrderCacheKey(row), { header: null, lines })
+    row.__lines = lines
+    row.__linesLoaded = true
+    row.__linesLoading = false
+  },
+  resetRow: (row) => {
+    row.__lines = []
+    row.__linesLoaded = false
+    row.__linesLoading = false
+  },
+  onError: (msg) => ElMessage.error(msg),
+})
+
 function attachCachedDetail(row) {
   const key = getOrderCacheKey(row)
   const cached = key ? detailCache.get(key) : null
@@ -1022,20 +908,15 @@ async function fetchOrderDetail(orderId, options = {}) {
   return request
 }
 
-const viewVisible = ref(false)
-const viewLoading = ref(false)
-const viewActiveTab = ref('header')
-/** @type {import('vue').Ref<Record<string, unknown> | null>} */
-const viewHeader = ref(null)
-const viewLines = ref([])
-
 const editVisible = ref(false)
 const editLoading = ref(false)
 const saveLoading = ref(false)
-/** @type {import('vue').Ref<'create' | 'edit'>} */
+/** @type {import('vue').Ref<'create' | 'edit' | 'view'>} */
 const editMode = ref('create')
 const editId = ref(null)
+const viewId = ref(null)
 const editActiveTab = ref('header')
+const isReadonlyForm = computed(() => editMode.value === 'view')
 const headerForm = reactive({
   piNo: '',
   poNo: '',
@@ -1112,6 +993,30 @@ function formatMoney(value) {
   return n.toFixed(6)
 }
 
+function isSalesOrderClosed(row) {
+  return String(row?.closed ?? '0').trim() === '1'
+}
+
+function getSalesDataValue(row, key) {
+  const data = row?.salesData
+  if (!data || typeof data !== 'object') return 0
+  return data[key]
+}
+
+function formatSalesDataCount(row, key) {
+  const n = Number(getSalesDataValue(row, key))
+  if (!Number.isFinite(n)) return '0'
+  return String(Math.max(0, Math.trunc(n)))
+}
+
+function formatSalesDataQty(row, key) {
+  return formatErpQtyDisplay(getSalesDataValue(row, key), '0')
+}
+
+function formatSalesDataMoney(row, key) {
+  return formatErpMoneyDisplay(getSalesDataValue(row, key), '0')
+}
+
 /**
  * @param {{ id: number, calcStatus?: string }} row
  * @param {boolean} fromEdit
@@ -1150,9 +1055,8 @@ async function calculateOrder(row, fromEdit) {
     forgetDetail(orderId)
     const detail = await fetchOrderDetail(orderId, { force: true })
     const hdr = detail.header ?? {}
-    if (viewVisible.value && viewHeader.value?.id === orderId) {
-      viewHeader.value = hdr
-      viewLines.value = detail.lines
+    if (editVisible.value && editMode.value === 'view' && viewId.value === orderId) {
+      await loadOrderIntoPanel(orderId, { captureSnapshot: false })
     }
     if (editVisible.value && editId.value === orderId) {
       editHeaderPass.value = String(hdr.pass ?? '0')
@@ -1191,10 +1095,8 @@ async function addSpareUsage(row) {
     const res = await axios.post(`/api/sales-order/${orderId}/add-spare-usage`)
     ElMessage.success(res?.data?.msg ?? '散件单用量已增加')
     forgetDetail(orderId)
-    if (viewVisible.value && viewHeader.value?.id === orderId) {
-      const detail = await fetchOrderDetail(orderId, { force: true })
-      viewHeader.value = detail.header ?? viewHeader.value
-      viewLines.value = detail.lines
+    if (editVisible.value && editMode.value === 'view' && viewId.value === orderId) {
+      await loadOrderIntoPanel(orderId, { captureSnapshot: false })
     }
     await loadData()
   } catch (e) {
@@ -1223,10 +1125,6 @@ function isSyncBomSelected(kcaa01) {
 /** @param {{ kcaa01?: string }} row */
 function toggleSyncBomSelection(row) {
   if (editVisible.value && editDetailLocked.value) {
-    ElMessage.warning('该订单已审核，请先反审后再同步 BOM。')
-    return
-  }
-  if (viewVisible.value && passIsAudited(viewHeader.value)) {
     ElMessage.warning('该订单已审核，请先反审后再同步 BOM。')
     return
   }
@@ -1307,8 +1205,7 @@ async function loadPiBomTree(orderId, kcaa01) {
  * @param {'view' | 'edit'} mode
  */
 async function onPiBomProductChange(mode) {
-  const orderId =
-    mode === 'view' ? Number(viewHeader.value?.id) : Number(editId.value)
+  const orderId = mode === 'view' ? Number(viewId.value) : Number(editId.value)
   if (!orderId || !piBomProduct.value) {
     piBomTree.value = []
     return
@@ -1324,27 +1221,18 @@ async function openPiBomTab(row, mode) {
   const code = String(row?.kcaa01 ?? '').trim()
   if (!code) return
   piBomProduct.value = code
-  if (mode === 'view') {
-    viewActiveTab.value = 'piBom'
-    const orderId = Number(viewHeader.value?.id)
-    if (!orderId) return
-    await loadPiBomProductList(orderId)
-    await loadPiBomTree(orderId, code)
-  } else {
-    editActiveTab.value = 'piBom'
-    const orderId = Number(editId.value)
-    if (!orderId) return
-    await loadPiBomProductList(orderId)
-    await loadPiBomTree(orderId, code)
-  }
+  editActiveTab.value = 'piBom'
+  const orderId = mode === 'view' ? Number(viewId.value) : Number(editId.value)
+  if (!orderId) return
+  await loadPiBomProductList(orderId)
+  await loadPiBomTree(orderId, code)
 }
 
 /**
  * @param {'view' | 'edit'} mode
  */
 async function savePiBom(mode) {
-  const orderId =
-    mode === 'view' ? Number(viewHeader.value?.id) : Number(editId.value)
+  const orderId = Number(editId.value)
   const code = String(piBomProduct.value ?? '').trim()
   if (!orderId || !code) return
   if (mode === 'edit' && editDetailLocked.value) {
@@ -1369,11 +1257,7 @@ async function savePiBom(mode) {
   try {
     const res = await axios.put(`/api/sales-order/${orderId}/pi-bom`, { kcaa01: code, lines })
     ElMessage.success(res?.data?.msg ?? '保存 PI BOM 成功')
-    if (mode === 'edit') {
-      editHeaderCalcStatus.value = '未运算'
-    } else if (viewHeader.value) {
-      viewHeader.value = { ...viewHeader.value, calcStatus: '未运算' }
-    }
+    editHeaderCalcStatus.value = '未运算'
     await loadPiBomTree(orderId, code)
     await loadData()
   } catch (e) {
@@ -1383,18 +1267,11 @@ async function savePiBom(mode) {
   }
 }
 
-function onViewTabChange(name) {
-  if (name === 'piBom' && viewHeader.value?.id) {
-    loadPiBomProductList(Number(viewHeader.value.id)).then(() => {
-      if (piBomProduct.value) loadPiBomTree(Number(viewHeader.value.id), piBomProduct.value)
-    })
-  }
-}
-
 function onEditTabChange(name) {
-  if (name === 'piBom' && editId.value) {
-    loadPiBomProductList(Number(editId.value)).then(() => {
-      if (piBomProduct.value) loadPiBomTree(Number(editId.value), piBomProduct.value)
+  const orderId = editId.value || viewId.value
+  if (name === 'piBom' && orderId) {
+    loadPiBomProductList(Number(orderId)).then(() => {
+      if (piBomProduct.value) loadPiBomTree(Number(orderId), piBomProduct.value)
     })
   }
 }
@@ -1496,11 +1373,13 @@ function closeEditWindowOrDialog() {
     return
   }
   editVisible.value = false
+  viewId.value = null
   pageMode.value = 'manage'
 }
 
 function switchToManage() {
   editVisible.value = false
+  viewId.value = null
   pageMode.value = 'manage'
 }
 
@@ -1545,6 +1424,7 @@ async function onPiNoBlur() {
 async function openCreate() {
   editMode.value = 'create'
   editId.value = null
+  viewId.value = null
   pageMode.value = 'create'
   editHeaderPass.value = '0'
   editHeaderCalcStatus.value = '未运算'
@@ -1578,6 +1458,43 @@ function fillHeaderFromDetail(header) {
   headerForm.currencyCode = hit ? String(hit.id) : ''
 }
 
+/**
+ * @param {number} orderId
+ * @param {{ captureSnapshot?: boolean }} [options]
+ */
+async function loadOrderIntoPanel(orderId, options = {}) {
+  const data = await fetchOrderDetail(orderId)
+  const hdr = data.header ?? {}
+  fillHeaderFromDetail(hdr)
+  editHeaderPass.value = String(hdr.pass ?? '0')
+  editHeaderCalcStatus.value = String(hdr.calcStatus ?? '未运算')
+  syncedSinceCalc.value = []
+  const lines = data.lines
+  lineRows.value = lines.map((ln) => ({
+    kcaa01: String(ln.kcaa01 ?? '').trim(),
+    orderQty: Number.isFinite(Number(ln.orderQty)) ? Number(ln.orderQty) : 0,
+    unitPrice: Number.isFinite(Number(ln.unitPrice)) ? Number(ln.unitPrice) : 0,
+    remark: String(ln.remark ?? ''),
+    customerStyleNo: String(ln.customerStyleNo ?? ln.kcaa06 ?? ''),
+    materialNameCn: String(ln.materialNameCn ?? ln.productName ?? ln.kcaa02 ?? ''),
+    groupName: String(ln.groupName ?? ln.kcaa10 ?? ''),
+    factoryStyleNo: String(ln.factoryStyleNo ?? ln.kcaa09 ?? ''),
+    version: String(ln.version ?? ''),
+  }))
+  if (headerForm.customerCode) {
+    customerOptions.value = [
+      {
+        s_code: headerForm.customerCode,
+        s_name: String(data.header?.customerName ?? ''),
+      },
+    ]
+  }
+  if (options.captureSnapshot !== false && editMode.value === 'edit') {
+    captureEditSnapshot()
+  }
+  return data
+}
+
 /** @param {Record<string, unknown>} row */
 async function openEdit(row) {
   if (!row?.id) return
@@ -1587,6 +1504,7 @@ async function openEdit(row) {
   }
   editMode.value = 'edit'
   editId.value = Number(row.id)
+  viewId.value = null
   pageMode.value = 'edit'
   editHeaderPass.value = String(row.pass ?? '0')
   clearSyncBomSelected()
@@ -1596,33 +1514,7 @@ async function openEdit(row) {
   editVisible.value = true
   await loadCurrencyOptions()
   try {
-    const data = await fetchOrderDetail(row.id)
-    const hdr = data.header ?? {}
-    fillHeaderFromDetail(hdr)
-    editHeaderPass.value = String(hdr.pass ?? '0')
-    editHeaderCalcStatus.value = String(hdr.calcStatus ?? '未运算')
-    syncedSinceCalc.value = []
-    const lines = data.lines
-    lineRows.value = lines.map((ln) => ({
-      kcaa01: String(ln.kcaa01 ?? '').trim(),
-      orderQty: Number.isFinite(Number(ln.orderQty)) ? Number(ln.orderQty) : 0,
-      unitPrice: Number.isFinite(Number(ln.unitPrice)) ? Number(ln.unitPrice) : 0,
-      remark: String(ln.remark ?? ''),
-      customerStyleNo: String(ln.customerStyleNo ?? ln.kcaa06 ?? ''),
-      materialNameCn: String(ln.materialNameCn ?? ln.productName ?? ln.kcaa02 ?? ''),
-      groupName: String(ln.groupName ?? ln.kcaa10 ?? ''),
-      factoryStyleNo: String(ln.factoryStyleNo ?? ln.kcaa09 ?? ''),
-      version: String(ln.version ?? ''),
-    }))
-    if (headerForm.customerCode) {
-      customerOptions.value = [
-        {
-          s_code: headerForm.customerCode,
-          s_name: String(data.header?.customerName ?? ''),
-        },
-      ]
-    }
-    captureEditSnapshot()
+    await loadOrderIntoPanel(row.id)
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '加载失败'))
     editVisible.value = false
@@ -1630,12 +1522,6 @@ async function openEdit(row) {
   } finally {
     editLoading.value = false
   }
-}
-
-function openEditFromView() {
-  if (!viewHeader.value?.id) return
-  viewVisible.value = false
-  openEdit(viewHeader.value)
 }
 
 function openMaterialPicker() {
@@ -1672,10 +1558,8 @@ function onMaterialsPicked(payloads) {
  * @param {string} lastSyncedCode
  */
 async function refreshOrderAfterSyncBom(orderId, lastSyncedCode) {
-  if (viewVisible.value && viewHeader.value?.id === orderId) {
-    const detail = await fetchOrderDetail(orderId, { force: true })
-    viewHeader.value = detail.header ?? viewHeader.value
-    viewLines.value = detail.lines
+  if (editVisible.value && editMode.value === 'view' && viewId.value === orderId) {
+    await loadOrderIntoPanel(orderId, { captureSnapshot: false })
   }
   if (editVisible.value && editId.value === orderId) {
     const detail = await fetchOrderDetail(orderId, { force: true })
@@ -1712,10 +1596,6 @@ async function batchSyncBom(orderId, codes) {
     return
   }
   if (editVisible.value && editDetailLocked.value) {
-    ElMessage.warning('该订单已审核，请先反审后再同步 BOM。')
-    return
-  }
-  if (viewVisible.value && passIsAudited(viewHeader.value)) {
     ElMessage.warning('该订单已审核，请先反审后再同步 BOM。')
     return
   }
@@ -1762,12 +1642,6 @@ async function batchSyncBom(orderId, codes) {
 async function batchSyncBomFromEdit() {
   if (!editId.value) return
   await batchSyncBom(editId.value, syncBomSelected.value)
-}
-
-async function batchSyncBomFromView() {
-  const orderId = Number(viewHeader.value?.id)
-  if (!orderId) return
-  await batchSyncBom(orderId, syncBomSelected.value)
 }
 
 async function confirmRemoveLine(index) {
@@ -1817,8 +1691,8 @@ async function auditRow(row) {
     await axios.post(`/api/sales-order/${row.id}/approve`)
     forgetDetail(row.id)
     ElMessage.success('已审核')
-    if (viewVisible.value && viewHeader.value?.id === row.id) {
-      await openView(row)
+    if (editVisible.value && editMode.value === 'view' && viewId.value === row.id) {
+      await openView({ id: row.id })
     }
     await loadData()
   } catch (e) {
@@ -1844,8 +1718,8 @@ async function unauditRow(row) {
     await axios.post(`/api/sales-order/${row.id}/unapprove`)
     forgetDetail(row.id)
     ElMessage.success('已反审')
-    if (viewVisible.value && viewHeader.value?.id === row.id) {
-      await openView(row)
+    if (editVisible.value && editMode.value === 'view' && viewId.value === row.id) {
+      await openView({ id: row.id })
     }
     await loadData()
   } catch (e) {
@@ -1875,7 +1749,10 @@ async function softDeleteRow(row) {
     await axios.post(`/api/sales-order/${row.id}/soft-delete`)
     forgetDetail(row.id)
     ElMessage.success('已移入回收站')
-    if (viewVisible.value) viewVisible.value = false
+    if (editVisible.value && editMode.value === 'view' && viewId.value === row.id) {
+      editVisible.value = false
+      viewId.value = null
+    }
     await loadData()
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '删除失败'))
@@ -1900,7 +1777,10 @@ async function restoreRow(row) {
     await axios.post(`/api/sales-order/${row.id}/restore`)
     forgetDetail(row.id)
     ElMessage.success('已恢复')
-    if (viewVisible.value) viewVisible.value = false
+    if (editVisible.value && editMode.value === 'view' && viewId.value === row.id) {
+      editVisible.value = false
+      viewId.value = null
+    }
     await loadData()
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '恢复失败'))
@@ -1934,7 +1814,10 @@ async function hardDeleteRow(row) {
     await axios.post(`/api/sales-order/${row.id}/hard-delete`)
     forgetDetail(row.id)
     ElMessage.success('已彻底删除')
-    if (viewVisible.value) viewVisible.value = false
+    if (editVisible.value && editMode.value === 'view' && viewId.value === row.id) {
+      editVisible.value = false
+      viewId.value = null
+    }
     await loadData()
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '删除失败'))
@@ -1999,6 +1882,7 @@ async function loadData() {
     const data = res?.data?.data ?? {}
     total.value = Number(data.total ?? 0) || 0
     tableList.value = Array.isArray(data.list) ? data.list.map((row) => attachCachedDetail(row)) : []
+    expandPrefetch.prefetch(tableList.value)
   } catch (err) {
     if (requestSeq !== listRequestSeq) return
     const msg = err?.response?.data?.msg || err?.message || '加载失败'
@@ -2056,21 +1940,11 @@ async function onExpandChange(row, expandedRows) {
     if (el) refreshErpTableViewportHScroll(el)
     return
   }
-  row.__linesLoading = true
-  try {
-    const detail = await fetchOrderDetail(row.id)
-    row.__lines = detail.lines
-    row.__linesLoaded = true
-  } catch (e) {
-    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '加载明细失败'))
-    row.__lines = []
-  } finally {
-    row.__linesLoading = false
-    await nextTick()
-    mainTableRef.value?.doLayout?.()
-    const el = mainTableRef.value?.$el
-    if (el) refreshErpTableViewportHScroll(el)
-  }
+  await expandPrefetch.ensureLoaded(row)
+  await nextTick()
+  mainTableRef.value?.doLayout?.()
+  const el = mainTableRef.value?.$el
+  if (el) refreshErpTableViewportHScroll(el)
 }
 
 function onExpandedLineViewPlaceholder() {
@@ -2091,22 +1965,25 @@ function onMainRowClick(row, column, event) {
 
 /** @param {Record<string, unknown>} row */
 async function openView(row) {
-  viewVisible.value = true
-  viewLoading.value = true
-  viewActiveTab.value = 'header'
-  viewHeader.value = null
-  viewLines.value = []
+  if (!row?.id) return
+  editMode.value = 'view'
+  viewId.value = Number(row.id)
+  editId.value = null
+  pageMode.value = 'manage'
+  editActiveTab.value = 'header'
   clearSyncBomSelected()
   resetPiBomState()
+  editVisible.value = true
+  editLoading.value = true
+  await loadCurrencyOptions()
   try {
-    const data = await fetchOrderDetail(row.id)
-    viewHeader.value = data.header ?? null
-    viewLines.value = data.lines
+    await loadOrderIntoPanel(row.id, { captureSnapshot: false })
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '加载失败'))
-    viewVisible.value = false
+    editVisible.value = false
+    viewId.value = null
   } finally {
-    viewLoading.value = false
+    editLoading.value = false
   }
 }
 
@@ -2234,15 +2111,18 @@ onUnmounted(() => {
 .code-bold {
   font-weight: 600;
 }
+.so-sales-data {
+  line-height: 1.6;
+}
+.so-sales-data p {
+  margin: 0;
+  white-space: nowrap;
+}
 .so-main-table :deep(.el-table__body-wrapper .el-table__body tr) {
   cursor: pointer;
 }
 .detail-wrap {
   min-height: 200px;
-}
-.so-view-dialog :deep(.el-dialog__title) {
-  font-size: var(--so-dialog-title-size, 18px);
-  font-weight: 600;
 }
 .so-lines-table :deep(.el-table__body-wrapper) {
   padding-bottom: 12px;

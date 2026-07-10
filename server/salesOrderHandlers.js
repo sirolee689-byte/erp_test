@@ -37,13 +37,23 @@ import {
   fetchSalesOrderPiBom,
   saveSalesOrderPiBom,
 } from './salesOrderPiBomMaintainService.js'
+import { fetchSalesOrderExpandLinesBatch } from './salesOrderExpandLines.js'
 
 const HEADER_FROM = `dbo.[${SALES_ORDER_HEADER_TABLE}]`
 const LINE_FROM = 'dbo.[UB_ERP_Sales_order_list]'
 const PI_COST_FROM = 'dbo.[UB_ERP_Bom_pi_cost]'
+const STOCK_OUT_FROM = 'dbo.[UB_ERP_Stocks_out]'
+const STOCK_OUT_LINE_FROM = 'dbo.[UB_ERP_Stocks_out_list]'
+const BUY_ORDER_FROM = 'dbo.[UB_ERP_Buy_order]'
+const ASSIST_ORDER_FROM = 'dbo.[UB_ERP_assist_order]'
+const DISPATCH_ORDER_FROM = 'dbo.[UB_ERP_Dispatch_order]'
 
 /** @type {Promise<string> | null} */
 let CALC_STATUS_COL_PROMISE = null
+/** @type {Promise<string> | null} */
+let SALES_ORDER_LIST_DATE_COL_PROMISE = null
+/** @type {Promise<boolean> | null} */
+let SALES_ORDER_CLOSED_COL_PROMISE = null
 
 async function ensureSalesOrderCalcStatusColumn(pool) {
   if (!CALC_STATUS_COL_PROMISE) {
@@ -60,6 +70,46 @@ async function ensureSalesOrderCalcStatusColumn(pool) {
       .then((r) => pickSalesOrderCalcStatusColumn((r.recordset ?? []).map((row) => row.COLUMN_NAME)))
   }
   return CALC_STATUS_COL_PROMISE
+}
+
+async function ensureSalesOrderListDateColumn(pool) {
+  if (!SALES_ORDER_LIST_DATE_COL_PROMISE) {
+    SALES_ORDER_LIST_DATE_COL_PROMISE = pool
+      .request()
+      .input('t', sql.NVarChar(200), SALES_ORDER_HEADER_TABLE)
+      .query(
+        `
+        SELECT c.COLUMN_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS AS c
+        WHERE c.TABLE_NAME = @t
+      `,
+      )
+      .then((r) => {
+        const lower = new Set((r.recordset ?? []).map((row) => String(row.COLUMN_NAME ?? '').toLowerCase()))
+        if (lower.has('xsaj03')) return 'xsaj03'
+        return 'xsaj02'
+      })
+  }
+  return SALES_ORDER_LIST_DATE_COL_PROMISE
+}
+
+async function ensureSalesOrderClosedColumn(pool) {
+  if (!SALES_ORDER_CLOSED_COL_PROMISE) {
+    SALES_ORDER_CLOSED_COL_PROMISE = pool
+      .request()
+      .input('t', sql.NVarChar(200), SALES_ORDER_HEADER_TABLE)
+      .input('c', sql.NVarChar(200), 'closed')
+      .query(
+        `
+        SELECT COUNT(1) AS total
+        FROM INFORMATION_SCHEMA.COLUMNS AS c
+        WHERE c.TABLE_NAME = @t
+          AND c.COLUMN_NAME = @c
+      `,
+      )
+      .then((r) => Number(r.recordset?.[0]?.total ?? 0) > 0)
+  }
+  return SALES_ORDER_CLOSED_COL_PROMISE
 }
 
 /** @param {Record<string, unknown>} row */
@@ -109,6 +159,194 @@ function bindNVarCharList(req, name, values, length = 300) {
     req.input(key, sql.NVarChar(length), value)
     return `@${key}`
   })
+}
+
+function createSalesOrderDataSummaryMap(piNos) {
+  const map = new Map()
+  for (const piNo of uniqueTexts(piNos)) {
+    map.set(piNo, {
+      lineCount: 0,
+      lineQtyTotal: 0,
+      lineAmountTotal: 0,
+      stockOutQtyTotal: 0,
+      buyOrderApprovedCount: 0,
+      buyOrderUnauditedCount: 0,
+      assistOrderApprovedCount: 0,
+      assistOrderUnauditedCount: 0,
+      dispatchOrderApprovedCount: 0,
+      dispatchOrderUnauditedCount: 0,
+    })
+  }
+  return map
+}
+
+function toSafeNumber(v) {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : 0
+}
+
+function toSafeInt(v) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return 0
+  return Math.trunc(n)
+}
+
+function normalizeSalesDataSummary(summary) {
+  const buyOrderTotal = toSafeInt(summary.buyOrderApprovedCount) + toSafeInt(summary.buyOrderUnauditedCount)
+  const assistOrderTotal = toSafeInt(summary.assistOrderApprovedCount) + toSafeInt(summary.assistOrderUnauditedCount)
+  const dispatchOrderTotal = toSafeInt(summary.dispatchOrderApprovedCount) + toSafeInt(summary.dispatchOrderUnauditedCount)
+  return {
+    lineCount: toSafeInt(summary.lineCount),
+    lineQtyTotal: toSafeNumber(summary.lineQtyTotal),
+    lineAmountTotal: toSafeNumber(summary.lineAmountTotal),
+    stockOutQtyTotal: toSafeNumber(summary.stockOutQtyTotal),
+    buyOrderApprovedCount: toSafeInt(summary.buyOrderApprovedCount),
+    buyOrderUnauditedCount: toSafeInt(summary.buyOrderUnauditedCount),
+    buyOrderTotal,
+    assistOrderApprovedCount: toSafeInt(summary.assistOrderApprovedCount),
+    assistOrderUnauditedCount: toSafeInt(summary.assistOrderUnauditedCount),
+    assistOrderTotal,
+    dispatchOrderApprovedCount: toSafeInt(summary.dispatchOrderApprovedCount),
+    dispatchOrderUnauditedCount: toSafeInt(summary.dispatchOrderUnauditedCount),
+    dispatchOrderTotal,
+  }
+}
+
+async function fetchSalesOrderDataSummaryByPi(pool, piNos) {
+  const list = uniqueTexts(piNos)
+  const out = createSalesOrderDataSummaryMap(list)
+  if (!list.length) return out
+
+  const loadLineSummary = async () => {
+    const req = pool.request()
+    const inList = bindNVarCharList(req, 'salesPi', list, 200).join(',')
+    const r = await req.query(`
+      SELECT
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[xsak01], N'')))) AS piNo,
+        COUNT_BIG(1) AS lineCount,
+        ISNULL(SUM(ISNULL(CONVERT(decimal(18, 6), l.[xsak03]), 0)), 0) AS lineQtyTotal,
+        ISNULL(SUM(
+          ISNULL(CONVERT(decimal(18, 6), l.[xsak03]), 0) * ISNULL(CONVERT(decimal(18, 6), l.[xsak04]), 0)
+        ), 0) AS lineAmountTotal
+      FROM ${LINE_FROM} AS l
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[xsak01], N'')))) IN (${inList})
+        AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
+      GROUP BY LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[xsak01], N''))))
+    `)
+    for (const row of r.recordset ?? []) {
+      const piNo = text(row.piNo)
+      const current = out.get(piNo)
+      if (!current) continue
+      current.lineCount = toSafeInt(row.lineCount)
+      current.lineQtyTotal = toSafeNumber(row.lineQtyTotal)
+      current.lineAmountTotal = toSafeNumber(row.lineAmountTotal)
+    }
+  }
+
+  const loadStockOutSummary = async () => {
+    const req = pool.request()
+    const inList = bindNVarCharList(req, 'soPi', list, 200).join(',')
+    const r = await req.query(`
+      SELECT
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[kcap04], N'')))) AS piNo,
+        ISNULL(SUM(ISNULL(CONVERT(decimal(18, 6), l.[kcaq03]), 0)), 0) AS stockOutQtyTotal
+      FROM ${STOCK_OUT_FROM} AS s
+      INNER JOIN ${STOCK_OUT_LINE_FROM} AS l
+        ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaq01], N'')))) =
+           LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[kcap01], N''))))
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[kcap04], N'')))) IN (${inList})
+        AND ISNULL(CONVERT(int, s.[kcap03]), 0) = 6
+        AND LTRIM(RTRIM(ISNULL(s.[pass], N''))) = N'1'
+        AND (ISNULL(s.[del], N'') = N'' OR s.[del] = N'0')
+        AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
+      GROUP BY LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[kcap04], N''))))
+    `)
+    for (const row of r.recordset ?? []) {
+      const piNo = text(row.piNo)
+      const current = out.get(piNo)
+      if (!current) continue
+      current.stockOutQtyTotal = toSafeNumber(row.stockOutQtyTotal)
+    }
+  }
+
+  const loadBuyOrderSummary = async () => {
+    const req = pool.request()
+    const inList = bindNVarCharList(req, 'buyPi', list, 200).join(',')
+    const r = await req.query(`
+      SELECT
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.[kcaj04], N'')))) AS piNo,
+        SUM(CASE WHEN LTRIM(RTRIM(ISNULL(b.[pass], N''))) = N'1' THEN 1 ELSE 0 END) AS approvedCount,
+        SUM(CASE WHEN LTRIM(RTRIM(ISNULL(b.[pass], N''))) = N'0' THEN 1 ELSE 0 END) AS unauditedCount
+      FROM ${BUY_ORDER_FROM} AS b
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.[kcaj04], N'')))) IN (${inList})
+        AND (ISNULL(b.[del], N'') = N'' OR b.[del] = N'0')
+      GROUP BY LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.[kcaj04], N''))))
+    `)
+    for (const row of r.recordset ?? []) {
+      const piNo = text(row.piNo)
+      const current = out.get(piNo)
+      if (!current) continue
+      current.buyOrderApprovedCount = toSafeInt(row.approvedCount)
+      current.buyOrderUnauditedCount = toSafeInt(row.unauditedCount)
+    }
+  }
+
+  const loadAssistOrderSummary = async () => {
+    const req = pool.request()
+    const inList = bindNVarCharList(req, 'assistPi', list, 200).join(',')
+    const r = await req.query(`
+      SELECT
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(a.[wxaj04], N'')))) AS piNo,
+        SUM(CASE WHEN LTRIM(RTRIM(ISNULL(a.[pass], N''))) = N'1' THEN 1 ELSE 0 END) AS approvedCount,
+        SUM(CASE WHEN LTRIM(RTRIM(ISNULL(a.[pass], N''))) = N'0' THEN 1 ELSE 0 END) AS unauditedCount
+      FROM ${ASSIST_ORDER_FROM} AS a
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(a.[wxaj04], N'')))) IN (${inList})
+        AND (ISNULL(a.[del], N'') = N'' OR a.[del] = N'0')
+      GROUP BY LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(a.[wxaj04], N''))))
+    `)
+    for (const row of r.recordset ?? []) {
+      const piNo = text(row.piNo)
+      const current = out.get(piNo)
+      if (!current) continue
+      current.assistOrderApprovedCount = toSafeInt(row.approvedCount)
+      current.assistOrderUnauditedCount = toSafeInt(row.unauditedCount)
+    }
+  }
+
+  const loadDispatchOrderSummary = async () => {
+    const req = pool.request()
+    const inList = bindNVarCharList(req, 'dispatchPi', list, 200).join(',')
+    const r = await req.query(`
+      SELECT
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(d.[scaj04], N'')))) AS piNo,
+        SUM(CASE WHEN LTRIM(RTRIM(ISNULL(d.[pass], N''))) = N'1' THEN 1 ELSE 0 END) AS approvedCount,
+        SUM(CASE WHEN LTRIM(RTRIM(ISNULL(d.[pass], N''))) = N'0' THEN 1 ELSE 0 END) AS unauditedCount
+      FROM ${DISPATCH_ORDER_FROM} AS d
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(d.[scaj04], N'')))) IN (${inList})
+        AND (ISNULL(d.[del], N'') = N'' OR d.[del] = N'0')
+      GROUP BY LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(d.[scaj04], N''))))
+    `)
+    for (const row of r.recordset ?? []) {
+      const piNo = text(row.piNo)
+      const current = out.get(piNo)
+      if (!current) continue
+      current.dispatchOrderApprovedCount = toSafeInt(row.approvedCount)
+      current.dispatchOrderUnauditedCount = toSafeInt(row.unauditedCount)
+    }
+  }
+
+  await Promise.all([
+    loadLineSummary(),
+    loadStockOutSummary(),
+    loadBuyOrderSummary(),
+    loadAssistOrderSummary(),
+    loadDispatchOrderSummary(),
+  ])
+
+  for (const [piNo, summary] of out.entries()) {
+    out.set(piNo, normalizeSalesDataSummary(summary))
+  }
+  return out
 }
 
 async function fetchSalesOrderLineCodesByPi(pool, piNos) {
@@ -289,6 +527,10 @@ export function registerSalesOrderRoutes(app, deps) {
     try {
       const pool = await getPool()
       const q = parseSalesOrderListQuery(req.query ?? {})
+      const [salesDateColumn, hasClosedColumn] = await Promise.all([
+        ensureSalesOrderListDateColumn(pool),
+        ensureSalesOrderClosedColumn(pool),
+      ])
       const { whereSql } = buildSalesOrderListWhereSql({
         recycled: q.recycled,
         pass: q.pass,
@@ -298,6 +540,7 @@ export function registerSalesOrderRoutes(app, deps) {
         customer: q.customer,
         salesDateFrom: q.salesDateFrom,
         salesDateTo: q.salesDateTo,
+        salesDateColumn,
       })
 
       const countReq = pool.request()
@@ -344,17 +587,23 @@ export function registerSalesOrderRoutes(app, deps) {
       if (q.salesDateFrom) listReq.input('salesDateFrom', sql.DateTime, new Date(q.salesDateFrom))
       if (q.salesDateTo) listReq.input('salesDateTo', sql.DateTime, new Date(q.salesDateTo))
 
-      const { sql: listSql } = buildSalesOrderListPagedSql({ whereSql })
+      const { sql: listSql } = buildSalesOrderListPagedSql({
+        whereSql,
+        salesDateColumn,
+        closeStatusExpr: hasClosedColumn ? 'h.[closed]' : "N'0'",
+      })
       const listResult = await listReq.query(listSql)
       const pageRows = (listResult.recordset ?? []).map((row) => serializeRow(row))
       const piNos = uniqueTexts(pageRows.map((row) => row.piNo))
-      const [calcStatusMap] = await Promise.all([
+      const [calcStatusMap, salesDataMap] = await Promise.all([
         fetchSalesOrderCalcStatusByPi(pool, piNos),
+        fetchSalesOrderDataSummaryByPi(pool, piNos),
         enrichSalesOrderOperationFlags(pool, pageRows),
       ])
       const list = pageRows.map((row) => ({
         ...row,
         calcStatus: calcStatusMap.get(text(row.piNo)) ?? '未运算',
+        salesData: salesDataMap.get(text(row.piNo)) ?? normalizeSalesDataSummary({}),
       }))
 
       res.json({ code: 200, msg: 'success', data: { total, list } })
@@ -544,6 +793,23 @@ export function registerSalesOrderRoutes(app, deps) {
       console.error('POST /api/sales-order/:id/hard-delete 失败：', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? '彻底删除失败')
       res.status(500).json({ code: 500, msg: `彻底删除失败：${detail}`, data: null })
+    }
+  })
+
+  /**
+   * GET /api/sales-order/expand-lines/batch
+   */
+  app.get('/api/sales-order/expand-lines/batch', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const ids = req.query?.ids ?? req.query?.id
+      const result = await fetchSalesOrderExpandLinesBatch(pool, ids)
+      if (!result.ok) return res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+      res.json({ code: 200, msg: 'success', data: result.data })
+    } catch (err) {
+      console.error('GET /api/sales-order/expand-lines/batch 失败：', err)
+      const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+      res.status(500).json({ code: 500, msg: `批量读取销售订单展开明细失败：${detail}`, data: null })
     }
   })
 

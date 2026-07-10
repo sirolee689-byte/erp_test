@@ -14,6 +14,7 @@ import {
 import { applyAssistOrderLifecycleAction } from './assistOrderLifecycle.js'
 import { fetchAssistOrderPrintDocuments } from './assistOrderPrintData.js'
 import { fetchAssistOrderBatchAddTree } from './assistOrderBatchAdd.js'
+import { fetchAssistOrderExpandDetail, fetchAssistOrderExpandDetailBatch } from './assistOrderExpandDetail.js'
 import { resolveActorAuditTripletFromReq } from './businessAuditFields.js'
 
 const HEADER_FROM = `dbo.[${ASSIST_ORDER_HEADER_TABLE}]`
@@ -496,6 +497,20 @@ export function registerAssistOrderRoutes(app, deps) {
       console.error('GET /api/assist-order/print-data failed:', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? 'database query failed')
       res.status(500).json({ code: 500, msg: `璇诲彇澶栧崗璁㈠崟鎵撳嵃鏁版嵁澶辫触锛?{detail}`, data: null })
+    }
+  })
+
+  app.get('/api/assist-order/expand-detail/batch', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const ids = req.query?.ids ?? req.query?.id
+      const result = await fetchAssistOrderExpandDetailBatch(pool, ids)
+      if (!result.ok) return res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+      res.json({ code: 200, msg: 'success', data: result.data })
+    } catch (err) {
+      console.error('GET /api/assist-order/expand-detail/batch failed:', err)
+      const detail = String(err?.message ?? err?.originalError?.message ?? 'database query failed')
+      res.status(500).json({ code: 500, msg: `批量读取外协订单展开明细失败：${detail}`, data: null })
     }
   })
 

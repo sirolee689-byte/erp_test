@@ -1,9 +1,6 @@
 <template>
   <div class="erp-module-page">
     <el-card shadow="never">
-      <template #header>
-        <span class="page-title">{{ pageTitle }}</span>
-      </template>
       <p class="page-desc">当前功能：{{ pageTitle }}</p>
     </el-card>
   </div>

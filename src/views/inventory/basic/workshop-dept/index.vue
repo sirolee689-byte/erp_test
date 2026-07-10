@@ -1,15 +1,6 @@
 <template>
   <div class="erp-module-page">
     <el-card shadow="never" class="search-card">
-      <template #header>
-        <div class="card-header">
-          <span class="page-title">{{ pageTitle }}</span>
-          <div class="toolbar">
-            <el-button :icon="Refresh" circle title="刷新" @click="fetchList" />
-          </div>
-        </div>
-      </template>
-
       <div class="search-row">
         <el-input
           v-model="keyword"
@@ -20,6 +11,7 @@
         />
         <el-button type="primary" @click="onSearch">查询</el-button>
         <el-button @click="onReset">重置</el-button>
+        <el-button :icon="Refresh" circle title="刷新" @click="fetchList" />
 
         <div class="switches">
           <div class="switch-item">

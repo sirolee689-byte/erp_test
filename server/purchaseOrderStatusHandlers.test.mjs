@@ -65,6 +65,16 @@ describe('采购订单情况表 SQL 口径', () => {
     assert.match(sqlText, /r\.materialCode = b\.materialCode/i)
   })
 
+  test('入库和退货汇总先按当前采购明细范围收窄，避免全库汇总', () => {
+    const q = parseReportQuery({ startDate: '2026-07-01', endDate: '2026-07-03', supplierCode: 'CN-1019' })
+    const sqlText = buildReportSql(q)
+    assert.match(sqlText, /inbound_keys AS/i)
+    assert.match(sqlText, /return_keys AS/i)
+    assert.match(sqlText, /FROM base[\s\S]*purchaseNo <> N''[\s\S]*lineGuid <> N''/i)
+    assert.match(sqlText, /INNER JOIN inbound_keys AS k[\s\S]*k\.purchaseNo =[\s\S]*h\.\[kcan04\][\s\S]*k\.lineGuid =[\s\S]*l\.\[GUID\]/i)
+    assert.match(sqlText, /INNER JOIN return_keys AS k[\s\S]*k\.purchaseNo =[\s\S]*h\.\[kcap04\][\s\S]*k\.materialCode =[\s\S]*l\.\[kcaa01\]/i)
+  })
+
   test('采购数量按 kcaa26 和 kcaa27 换算，差数大于 0 过滤可启用', () => {
     const q = parseReportQuery({ startDate: '2026-07-01', endDate: '2026-07-03', onlyDifference: '1' })
     const sqlText = buildReportSql(q)

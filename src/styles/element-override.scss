@@ -23,6 +23,15 @@
   --erp-action-btn-min-height: 28px;
   --erp-action-btn-radius: 20px;
   --erp-action-btn-padding-x: 12px;
+  --erp-mode-bar-gap: 10px;
+  --erp-mode-bar-padding-y: 10px;
+  --erp-mode-bar-padding-x: 12px;
+  --erp-mode-bar-margin-bottom: 12px;
+  --erp-filter-row-gap: 8px;
+  --erp-filter-bar-row-gap: 10px;
+  --erp-filter-bar-margin-bottom: 12px;
+  --erp-filter-divider-gap: 20px;
+  --erp-filter-divider-height: 22px;
   --erp-list-action-btn-font-size: 11px;
   --erp-list-action-btn-min-height: 22px;
   --erp-list-action-col-gap: 4px;
@@ -217,6 +226,109 @@ html[data-ui='comfortable'] {
   font-size: var(--erp-table-data-size);
   line-height: var(--erp-line-height-table);
   font-weight: var(--erp-font-weight-body);
+}
+
+/* ---------- 管理/单据页通用：模式按钮、筛选区、主列表字体 ---------- */
+.erp-module-page .erp-mode-bar,
+.erp-module-page .bom-mode-bar,
+.erp-module-page .buy-mode-bar,
+.erp-module-page .stock-in-mode-bar,
+.erp-module-page .stock-out-mode-bar,
+.erp-module-page .so-mode-bar,
+.erp-module-page .assist-mode-bar,
+.erp-module-page .pq-mode-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--erp-mode-bar-gap) !important;
+  margin-bottom: var(--erp-mode-bar-margin-bottom) !important;
+  padding: var(--erp-mode-bar-padding-y) var(--erp-mode-bar-padding-x);
+  background: var(--erp-surface, #fff);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+}
+
+.erp-module-page .erp-mode-bar .el-button,
+.erp-module-page .bom-mode-bar .el-button,
+.erp-module-page .buy-mode-bar .el-button,
+.erp-module-page .stock-in-mode-bar .el-button,
+.erp-module-page .stock-out-mode-bar .el-button,
+.erp-module-page .so-mode-bar .el-button,
+.erp-module-page .assist-mode-bar .el-button,
+.erp-module-page .pq-mode-bar .el-button {
+  font-size: var(--erp-table-data-size) !important;
+  font-weight: var(--erp-font-weight-body) !important;
+}
+
+.erp-module-page .erp-filter-bar,
+.erp-module-page .bom-filter-bar,
+.erp-module-page .buy-filter-bar,
+.erp-module-page .stock-filter-bar,
+.erp-module-page .assist-filter-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--erp-filter-bar-row-gap);
+  width: 100%;
+  margin-bottom: var(--erp-filter-bar-margin-bottom);
+}
+
+.erp-module-page .erp-filter-row,
+.erp-module-page .bom-filter-row,
+.erp-module-page .buy-filter-row,
+.erp-module-page .stock-filter-row,
+.erp-module-page .assist-filter-row,
+.erp-module-page .search-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--erp-filter-row-gap);
+}
+
+.erp-module-page .erp-filter-bar .el-button,
+.erp-module-page .bom-filter-bar .el-button,
+.erp-module-page .buy-filter-bar .el-button,
+.erp-module-page .stock-filter-bar .el-button,
+.erp-module-page .assist-filter-bar .el-button,
+.erp-module-page .so-toolbar .el-button,
+.erp-module-page .search-row .el-button,
+.erp-module-page .erp-filter-action-btn {
+  font-size: var(--erp-table-data-size) !important;
+  font-weight: var(--erp-font-weight-body) !important;
+}
+
+.erp-module-page .erp-filter-divider,
+.erp-module-page .bom-filter-divider,
+.erp-module-page .buy-filter-divider,
+.erp-module-page .stock-filter-divider {
+  width: 1px;
+  height: var(--erp-filter-divider-height);
+  margin: 0 var(--erp-filter-divider-gap);
+  background: var(--el-border-color);
+  flex-shrink: 0;
+}
+
+.erp-module-page .erp-filter-switch,
+.erp-module-page .stock-filter-switch,
+.erp-module-page .buy-filter-switch,
+.erp-module-page .audit-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.erp-module-page .erp-list-table .el-table__body .cell,
+.erp-module-page .erp-list-table .el-table__header .cell,
+.erp-module-page .erp-list-table .bom-list-cell-wrap,
+.erp-module-page .erp-list-table .bom-list-datetime,
+.erp-module-page .erp-list-table .bom-list-usage-cost,
+.erp-module-page .erp-list-table .bom-list-operator,
+.erp-module-page .erp-list-table .bom-list-datetime > div,
+.erp-module-page .erp-list-table .bom-list-usage-cost > div,
+.erp-module-page .erp-list-table .bom-list-operator > div {
+  font-size: var(--erp-table-data-size) !important;
+  font-weight: var(--erp-font-weight-body) !important;
 }
 
 .el-table th.el-table__cell {
@@ -525,7 +637,7 @@ html[data-ui='comfortable'] .el-button--small,
 
 .pagination-row,
 .pager-row {
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 .pagination-row--bottom,
@@ -539,7 +651,7 @@ html[data-ui='comfortable'] .el-pagination,
   --el-pagination-button-height: var(--erp-action-btn-min-height, 28px);
   --el-pagination-button-width: var(--erp-action-btn-min-height, 28px);
   --el-pagination-font-size: var(--erp-action-btn-font-size, 13px);
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 html[data-ui='standard'] .el-pagination .btn-prev,

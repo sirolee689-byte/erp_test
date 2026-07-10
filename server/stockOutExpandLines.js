@@ -1,4 +1,6 @@
 import { sql } from './db.js'
+import { ERP_MAX_PAGE_SIZE } from './erpPagination.js'
+import { bindIntInList, bindNVarCharInList, groupRowsByKey, normalizeIntIds } from './sqlInListHelpers.js'
 
 const LINE_FROM = 'dbo.[UB_ERP_Stocks_out_list]'
 const COLOR_FROM = 'dbo.[UB_ERP_Stocks_colorcode]'
@@ -27,20 +29,21 @@ export function kcaa01ColorCodeExpr(alias = 'l') {
 }
 
 /** 列表展开明细 SQL：del=0、按 seq 排序，并关联颜色名称（仅 l.* + colorName，勿与 l.* 数值列同名重复） */
-export function buildStockOutExpandLinesSql() {
+export function buildStockOutExpandLinesSql(whereClause = `LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaq01], N'')))) = @outboundNo`) {
   const colorCodeExpr = kcaa01ColorCodeExpr('l')
   return `
     SELECT
       l.*,
-      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.[name], N'')))) AS colorName
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.[name], N'')))) AS colorName,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaq01], N'')))) AS outboundNo
     FROM ${LINE_FROM} AS l
     LEFT JOIN ${COLOR_FROM} AS c
       ON LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.[code], N'')))) = ${colorCodeExpr}
      AND LTRIM(RTRIM(ISNULL(c.[pass], N''))) = N'1'
      AND (ISNULL(c.[del], N'') = N'' OR c.[del] = N'0')
-    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaq01], N'')))) = @outboundNo
+    WHERE ${whereClause}
       AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
-    ORDER BY ISNULL(l.[seq], l.[id]), l.[id]
+    ORDER BY LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaq01], N'')))), ISNULL(l.[seq], l.[id]), l.[id]
   `
 }
 
@@ -89,4 +92,42 @@ export async function queryStockOutExpandLines(pool, outboundNo) {
   if (!no) return []
   const r = await pool.request().input('outboundNo', sql.NVarChar(200), no).query(buildStockOutExpandLinesSql())
   return (r.recordset ?? []).map(enrichStockOutExpandLine)
+}
+
+const STOCK_OUT_HEADER_FROM = 'dbo.[UB_ERP_Stocks_out]'
+
+export async function fetchStockOutExpandLinesBatch(pool, rawIds) {
+  const parsed = normalizeIntIds(rawIds)
+  if (!parsed.ok) return { ok: false, status: parsed.status, msg: `一次最多查询 ${ERP_MAX_PAGE_SIZE} 条出库单展开明细` }
+  const ids = parsed.ids
+  if (!ids.length) return { ok: true, data: {} }
+
+  const headerReq = pool.request()
+  const idIn = bindIntInList(headerReq, 'id', ids)
+  const headerR = await headerReq.query(`
+    SELECT [id], LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([kcap01], N'')))) AS outboundNo
+    FROM ${STOCK_OUT_HEADER_FROM}
+    WHERE [id] IN (${idIn.inSql})
+  `)
+  const headers = headerR.recordset ?? []
+  if (!headers.length) return { ok: true, data: {} }
+
+  const outboundNos = headers.map((row) => text(row.outboundNo)).filter(Boolean)
+  if (!outboundNos.length) return { ok: true, data: {} }
+
+  const lineReq = pool.request()
+  const noIn = bindNVarCharInList(lineReq, 'ono', outboundNos, 200)
+  const lineR = await lineReq.query(buildStockOutExpandLinesSql(
+    `LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaq01], N'')))) IN (${noIn.inSql})`,
+  ))
+  const lineGroups = groupRowsByKey(lineR.recordset ?? [], (row) => row.outboundNo)
+
+  const data = {}
+  for (const header of headers) {
+    const no = text(header.outboundNo)
+    data[String(header.id)] = {
+      lines: (lineGroups.get(no) ?? []).map(enrichStockOutExpandLine),
+    }
+  }
+  return { ok: true, data }
 }

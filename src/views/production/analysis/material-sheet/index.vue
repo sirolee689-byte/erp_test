@@ -1,50 +1,43 @@
 <template>
   <div class="erp-module-page material-sheet-page">
-    <div class="top-search-row no-print">
-      <el-autocomplete
-        v-model="piKeyword"
-        :fetch-suggestions="fetchPiSuggestions"
-        value-key="piNo"
-        clearable
-        class="pi-search"
-        placeholder="请输入 PI 号"
-        @select="onPickPi"
-        @clear="clearReport"
-        @keyup.enter="loadReport"
-      />
-      <el-button type="primary" @click="loadReport">查询内容</el-button>
-    </div>
-
-    <div class="report-shell">
-      <div class="report-action-strip no-print">
+    <div class="report-action-strip no-print">
         <el-button
-          :type="activeTab === 'detail' ? 'warning' : 'primary'"
+          :type="activeTab === 'detail' ? 'primary' : undefined"
           size="small"
           @click="activeTab = 'detail'"
         >
           物料单统计表（明细）
         </el-button>
         <el-button
-          :type="activeTab === 'summary' ? 'warning' : 'primary'"
+          :type="activeTab === 'summary' ? 'primary' : undefined"
           size="small"
           @click="activeTab = 'summary'"
         >
           物料单统计表（汇总）
         </el-button>
-        <el-button type="primary" size="small">外协清单</el-button>
-        <el-button type="primary" size="small">位置裁片清单(包含非外协)</el-button>
-        <el-button type="primary" size="small">生产清单</el-button>
-        <el-button type="primary" size="small">生产标签</el-button>
-        <el-button type="primary" size="small">导出为PDF信息</el-button>
-        <el-button type="primary" size="small" @click="exportMaterialSheetXls">导出为xls信息</el-button>
-      </div>
+    </div>
 
-      <div class="report-tool-row no-print">
-        <el-button size="small" type="primary" @click="onPrintMaterialSheet">打印统计报表</el-button>
-        <el-button size="small" type="primary">打印预览</el-button>
-        <el-button size="small" type="primary">保存报表数据</el-button>
-        <el-button size="small" type="primary">查询内容</el-button>
-      </div>
+    <div class="report-tool-row no-print">
+      <el-button type="primary" @click="onPrintMaterialSheet">打印统计报表</el-button>
+      <el-button type="primary" @click="onClickQueryContent">查询内容</el-button>
+      <el-popover placement="bottom-start" trigger="click" width="300">
+        <template #reference>
+          <el-button>列设置</el-button>
+        </template>
+        <div class="column-setting-panel">
+          <div class="column-setting-title">勾选要显示的列（打印同步）</div>
+          <el-checkbox-group v-model="checkedColumnKeys" @change="onColumnSettingChange">
+            <el-checkbox v-for="col in reportColumns" :key="col.key" :label="col.key">{{ col.label }}</el-checkbox>
+          </el-checkbox-group>
+          <div class="column-setting-actions">
+            <el-button link type="primary" @click="resetColumnSetting">恢复默认</el-button>
+          </div>
+        </div>
+      </el-popover>
+      <el-button @click="exportMaterialSheetXls">导出信息</el-button>
+    </div>
+
+    <div class="report-shell">
 
       <div class="report-meta-row no-print">
         <span>报表生成时间：</span><span class="underline">{{ generatedAt }}</span>
@@ -64,30 +57,32 @@
                 <table class="report-table">
                   <thead>
                     <tr>
-                      <th class="col-index">序号</th>
-                      <th class="col-code">编码</th>
-                      <th>名称</th>
-                      <th>规格</th>
-                      <th class="col-match">搭配</th>
-                      <th class="col-unit">单位</th>
-                      <th class="col-num">用量</th>
-                      <th class="col-num">损耗</th>
-                      <th class="col-num">合计</th>
-                      <th class="col-num">单物料合计</th>
+                      <th v-if="hasColumn('seq')" class="col-index">序号</th>
+                      <th v-if="hasColumn('code')" class="col-code">编码</th>
+                      <th v-if="hasColumn('color')" class="col-color">颜色</th>
+                      <th v-if="hasColumn('name')">名称</th>
+                      <th v-if="hasColumn('spec')">规格</th>
+                      <th v-if="hasColumn('match')" class="col-match">搭配</th>
+                      <th v-if="hasColumn('unit')" class="col-unit">单位</th>
+                      <th v-if="hasColumn('usage')" class="col-num">用量</th>
+                      <th v-if="hasColumn('loss')" class="col-num">损耗</th>
+                      <th v-if="hasColumn('total')" class="col-num">合计</th>
+                      <th v-if="hasColumn('singleTotal')" class="col-num">单物料合计</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr v-for="(row, idx) in group.rows" :key="row.__materialCostRowKey ?? `${group.key}-${idx}`">
-                      <td>{{ idx + 1 }}</td>
-                      <td>{{ row.kcaa01 }}</td>
-                      <td>{{ row.kcaa02 }}</td>
-                      <td>{{ row.kcaa03 }}</td>
-                      <td>{{ row.Describe }}</td>
-                      <td>{{ row.kcaa04 }}</td>
-                      <td>{{ formatQty(scaleByOrderQty(row.yl, group)) }}</td>
-                      <td>{{ formatLoss(row.loss_rate) }}</td>
-                      <td>{{ formatQty(lineTotalQty(row, group)) }}</td>
-                      <td>{{ formatQty(singleMaterialTotal(row, group)) }}</td>
+                      <td v-if="hasColumn('seq')">{{ idx + 1 }}</td>
+                      <td v-if="hasColumn('code')">{{ row.kcaa01 }}</td>
+                      <td v-if="hasColumn('color')">{{ row.kcaa11 }}</td>
+                      <td v-if="hasColumn('name')">{{ row.kcaa02 }}</td>
+                      <td v-if="hasColumn('spec')">{{ row.kcaa03 }}</td>
+                      <td v-if="hasColumn('match')">{{ row.Describe }}</td>
+                      <td v-if="hasColumn('unit')">{{ row.kcaa04 }}</td>
+                      <td v-if="hasColumn('usage')">{{ formatQty(scaleByOrderQty(row.yl, group)) }}</td>
+                      <td v-if="hasColumn('loss')">{{ formatLoss(row.loss_rate) }}</td>
+                      <td v-if="hasColumn('total')">{{ formatQty(lineTotalQty(row, group)) }}</td>
+                      <td v-if="hasColumn('singleTotal')">{{ formatQty(singleMaterialTotal(row, group)) }}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -103,30 +98,32 @@
             <table class="report-table">
               <thead>
                 <tr>
-                  <th class="col-index">序号</th>
-                  <th class="col-code">ERP编码</th>
-                  <th>名称</th>
-                  <th>规格</th>
-                  <th class="col-match">搭配</th>
-                  <th class="col-unit">单位</th>
-                  <th class="col-num">用量</th>
-                  <th class="col-num">损耗</th>
-                  <th class="col-num">合计</th>
-                  <th class="col-num">单物料合计</th>
+                  <th v-if="hasColumn('seq')" class="col-index">序号</th>
+                  <th v-if="hasColumn('code')" class="col-code">ERP编码</th>
+                  <th v-if="hasColumn('color')" class="col-color">颜色</th>
+                  <th v-if="hasColumn('name')">名称</th>
+                  <th v-if="hasColumn('spec')">规格</th>
+                  <th v-if="hasColumn('match')" class="col-match">搭配</th>
+                  <th v-if="hasColumn('unit')" class="col-unit">单位</th>
+                  <th v-if="hasColumn('usage')" class="col-num">用量</th>
+                  <th v-if="hasColumn('loss')" class="col-num">损耗</th>
+                  <th v-if="hasColumn('total')" class="col-num">合计</th>
+                  <th v-if="hasColumn('singleTotal')" class="col-num">单物料合计</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="(row, idx) in consumptionLines" :key="row.id ?? idx">
-                  <td>{{ idx + 1 }}</td>
-                  <td>{{ row.kcaa01 }}</td>
-                  <td>{{ row.kcaa02 }}</td>
-                  <td>{{ row.kcaa03 }}</td>
-                  <td>{{ row.Describe }}</td>
-                  <td>{{ row.kcaa04 }}</td>
-                  <td>{{ formatQty(row.sumay) }}</td>
-                  <td>{{ formatLoss(row.kcac05) }}</td>
-                  <td>{{ formatQty(row.sumby) }}</td>
-                  <td>{{ formatQty(summarySingleMaterialTotal(row)) }}</td>
+                  <td v-if="hasColumn('seq')">{{ idx + 1 }}</td>
+                  <td v-if="hasColumn('code')">{{ row.kcaa01 }}</td>
+                  <td v-if="hasColumn('color')">{{ row.kcaa11 }}</td>
+                  <td v-if="hasColumn('name')">{{ row.kcaa02 }}</td>
+                  <td v-if="hasColumn('spec')">{{ row.kcaa03 }}</td>
+                  <td v-if="hasColumn('match')">{{ row.Describe }}</td>
+                  <td v-if="hasColumn('unit')">{{ row.kcaa04 }}</td>
+                  <td v-if="hasColumn('usage')">{{ formatQty(row.sumay) }}</td>
+                  <td v-if="hasColumn('loss')">{{ formatLoss(row.kcac05) }}</td>
+                  <td v-if="hasColumn('total')">{{ formatQty(row.sumby) }}</td>
+                  <td v-if="hasColumn('singleTotal')">{{ formatQty(summarySingleMaterialTotal(row)) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -135,6 +132,41 @@
         </template>
       </div>
     </div>
+
+    <el-dialog v-model="piDialog.visible" title="选择 PI" width="920px" class="buy-pi-dialog material-sheet-pi-dialog">
+      <div class="buy-pi-toolbar">
+        <el-input v-model="piDialog.keyword" clearable placeholder="PI号 / PO号 / 客户" @keyup.enter="searchPiDialog" />
+        <el-button type="primary" @click="searchPiDialog">查询</el-button>
+      </div>
+      <el-table v-loading="piDialog.loading" :data="piDialog.list" border stripe row-key="piNo">
+        <el-table-column label="操作" width="100" align="center" fixed="left">
+          <template #default="{ row }">
+            <el-button
+              size="small"
+              :type="isPiSelected(row) ? 'success' : 'primary'"
+              :plain="!isPiSelected(row)"
+              class="buy-pi-select-button"
+              @click="choosePiFromDialog(row)"
+            >
+              {{ isPiSelected(row) ? '已选择' : '选择' }}
+            </el-button>
+          </template>
+        </el-table-column>
+        <el-table-column label="PI号" prop="piNo" min-width="180" show-overflow-tooltip />
+        <el-table-column label="PO号" prop="poNo" min-width="180" show-overflow-tooltip />
+        <el-table-column label="客户" prop="customer" min-width="220" show-overflow-tooltip />
+      </el-table>
+      <el-pagination
+        v-model:current-page="piDialog.page"
+        v-model:page-size="piDialog.pageSize"
+        :page-sizes="piDialogPageSizes"
+        layout="total, sizes, prev, pager, next, jumper"
+        :total="piDialog.total"
+        class="buy-pi-pagination"
+        @size-change="onPiPageSizeChange"
+        @current-change="onPiPageChange"
+      />
+    </el-dialog>
 
     <section class="material-sheet-print-document" aria-hidden="true">
       <p class="material-sheet-print-time">打印时间：{{ printTimestamp }}</p>
@@ -160,30 +192,32 @@
           <table class="material-sheet-print-table">
             <thead>
               <tr>
-                <th>序号</th>
-                <th>编码</th>
-                <th>名称</th>
-                <th>规格</th>
-                <th>搭配</th>
-                <th>单位</th>
-                <th>用量</th>
-                <th>损耗</th>
-                <th>合计</th>
-                <th>单物料合计</th>
+                <th v-if="hasColumn('seq')">序号</th>
+                <th v-if="hasColumn('code')">编码</th>
+                <th v-if="hasColumn('color')">颜色</th>
+                <th v-if="hasColumn('name')">名称</th>
+                <th v-if="hasColumn('spec')">规格</th>
+                <th v-if="hasColumn('match')">搭配</th>
+                <th v-if="hasColumn('unit')">单位</th>
+                <th v-if="hasColumn('usage')">用量</th>
+                <th v-if="hasColumn('loss')">损耗</th>
+                <th v-if="hasColumn('total')">合计</th>
+                <th v-if="hasColumn('singleTotal')">单物料合计</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="(row, idx) in group.rows" :key="`print-row-${row.__materialCostRowKey ?? idx}`">
-                <td>{{ idx + 1 }}</td>
-                <td>{{ row.kcaa01 }}</td>
-                <td>{{ row.kcaa02 }}</td>
-                <td>{{ row.kcaa03 }}</td>
-                <td>{{ row.Describe }}</td>
-                <td>{{ row.kcaa04 }}</td>
-                <td class="num">{{ formatQty(scaleByOrderQty(row.yl, group)) }}</td>
-                <td class="num">{{ formatLoss(row.loss_rate) }}</td>
-                <td class="num">{{ formatQty(lineTotalQty(row, group)) }}</td>
-                <td class="num">{{ formatQty(singleMaterialTotal(row, group)) }}</td>
+                <td v-if="hasColumn('seq')">{{ idx + 1 }}</td>
+                <td v-if="hasColumn('code')">{{ row.kcaa01 }}</td>
+                <td v-if="hasColumn('color')">{{ row.kcaa11 }}</td>
+                <td v-if="hasColumn('name')">{{ row.kcaa02 }}</td>
+                <td v-if="hasColumn('spec')">{{ row.kcaa03 }}</td>
+                <td v-if="hasColumn('match')">{{ row.Describe }}</td>
+                <td v-if="hasColumn('unit')">{{ row.kcaa04 }}</td>
+                <td v-if="hasColumn('usage')" class="num">{{ formatQty(scaleByOrderQty(row.yl, group)) }}</td>
+                <td v-if="hasColumn('loss')" class="num">{{ formatLoss(row.loss_rate) }}</td>
+                <td v-if="hasColumn('total')" class="num">{{ formatQty(lineTotalQty(row, group)) }}</td>
+                <td v-if="hasColumn('singleTotal')" class="num">{{ formatQty(singleMaterialTotal(row, group)) }}</td>
               </tr>
             </tbody>
           </table>
@@ -201,30 +235,32 @@
           <table class="material-sheet-print-table">
             <thead>
               <tr>
-                <th>序号</th>
-                <th>ERP编码</th>
-                <th>名称</th>
-                <th>规格</th>
-                <th>搭配</th>
-                <th>单位</th>
-                <th>用量</th>
-                <th>损耗</th>
-                <th>合计</th>
-                <th>单物料合计</th>
+                <th v-if="hasColumn('seq')">序号</th>
+                <th v-if="hasColumn('code')">ERP编码</th>
+                <th v-if="hasColumn('color')">颜色</th>
+                <th v-if="hasColumn('name')">名称</th>
+                <th v-if="hasColumn('spec')">规格</th>
+                <th v-if="hasColumn('match')">搭配</th>
+                <th v-if="hasColumn('unit')">单位</th>
+                <th v-if="hasColumn('usage')">用量</th>
+                <th v-if="hasColumn('loss')">损耗</th>
+                <th v-if="hasColumn('total')">合计</th>
+                <th v-if="hasColumn('singleTotal')">单物料合计</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="(row, idx) in consumptionLines" :key="`print-sum-${row.id ?? idx}`">
-                <td>{{ idx + 1 }}</td>
-                <td>{{ row.kcaa01 }}</td>
-                <td>{{ row.kcaa02 }}</td>
-                <td>{{ row.kcaa03 }}</td>
-                <td>{{ row.Describe }}</td>
-                <td>{{ row.kcaa04 }}</td>
-                <td class="num">{{ formatQty(row.sumay) }}</td>
-                <td class="num">{{ formatLoss(row.kcac05) }}</td>
-                <td class="num">{{ formatQty(row.sumby) }}</td>
-                <td class="num">{{ formatQty(summarySingleMaterialTotal(row)) }}</td>
+                <td v-if="hasColumn('seq')">{{ idx + 1 }}</td>
+                <td v-if="hasColumn('code')">{{ row.kcaa01 }}</td>
+                <td v-if="hasColumn('color')">{{ row.kcaa11 }}</td>
+                <td v-if="hasColumn('name')">{{ row.kcaa02 }}</td>
+                <td v-if="hasColumn('spec')">{{ row.kcaa03 }}</td>
+                <td v-if="hasColumn('match')">{{ row.Describe }}</td>
+                <td v-if="hasColumn('unit')">{{ row.kcaa04 }}</td>
+                <td v-if="hasColumn('usage')" class="num">{{ formatQty(row.sumay) }}</td>
+                <td v-if="hasColumn('loss')" class="num">{{ formatLoss(row.kcac05) }}</td>
+                <td v-if="hasColumn('total')" class="num">{{ formatQty(row.sumby) }}</td>
+                <td v-if="hasColumn('singleTotal')" class="num">{{ formatQty(summarySingleMaterialTotal(row)) }}</td>
               </tr>
             </tbody>
           </table>
@@ -238,7 +274,7 @@
 // 与 router 生成的 route.name 一致，供布局 keep-alive 按组件名缓存
 defineOptions({ name: 'production-analysis-material-sheet' })
 
-import { computed, defineComponent, h, nextTick, ref } from 'vue'
+import { computed, defineComponent, h, nextTick, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
 import ExcelJS from 'exceljs'
@@ -246,8 +282,23 @@ import { aggregateBomCostUsageFlatForDisplay } from '@/utils/bomCostUsageAggrega
 
 const REPORT_BRAND = '中山市卓越皮具有限公司'
 const REPORT_TITLE = '成本物料单统计报表（成本价物料明细）'
-const DETAIL_MATERIAL_SHEET_COL_COUNT = 10
-const SUMMARY_MATERIAL_SHEET_COL_COUNT = 10
+const DETAIL_MATERIAL_SHEET_COL_COUNT = 11
+const SUMMARY_MATERIAL_SHEET_COL_COUNT = 11
+const COLUMN_SETTING_STORAGE_KEY = 'erp.production.materialSheet.columnSetting.v1'
+const reportColumns = [
+  { key: 'seq', label: '序号' },
+  { key: 'code', label: '编码' },
+  { key: 'color', label: '颜色' },
+  { key: 'name', label: '名称' },
+  { key: 'spec', label: '规格' },
+  { key: 'match', label: '搭配' },
+  { key: 'unit', label: '单位' },
+  { key: 'usage', label: '用量' },
+  { key: 'loss', label: '损耗' },
+  { key: 'total', label: '合计' },
+  { key: 'singleTotal', label: '单物料合计' },
+]
+const defaultColumnKeys = reportColumns.map((c) => c.key)
 
 const SUMMARY_HEADER_FIELD_ROWS = [
   [
@@ -271,10 +322,10 @@ const DETAIL_HEADER_FIELD_ROWS = [
   ],
 ]
 
-const DETAIL_EXPORT_HEADERS = ['序号', '编码', '名称', '规格', '搭配', '单位', '用量', '损耗', '合计', '单物料合计']
-const SUMMARY_EXPORT_HEADERS = ['序号', 'ERP编码', '名称', '规格', '搭配', '单位', '用量', '损耗', '合计', '单物料合计']
-const DETAIL_MATERIAL_SHEET_EXPORT_COL_WIDTHS = [8, 18, 18, 18, 14, 8, 12, 10, 12, 14]
-const SUMMARY_MATERIAL_SHEET_EXPORT_COL_WIDTHS = [8, 18, 18, 18, 14, 8, 12, 10, 12, 14]
+const DETAIL_EXPORT_HEADERS = ['序号', '编码', '颜色', '名称', '规格', '搭配', '单位', '用量', '损耗', '合计', '单物料合计']
+const SUMMARY_EXPORT_HEADERS = ['序号', 'ERP编码', '颜色', '名称', '规格', '搭配', '单位', '用量', '损耗', '合计', '单物料合计']
+const DETAIL_MATERIAL_SHEET_EXPORT_COL_WIDTHS = [8, 18, 10, 18, 18, 14, 8, 12, 10, 12, 14]
+const SUMMARY_MATERIAL_SHEET_EXPORT_COL_WIDTHS = [8, 18, 10, 18, 18, 14, 8, 12, 10, 12, 14]
 const MATERIAL_SHEET_EXPORT_THIN_BORDER = {
   top: { style: 'thin', color: { argb: 'FF333333' } },
   left: { style: 'thin', color: { argb: 'FF333333' } },
@@ -388,6 +439,23 @@ const consumptionLines = ref([])
 const materialHeaders = ref([])
 const generatedAt = ref('')
 const reportCode = ref('')
+const checkedColumnKeys = ref(loadColumnSetting())
+const visibleReportColumns = computed(() => {
+  const cols = reportColumns.filter((col) => checkedColumnKeys.value.includes(col.key))
+  return cols.length ? cols : reportColumns
+})
+const queryForm = reactive({ piNo: '' })
+const piDialogPageSizes = [10, 20, 50, 100]
+const piDialog = reactive({
+  visible: false,
+  keyword: '',
+  list: [],
+  selected: [],
+  page: 1,
+  pageSize: 10,
+  total: 0,
+  loading: false,
+})
 
 const headerByProduct = computed(() => {
   const map = new Map()
@@ -404,6 +472,7 @@ function mapMaterialCostRowsToBomCostRows(rows) {
     kcaa01: String(row?.kcaa01 ?? '').trim(),
     kcaa02: row?.kcaa02 != null ? String(row.kcaa02) : '',
     kcaa03: row?.kcaa03 != null ? String(row.kcaa03) : '',
+    kcaa11: row?.kcaa11 != null ? String(row.kcaa11) : '',
     kcaa04: row?.kcaa04 != null ? String(row.kcaa04) : '',
     Describe: row?.Describe != null ? String(row.Describe) : '',
     yl: Number(row?.kcac04 ?? 0),
@@ -535,6 +604,100 @@ function clearReport() {
   reportCode.value = ''
 }
 
+function loadColumnSetting() {
+  try {
+    const raw = localStorage.getItem(COLUMN_SETTING_STORAGE_KEY)
+    if (!raw) return [...defaultColumnKeys]
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return [...defaultColumnKeys]
+    const legal = parsed.filter((key) => reportColumns.some((col) => col.key === key))
+    return legal.length ? legal : [...defaultColumnKeys]
+  } catch {
+    return [...defaultColumnKeys]
+  }
+}
+
+function onColumnSettingChange() {
+  localStorage.setItem(COLUMN_SETTING_STORAGE_KEY, JSON.stringify(checkedColumnKeys.value))
+}
+
+function resetColumnSetting() {
+  checkedColumnKeys.value = [...defaultColumnKeys]
+  onColumnSettingChange()
+}
+
+function hasColumn(key) {
+  return checkedColumnKeys.value.includes(key)
+}
+
+function onClickQueryContent() {
+  queryForm.piNo = String(piKeyword.value ?? '').trim()
+  openPiDialog()
+}
+
+function openPiDialog() {
+  const pickedPi = String(queryForm.piNo ?? '').trim()
+  piDialog.selected = pickedPi ? [pickedPi] : []
+  piDialog.keyword = ''
+  piDialog.page = 1
+  piDialog.visible = true
+  searchPiDialog()
+}
+
+async function searchPiDialog() {
+  piDialog.loading = true
+  try {
+    const res = await axios.get('/api/buy-order/pi-options', {
+      params: {
+        keyword: String(piDialog.keyword ?? '').trim(),
+        page: piDialog.page,
+        pageSize: piDialog.pageSize,
+      },
+    })
+    const list = Array.isArray(res?.data?.data?.list) ? res.data.data.list : []
+    piDialog.list = list
+      .map((row) => ({
+        id: row.id,
+        piNo: String(row.piNo ?? '').trim(),
+        poNo: String(row.poNo ?? '').trim(),
+        customer: String(row.customer ?? '').trim(),
+      }))
+      .filter((row) => row.piNo)
+    piDialog.total = Number(res?.data?.data?.total ?? piDialog.list.length)
+  } catch (e) {
+    piDialog.list = []
+    piDialog.total = 0
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? 'PI 查询失败'))
+  } finally {
+    piDialog.loading = false
+  }
+}
+
+function onPiPageSizeChange() {
+  piDialog.page = 1
+  searchPiDialog()
+}
+
+function onPiPageChange() {
+  searchPiDialog()
+}
+
+function isPiSelected(row) {
+  return piDialog.selected.includes(String(row?.piNo ?? '').trim())
+}
+
+async function choosePiFromDialog(row) {
+  const piNo = String(row?.piNo ?? '').trim()
+  if (!piNo || loading.value) return
+  queryForm.piNo = piNo
+  piKeyword.value = piNo
+  piDialog.selected = piNo ? [piNo] : []
+  selectedPi.value = row
+  piDialog.visible = false
+  // 这里把“查询内容”改成一步到位：选中 PI 后直接加载报表
+  await loadReport()
+}
+
 async function fetchPiSuggestions(query, cb) {
   const keyword = String(query ?? '').trim()
   if (!keyword) {
@@ -656,33 +819,37 @@ function materialSheetExportPageSetup() {
 }
 
 function detailRowToExportCells(row, group, idx) {
-  return [
-    idx + 1,
-    row.kcaa01,
-    row.kcaa02,
-    row.kcaa03,
-    row.Describe,
-    row.kcaa04,
-    formatQty(scaleByOrderQty(row.yl, group)),
-    formatLoss(row.loss_rate),
-    formatQty(lineTotalQty(row, group)),
-    formatQty(singleMaterialTotal(row, group)),
-  ]
+  const fullMap = {
+    seq: idx + 1,
+    code: row.kcaa01,
+    color: row.kcaa11,
+    name: row.kcaa02,
+    spec: row.kcaa03,
+    match: row.Describe,
+    unit: row.kcaa04,
+    usage: formatQty(scaleByOrderQty(row.yl, group)),
+    loss: formatLoss(row.loss_rate),
+    total: formatQty(lineTotalQty(row, group)),
+    singleTotal: formatQty(singleMaterialTotal(row, group)),
+  }
+  return visibleReportColumns.value.map((col) => fullMap[col.key] ?? '')
 }
 
 function summaryRowToExportCells(row, idx) {
-  return [
-    idx + 1,
-    row.kcaa01,
-    row.kcaa02,
-    row.kcaa03,
-    row.Describe,
-    row.kcaa04,
-    formatQty(row.sumay),
-    formatLoss(row.kcac05),
-    formatQty(row.sumby),
-    formatQty(summarySingleMaterialTotal(row)),
-  ]
+  const fullMap = {
+    seq: idx + 1,
+    code: row.kcaa01,
+    color: row.kcaa11,
+    name: row.kcaa02,
+    spec: row.kcaa03,
+    match: row.Describe,
+    unit: row.kcaa04,
+    usage: formatQty(row.sumay),
+    loss: formatLoss(row.kcac05),
+    total: formatQty(row.sumby),
+    singleTotal: formatQty(summarySingleMaterialTotal(row)),
+  }
+  return visibleReportColumns.value.map((col) => fullMap[col.key] ?? '')
 }
 
 async function downloadMaterialSheetWorkbook(wb, downloadFileName) {
@@ -732,7 +899,7 @@ async function exportDetailMaterialSheetXls(downloadFileName = materialSheetDefa
       ws.getCell(rowNum, 1).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }
     }
 
-    const headerAdded = ws.addRow([...DETAIL_EXPORT_HEADERS])
+    const headerAdded = ws.addRow(visibleReportColumns.value.map((col) => col.label))
     rowNum = headerAdded.number
     applyMaterialSheetExportTableStyle(ws, rowNum, {
       bold: true,
@@ -772,7 +939,7 @@ async function exportSummaryMaterialSheetXls(downloadFileName = materialSheetDef
   ws.mergeCells(headRow.number, 1, headRow.number, SUMMARY_MATERIAL_SHEET_COL_COUNT)
   ws.getCell(headRow.number, 1).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }
 
-  const headerAdded = ws.addRow([...SUMMARY_EXPORT_HEADERS])
+  const headerAdded = ws.addRow(visibleReportColumns.value.map((col) => col.label))
   applyMaterialSheetExportTableStyle(ws, headerAdded.number, {
     bold: true,
     fill: MATERIAL_SHEET_EXPORT_HEADER_FILL,
@@ -907,8 +1074,52 @@ function onPrintMaterialSheet() {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 12px 18px 6px;
+  padding: 12px 0 10px;
   background: var(--erp-surface, #fff);
+}
+.column-setting-title {
+  margin-bottom: 8px;
+  color: #334155;
+  font-weight: 600;
+}
+.column-setting-actions {
+  margin-top: 8px;
+  text-align: right;
+}
+.pi-picker {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.buy-pi-toolbar {
+  --buy-pi-control-height: 38px;
+  --buy-pi-control-font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.buy-pi-toolbar :deep(.el-input) {
+  width: 360px;
+}
+.buy-pi-toolbar :deep(.el-input__wrapper) {
+  min-height: var(--buy-pi-control-height);
+}
+.buy-pi-toolbar :deep(.el-input__inner) {
+  font-size: var(--buy-pi-control-font-size);
+}
+.buy-pi-toolbar :deep(.el-button) {
+  height: var(--buy-pi-control-height);
+  padding-left: 18px;
+  padding-right: 18px;
+  font-size: var(--buy-pi-control-font-size);
+}
+.buy-pi-select-button {
+  min-width: 74px;
+}
+.buy-pi-pagination {
+  margin-top: 12px;
+  justify-content: flex-start;
 }
 .report-meta-row {
   display: flex;
@@ -1047,6 +1258,9 @@ function onPrintMaterialSheet() {
 }
 .col-code {
   width: 150px;
+}
+.col-color {
+  width: 90px;
 }
 .col-match {
   width: 92px;

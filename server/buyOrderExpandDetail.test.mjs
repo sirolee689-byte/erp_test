@@ -23,12 +23,22 @@ test('purchase order expand detail keeps stock matching compatible with material
 })
 
 test('purchase order expand detail route is registered before generic id route and guarded as view', () => {
+  const batchIndex = handlers.indexOf("app.get('/api/buy-order/expand-detail/batch'")
   const expandIndex = handlers.indexOf("app.get('/api/buy-order/:id/expand-detail'")
   const detailIndex = handlers.indexOf("app.get('/api/buy-order/:id', detail)")
-  assert.ok(expandIndex > 0)
+  assert.ok(batchIndex > 0)
+  assert.ok(expandIndex > batchIndex)
   assert.ok(detailIndex > expandIndex)
+  assert.match(gate, /buy-order\/expand-detail\/batch/)
   assert.match(gate, /buy-order\\\/\\d\+\\\/expand-detail/)
   assert.match(gate, /action: 'view'/)
+})
+
+test('purchase order expand detail batch groups lines, inbound, returns and fees by order', () => {
+  assert.match(service, /fetchBuyOrderExpandDetailBatch/)
+  assert.match(service, /groupRowsByKey/)
+  assert.match(service, /buildExpandDetailForOrder/)
+  assert.match(service, /IN \(\$\{orderIn\.inSql\}\)/)
 })
 
 test('purchase order expand detail avoids SQL Server 2012-only syntax', () => {

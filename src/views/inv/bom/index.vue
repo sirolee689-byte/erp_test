@@ -4,9 +4,9 @@
       v1.1.8：BOM 主档列表（UB_ERP_Bom_000），严格服务端分页；合并关键词搜索（kcaa01/kcaa02 全模糊 OR）。
       性能约定：关键词仅在后端「满 3 字」时生效（参数化 LIKE），降低大表扫描风险。
     -->
-    <div v-if="!isBomWindowRoute" class="bom-mode-bar">
+    <div v-if="!isBomWindowRoute" class="bom-mode-bar erp-mode-bar">
       <el-button
-        class="bom-mode-btn"
+        class="bom-mode-btn erp-mode-btn"
         :type="pageMode === 'manage' ? 'primary' : 'default'"
         plain
         @click="switchBomPageMode('manage')"
@@ -16,7 +16,7 @@
       </el-button>
       <el-button
         v-permission="'add'"
-        class="bom-mode-btn"
+        class="bom-mode-btn erp-mode-btn"
         :type="pageMode === 'create' ? 'primary' : 'default'"
         plain
         @click="switchBomPageMode('create')"
@@ -25,7 +25,7 @@
         BOM资料添加
       </el-button>
       <el-button
-        class="bom-mode-btn"
+        class="bom-mode-btn erp-mode-btn"
         :type="pageMode === 'material-trace' ? 'primary' : 'default'"
         plain
         @click="switchBomPageMode('material-trace')"
@@ -34,7 +34,7 @@
         转向物料查询
       </el-button>
       <el-button
-        class="bom-mode-btn"
+        class="bom-mode-btn erp-mode-btn"
         :type="pageMode === 'moq' ? 'primary' : 'default'"
         plain
         @click="switchBomPageMode('moq')"
@@ -49,13 +49,8 @@
       v-show="pageMode === 'manage'"
       shadow="never"
     >
-      <template #header>
-        <span class="page-title">{{ pageTitle }}</span>
-      </template>
-     
-
-      <div class="bom-filter-bar bom-filter-unified-btn-font">
-        <div class="bom-filter-row bom-filter-row--top">
+      <div class="bom-filter-bar bom-filter-unified-btn-font erp-filter-bar">
+        <div class="bom-filter-row bom-filter-row--top erp-filter-row">
           <el-select
             v-if="!showRecycle"
             v-model="searchQuery.bom_code_id"
@@ -84,7 +79,7 @@
           <el-button
             v-if="showUnAudited && !showRecycle"
             v-permission="'audit'"
-            class="bom-btn-batch-audit"
+            class="bom-btn-batch-audit erp-filter-action-btn"
             type="success"
             plain
             :loading="batchAuditing"
@@ -96,7 +91,7 @@
           <el-button
             v-if="!showRecycle"
             v-permission="'edit'"
-            class="bom-btn-batch-usage-calc"
+            class="bom-btn-batch-usage-calc erp-filter-action-btn"
             type="primary"
             plain
             :loading="batchUsageCalculating"
@@ -106,7 +101,7 @@
             批量运算（当前页）
           </el-button>
         </div>
-        <div class="bom-filter-row bom-filter-row--bottom">
+        <div class="bom-filter-row bom-filter-row--bottom erp-filter-row">
           <div class="bom-filter-field bom-filter-field--keyword">
             <el-input
               v-model="keyword"
@@ -116,18 +111,18 @@
               @keyup.enter="onSearch"
             />
           </div>
-          <el-button class="bom-filter-action-btn" type="primary" @click="onSearch">
+          <el-button class="bom-filter-action-btn erp-filter-action-btn" type="primary" @click="onSearch">
             查询
           </el-button>
-          <el-button class="bom-filter-action-btn" @click="onReset">重置</el-button>
-          <div class="bom-filter-divider" aria-hidden="true" />
-          <div class="audit-switch">
+          <el-button class="bom-filter-action-btn erp-filter-action-btn" @click="onReset">重置</el-button>
+          <div class="bom-filter-divider erp-filter-divider" aria-hidden="true" />
+          <div class="audit-switch erp-filter-switch">
             <span class="switch-label">回收站</span>
             <el-switch v-model="showRecycle" @change="onRecycleChange" />
           </div>
           <template v-if="!showRecycle">
-            <div class="bom-filter-divider" aria-hidden="true" />
-            <div class="audit-switch">
+            <div class="bom-filter-divider erp-filter-divider" aria-hidden="true" />
+            <div class="audit-switch erp-filter-switch">
               <span class="switch-label">显示未审核</span>
               <el-switch v-model="showUnAudited" @change="onSearch" />
             </div>
@@ -2149,24 +2144,24 @@ async function exportBomCostUsageXls(downloadFileName = bomCostUsageDefaultExpor
   })
   ws.addRow([headerText])
   ws.mergeCells(1, 1, 1, BOM_COST_USAGE_EXPORT_HEADERS.length)
-  ws.getRow(1).font = { name: 'Arial', size: 10, bold: true }
+  ws.getRow(1).font = { name: 'Arial Unicode MS', size: 10, bold: true }
   ws.getRow(1).height = 24
   ws.getCell(1, 1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
   ws.addRow([...BOM_COST_USAGE_EXPORT_HEADERS])
   applyBomCostUsageExportTableStyle(ws, 2, {
-    font: { name: 'Arial', size: 10 },
+    font: { name: 'Arial Unicode MS', size: 10 },
     bold: true,
     fill: BOM_COST_USAGE_EXPORT_HEADER_FILL,
   })
   for (const row of rows) {
     const added = ws.addRow(bomCostUsageRowToExportCells(row))
     applyBomCostUsageExportTableStyle(ws, added.number, {
-      font: { name: 'Arial', size: 10 },
+      font: { name: 'Arial Unicode MS', size: 10 },
     })
   }
   ws.addRow(['合计', '', '', '', '', formatQty(sumYl), '', formatQty(sumTotalQty)])
   applyBomCostUsageExportTableStyle(ws, ws.rowCount, {
-    font: { name: 'Arial', size: 10 },
+    font: { name: 'Arial Unicode MS', size: 10 },
     bold: true,
     fill: BOM_COST_USAGE_EXPORT_SUMMARY_FILL,
   })
@@ -2506,6 +2501,7 @@ const bomPartsUseFillLayout = computed(() => isBomStandaloneWindow.value)
 const bomPartsTableFillHeight = computed(() => (bomPartsUseFillLayout.value ? '100%' : undefined))
 const bomPartsTableMaxHeight = computed(() => undefined)
 // DIY：内嵌编辑配件表固定 height（max-height 会随行数缩短，小屏只见两三行）；想让表更高把 380 调小
+const BOM_EDIT_EMBEDDED_PARTS_TABLE_HEIGHT = 'calc(100vh - 380px)'
 /** 内嵌编辑配件明细：固定表高，表内纵向滚动 */
 const bomEditEmbeddedPartsTableHeight = computed(() => undefined)
 /** 编辑配件表 height：独立全屏 100%，内嵌编辑用固定 calc */
@@ -5360,20 +5356,12 @@ if (isBomWindowRoute.value) {
   border-radius: 4px;
 }
 /* BOM 模式行字体：与主列表数据列统一（常规字号、非粗体） */
-.bom-mode-btn {
-  font-size: var(--erp-table-data-size) !important;
-  font-weight: var(--erp-font-weight-body) !important;
-}
 /* BOM 操作按钮字号：与模式行「管理BOM资料」一致（页头/底栏/配件工具条/配件表格操作列） */
 .bom-unified-btn-font :deep(.el-button) {
   font-size: var(--erp-table-data-size) !important;
   font-weight: var(--erp-font-weight-body) !important;
 }
 /* 筛选区按钮字号：与模式行「管理BOM资料」一致（批量审核/批量运算/查询/重置） */
-.bom-filter-unified-btn-font :deep(.el-button) {
-  font-size: var(--erp-table-data-size) !important;
-  font-weight: var(--erp-font-weight-body) !important;
-}
 .bom-filter-bar {
   display: flex;
   flex-direction: column;
@@ -5632,16 +5620,6 @@ if (isBomWindowRoute.value) {
 }
 /* DIY：BOM 主列表列数据字体统一（与「分类」列一致：常规字号、不加粗）——只影响展示，不动数据 */
 /* 位置：src/views/inv/bom/index.vue <style scoped>；变量 --erp-table-data-size / --erp-font-weight-body */
-.erp-list-table :deep(.bom-list-cell-wrap),
-.erp-list-table :deep(.bom-list-datetime),
-.erp-list-table :deep(.bom-list-usage-cost),
-.erp-list-table :deep(.bom-list-operator),
-.erp-list-table :deep(.bom-list-datetime > div),
-.erp-list-table :deep(.bom-list-usage-cost > div),
-.erp-list-table :deep(.bom-list-operator > div) {
-  font-size: var(--erp-table-data-size) !important;
-  font-weight: var(--erp-font-weight-body) !important;
-}
 .bom-detail-alert {
   margin-bottom: 12px;
 }

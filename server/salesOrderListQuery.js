@@ -60,6 +60,7 @@ function normalizeSalesOrderPass(v) {
  */
 export function buildSalesOrderListWhereSql(opts) {
   const recycled = Boolean(opts?.recycled)
+  const salesDateColumn = String(opts?.salesDateColumn ?? 'xsaj02').trim() || 'xsaj02'
   let whereSql = ''
   if (recycled) {
     whereSql += ` AND LTRIM(RTRIM(ISNULL(h.[del], N''))) = N'1' `
@@ -86,10 +87,10 @@ export function buildSalesOrderListWhereSql(opts) {
     whereSql += ` AND LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kehu], N'')))) LIKE @customer `
   }
   if (opts?.salesDateFrom) {
-    whereSql += ` AND h.[xsaj02] >= @salesDateFrom `
+    whereSql += ` AND h.[${salesDateColumn}] >= @salesDateFrom `
   }
   if (opts?.salesDateTo) {
-    whereSql += ` AND h.[xsaj02] < DATEADD(day, 1, @salesDateTo) `
+    whereSql += ` AND h.[${salesDateColumn}] < DATEADD(day, 1, @salesDateTo) `
   }
   return { whereSql }
 }
@@ -121,6 +122,8 @@ export function buildSalesOrderCalcStatusExpr(col) {
  */
 export function buildSalesOrderListPagedSql(opts) {
   const whereSql = String(opts?.whereSql ?? '')
+  const salesDateColumn = String(opts?.salesDateColumn ?? 'xsaj02').trim() || 'xsaj02'
+  const closeStatusExpr = String(opts?.closeStatusExpr ?? "N''")
   const sqlText = `
         SELECT
           h.[id],
@@ -129,10 +132,12 @@ export function buildSalesOrderListPagedSql(opts) {
           LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[systemcode], N'')))) AS systemCode,
           LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kehu], N'')))) AS customerName,
           LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[rmb], N'')))) AS currencyName,
-          h.[xsaj02] AS salesDate,
+          h.[${salesDateColumn}] AS salesDate,
           h.[xsaj08] AS deliveryDate,
+          LTRIM(RTRIM(CONVERT(nvarchar(max), ISNULL(h.[remark], N'')))) AS remark,
           LTRIM(RTRIM(ISNULL(h.[pass], N''))) AS pass,
           LTRIM(RTRIM(ISNULL(h.[del], N''))) AS del,
+          LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), h.[closed]), N''))) AS closed,
           h.[rn]
         FROM (
           SELECT
@@ -142,10 +147,12 @@ export function buildSalesOrderListPagedSql(opts) {
             h.[systemcode],
             h.[kehu],
             h.[rmb],
-            h.[xsaj02],
+            h.[${salesDateColumn}],
             h.[xsaj08],
+            h.[remark],
             h.[pass],
             h.[del],
+            ${closeStatusExpr} AS [closed],
             ROW_NUMBER() OVER (ORDER BY h.[id] DESC) AS rn
           FROM ${HEADER_FROM} AS h
           WHERE 1 = 1

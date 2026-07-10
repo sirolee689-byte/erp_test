@@ -2,7 +2,6 @@
  * 销售订单物料单查询（issue 05）
  */
 import sql from 'mssql'
-import { aggregateBomConsumptionFromFlat } from './bomUsageFlatten.js'
 import { normKcaa01 } from './salesOrderSaveLogic.js'
 import {
   buildSalesOrderCalcStatusExpr,
@@ -17,6 +16,8 @@ const PI_CONSUMPTION_FROM = 'dbo.[UB_ERP_Bom_pi_consumption]'
 
 /** @type {Promise<string> | null} */
 let CALC_COL_PROMISE = null
+/** @type {Promise<string> | null} */
+let PI_COST_MATCH_COL_PROMISE = null
 
 /**
  * @param {import('mssql').ConnectionPool} pool
@@ -38,6 +39,30 @@ async function ensureCalcStatusColumn(pool) {
   return CALC_COL_PROMISE
 }
 
+/**
+ * 兼容历史库：搭配字段有的库叫 bnfo，有的库叫 binfo。
+ * 这里统一探测后返回可用列名，避免 SQL 写死导致线上报错。
+ * @param {import('mssql').ConnectionPool} pool
+ */
+async function ensurePiCostMatchColumn(pool) {
+  if (!PI_COST_MATCH_COL_PROMISE) {
+    PI_COST_MATCH_COL_PROMISE = pool
+      .request()
+      .query(`
+        SELECT c.COLUMN_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS AS c
+        WHERE c.TABLE_NAME = N'UB_ERP_Bom_pi_cost'
+      `)
+      .then((r) => {
+        const names = new Set((r.recordset ?? []).map((row) => String(row.COLUMN_NAME ?? '').toLowerCase()))
+        if (names.has('bnfo')) return 'bnfo'
+        if (names.has('binfo')) return 'binfo'
+        return 'Describe'
+      })
+  }
+  return PI_COST_MATCH_COL_PROMISE
+}
+
 function materialBillPxSortValue(row) {
   const raw = row?.px
   if (raw == null || raw === '') return null
@@ -51,37 +76,62 @@ function materialBillPxSortValue(row) {
  */
 export function buildMaterialBillConsumptionLinesFromCost(costLines) {
   const list = Array.isArray(costLines) ? costLines : []
-  const merged = aggregateBomConsumptionFromFlat(
-    list.map((row) => {
-      const orderQty = Number(row.orderQty ?? 0)
-      const usage = Number(row.kcac04 ?? 0)
-      const totalQty = Number(row.kcac06 ?? 0)
-      const scaledUsage = Number.isFinite(orderQty) ? usage * orderQty : 0
-      const scaledTotal = Number.isFinite(orderQty) ? totalQty * orderQty : 0
-      return {
-        kcaa01: row.kcaa01,
-        kcaa02: row.kcaa02,
-        kcaa03: row.kcaa03,
-        kcaa04: row.kcaa04,
-        Describe: row.Describe,
-        yl: scaledUsage,
-        loss_rate: Number(row.kcac05 ?? 0),
-        total_qty: scaledTotal,
+  /** @type {Map<string, { kcaa01: string, kcaa02: string, kcaa03: string, kcaa04: string, Describe: string, colorSet: Set<string>, sumay: number, sumby: number }>} */
+  const map = new Map()
+  /** @type {string[]} */
+  const order = []
+  for (let i = 0; i < list.length; i++) {
+    const row = list[i]
+    const code = String(row?.kcaa01 ?? '').trim()
+    const matchText = String(row?.Describe ?? '').trim()
+    if (!code) continue
+    const mergeKey = `${code}\u0000${matchText}`
+    const orderQty = Number(row?.orderQty ?? 0)
+    const usage = Number(row?.kcac04 ?? 0)
+    const totalQty = Number(row?.kcac06 ?? 0)
+    const scaledUsage = Number.isFinite(orderQty) ? usage * orderQty : 0
+    const scaledTotal = Number.isFinite(orderQty) ? totalQty * orderQty : 0
+    const colorCode = String(row?.kcaa11 ?? '').trim()
+    let target = map.get(mergeKey)
+    if (!target) {
+      target = {
+        kcaa01: code,
+        kcaa02: String(row?.kcaa02 ?? ''),
+        kcaa03: String(row?.kcaa03 ?? ''),
+        kcaa04: String(row?.kcaa04 ?? ''),
+        Describe: matchText,
+        colorSet: new Set(),
+        sumay: 0,
+        sumby: 0,
       }
-    }),
-    [],
-  )
-  return merged.map((row, idx) => ({
-    id: idx + 1,
-    kcaa01: row.kcaa01,
-    kcaa02: row.kcaa02,
-    kcaa03: row.kcaa03,
-    kcaa04: row.kcaa04,
-    sumay: row.sumay,
-    sumby: row.sumby,
-    kcac05: row.kcac05,
-    Describe: row.Describe,
-  }))
+      map.set(mergeKey, target)
+      order.push(mergeKey)
+    } else {
+      if (!target.kcaa02) target.kcaa02 = String(row?.kcaa02 ?? '')
+      if (!target.kcaa03) target.kcaa03 = String(row?.kcaa03 ?? '')
+      if (!target.kcaa04) target.kcaa04 = String(row?.kcaa04 ?? '')
+    }
+    if (colorCode) target.colorSet.add(colorCode)
+    target.sumay += scaledUsage
+    target.sumby += scaledTotal
+  }
+  return order.map((key, idx) => {
+    const row = map.get(key)
+    const sumay = row?.sumay ?? 0
+    const sumby = row?.sumby ?? 0
+    return {
+      id: idx + 1,
+      kcaa01: row?.kcaa01 ?? '',
+      kcaa11: row ? [...row.colorSet].join(',') : '',
+      kcaa02: row?.kcaa02 ?? '',
+      kcaa03: row?.kcaa03 ?? '',
+      kcaa04: row?.kcaa04 ?? '',
+      sumay,
+      sumby,
+      kcac05: sumay > 0 ? (sumby - sumay) / sumay : 0,
+      Describe: row?.Describe ?? '',
+    }
+  })
 }
 
 export function buildMaterialBillCostLines(recordset, qtyByProduct = new Map()) {
@@ -108,6 +158,7 @@ export function buildMaterialBillCostLines(recordset, qtyByProduct = new Map()) 
       id: row.id,
       pq,
       kcaa01: String(row.kcaa01 ?? ''),
+      kcaa11: String(row.kcaa11 ?? '').trim(),
       kcaa02: String(row.kcaa02 ?? ''),
       kcaa03: String(row.kcaa03 ?? ''),
       kcaa04: String(row.kcaa04 ?? ''),
@@ -115,7 +166,8 @@ export function buildMaterialBillCostLines(recordset, qtyByProduct = new Map()) 
       kcac05: Number(row.kcac05 ?? 0),
       kcac06: Number(row.kcac06 ?? 0),
       px,
-      Describe: String(row.Describe ?? ''),
+      // 搭配展示口径：优先 bnfo（新口径），空时回退 Describe（兼容历史数据）
+      Describe: String(row.bnfo ?? '').trim() || String(row.Describe ?? '').trim(),
       topKcaa01: String(row.topKcaa01 ?? ''),
       topKcaa02: String(row.topKcaa02 ?? ''),
       orderQty,
@@ -142,6 +194,7 @@ export function buildMaterialBillSingleUsageByProduct(costLines) {
  * @param {number} id
  */
 export async function fetchSalesOrderMaterialBill(pool, id) {
+  const matchCol = await ensurePiCostMatchColumn(pool)
   const calcCol = await ensureCalcStatusColumn(pool)
   const calcExpr = buildSalesOrderCalcStatusExpr(calcCol)
   const hr = await pool.request().input('id', sql.Int, id).query(`
@@ -199,6 +252,7 @@ export async function fetchSalesOrderMaterialBill(pool, id) {
       LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([kcaa02], N'')))) AS kcaa02,
       LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([kcaa03], N'')))) AS kcaa03,
       LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL([kcaa04], N'')))) AS kcaa04,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL([kcaa11], N'')))) AS kcaa11,
       CAST(ISNULL([kcac04], 0) AS decimal(18, 6)) AS kcac04,
       CAST(ISNULL([kcac05], 0) AS decimal(18, 6)) AS kcac05,
       CAST(ISNULL([kcac06], 0) AS decimal(18, 6)) AS kcac06,
@@ -208,6 +262,7 @@ export async function fetchSalesOrderMaterialBill(pool, id) {
           THEN CONVERT(int, LTRIM(RTRIM(CONVERT(nvarchar(100), [px]))))
         ELSE NULL
       END AS px,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([${matchCol}], N'')))) AS bnfo,
       LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([Describe], N'')))) AS Describe,
       LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL([top_kcaa01], N'')))) AS topKcaa01,
       LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([top_kcaa02], N'')))) AS topKcaa02

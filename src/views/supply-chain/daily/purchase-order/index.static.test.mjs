@@ -45,4 +45,39 @@ describe('purchase-order index static UI contract', () => {
     assert.match(printSource, /formatErpQtyDisplay/)
     assert.match(printSource, /formatErpMoneyDisplay/)
   })
+
+  test('purchase-order view mode reuses edit form panel read-only', () => {
+    assert.match(source, /pageMode === 'view'/)
+    assert.match(source, /isReadonlyForm/)
+    assert.match(source, /查看采购订单/)
+    assert.doesNotMatch(source, /detailVisible/)
+    assert.doesNotMatch(source, /DetailBlock/)
+    assert.match(source, /pageMode !== 'view'.*saveOrder|v-if="pageMode !== 'view'"/)
+  })
+
+  test('purchase-order line tax defaults to 0.13 when tax-included', () => {
+    assert.match(source, /resolveLineTax/)
+    assert.match(source, /DEFAULT_TAX_RATE = 0\.13/)
+    assert.match(source, /tax: resolveLineTax\(row\.tax\)/)
+  })
+
+  test('purchase-order detail lines table uses erp number display helpers', () => {
+    assert.match(source, /buy-lines-table/)
+    assert.match(source, /formatErpQtyDisplay\(row\.quantity/)
+    assert.match(source, /formatErpPriceDisplay\(row\.taxExcludedPrice\)/)
+    assert.match(source, /formatErpMoneyDisplay\(row\.taxExcludedAmount\)/)
+    assert.match(source, /formatErpMoneyDisplay\(row\.taxIncludedAmount\)/)
+    assert.match(source, /formatErpTrimDecimal\(row\.tax/)
+  })
+
+  test('purchase-order detail lines batch add keeps quantity empty and trims edit inputs', () => {
+    assert.match(source, /resolveBatchLineQuantity/)
+    assert.match(source, /formatBuyLineTaxInput/)
+    assert.match(source, /formatBuyLineTaxPriceInput/)
+    assert.match(source, /:formatter="formatBuyLineTaxInput"/)
+    assert.match(source, /:formatter="formatBuyLineTaxPriceInput"/)
+    assert.doesNotMatch(source, /buy-lines-table[\s\S]*openLinePiBom/)
+    assert.doesNotMatch(source, /v-model="row\.tax"[\s\S]*:precision="4"/)
+    assert.doesNotMatch(source, /v-model="row\.taxIncludedPrice"[\s\S]*:precision="form\.header\.decimalPlaces"/)
+  })
 })

@@ -86,7 +86,7 @@
 - **一键运算** 只读 **PI BOM**（`UB_ERP_Bom_Sales_list`），写入 `UB_ERP_Bom_pi_*`，**不乘订货数量**；**无 BOM 层数上限**（与主 BOM 用量树一致；循环引用仍失败）；隐藏前缀与 BOM 资料内置列表一致（`server/bomCostHidePrefixes.js`）；下游订料时 **用量 × 订货数量**
 - **一键运算写 `UB_ERP_Bom_pi_cost`**：与 BOM 资料 **用量运算 → UB_ERP_Bom_cost** 同规则（平铺不合并、隐藏前缀一致、跳过成品根行）；普通 `RP-` 材料写入，`RP-PQ` 结构行不写入；**不**再按 `UB_ERP_Bom_Sales_list.id` 去重。验收：同款同步 BOM 后，`pi_cost` 行数与用量应对齐该款 `UB_ERP_Bom_cost`（仅 `sid` 为 PI 号）。历史脏 PI list 须先 **同步 BOM**。
 - **`pi_cost` 专用字段**（用量 `kcac04/05/06` 不变）：`top_kcaa01/02` = PI BOM **第一层**命中 `UB_ERP_Bom_code flag5`（排除 OUT/CUT）的锚点，子树继承（裁片下 `RP-*` 等材料不新建锚点）；**散件单**第一层即散件时 `top` 可为自身；`t_kcaa01/02` = 直接父（父即锚点时 **留空**）；`t_kcaa03~11/14/15/25~27` = 直接父行在 `UB_ERP_Bom_Sales_list` 的同名 `kcaa*`（树遍历复制，等价 `sid`+`t_kcaa01` 查父行；父留空时 t 扩展字段亦空）；**`kcaa13`**：先按 `UB_ERP_Bom_000` enrich，若该行对应 `UB_ERP_Bom_Sales_list` 的 `kcaa13` **有值（含 0）** 则照抄覆盖；`temp` = 该款销售明细 `xsak03`（同 `pq` 下各行相同）；`isok=1`、`pass='1'`、`kcac07=0`、`kcac08=kcac06+kcac07`、`kcaa07/08=0`。实现：`server/salesOrderPiCostFields.js`。
-- **一键运算入口** 只放在列表第一列「操作」；查看弹窗和编辑页不放入口。已审核、未审核在册订单都可以点；回收站订单不可运算。
+- **一键运算入口** 只放在列表第一列「操作」；查看整页与编辑页不放入口。已审核、未审核在册订单都可以点；回收站订单不可运算。
 - **散件判定**（`hasSpareParts`）：`UB_ERP_Bom_code` 全部 `copen=1` 且 `flag5` 非空的前缀为「排除前缀」；明细 `kcaa01` **不命中**任一排除前缀 → 散件行；订单含至少一行散件 → 列表显示 **「增加散件单用量」**。
 - **订单类型与按钮**：
   - **纯整款**（无散件）：仅 **一键运算**。
@@ -118,7 +118,7 @@
 - 页面顶部为 **管理销售订单 / 销售订单添加** 双模式；默认进入管理列表。
 - 管理列表工具栏不再放「新增销售订单」按钮，新增入口统一使用顶部 **销售订单添加**。
 - **销售订单添加** 在当前页面整页显示新增表单，不再使用新增弹窗，也不新开浏览器页（不使用 `target="_blank"`）。
-- 行内 **编辑** 进入与新增同一套整页表单；查看仍使用原查看弹窗。
+- 行内 **编辑** 进入与新增同一套整页表单；**查看**（2026-07）同样复用该整页表单（主表 / 明细 / PI BOM 三页签），全程只读，底栏仅「返回列表」；无保存、增行、同步 BOM、删行；明细行「PI BOM」与 PI BOM 页签仍可浏览用量树。
 - 新增表单初始化时，PI 号默认填 `PI-`，小数位数默认 `6`；编辑已有订单时仍以接口返回值为准。
 - 主表新增 `PO号` 输入框；保存时写入主表字段 `UB_ERP_Sales_order.xsaj06`。
 - 客户保存时写入 `xsaj05 = UB_ERP_System_sales_customer.s_code`；客户名称仍写入 `kehu` 快照。
@@ -132,20 +132,25 @@
 ## 列表交互
 
 - 列表默认每页 **10 条**；后端 `/api/sales-order/list` 也以 10 条作为缺省页大小。列表查询先完成主表分页，再只对当前页订单批量补运算状态、散件/按钮状态，避免打开页面时为大量历史订单提前计算操作状态。
-- **UI 对齐 BOM 资料（2026-07）**：顶部「管理销售订单 / 销售订单添加」模式按钮、筛选区「查询 / 重置 / 刷新」字号与主列表列数据一致（`--erp-table-data-size` + `--erp-font-weight-body`）；主列表用 `ErpTableViewportHScroll` 视口底横滚（**仅主表**表内横条隐藏；展开行内嵌套明细表保留自身横滚条）；展开/收起后会 `doLayout` + `refreshErpTableViewportHScroll`；新增/编辑面板底栏、明细工具条与行操作钮走 `.so-unified-btn-font`；主表表单字段字号与列数据对齐。DIY：`index.vue` 搜 `.so-mode-btn`、`.so-filter-action-btn`、`.so-unified-btn-font`；全局变量 `element-override.scss` 搜 `--erp-table-data-size`。
+- **UI 对齐 BOM 资料（2026-07）**：顶部「管理销售订单 / 销售订单添加」模式按钮、筛选区「查询 / 重置 / 刷新」字号与主列表列数据一致（`--erp-table-data-size` + `--erp-font-weight-body`）；主列表用 `ErpTableViewportHScroll` 视口底横滚（**仅主表**表内横条隐藏；展开行内嵌套明细表保留自身横滚条）；展开/收起后会 `doLayout` + `refreshErpTableViewportHScroll`；新增/编辑面板底栏、明细工具条与行操作钮走 `.so-unified-btn-font`；主表表单字段字号与列数据对齐。**主列表双分页**（头+底、`pagination-row`、左对齐，头部分页在 skeleton 外）对齐 BOM 资料。DIY：`index.vue` 搜 `.so-mode-btn`、`.so-filter-action-btn`、`.so-unified-btn-font`、`pagination-row--top`；全局变量 `element-override.scss` 搜 `--erp-table-data-size`。
 - 顶部只保留一个关键词搜索框，同时匹配 PI 号、系统单号、客户名称；日期范围仍独立筛选。
 - 列表列调整：新增 `PO号` 列，移除 `系统单号` 列（系统单号仍保留在详情接口中）。
+- 列表列顺序（主列）调整为：操作、状态、结案、运算状态、销售单号、销售日期、交货日期、PO号、销售数据、币别、客户、备注（展开列保留在末尾）。
+- 新增“销售数据”汇总列（按当前行 `piNo` = `UB_ERP_Sales_order.xsaj01` 汇总）：
+  - 第 1 行：总项数（`UB_ERP_Sales_order_list` 明细行数）、明细总量（`SUM(xsak03)`）、物品总金额（`SUM(xsak03 * xsak04)`）。
+  - 第 2 行：总出库数量（`UB_ERP_Stocks_out.kcap03=6`、`kcap04=当前销售单号`、头表 `pass=1/del=0`，汇总 `UB_ERP_Stocks_out_list.kcaq03`）。
+  - 第 3～5 行：关联采购/外协/派工订单数量（分别按销售单号关联主表字段 `kcaj04` / `wxaj04` / `scaj04`，过滤 `del=0`；后端保留已审/未审分项，前端显示合计张数）。
 - 默认显示已审核销售订单（`pass=1`）；打开“显示未审核”后只查未审核（`pass=0`）。
 - “回收站”和“显示未审核”互斥；进入回收站后不再传审核状态，只查已逻辑删除数据。
 - 主表操作列固定在第一列，按钮风格与 BOM 资料列表保持一致，便于先处理操作再横向查看业务字段。
-- 主表参考外协报价支持点击行展开明细；点击操作列按钮不触发展开，操作列里的“查看”仍打开原查看弹窗。
+- 主表参考外协报价支持点击行展开明细；点击操作列按钮不触发展开。**列表加载后**后台批量预取当前页展开明细（`GET /api/sales-order/expand-lines/batch`），点击展开优先读缓存秒开；预取失败时仍回退单条 `GET /api/sales-order/:id`。
 - 展开明细只读展示，列顺序固定为：序号、操作、客款号、编码、名称、规格、组别、单位、数量、用量、单价、金额、备注；操作列仅放“查看”占位按钮，后续再接真实功能；“用量”按该行 `PI号 + kcaa01` 汇总 `UB_ERP_Bom_pi_cost.kcac04/kcac06`，显示为 `成本：SUM(kcac04),SUM(kcac06)`，未运算或无结果显示 `-`。
 
 ## 测试与验收
 
 ```bash
 npm run test:sales-order    # 单元 + 集成（server/*.test.mjs）
-npm run e2e:sales-order     # Playwright：列表 → 查看弹窗（需 Vite + API）
+npm run e2e:sales-order     # Playwright：列表 → 查看整页只读表单（需 Vite + API）
 ```
 
 手工端到端清单：`.scratch/sales-order/E2E-ACCEPTANCE.md`（含 **PI-002** 全流程）。

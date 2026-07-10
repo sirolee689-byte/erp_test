@@ -44,6 +44,19 @@
       <el-alert v-if="showRecycle" type="info" show-icon title="当前是回收站：只能查看、恢复或彻底删除。" class="dispatch-alert" />
       <el-alert v-else-if="showUnaudited" type="warning" show-icon title="当前显示未审核派工单，可编辑、审核或删除。" class="dispatch-alert" />
 
+      <div class="pagination-row pagination-row--top">
+        <el-pagination
+          v-model:current-page="pager.page"
+          v-model:page-size="pager.pageSize"
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="pager.total"
+          :page-sizes="ERP_PAGE_SIZE_OPTIONS"
+          @size-change="loadList"
+          @current-change="loadList"
+        />
+      </div>
+
       <el-table
         ref="listTableRef"
         v-loading="loading"
@@ -134,24 +147,29 @@
         <el-table-column label="备注" prop="remark" min-width="180" show-overflow-tooltip />
       </el-table>
 
-      <el-pagination
-        v-model:current-page="pager.page"
-        v-model:page-size="pager.pageSize"
-        :page-sizes="ERP_PAGE_SIZE_OPTIONS"
-        layout="total, sizes, prev, pager, next, jumper"
-        :total="pager.total"
-        class="dispatch-pagination"
-        @size-change="loadList"
-        @current-change="loadList"
-      />
+      <div class="pagination-row pagination-row--bottom">
+        <el-pagination
+          v-model:current-page="pager.page"
+          v-model:page-size="pager.pageSize"
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="pager.total"
+          :page-sizes="ERP_PAGE_SIZE_OPTIONS"
+          @size-change="loadList"
+          @current-change="loadList"
+        />
+      </div>
     </section>
 
-    <section v-show="pageMode === 'form'" class="erp-section">
+    <section v-show="pageMode === 'form' || pageMode === 'view'" class="erp-section" :class="{ 'dispatch-form-section--readonly': isReadonlyForm }">
       <div class="form-head">
-        <strong>{{ editId ? '编辑派工单' : '新增派工单' }}</strong>
+        <strong>{{ pageMode === 'view' ? '查看派工单' : editId ? '编辑派工单' : '新增派工单' }}</strong>
         <div>
-          <el-button @click="switchList">返回列表</el-button>
-          <el-button type="primary" :loading="saving" @click="saveOrder">保存</el-button>
+          <el-button v-if="pageMode === 'view'" @click="switchList">返回列表</el-button>
+          <template v-else>
+            <el-button @click="switchList">返回列表</el-button>
+            <el-button type="primary" :loading="saving" @click="saveOrder">保存</el-button>
+          </template>
         </div>
       </div>
       <el-tabs v-model="editTab" class="dispatch-edit-tabs">
@@ -160,15 +178,15 @@
             <div class="dispatch-header-rows">
               <div class="dispatch-form-row dispatch-form-row--1">
                 <el-form-item label="派工单号">
-                  <el-input :value="editId ? String(detail.header?.scaj01 || '') : '保存后自动生成'" disabled />
+                  <el-input :model-value="displayDispatchOrderNo" disabled />
                 </el-form-item>
               </div>
               <div class="dispatch-form-row dispatch-form-row--2">
                 <el-form-item label="派工日期">
-                  <el-date-picker v-model="form.dispatchDate" value-format="YYYY-MM-DD" type="date" />
+                  <el-date-picker v-model="form.dispatchDate" value-format="YYYY-MM-DD" type="date" :disabled="isReadonlyForm" />
                 </el-form-item>
                 <el-form-item label="交货日期">
-                  <el-date-picker v-model="form.deliveryDate" value-format="YYYY-MM-DD" type="date" />
+                  <el-date-picker v-model="form.deliveryDate" value-format="YYYY-MM-DD" type="date" :disabled="isReadonlyForm" />
                 </el-form-item>
               </div>
               <div class="dispatch-form-row dispatch-form-row--3">
@@ -180,7 +198,7 @@
                       type="button"
                       class="dispatch-type-btn"
                       :class="{ 'is-active': form.dispatchType === opt.value }"
-                      :disabled="!!editId || opt.value !== '0'"
+                      :disabled="isReadonlyForm || !!editId || opt.value !== '0'"
                       @click="onDispatchTypeClick(opt.value)"
                     >
                       {{ opt.label }}
@@ -195,10 +213,10 @@
                     value-key="piNo"
                     clearable
                     placeholder="输入第一个字开始联想 PI"
-                    :disabled="!!editId"
+                    :disabled="isReadonlyForm || !!editId"
                     @select="onPickReferencePi"
                   />
-                  <el-input v-else v-model="form.referenceNo" :disabled="!!editId" placeholder="请输入供应商编码" />
+                  <el-input v-else v-model="form.referenceNo" :disabled="isReadonlyForm || !!editId" placeholder="请输入供应商编码" />
                 </el-form-item>
                 <el-form-item v-if="form.dispatchType === '2'" label="关联PI">
                   <el-autocomplete
@@ -207,7 +225,7 @@
                     value-key="piNo"
                     clearable
                     placeholder="输入第一个字开始联想 PI"
-                    :disabled="!!editId && lines.length > 0"
+                    :disabled="isReadonlyForm || (!!editId && lines.length > 0)"
                     @select="onPickLinkedPi"
                   />
                 </el-form-item>
@@ -216,7 +234,7 @@
                 <el-form-item label="生产车间">
                   <el-select
                     v-model="form.workshopCode"
-                    :disabled="!!editId"
+                    :disabled="isReadonlyForm || !!editId"
                     @change="onWorkshopChange"
                   >
                     <el-option v-for="w in workshops" :key="w.code" :label="`${w.code} ${w.name}`" :value="w.code" />
@@ -225,20 +243,20 @@
               </div>
               <div class="dispatch-form-row dispatch-form-row--1">
                 <el-form-item label="备注">
-                  <el-input v-model="form.remark" />
+                  <el-input v-model="form.remark" :readonly="isReadonlyForm" />
                 </el-form-item>
               </div>
             </div>
           </el-form>
         </el-tab-pane>
         <el-tab-pane label="派工单明细" name="lines">
-          <div class="line-toolbar">
+          <div v-if="!isReadonlyForm" class="line-toolbar">
             <el-button type="primary" plain @click="openGoodsDialog">批量添加</el-button>
             <el-button type="danger" plain :disabled="!hasMarkedLines" @click="removeMarkedLines">删除选定明细</el-button>
             <el-button type="danger" plain :disabled="!lines.length" @click="removeAllLines">删除全部明细</el-button>
           </div>
           <el-table :data="lines" border stripe row-key="__key" class="erp-list-table">
-            <el-table-column label="操作" width="86">
+            <el-table-column v-if="!isReadonlyForm" label="操作" width="86">
               <template #default="{ row }">
                 <el-button size="small" :type="isLineMarked(row) ? 'success' : 'default'" plain @click="toggleLineMarked(row)">
                   {{ isLineMarked(row) ? '已选择' : '选择' }}
@@ -249,7 +267,8 @@
             <el-table-column label="货品编码" prop="kcaa01" min-width="140" />
             <el-table-column label="本次派工" width="150">
               <template #default="{ row }">
-                <el-input v-model="row.scak03" inputmode="decimal" @blur="normalizeLineQty(row)" />
+                <template v-if="isReadonlyForm">{{ formatQty(row.scak03) }}</template>
+                <el-input v-else v-model="row.scak03" inputmode="decimal" @blur="normalizeLineQty(row)" />
               </template>
             </el-table-column>
             <el-table-column label="货品名称" prop="kcaa02" min-width="180" />
@@ -261,30 +280,6 @@
         </el-tab-pane>
       </el-tabs>
     </section>
-
-    <el-dialog v-model="viewVisible" title="派工单详情" width="86%" destroy-on-close>
-      <el-descriptions :column="4" border>
-        <el-descriptions-item label="派工单号">{{ detail.header?.scaj01 }}</el-descriptions-item>
-        <el-descriptions-item label="派工类型">{{ dispatchTypeText(detail.header?.scaj03) }}</el-descriptions-item>
-        <el-descriptions-item label="PI/供应商">{{ detail.header?.scaj04 }}</el-descriptions-item>
-        <el-descriptions-item label="生产车间">{{ detail.header?.cj }}</el-descriptions-item>
-        <el-descriptions-item label="派工日期">{{ formatDate(detail.header?.scaj02) }}</el-descriptions-item>
-        <el-descriptions-item label="交货日期">{{ formatDate(detail.header?.scaj06) }}</el-descriptions-item>
-        <el-descriptions-item label="审核">{{ detail.header?.pass === '1' ? '已审' : '未审' }}</el-descriptions-item>
-        <el-descriptions-item label="备注">{{ detail.header?.remark }}</el-descriptions-item>
-      </el-descriptions>
-      <el-table :data="detail.lines" border stripe class="detail-lines">
-        <el-table-column label="PI" prop="pi" min-width="130" />
-        <el-table-column label="货品编码" prop="kcaa01" min-width="140" />
-        <el-table-column label="货品名称" prop="kcaa02" min-width="180" />
-        <el-table-column label="规格" prop="kcaa03" min-width="160" />
-        <el-table-column label="单位" prop="kcaa04" width="80" />
-        <el-table-column label="版本" prop="version" width="90" />
-        <el-table-column label="本次派工" prop="scak03" width="110" align="right" />
-        <el-table-column label="已派工快照" prop="scak04" width="120" align="right" />
-        <el-table-column label="返修数量" prop="scak05" width="110" align="right" />
-      </el-table>
-    </el-dialog>
 
     <el-dialog v-model="goodsVisible" :title="goodsDialogTitle" width="88%" destroy-on-close @open="onGoodsDialogOpen">
       <div class="goods-header-actions">
@@ -331,6 +326,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import { createExpandPrefetch } from '@/utils/erpExpandPrefetch.js'
 
 defineOptions({ name: 'production-daily-dispatch' })
 
@@ -351,6 +347,7 @@ const dispatchActionsColWidth = computed(() => {
 const filters = reactive({ keyword: '', dispatchType: '' })
 const pager = reactive({ page: 1, pageSize: 20, total: 0 })
 const editId = ref(null)
+const viewId = ref(null)
 const form = reactive(defaultForm())
 const lines = ref([])
 const FIXED_WORKSHOPS = [
@@ -359,8 +356,6 @@ const FIXED_WORKSHOPS = [
   { code: '0901', name: '车缝车间' },
 ]
 const workshops = ref(FIXED_WORKSHOPS)
-const viewVisible = ref(false)
-const detail = reactive({ header: null, lines: [] })
 const goodsVisible = ref(false)
 const goodsLoading = ref(false)
 const goodsList = ref([])
@@ -384,9 +379,12 @@ const goodsDialogTitle = computed(() => {
   return '生产车间：未选择'
 })
 const hasMarkedLines = computed(() => Object.values(markedLineMap.value).some(Boolean))
+const isReadonlyForm = computed(() => pageMode.value === 'view')
+const displayDispatchOrderNo = computed(() => (editId.value || viewId.value ? form.dispatchOrderNo : '保存后自动生成'))
 
 function defaultForm() {
   return {
+    dispatchOrderNo: '',
     dispatchDate: new Date().toISOString().slice(0, 10),
     dispatchType: '0',
     workshopCode: '',
@@ -403,6 +401,7 @@ function resetForm() {
   lines.value = []
   markedLineMap.value = {}
   editId.value = null
+  viewId.value = null
   editTab.value = 'header'
 }
 
@@ -453,6 +452,38 @@ function openBomDetail(line) {
   }
 }
 
+const expandPrefetch = createExpandPrefetch({
+  fetchBatch: async (ids) => {
+    const { data } = await axios.get('/api/dispatch-order/expand-lines/batch', { params: { ids: ids.join(',') } })
+    if (data.code !== 200) throw new Error(data.msg)
+    return data.data || {}
+  },
+  fetchSingle: async (id) => {
+    const res = await axios.get(`/api/dispatch-order/${id}`)
+    return { lines: res.data?.data?.lines ?? [] }
+  },
+  getRowId: (row) => Number(row?.id),
+  applyToRow: (row, payload) => {
+    const key = String(row?.id ?? '')
+    if (!key) return
+    detailCache.value = {
+      ...detailCache.value,
+      [key]: Array.isArray(payload?.lines) ? payload.lines : [],
+    }
+    row.__detailLoading = false
+  },
+  resetRow: (row) => {
+    const key = String(row?.id ?? '')
+    if (key) {
+      const next = { ...detailCache.value }
+      delete next[key]
+      detailCache.value = next
+    }
+    row.__detailLoading = false
+  },
+  onError: (msg) => ElMessage.error(msg),
+})
+
 function rowDetails(row) {
   const key = String(row?.id ?? '')
   return detailCache.value[key] ?? []
@@ -461,18 +492,7 @@ function rowDetails(row) {
 async function loadRowDetail(row) {
   const key = String(row?.id ?? '')
   if (!key || detailCache.value[key] || row.__detailLoading) return
-  row.__detailLoading = true
-  try {
-    const res = await axios.get(`/api/dispatch-order/${row.id}`)
-    detailCache.value = {
-      ...detailCache.value,
-      [key]: res.data?.data?.lines ?? [],
-    }
-  } catch (err) {
-    ElMessage.error(err?.response?.data?.msg || '读取派工单明细失败')
-  } finally {
-    row.__detailLoading = false
-  }
+  await expandPrefetch.ensureLoaded(row)
 }
 
 function onListExpandChange(row, expandedRows) {
@@ -502,6 +522,7 @@ async function loadList() {
     expandedRowKeys.value = []
     detailCache.value = {}
     pager.total = Number(res.data?.data?.total ?? 0)
+    expandPrefetch.prefetch(list.value)
   } catch (err) {
     ElMessage.error(err?.response?.data?.msg || '读取派工单列表失败')
   } finally {
@@ -524,6 +545,8 @@ function onRecycleChange() {
 
 function switchList() {
   pageMode.value = 'list'
+  editId.value = null
+  viewId.value = null
   loadList()
 }
 
@@ -545,7 +568,7 @@ function onTypeChange() {
 }
 
 function onDispatchTypeClick(value) {
-  if (editId.value) return
+  if (editId.value || isReadonlyForm.value) return
   if (value !== '0') return
   if (form.dispatchType === value) return
   form.dispatchType = value
@@ -583,28 +606,11 @@ function onPickLinkedPi(row) {
   form.piNo = String(row?.piNo ?? '').trim()
 }
 
-async function viewOrder(row) {
-  const res = await axios.get(`/api/dispatch-order/${row.id}`)
-  detail.header = res.data?.data?.header ?? null
-  detail.lines = res.data?.data?.lines ?? []
-  viewVisible.value = true
-}
-
-useErpDeepLinkOpen({
-  handlers: {
-    view: async (recordId) => {
-      const id = Number(recordId)
-      if (!Number.isFinite(id) || id <= 0) return
-      await viewOrder({ id })
-    },
-  },
-})
-
-async function editOrder(row) {
-  const res = await axios.get(`/api/dispatch-order/${row.id}`)
+async function loadOrderIntoForm(id) {
+  const res = await axios.get(`/api/dispatch-order/${id}`)
   const h = res.data?.data?.header ?? {}
-  editId.value = row.id
   Object.assign(form, {
+    dispatchOrderNo: String(h.scaj01 ?? ''),
     dispatchDate: formatDate(h.scaj02),
     dispatchType: String(h.scaj03 ?? '0'),
     workshopCode: String(h.scaj05 ?? ''),
@@ -620,6 +626,33 @@ async function editOrder(row) {
   lines.value = (res.data?.data?.lines ?? []).map((line, idx) => ({ ...line, __key: `${line.kcaa01}-${idx}` }))
   markedLineMap.value = {}
   editTab.value = 'header'
+}
+
+async function viewOrder(row) {
+  try {
+    await loadOrderIntoForm(row.id)
+    viewId.value = row.id
+    editId.value = null
+    pageMode.value = 'view'
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.msg || '读取派工单失败')
+  }
+}
+
+useErpDeepLinkOpen({
+  handlers: {
+    view: async (recordId) => {
+      const id = Number(recordId)
+      if (!Number.isFinite(id) || id <= 0) return
+      await viewOrder({ id })
+    },
+  },
+})
+
+async function editOrder(row) {
+  await loadOrderIntoForm(row.id)
+  editId.value = row.id
+  viewId.value = null
   pageMode.value = 'form'
 }
 
@@ -909,10 +942,6 @@ onMounted(() => {
 .dispatch-alert {
   margin-bottom: 12px;
 }
-.dispatch-pagination {
-  margin-top: 12px;
-  justify-content: flex-end;
-}
 .form-head {
   justify-content: space-between;
 }
@@ -976,8 +1005,9 @@ onMounted(() => {
 .dispatch-edit-tabs :deep(.el-tabs__content) {
   padding-top: 4px;
 }
-.detail-lines {
-  margin-top: 14px;
+.dispatch-form-section--readonly :deep(.el-input.is-disabled .el-input__wrapper),
+.dispatch-form-section--readonly :deep(.el-input__wrapper) {
+  background-color: var(--el-fill-color-blank);
 }
 .dispatch-row-detail {
   padding: 10px 12px;

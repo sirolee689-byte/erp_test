@@ -3,7 +3,7 @@ import { sql } from './db.js'
 import { resolveActorAuditTripletFromReq } from './businessAuditFields.js'
 import { applyBuyOrderLifecycleAction } from './buyOrderLifecycle.js'
 import { enrichBuyOrderBatchAddPrices, fetchBuyOrderBatchAddLines } from './buyOrderBatchAdd.js'
-import { fetchBuyOrderExpandDetail } from './buyOrderExpandDetail.js'
+import { fetchBuyOrderExpandDetail, fetchBuyOrderExpandDetailBatch } from './buyOrderExpandDetail.js'
 import { fetchBuyOrderMaterialTrace, fetchBuyOrderTraceBomCodes } from './buyOrderMaterialTrace.js'
 import { fetchBuyOrderPrintDocuments } from './buyOrderPrintData.js'
 import { buildBuyOrderListPagedSql, buildBuyOrderListWhereSql, parseBuyOrderListQuery } from './buyOrderListQuery.js'
@@ -421,6 +421,18 @@ export function registerBuyOrderRoutes(app, deps) {
       return detail(req, res, true)
     }
     return res.status(400).json({ code: 400, msg: '采购单打印参数无效', data: null })
+  })
+
+  app.get('/api/buy-order/expand-detail/batch', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const ids = normalizeIds(req.query?.ids ?? req.query?.id)
+      const result = await fetchBuyOrderExpandDetailBatch(pool, ids)
+      if (!result.ok) return res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+      res.json({ code: 200, msg: 'success', data: result.data })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `批量读取采购单展开明细失败：${String(err?.message ?? err?.originalError?.message ?? err)}`, data: null })
+    }
   })
 
   app.get('/api/buy-order/:id/expand-detail', async (req, res) => {

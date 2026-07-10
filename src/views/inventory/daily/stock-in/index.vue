@@ -1,6 +1,6 @@
 <template>
-  <div class="erp-module-page stock-in-page" :class="{ 'stock-in-page--form': pageMode === 'form' }">
-    <div class="stock-in-mode-bar">
+  <div class="erp-module-page stock-in-page" :class="{ 'stock-in-page--form': pageMode === 'form' || pageMode === 'view' }">
+    <div class="stock-in-mode-bar erp-mode-bar">
       <el-button :type="pageMode === 'list' ? 'primary' : 'default'" plain @click="switchList">管理入库单</el-button>
       <el-button v-permission="'add'" :type="pageMode === 'form' && !editId ? 'primary' : 'default'" plain @click="newReceipt">
         入库单添加
@@ -10,8 +10,8 @@
     </div>
 
     <section v-show="pageMode === 'list'" class="erp-section">
-      <div class="stock-filter-bar">
-        <div class="stock-filter-row stock-filter-row--top">
+      <div class="stock-filter-bar erp-filter-bar">
+        <div class="stock-filter-row stock-filter-row--top erp-filter-row">
           <el-select
             v-model="filters.relatedParty"
             clearable
@@ -35,7 +35,7 @@
             <el-option v-for="opt in filterInboundTypeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
           </el-select>
           <template v-if="!showRecycle">
-            <div class="stock-filter-divider stock-filter-divider--print" aria-hidden="true" />
+            <div class="stock-filter-divider stock-filter-divider--print erp-filter-divider" aria-hidden="true" />
             <div class="stock-print-actions">
               <span v-if="printSelectedCount > 0" class="stock-print-selected-hint">已选择：{{ printSelectedCount }}条记录进行打印</span>
               <el-select v-model="printMode" size="small" class="stock-print-mode" aria-label="打印类型">
@@ -47,7 +47,7 @@
             </div>
           </template>
         </div>
-        <div class="stock-filter-row stock-filter-row--bottom">
+        <div class="stock-filter-row stock-filter-row--bottom erp-filter-row">
           <el-input
             v-model="filters.keyword"
             clearable
@@ -57,19 +57,19 @@
           />
           <el-button type="primary" size="small" @click="onSearch">查询</el-button>
           <el-button size="small" @click="resetSearch">重置</el-button>
-          <div class="stock-filter-divider" aria-hidden="true" />
-          <div class="stock-filter-switch">
+          <div class="stock-filter-divider erp-filter-divider" aria-hidden="true" />
+          <div class="stock-filter-switch erp-filter-switch">
             <span class="switch-label">回收站</span>
             <el-switch v-model="showRecycle" @change="onRecycleChange" />
           </div>
           <template v-if="!showRecycle">
-            <div class="stock-filter-divider" aria-hidden="true" />
-            <div class="stock-filter-switch">
+            <div class="stock-filter-divider erp-filter-divider" aria-hidden="true" />
+            <div class="stock-filter-switch erp-filter-switch">
               <span class="switch-label">显示未审核</span>
               <el-switch v-model="showUnaudited" @change="onSearch" />
             </div>
-            <div class="stock-filter-divider" aria-hidden="true" />
-            <div class="stock-filter-switch">
+            <div class="stock-filter-divider erp-filter-divider" aria-hidden="true" />
+            <div class="stock-filter-switch erp-filter-switch">
               <span class="switch-label">显示未复核</span>
               <el-switch v-model="showUnreviewed" @change="onSearch" />
             </div>
@@ -80,6 +80,19 @@
       <el-alert v-if="showRecycle" type="info" show-icon title="当前是回收站：只处理已软删除的待审核入库单。" class="stock-alert" />
       <el-alert v-else-if="showUnaudited" type="warning" show-icon title="当前显示待审核入库单，可编辑、审核或删除。" class="stock-alert" />
       <el-alert v-else-if="showUnreviewed" type="info" show-icon title="当前只显示未复核入库单（财务未锁定）。" class="stock-alert" />
+
+      <div class="pagination-row pagination-row--top">
+        <el-pagination
+          v-model:current-page="pager.page"
+          v-model:page-size="pager.pageSize"
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="pager.total"
+          :page-sizes="ERP_PAGE_SIZE_OPTIONS"
+          @size-change="loadList"
+          @current-change="loadList"
+        />
+      </div>
 
       <el-table
         ref="listTableRef"
@@ -223,28 +236,33 @@
         </el-table-column>
       </el-table>
 
-      <el-pagination
-        v-model:current-page="pager.page"
-        v-model:page-size="pager.pageSize"
-        :page-sizes="ERP_PAGE_SIZE_OPTIONS"
-        layout="total, sizes, prev, pager, next, jumper"
-        :total="pager.total"
-        class="stock-pagination"
-        @size-change="loadList"
-        @current-change="loadList"
-      />
+      <div class="pagination-row pagination-row--bottom">
+        <el-pagination
+          v-model:current-page="pager.page"
+          v-model:page-size="pager.pageSize"
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="pager.total"
+          :page-sizes="ERP_PAGE_SIZE_OPTIONS"
+          @size-change="loadList"
+          @current-change="loadList"
+        />
+      </div>
     </section>
 
     <section v-if="pageMode === 'material-trace'" class="erp-section">
       <StockInMaterialTracePanel />
     </section>
 
-    <section v-show="pageMode === 'form'" class="erp-section">
+    <section v-show="pageMode === 'form' || pageMode === 'view'" class="erp-section" :class="{ 'stock-form-section--readonly': formReadOnly }">
       <div class="form-head">
-        <strong>{{ editId ? '编辑入库单' : '新增入库单' }}</strong>
+        <strong>{{ pageMode === 'view' ? '查看入库单' : editId ? '编辑入库单' : '新增入库单' }}</strong>
         <div>
-          <el-button @click="resetCurrentForm">重置</el-button>
-          <el-button type="primary" :loading="saving" @click="saveReceipt">保存</el-button>
+          <el-button v-if="pageMode === 'view'" @click="switchList">返回列表</el-button>
+          <template v-else>
+            <el-button @click="resetCurrentForm">重置</el-button>
+            <el-button type="primary" :loading="saving" @click="saveReceipt">保存</el-button>
+          </template>
         </div>
       </div>
 
@@ -270,7 +288,7 @@
                     class="stock-type-btn"
                     :type="form.inboundType === opt.value ? 'primary' : 'default'"
                     :plain="form.inboundType !== opt.value"
-                    :disabled="!!editId"
+                    :disabled="!!editId || formReadOnly"
                     @click="pickInboundType(opt.value)"
                   >
                     {{ opt.label }}
@@ -278,11 +296,13 @@
                 </div>
               </el-form-item>
               <el-form-item :label="sourceOrderLabel">
-                <el-input v-if="isFreeType" v-model="form.sourceOrderNo" class="stock-unified-input" clearable placeholder="请输入关联单号" />
+                <el-input v-if="isFreeType" v-model="form.sourceOrderNo" class="stock-unified-input" :readonly="formReadOnly" clearable placeholder="请输入关联单号" />
                 <div v-else class="source-picker-field">
                   <el-input :model-value="form.sourceOrderNo" class="stock-unified-input" readonly :placeholder="`请选择${sourceOrderLabel}`" />
-                  <el-button type="primary" plain @click="openSourceOrderDialog">选择</el-button>
-                  <el-button plain :disabled="!form.sourceOrderNo" @click="clearSourceOrder">清空</el-button>
+                  <template v-if="!formReadOnly">
+                    <el-button type="primary" plain @click="openSourceOrderDialog">选择</el-button>
+                    <el-button plain :disabled="!form.sourceOrderNo" @click="clearSourceOrder">清空</el-button>
+                  </template>
                 </div>
                 <div v-if="form.sourceOrderNo" class="selected-source-line">
                   <span>已选单号：{{ form.sourceOrderNo }}</span>
@@ -298,6 +318,7 @@
                   remote
                   reserve-keyword
                   clearable
+                  :disabled="formReadOnly"
                   placeholder="请选择生产车间"
                   :remote-method="loadRelatedParties"
                   @change="onWorkshopChange"
@@ -308,7 +329,7 @@
                   v-else
                   v-model="form.relatedPartyName"
                   class="stock-unified-input"
-                  :readonly="!isFreeType"
+                  :readonly="formReadOnly || !isFreeType"
                   :placeholder="isFreeType ? '可填写自由文本关联单位' : `选择${sourceOrderLabel}后自动带出`"
                 />
               </el-form-item>
@@ -320,6 +341,7 @@
                     filterable
                     remote
                     reserve-keyword
+                    :disabled="formReadOnly"
                     :remote-method="loadWarehouses"
                     @change="onWarehouseChange"
                   >
@@ -327,24 +349,24 @@
                   </el-select>
                   <div class="inline-pair">
                     <span class="inline-pair__label">{{ paperNoLabel }}</span>
-                    <el-input ref="paperNoInputRef" v-model="form.paperNo" class="stock-unified-input" />
+                    <el-input ref="paperNoInputRef" v-model="form.paperNo" class="stock-unified-input" :readonly="formReadOnly" />
                   </div>
                 </div>
               </el-form-item>
               <el-form-item label="是否含税">
-                <el-radio-group v-model="form.inTax" @change="onTaxModeChange">
+                <el-radio-group v-model="form.inTax" :disabled="formReadOnly" @change="onTaxModeChange">
                   <el-radio-button label="1">含税</el-radio-button>
                   <el-radio-button label="2">不含税</el-radio-button>
                 </el-radio-group>
               </el-form-item>
               <el-form-item label="备注">
-                <el-input v-model="form.remark" class="stock-remark-input" />
+                <el-input v-model="form.remark" class="stock-remark-input" :readonly="formReadOnly" />
               </el-form-item>
             </div>
           </el-form>
         </el-tab-pane>
         <el-tab-pane label="入库单明细" name="lines">
-          <div class="line-toolbar">
+          <div v-if="!formReadOnly" class="line-toolbar">
             <el-button type="primary" plain @click="openBatchDialog">批量添加</el-button>
             <el-button type="danger" plain :disabled="!selectedLineKeys.length" @click="removeSelectedLines">删除选定明细</el-button>
             <el-button type="danger" plain :disabled="!lines.length" @click="removeAllLines">删除全部明细</el-button>
@@ -359,7 +381,7 @@
             row-key="__key"
             class="erp-list-table stock-form-lines-table"
           >
-            <el-table-column label="选择" fixed="left" width="90" align="center" class-name="erp-col-actions">
+            <el-table-column v-if="!formReadOnly" label="选择" fixed="left" width="90" align="center" class-name="erp-col-actions">
               <template #default="{ row }">
                 <el-button
                   size="small"
@@ -379,18 +401,28 @@
             <el-table-column label="单位" prop="kcaa04" width="80" />
             <el-table-column label="入库数量" width="130">
               <template #default="{ row }">
-                <el-input-number v-model="row.kcao03" :min="0" :formatter="formatTrimNumber" :parser="parseTrimNumber" controls-position="right" @change="recalcLine(row)" />
+                <template v-if="formReadOnly">{{ formatTrimNumber(row.kcao03) }}</template>
+                <el-input-number v-else v-model="row.kcao03" :min="0" :formatter="formatTrimNumber" :parser="parseTrimNumber" controls-position="right" @change="recalcLine(row)" />
               </template>
             </el-table-column>
             <template v-if="hasPricePermission">
               <el-table-column label="单价" width="140">
-                <template #default="{ row }"><el-input-number v-model="row.kcao04" :formatter="formatTrimNumber" :parser="parseTrimNumber" controls-position="right" @change="recalcLine(row)" /></template>
+                <template #default="{ row }">
+                  <template v-if="formReadOnly">{{ formatTrimNumber(row.kcao04) }}</template>
+                  <el-input-number v-else v-model="row.kcao04" :formatter="formatTrimNumber" :parser="parseTrimNumber" controls-position="right" @change="recalcLine(row)" />
+                </template>
               </el-table-column>
               <el-table-column label="税点" width="120">
-                <template #default="{ row }"><el-input-number v-model="row.tax" :min="0" :formatter="formatTrimNumber" :parser="parseTrimNumber" controls-position="right" @change="recalcLine(row)" /></template>
+                <template #default="{ row }">
+                  <template v-if="formReadOnly">{{ formatTrimNumber(row.tax) }}</template>
+                  <el-input-number v-else v-model="row.tax" :min="0" :formatter="formatTrimNumber" :parser="parseTrimNumber" controls-position="right" @change="recalcLine(row)" />
+                </template>
               </el-table-column>
               <el-table-column label="单价（含税）" width="140">
-                <template #default="{ row }"><el-input-number v-model="row.kcao041" :formatter="formatTrimNumber" :parser="parseTrimNumber" controls-position="right" @change="recalcLineFromTaxPrice(row)" /></template>
+                <template #default="{ row }">
+                  <template v-if="formReadOnly">{{ formatTrimNumber(row.kcao041) }}</template>
+                  <el-input-number v-else v-model="row.kcao041" :formatter="formatTrimNumber" :parser="parseTrimNumber" controls-position="right" @change="recalcLineFromTaxPrice(row)" />
+                </template>
               </el-table-column>
               <el-table-column label="金额" prop="kcao05" width="120" align="right">
                 <template #default="{ row }">{{ formatLineAmount(row.kcao05, form.inboundType) }}</template>
@@ -400,51 +432,21 @@
               </el-table-column>
             </template>
             <el-table-column label="PO/PI" width="140">
-              <template #default="{ row }"><el-input v-model="row.reference" /></template>
+              <template #default="{ row }">
+                <template v-if="formReadOnly">{{ row.reference || '-' }}</template>
+                <el-input v-else v-model="row.reference" />
+              </template>
             </el-table-column>
             <el-table-column label="备注" min-width="180">
-              <template #default="{ row }"><el-input v-model="row.info" /></template>
+              <template #default="{ row }">
+                <template v-if="formReadOnly">{{ row.info || '-' }}</template>
+                <el-input v-else v-model="row.info" />
+              </template>
             </el-table-column>
           </el-table>
         </el-tab-pane>
       </el-tabs>
     </section>
-
-    <el-dialog v-model="detailVisible" title="入库单详情" width="92%" class="stock-detail-dialog">
-      <div v-if="detail.header" class="detail-body">
-        <div class="detail-grid">
-          <span>入库单号：{{ detail.header.kcan01 }}</span>
-          <span>类型：{{ inboundTypeText(detail.header.kcan03) }}</span>
-          <span>入库日期：{{ formatDateTime(detail.header.kcan02) }}</span>
-          <span>仓库：{{ detail.header.ck || detail.header.kcan06 }}</span>
-          <span>关联方：{{ detail.header.kehu }}</span>
-          <span>关联单号：{{ detail.header.kcan04 || '—' }}</span>
-          <span>纸质单号：{{ detail.header.kcan08 || '—' }}</span>
-          <span>状态：{{ detail.header.pass === '1' ? '已审核' : '待审核' }}</span>
-        </div>
-        <el-table :data="detail.lines" border stripe>
-          <el-table-column label="序号" type="index" width="60" />
-          <el-table-column label="材料编码" prop="kcaa01" min-width="140" />
-          <el-table-column label="名称" prop="kcaa02" min-width="160" />
-          <el-table-column label="规格" prop="kcaa03" min-width="140" />
-          <el-table-column label="颜色" prop="kcaa11" width="100" />
-          <el-table-column label="单位" prop="kcaa04" width="80" />
-          <el-table-column label="数量" prop="kcao03" width="100" align="right">
-            <template #default="{ row }">{{ formatTrimNumber(row.kcao03) }}</template>
-          </el-table-column>
-          <template v-if="hasPricePermission">
-            <el-table-column label="单价" prop="kcao04" width="120" align="right">
-              <template #default="{ row }">{{ formatTrimNumber(row.kcao04) }}</template>
-            </el-table-column>
-            <el-table-column label="金额（含税）" prop="kcao051" width="120" align="right">
-              <template #default="{ row }">{{ formatLineAmount(row.kcao051, detail.header?.kcan03) }}</template>
-            </el-table-column>
-          </template>
-          <el-table-column label="库位" prop="location" width="120" />
-          <el-table-column label="备注" prop="Describe" min-width="160" />
-        </el-table>
-      </div>
-    </el-dialog>
 
     <el-dialog
       v-model="sourceDialog.visible"
@@ -674,6 +676,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import { createExpandPrefetch } from '@/utils/erpExpandPrefetch.js'
 import StockInMaterialTracePanel from './material-trace-panel.vue'
 import {
   STOCK_BATCH_MSG_ACCEPTED,
@@ -733,6 +736,7 @@ const filterRelatedPartyLoading = ref(false)
 
 const suggestedNo = ref('')
 const editId = ref(null)
+const viewId = ref(null)
 const warehouses = ref([])
 const relatedParties = ref([])
 const sourceOrders = ref([])
@@ -742,9 +746,6 @@ const formTab = ref('base')
 const paperNoInputRef = ref(null)
 const prevWorkshopCode = ref('')
 
-const detailVisible = ref(false)
-const detail = reactive({ header: null, lines: [] })
-const PURCHASE_SOURCE_PREFETCH_PAGES = 3
 const sourceDialog = reactive({
   visible: false,
   loading: false,
@@ -778,7 +779,7 @@ const isPurchaseSourcePick = computed(() => form.inboundType === '1')
 const isAssistSourcePick = computed(() => form.inboundType === '2')
 const isPrefetchSourcePick = computed(() => isPurchaseSourcePick.value || isAssistSourcePick.value)
 const needsSourceOrder = computed(() => ['1', '2', '3', '4', '5', '6'].includes(form.inboundType))
-const formReadOnly = computed(() => false)
+const formReadOnly = computed(() => pageMode.value === 'view')
 const selectedLineKeys = computed(() => lines.value.filter((line) => line._lineMarked).map((line) => line.__key))
 const relatedLabel = computed(() => {
   if (['1'].includes(form.inboundType)) return '供应商'
@@ -795,7 +796,7 @@ const sourceOrderLabel = computed(() => {
   return '关联单号'
 })
 const paperNoLabel = computed(() => (form.inboundType === '4' || form.inboundType === '5' ? 'PI号' : form.inboundType === '6' ? 'PO号' : ['1', '2', '3'].includes(form.inboundType) ? '来货单号' : '纸质单号'))
-const displayReceiptNo = computed(() => (editId.value ? form.receiptNo : suggestedNo.value || '保存后生成最终单号'))
+const displayReceiptNo = computed(() => (editId.value || viewId.value ? form.receiptNo : suggestedNo.value || '保存后生成最终单号'))
 const productionPickQtyLabel = computed(() => (form.inboundType === '5' ? '已退料数量' : '已入库数量'))
 const sourceDialogSearchPlaceholder = computed(() => {
   if (isProductionDispatchPick.value) return '派工单号 / PI号'
@@ -1173,6 +1174,7 @@ async function loadList() {
     expandedRowKeys.value = []
     pager.total = Number(res.data?.data?.total || 0)
     reconcilePrintSelection()
+    expandPrefetch.prefetch(list.value)
   } catch (err) {
     ElMessage.error(err.response?.data?.msg || err.message || '读取入库单失败')
   } finally {
@@ -1200,12 +1202,14 @@ function resetSearch() {
 function switchList() {
   pageMode.value = 'list'
   editId.value = null
+  viewId.value = null
   loadList()
 }
 
 function switchMaterialTrace() {
   pageMode.value = 'material-trace'
   editId.value = null
+  viewId.value = null
 }
 
 function onRecycleChange() {
@@ -1220,6 +1224,7 @@ function onRecycleChange() {
 
 async function newReceipt() {
   editId.value = null
+  viewId.value = null
   Object.assign(form, defaultForm())
   lines.value = []
   prevWorkshopCode.value = ''
@@ -1248,9 +1253,8 @@ async function resetCurrentForm() {
   ElMessage.success('已重置')
 }
 
-async function editReceipt(row) {
-  const data = await fetchDetail(row.id)
-  editId.value = row.id
+async function loadReceiptIntoForm(id) {
+  const data = await fetchDetail(id)
   Object.assign(form, {
     receiptNo: data.header.kcan01,
     inboundType: String(data.header.kcan03 || '0'),
@@ -1267,12 +1271,30 @@ async function editReceipt(row) {
     sourceSystemcodeId: '',
   })
   lines.value = (data.lines || []).map((line, idx) => ({ ...line, info: line.Describe || '', _lineMarked: false, __key: `${idx}-${line.systemcode || line.id || Date.now()}` }))
-  formTab.value = 'base'
-  pageMode.value = 'form'
   await Promise.all([loadWarehouses(), loadRelatedParties(), loadSourceOrders()])
   prevWorkshopCode.value = form.relatedPartyCode || ''
   ensureWorkshopOptionVisible()
   await restoreLinkedProductionDispatch()
+}
+
+async function editReceipt(row) {
+  await loadReceiptIntoForm(row.id)
+  editId.value = row.id
+  viewId.value = null
+  formTab.value = 'base'
+  pageMode.value = 'form'
+}
+
+async function viewReceipt(row) {
+  try {
+    await loadReceiptIntoForm(row.id)
+    viewId.value = row.id
+    editId.value = null
+    formTab.value = 'base'
+    pageMode.value = 'view'
+  } catch (err) {
+    ElMessage.error(err?.response?.data?.msg || err.message || '读取入库单失败')
+  }
 }
 
 async function fetchDetail(id) {
@@ -1280,37 +1302,46 @@ async function fetchDetail(id) {
   return res.data?.data || { header: null, lines: [] }
 }
 
-async function loadExpandedLines(row) {
-  if (!row || row.__linesLoaded || row.__linesLoading) return
-  row.__linesLoading = true
-  try {
-    const data = await fetchDetail(row.id)
-    row.__lines = data.lines || []
+const expandPrefetch = createExpandPrefetch({
+  fetchBatch: async (ids) => {
+    const { data } = await axios.get('/api/stock-in/expand-lines/batch', { params: { ids: ids.join(',') } })
+    if (data.code !== 200) throw new Error(data.msg)
+    return data.data || {}
+  },
+  fetchSingle: async (id) => {
+    const detail = await fetchDetail(id)
+    return { lines: detail.lines || [] }
+  },
+  getRowId: (row) => Number(row?.id),
+  applyToRow: (row, payload) => {
+    row.__lines = payload?.lines || []
     row.__linesLoaded = true
-  } catch (err) {
-    row.__lines = []
-    ElMessage.error(err.response?.data?.msg || err.message || '读取入库单明细失败')
-  } finally {
     row.__linesLoading = false
-  }
+  },
+  resetRow: (row) => {
+    row.__lines = []
+    row.__linesLoaded = false
+    row.__linesLoading = false
+  },
+  onError: (msg) => ElMessage.error(msg),
+})
+
+async function loadExpandedLines(row) {
+  await expandPrefetch.ensureLoaded(row)
 }
 
 function onExpandChange(row, expandedRows) {
   expandedRowKeys.value = (expandedRows || []).map((item) => item.id)
-  if (expandedRowKeys.value.includes(row.id)) loadExpandedLines(row)
+  if (expandedRowKeys.value.includes(row.id)) {
+    if (row.__linesLoaded) return
+    loadExpandedLines(row)
+  }
 }
 
 function onListRowClick(row, column, event) {
   const target = event?.target
   if (target?.closest?.('.erp-col-actions, .stock-expand-inner, .el-button, .el-table__expand-icon, a')) return
   listTableRef.value?.toggleRowExpansion(row)
-}
-
-async function viewReceipt(row) {
-  const data = await fetchDetail(row.id)
-  detail.header = data.header
-  detail.lines = data.lines || []
-  detailVisible.value = true
 }
 
 useErpDeepLinkOpen({
@@ -2634,10 +2665,6 @@ onUnmounted(() => {
 }
 .stock-link-info__line--muted {
   color: #9ca3af;
-}
-.stock-pagination {
-  margin-top: 12px;
-  justify-content: flex-start;
 }
 .form-head {
   justify-content: space-between;

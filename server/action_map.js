@@ -51,6 +51,7 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   { method: 'GET', path: '/api/stock-out/source-lines', action: '查询出库来源明细', targetTable: 'UB_ERP_Stocks_out' },
   { method: 'GET', path: '/api/stock-out/print-data', action: '打印出库单', targetTable: 'UB_ERP_Stocks_out' },
   { method: 'GET', path: '/api/stock-out/inventory-summary', action: '查询出库库存统计', targetTable: 'UB_ERP_Stocks_out_list' },
+  { method: 'GET', path: '/api/stock-out/expand-lines/batch', action: '批量查询出库单展开明细', targetTable: 'UB_ERP_Stocks_out_list' },
   { method: 'GET', path: /^\/api\/stock-out\/\d+$/, action: '查看出库单', targetTable: 'UB_ERP_Stocks_out' },
   { method: 'POST', path: '/api/stock-out', action: '新增出库单', targetTable: 'UB_ERP_Stocks_out' },
   { method: 'PUT', path: /^\/api\/stock-out\/\d+$/, action: '修改出库单', targetTable: 'UB_ERP_Stocks_out' },
@@ -119,6 +120,7 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   { method: 'GET', path: '/api/purchase-order-status/supplier-options', action: '查询采购订单情况表供应商候选', targetTable: 'UB_ERP_System_supplier' },
   { method: 'GET', path: '/api/purchase-order-status/material-options', action: '查询采购订单情况表物料候选', targetTable: 'UB_ERP_Bom_000' },
   { method: 'GET', path: '/api/purchase-order-status/report', action: '查询采购订单情况表', targetTable: 'UB_ERP_Buy_order,UB_ERP_Buy_order_list,UB_ERP_Stocks_Storage,UB_ERP_Stocks_Storage_list,UB_ERP_Stocks_out,UB_ERP_Stocks_out_list,UB_ERP_Stocks_colorcode' },
+  { method: 'GET', path: '/api/stock-in/expand-lines/batch', action: '批量查询入库单展开明细', targetTable: 'UB_ERP_Stocks_Storage_list' },
   { method: 'GET', path: /^\/api\/stock-in\/\d+$/, action: '查看入库单', targetTable: 'UB_ERP_Stocks_Storage' },
   { method: 'POST', path: '/api/stock-in', action: '新增入库单', targetTable: 'UB_ERP_Stocks_Storage' },
   { method: 'PUT', path: /^\/api\/stock-in\/\d+$/, action: '修改入库单', targetTable: 'UB_ERP_Stocks_Storage' },
@@ -134,6 +136,7 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   { method: 'GET', path: '/api/dispatch-order/goods-options', action: '查询派工单可选货品', targetTable: 'UB_ERP_Dispatch_order' },
   { method: 'GET', path: '/api/dispatch-order/suggest-doc-no', action: '获取派工单建议单号', targetTable: 'UB_ERP_Dispatch_order' },
   { method: 'GET', path: '/api/dispatch-order/check-doc-no', action: '检测派工单号是否可用', targetTable: 'UB_ERP_Dispatch_order' },
+  { method: 'GET', path: '/api/dispatch-order/expand-lines/batch', action: '批量查询派工单展开明细', targetTable: 'UB_ERP_Dispatch_order_list' },
   { method: 'GET', path: /^\/api\/dispatch-order\/\d+$/, action: '查看派工单', targetTable: 'UB_ERP_Dispatch_order' },
   { method: 'POST', path: '/api/dispatch-order', action: '新增派工单', targetTable: 'UB_ERP_Dispatch_order' },
   { method: 'PUT', path: /^\/api\/dispatch-order\/\d+$/, action: '修改派工单', targetTable: 'UB_ERP_Dispatch_order' },
@@ -147,6 +150,7 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   { method: 'GET', path: '/api/assist-order/check-doc-no', action: '检测外协订单单号是否可用', targetTable: 'UB_ERP_assist_order' },
   { method: 'GET', path: '/api/assist-order/batch-add-tree', action: '查询外协订单批量选材', targetTable: 'UB_ERP_assist_order' },
   { method: 'GET', path: '/api/assist-order/print-data', action: '打印外协订单', targetTable: 'UB_ERP_assist_order' },
+  { method: 'GET', path: '/api/assist-order/expand-detail/batch', action: '批量查询外协订单展开明细', targetTable: 'UB_ERP_assist_order_list' },
   { method: 'GET', path: /^\/api\/assist-order\/\d+$/, action: '查看外协订单', targetTable: 'UB_ERP_assist_order' },
   {
     method: 'POST',
@@ -190,6 +194,7 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   { method: 'GET', path: '/api/buy-order/material-trace/bom-codes', action: '查询采购转向物料分类', targetTable: 'UB_ERP_Bom_code' },
   { method: 'GET', path: '/api/buy-order/material-trace/list', action: '查询采购转向物料列表', targetTable: 'UB_ERP_Buy_order_list,UB_ERP_Buy_order,UB_ERP_Stocks_Storage,UB_ERP_Stocks_Storage_list' },
   { method: 'GET', path: '/api/buy-order/print-data', action: '打印采购单', targetTable: 'UB_ERP_Buy_order' },
+  { method: 'GET', path: '/api/buy-order/expand-detail/batch', action: '批量查询采购单展开明细', targetTable: 'UB_ERP_Buy_order_list' },
   { method: 'GET', path: /^\/api\/buy-order\/\d+\/expand-detail$/, action: '查询采购单展开明细', targetTable: 'UB_ERP_Buy_order_list' },
   { method: 'GET', path: /^\/api\/buy-order\/\d+$/, action: '查看采购单', targetTable: 'UB_ERP_Buy_order' },
   { method: 'POST', path: '/api/buy-order', action: '新增采购单', targetTable: 'UB_ERP_Buy_order' },
@@ -358,6 +363,7 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   },
   { method: 'GET', path: '/api/sales-order/list', action: '查询销售订单列表', targetTable: 'UB_ERP_Sales_order' },
   { method: 'GET', path: '/api/sales-order/pi-suggest', action: '查询销售订单 PI 候选', targetTable: 'UB_ERP_Sales_order' },
+  { method: 'GET', path: '/api/sales-order/expand-lines/batch', action: '批量查询销售订单展开明细', targetTable: 'UB_ERP_Sales_order_list' },
   { method: 'GET', path: /^\/api\/sales-order\/\d+$/, action: '查看销售订单', targetTable: 'UB_ERP_Sales_order' },
   {
     method: 'POST',
@@ -573,6 +579,12 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   },
   {
     method: 'GET',
+    path: '/api/supply-chain/purchase-quotations/lines/batch',
+    action: '批量查询采购报价展开明细',
+    targetTable: 'UB_ERP_Buy_offer_list',
+  },
+  {
+    method: 'GET',
     path: /^\/api\/supply-chain\/purchase-quotations\/[^/]+\/lines$/,
     action: '查询采购报价明细',
     targetTable: 'UB_ERP_Buy_offer_list',
@@ -620,6 +632,12 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
     path: '/api/supply-chain/outsourcing-quotations/supplier-options',
     action: '外协报价供应商下拉',
     targetTable: 'UB_ERP_System_supplier',
+  },
+  {
+    method: 'GET',
+    path: '/api/supply-chain/outsourcing-quotations/lines/batch',
+    action: '批量查询外协报价展开明细',
+    targetTable: 'UB_ERP_assist_offer_list',
   },
   {
     method: 'GET',

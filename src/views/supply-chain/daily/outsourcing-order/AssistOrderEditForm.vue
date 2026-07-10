@@ -9,6 +9,7 @@
               <el-input
                 v-model="model.assistOrderNo"
                 placeholder="系统建议，可手动修改"
+                :readonly="readonly"
                 @focus="emit('assist-order-no-focus')"
                 @blur="emit('assist-order-no-blur')"
               />
@@ -21,6 +22,7 @@
                 type="date"
                 value-format="YYYY-MM-DD"
                 placeholder="请选择外协日期"
+                :disabled="readonly"
                 @change="onAssistDateChanged"
               />
             </el-form-item>
@@ -30,6 +32,7 @@
                 type="date"
                 value-format="YYYY-MM-DD"
                 placeholder="请选择交货日期"
+                :disabled="readonly"
                 :disabled-date="disableDeliveryBeforeAssist"
               />
             </el-form-item>
@@ -43,7 +46,8 @@
                   type="button"
                   class="assist-type-btn"
                   :class="{ 'is-active': model.assistType === opt.value }"
-                  @click="model.assistType = opt.value"
+                  :disabled="readonly"
+                  @click="!readonly && (model.assistType = opt.value)"
                 >
                   {{ opt.label }}
                 </button>
@@ -55,6 +59,7 @@
                 :fetch-suggestions="fetchPiSuggestions"
                 value-key="piNo"
                 clearable
+                :disabled="readonly"
                 :placeholder="referenceNoPlaceholder"
                 @select="onPickPi"
                 @blur="onReferenceNoBlur"
@@ -69,6 +74,7 @@
                 filterable
                 remote
                 reserve-keyword
+                :disabled="readonly"
                 :remote-method="(kw) => $emit('fetch-supplier', kw)"
                 :loading="supplierLoading"
                 placeholder="输入编码或名称搜索"
@@ -84,13 +90,13 @@
           </div>
           <div class="assist-form-row assist-form-row--3">
             <el-form-item label="是否含税" prop="taxIncluded">
-              <el-select v-model="model.taxIncluded">
+              <el-select v-model="model.taxIncluded" :disabled="readonly">
                 <el-option label="含税" value="1" />
                 <el-option label="不含税" value="2" />
               </el-select>
             </el-form-item>
             <el-form-item label="币别" prop="currencyCode">
-              <el-select v-model="model.currencyCode" filterable placeholder="请选择币别">
+              <el-select v-model="model.currencyCode" filterable placeholder="请选择币别" :disabled="readonly">
                 <el-option
                   v-for="item in currencyOptions"
                   :key="item.code"
@@ -106,17 +112,18 @@
                 :min="0"
                 :max="6"
                 :step="1"
+                :disabled="readonly"
               />
             </el-form-item>
           </div>
           <div class="assist-form-row assist-form-row--1">
             <el-form-item label="备注">
-              <el-input v-model="model.remark" type="textarea" :rows="3" />
+              <el-input v-model="model.remark" type="textarea" :rows="3" :readonly="readonly" />
             </el-form-item>
           </div>
           <div class="assist-form-row assist-form-row--1">
             <el-form-item label="打印注释">
-              <el-input v-model="model.notes" type="textarea" :rows="3" />
+              <el-input v-model="model.notes" type="textarea" :rows="3" :readonly="readonly" />
             </el-form-item>
           </div>
         </div>
@@ -124,7 +131,7 @@
       </el-tab-pane>
       <el-tab-pane label="外协订单明细" name="lines">
         <div class="assist-lines-pane">
-          <div class="assist-lines-toolbar">
+          <div v-if="!readonly" class="assist-lines-toolbar">
             <el-button type="danger" plain @click="$emit('delete-selected-lines')">删除选定明细</el-button>
             <el-button type="danger" plain @click="$emit('delete-all-lines')">删除全部明细</el-button>
             <el-button type="primary" @click="$emit('open-batch-add')">批量添加</el-button>
@@ -161,6 +168,7 @@
                         查看
                       </el-button>
                       <el-button
+                        v-if="!readonly"
                         size="small"
                         class="assist-line-action-btn assist-line-mark-btn"
                         :class="{ 'assist-line-mark-btn--on': row._lineMarked }"
@@ -180,7 +188,9 @@
           <el-table-column label="单位" prop="kcaa04" width="90" />
           <el-table-column label="数量" width="126">
             <template #default="{ row }">
+              <template v-if="readonly">{{ formatErpQtyDisplay(row.wxak03) }}</template>
               <el-input-number
+                v-else
                 v-model="row.wxak03"
                 :precision="2"
                 :min="0"
@@ -191,7 +201,9 @@
           </el-table-column>
           <el-table-column label="不含税单价" width="138">
             <template #default="{ row }">
+              <template v-if="readonly">{{ formatErpPriceDisplay(row.wxak04, { maxDecimals: model.decimalPlaces }) }}</template>
               <el-input-number
+                v-else
                 v-model="row.wxak04"
                 :precision="model.decimalPlaces"
                 :min="0"
@@ -202,7 +214,9 @@
           </el-table-column>
           <el-table-column label="税点" width="116">
             <template #default="{ row }">
+              <template v-if="readonly">{{ formatErpPriceDisplay(row.tax, { maxDecimals: 4 }) }}</template>
               <el-input-number
+                v-else
                 v-model="row.tax"
                 :precision="6"
                 :min="0"
@@ -213,7 +227,9 @@
           </el-table-column>
           <el-table-column label="含税单价" width="138">
             <template #default="{ row }">
+              <template v-if="readonly">{{ formatErpPriceDisplay(row.wxak041, { maxDecimals: model.decimalPlaces }) }}</template>
               <el-input-number
+                v-else
                 v-model="row.wxak041"
                 :precision="model.decimalPlaces"
                 :min="0"
@@ -222,21 +238,28 @@
               />
             </template>
           </el-table-column>
-          <el-table-column label="不含税金额" prop="wxak05" width="116" align="right" />
-          <el-table-column label="含税金额" prop="wxak051" width="116" align="right" />
+          <el-table-column label="不含税金额" width="116" align="right">
+            <template #default="{ row }">{{ formatErpMoneyDisplay(row.wxak05) }}</template>
+          </el-table-column>
+          <el-table-column label="含税金额" width="116" align="right">
+            <template #default="{ row }">{{ formatErpMoneyDisplay(row.wxak051) }}</template>
+          </el-table-column>
           <el-table-column label="交货日期" width="150">
             <template #default="{ row }">
-              <el-date-picker v-model="row.deliveryDate" type="date" value-format="YYYY-MM-DD" />
+              <template v-if="readonly">{{ row.deliveryDate || '-' }}</template>
+              <el-date-picker v-else v-model="row.deliveryDate" type="date" value-format="YYYY-MM-DD" />
             </template>
           </el-table-column>
           <el-table-column label="参考单号" width="150">
             <template #default="{ row }">
-              <el-input v-model="row.referenceNo" />
+              <template v-if="readonly">{{ row.referenceNo || '-' }}</template>
+              <el-input v-else v-model="row.referenceNo" />
             </template>
           </el-table-column>
           <el-table-column label="备注" width="180">
             <template #default="{ row }">
-              <el-input v-model="row.remark" />
+              <template v-if="readonly">{{ row.remark || '-' }}</template>
+              <el-input v-else v-model="row.remark" />
             </template>
           </el-table-column>
               </el-table>
@@ -246,7 +269,7 @@
       </el-tab-pane>
       <el-tab-pane label="额外费用清单" name="fees">
         <div class="assist-fees-pane">
-          <div class="assist-fees-toolbar">
+          <div v-if="!readonly" class="assist-fees-toolbar">
             <el-button size="small" @click="$emit('add-fee-row')">增行</el-button>
             <el-button size="small" @click="$emit('reset-fees')">重置</el-button>
           </div>
@@ -264,7 +287,9 @@
           </el-table-column>
           <el-table-column label="费用编码及名称" min-width="280">
             <template #default="{ row }">
+              <template v-if="readonly">{{ formatFeeLabel(row) || '-' }}</template>
               <el-select
+                v-else
                 v-model="row.feeCode"
                 class="assist-fee-select"
                 filterable
@@ -293,17 +318,20 @@
           </el-table-column>
           <el-table-column label="费用" width="140">
             <template #default="{ row }">
-              <el-input v-model="row.money" />
+              <template v-if="readonly">{{ formatErpMoneyDisplay(row.money) }}</template>
+              <el-input v-else v-model="row.money" />
             </template>
           </el-table-column>
           <el-table-column label="税点(不含税填0)" width="150">
             <template #default="{ row }">
-              <el-input v-model="row.tax" />
+              <template v-if="readonly">{{ formatErpPriceDisplay(row.tax, { maxDecimals: 4 }) }}</template>
+              <el-input v-else v-model="row.tax" />
             </template>
           </el-table-column>
           <el-table-column label="备注" min-width="180">
             <template #default="{ row }">
-              <el-input v-model="row.remark" />
+              <template v-if="readonly">{{ row.remark || '-' }}</template>
+              <el-input v-else v-model="row.remark" />
             </template>
           </el-table-column>
             </el-table>
@@ -319,6 +347,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
+import { formatErpMoneyDisplay, formatErpPriceDisplay, formatErpQtyDisplay } from '@/utils/erpNumberDisplay'
 
 const props = defineProps({
   model: { type: Object, required: true },
@@ -328,6 +357,8 @@ const props = defineProps({
   supplierOptions: { type: Array, default: () => [] },
   supplierLoading: { type: Boolean, default: false },
   currencyOptions: { type: Array, default: () => [] },
+  /** 查看模式：与编辑同布局，全程只读 */
+  readonly: { type: Boolean, default: false },
 })
 
 const emit = defineEmits([

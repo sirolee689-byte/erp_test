@@ -156,3 +156,18 @@ describe('matchApiPermissionRule - 进销存统计报表', () => {
     }
   })
 })
+describe('matchApiPermissionRule - 历史价格查询', () => {
+  test('历史价格查询接口走销售采购外协统计分析历史价格查询 view 权限', () => {
+    for (const path of [
+      '/api/history-price-query/print-header',
+      '/api/history-price-query/supplier-options',
+      '/api/history-price-query/material-options',
+      '/api/history-price-query/report',
+    ]) {
+      assert.deepEqual(matchApiPermissionRule('GET', path, {}, {}), {
+        menuPath: 'supply-chain/analysis/price-query',
+        action: 'view',
+      })
+    }
+  })
+})

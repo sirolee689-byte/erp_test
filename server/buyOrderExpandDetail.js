@@ -1,5 +1,6 @@
-import { sql } from './db.js'
+import { ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 import { safeDecimalExpr, nvarcharTextExpr } from './buyOrderSqlSafe.js'
+import { bindIntInList, bindNVarCharInList, groupRowsByKey, normalizeIntIds } from './sqlInListHelpers.js'
 
 const HEADER_FROM = 'dbo.[UB_ERP_Buy_order]'
 const LINE_FROM = 'dbo.[UB_ERP_Buy_order_list]'
@@ -107,23 +108,13 @@ function buildSummary(lines, fees) {
   }
 }
 
-export async function fetchBuyOrderExpandDetail(pool, id) {
-  const orderId = Number(id)
-  if (!Number.isInteger(orderId) || orderId <= 0) return { ok: false, status: 400, msg: '采购单参数无效' }
-  const headerR = await pool.request().input('id', sql.Int, orderId).query(`
-    SELECT TOP 1
-      [id],
-      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([kcaj01], N'')))) AS buyOrderNo,
-      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([kcaj04], N'')))) AS referenceNo
-    FROM ${HEADER_FROM}
-    WHERE [id] = @id
-  `)
-  const header = headerR.recordset?.[0]
-  if (!header) return { ok: false, status: 404, msg: '采购单不存在' }
-  const orderNo = text(header.buyOrderNo)
+export function normalizeBuyOrderExpandIds(rawIds) {
+  const parsed = normalizeIntIds(rawIds)
+  return parsed.ok ? parsed.ids : []
+}
 
-  const lineReq = pool.request().input('orderNo', sql.NVarChar(200), orderNo)
-  const lineR = await lineReq.query(`
+function buildExpandLineSelectSql() {
+  return `
     SELECT
       l.[id],
       LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcak01], N'')))) AS kcak01,
@@ -162,14 +153,61 @@ export async function fetchBuyOrderExpandDetail(pool, id) {
         END
      AND LTRIM(RTRIM(ISNULL(c.[pass], N''))) = N'1'
      AND (ISNULL(c.[del], N'') = N'' OR c.[del] = N'0')
-    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcak01], N'')))) = @orderNo
-      AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
-    ORDER BY ISNULL(l.[seq], l.[id]), l.[id]
-  `)
-  const rawLines = (lineR.recordset ?? []).map(serialize)
+  `
+}
 
-  const inboundR = await pool.request().input('orderNo', sql.NVarChar(200), orderNo).query(`
+function buildExpandDetailForOrder(header, lineGroups, inboundGroups, returnGroups, feeGroups) {
+  const orderNo = text(header.buyOrderNo)
+  const rawLines = (lineGroups.get(orderNo) ?? []).map(serialize)
+  const fees = (feeGroups.get(orderNo) ?? []).map(serialize)
+  const lines = attachReturns(
+    attachInbound(rawLines, inboundGroups.get(orderNo) ?? []),
+    returnGroups.get(orderNo) ?? [],
+  )
+  return {
+    header: serialize(header),
+    lines,
+    fees,
+    summary: buildSummary(lines, fees),
+  }
+}
+
+export async function fetchBuyOrderExpandDetailBatch(pool, rawIds) {
+  const parsed = normalizeIntIds(rawIds)
+  if (!parsed.ok) return { ok: false, status: parsed.status, msg: `一次最多查询 ${ERP_MAX_PAGE_SIZE} 条采购单展开明细` }
+  const ids = parsed.ids
+  if (!ids.length) return { ok: true, data: {} }
+
+  const headerReq = pool.request()
+  const idIn = bindIntInList(headerReq, 'id', ids)
+  const headerR = await headerReq.query(`
     SELECT
+      [id],
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([kcaj01], N'')))) AS buyOrderNo,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([kcaj04], N'')))) AS referenceNo
+    FROM ${HEADER_FROM}
+    WHERE [id] IN (${idIn.inSql})
+  `)
+  const headers = headerR.recordset ?? []
+  if (!headers.length) return { ok: true, data: {} }
+
+  const orderNos = headers.map((row) => text(row.buyOrderNo)).filter(Boolean)
+  if (!orderNos.length) return { ok: true, data: {} }
+
+  const lineReq = pool.request()
+  const orderIn = bindNVarCharInList(lineReq, 'ono', orderNos, 200)
+  const lineR = await lineReq.query(`
+    ${buildExpandLineSelectSql()}
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcak01], N'')))) IN (${orderIn.inSql})
+      AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
+    ORDER BY LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcak01], N'')))), ISNULL(l.[seq], l.[id]), l.[id]
+  `)
+
+  const inboundReq = pool.request()
+  const inboundOrderIn = bindNVarCharInList(inboundReq, 'ino', orderNos, 200)
+  const inboundR = await inboundReq.query(`
+    SELECT
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[kcan04], N'')))) AS orderNo,
       LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(il.[kcaa01], N'')))) AS materialCode,
       LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(il.[kcao02], N'')))) AS materialSystemCode,
       SUM(${safeDecimalExpr('il', 'kcao03')}) AS kcao03,
@@ -185,22 +223,25 @@ export async function fetchBuyOrderExpandDetail(pool, id) {
       ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[kcan01], N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(il.[kcao01], N''))))
      AND (ISNULL(il.[del], N'') = N'' OR il.[del] = N'0')
     WHERE (ISNULL(s.[del], N'') = N'' OR s.[del] = N'0')
-      AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[kcan04], N'')))) = @orderNo
+      AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[kcan04], N'')))) IN (${inboundOrderIn.inSql})
       AND LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(s.[kcan03], N'')))) = N'1'
-    GROUP BY il.[kcaa01], il.[kcao02], il.[kcaa04], s.[kcan01], s.[kcan02], s.[kcan08], s.[remark], s.[pass]
+    GROUP BY s.[kcan04], il.[kcaa01], il.[kcao02], il.[kcaa04], s.[kcan01], s.[kcan02], s.[kcan08], s.[remark], s.[pass]
   `)
 
   let returnRows = []
   const outMeta = await getStockOutMeta(pool)
   if (outMeta.linkCol && outMeta.qtyCol) {
+    const returnReq = pool.request()
+    const returnOrderIn = bindNVarCharInList(returnReq, 'rno', orderNos, 200)
     const unitSelect = outMeta.unitCol ? `LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(ol.[${outMeta.unitCol}], N''))))` : `N''`
     const ratioSelect = outMeta.ratioCol ? `${safeDecimalExpr('ol', outMeta.ratioCol)}` : `0`
     const directionSelect = outMeta.directionCol ? `LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(ol.[${outMeta.directionCol}], N''))))` : `N''`
     const unitGroup = outMeta.unitCol ? `, ol.[${outMeta.unitCol}]` : ''
     const ratioGroup = outMeta.ratioCol ? `, ol.[${outMeta.ratioCol}]` : ''
     const directionGroup = outMeta.directionCol ? `, ol.[${outMeta.directionCol}]` : ''
-    const returnR = await pool.request().input('orderNo', sql.NVarChar(200), orderNo).query(`
+    const returnR = await returnReq.query(`
       SELECT
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(o.[${outMeta.linkCol}], N'')))) AS orderNo,
         LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(ol.[kcaa01], N'')))) AS materialCode,
         SUM(${safeDecimalExpr('ol', outMeta.qtyCol)}) AS returnQty,
         ${unitSelect} AS kcaa04,
@@ -213,13 +254,15 @@ export async function fetchBuyOrderExpandDetail(pool, id) {
       WHERE (ISNULL(o.[del], N'') = N'' OR o.[del] = N'0')
         AND LTRIM(RTRIM(ISNULL(o.[pass], N''))) = N'1'
         AND LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(o.[kcap03], N'')))) = N'1'
-        AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(o.[${outMeta.linkCol}], N'')))) = @orderNo
-      GROUP BY ol.[kcaa01]${unitGroup}${ratioGroup}${directionGroup}
+        AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(o.[${outMeta.linkCol}], N'')))) IN (${returnOrderIn.inSql})
+      GROUP BY o.[${outMeta.linkCol}], ol.[kcaa01]${unitGroup}${ratioGroup}${directionGroup}
     `)
     returnRows = returnR.recordset ?? []
   }
 
-  const feesR = await pool.request().input('orderNo', sql.NVarChar(200), orderNo).query(`
+  const feeReq = pool.request()
+  const feeOrderIn = bindNVarCharInList(feeReq, 'fno', orderNos, 200)
+  const feesR = await feeReq.query(`
     SELECT
       f.[id],
       ISNULL(f.[kid], f.[id]) AS seq,
@@ -231,19 +274,28 @@ export async function fetchBuyOrderExpandDetail(pool, id) {
       ${safeDecimalExpr('f', 'tax')} AS tax,
       LTRIM(RTRIM(CONVERT(nvarchar(1000), ISNULL(f.[remark], N'')))) AS remark
     FROM ${FEE_FROM} AS f
-    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(f.[buy_code], N'')))) = @orderNo
-    ORDER BY ISNULL(f.[kid], f.[id]), f.[id]
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(f.[buy_code], N'')))) IN (${feeOrderIn.inSql})
+    ORDER BY LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(f.[buy_code], N'')))), ISNULL(f.[kid], f.[id]), f.[id]
   `)
 
-  const fees = (feesR.recordset ?? []).map(serialize)
-  const lines = attachReturns(attachInbound(rawLines, inboundR.recordset ?? []), returnRows)
-  return {
-    ok: true,
-    data: {
-      header: serialize(header),
-      lines,
-      fees,
-      summary: buildSummary(lines, fees),
-    },
+  const lineGroups = groupRowsByKey(lineR.recordset ?? [], (row) => row.kcak01)
+  const inboundGroups = groupRowsByKey(inboundR.recordset ?? [], (row) => row.orderNo)
+  const returnGroups = groupRowsByKey(returnRows, (row) => row.orderNo)
+  const feeGroups = groupRowsByKey(feesR.recordset ?? [], (row) => row.buy_code)
+
+  const data = {}
+  for (const header of headers) {
+    data[String(header.id)] = buildExpandDetailForOrder(header, lineGroups, inboundGroups, returnGroups, feeGroups)
   }
+  return { ok: true, data }
+}
+
+export async function fetchBuyOrderExpandDetail(pool, id) {
+  const orderId = Number(id)
+  if (!Number.isInteger(orderId) || orderId <= 0) return { ok: false, status: 400, msg: '采购单参数无效' }
+  const batch = await fetchBuyOrderExpandDetailBatch(pool, [orderId])
+  if (!batch.ok) return batch
+  const data = batch.data?.[String(orderId)]
+  if (!data) return { ok: false, status: 404, msg: '采购单不存在' }
+  return { ok: true, data }
 }

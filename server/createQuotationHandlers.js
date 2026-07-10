@@ -4,6 +4,7 @@ import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
  * 零行为变更：逻辑与原先 purchaseQuotationHandlers.js 一致，仅抽取重复。
  */
 import { sql } from './db.js'
+import { bindIntInList, bindNVarCharInList, groupRowsByKey, normalizeIntIds } from './sqlInListHelpers.js'
 import { applySupplierCodeColumnFromKehu } from './supplierSCodeLookup.js'
 import { invBomMasterFrom } from './bomTables.js'
 
@@ -1148,6 +1149,108 @@ function registerQuotationRoutes(app, deps) {
       console.error(`GET ${apiBase}/supplier-options 失败：`, err)
       const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
       res.status(500).json({ code: 500, msg: `读取供应商下拉失败：${detail}`, data: null })
+    }
+  })
+
+  /**
+   * GET ${apiBase}/lines/batch?ids=
+   */
+  app.get(`${apiBase}/lines/batch`, async (req, res) => {
+    try {
+      const pool = await getPool()
+      const parsedIds = normalizeIntIds(req.query?.ids ?? req.query?.id)
+      if (!parsedIds.ok) {
+        res.status(parsedIds.status ?? 400).json({
+          code: parsedIds.status ?? 400,
+          msg: `一次最多查询 ${ERP_MAX_PAGE_SIZE} 条${label}展开明细`,
+          data: null,
+        })
+        return
+      }
+      const ids = parsedIds.ids
+      if (!ids.length) {
+        res.json({ code: 200, msg: 'success', data: {} })
+        return
+      }
+      const meta = await ensureQuotationMeta(pool)
+      const pk = meta.headerPk
+      const pkCol = colMeta(meta, 'h', pk)
+      const headerReq = pool.request()
+      const idIn = bindIntInList(headerReq, 'id', ids)
+      const hr = await headerReq.query(`
+        SELECT h.*
+        FROM ${HEADER_FROM} AS h
+        WHERE h.${bracketIdent(pk)} IN (${idIn.inSql})
+      `)
+      const headers = hr.recordset ?? []
+      if (!headers.length) {
+        res.json({ code: 200, msg: 'success', data: {} })
+        return
+      }
+
+      const fk = meta.lineFk
+      const fkCol = colMeta(meta, 'l', fk)
+      const idToLink = new Map()
+      const linkValues = []
+      for (const header of headers) {
+        const headerId = String(pickRowCaseInsensitive(header, pk))
+        let linkVal = headerLineLinkFromHeaderRow(meta, header)
+        if (!linkVal && pkCol && !isStringishSqlType(pkCol.dataType)) {
+          linkVal = cellStr(pickRowCaseInsensitive(header, pk))
+        }
+        if (!linkVal) continue
+        idToLink.set(headerId, linkVal)
+        linkValues.push(linkVal)
+      }
+      if (!linkValues.length) {
+        const empty = {}
+        for (const header of headers) empty[String(pickRowCaseInsensitive(header, pk))] = { list: [] }
+        res.json({ code: 200, msg: 'success', data: empty })
+        return
+      }
+
+      const lineReq = pool.request()
+      const proj = lineListProjectionSql(meta)
+      const orderBy = lineOrderBy(meta)
+      let lineR
+      if (fkCol && isStringishSqlType(fkCol.dataType)) {
+        const linkIn = bindNVarCharInList(lineReq, 'hid', linkValues, 200)
+        lineR = await lineReq.query(`
+          SELECT ${proj}, l.${bracketIdent(fk)} AS __lineFk
+          FROM ${LINE_FROM} AS l
+          WHERE l.${bracketIdent(fk)} IN (${linkIn.inSql})
+          ORDER BY l.${bracketIdent(fk)}, ${orderBy}
+        `)
+      } else {
+        const numericLinks = [...new Set(linkValues.map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0))]
+        const linkIn = bindIntInList(lineReq, 'hid', numericLinks)
+        lineR = await lineReq.query(`
+          SELECT ${proj}, l.${bracketIdent(fk)} AS __lineFk
+          FROM ${LINE_FROM} AS l
+          WHERE l.${bracketIdent(fk)} IN (${linkIn.inSql})
+          ORDER BY l.${bracketIdent(fk)}, ${orderBy}
+        `)
+      }
+      const lineGroups = groupRowsByKey(lineR.recordset ?? [], (row) => row.__lineFk)
+
+      const data = {}
+      for (const header of headers) {
+        const headerId = String(pickRowCaseInsensitive(header, pk))
+        const linkVal = idToLink.get(headerId)
+        const lines = linkVal != null ? (lineGroups.get(String(linkVal)) ?? lineGroups.get(linkVal) ?? []) : []
+        data[headerId] = {
+          list: lines.map((row) => {
+            const copy = { ...row }
+            delete copy.__lineFk
+            return copy
+          }),
+        }
+      }
+      res.json({ code: 200, msg: 'success', data })
+    } catch (err) {
+      console.error(`GET ${apiBase}/lines/batch 失败：`, err)
+      const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+      res.status(500).json({ code: 500, msg: `批量读取${label}明细失败：${detail}`, data: null })
     }
   })
 

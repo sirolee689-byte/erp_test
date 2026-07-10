@@ -141,6 +141,22 @@ function buildReportSql(q) {
         ON ${nvarcharTextExpr('h', 'kcaj01', 200)} = ${nvarcharTextExpr('l', 'kcak01', 200)}
       ${whereSql}
     ),
+    inbound_keys AS (
+      SELECT DISTINCT
+        purchaseNo,
+        lineGuid
+      FROM base
+      WHERE purchaseNo <> N''
+        AND lineGuid <> N''
+    ),
+    return_keys AS (
+      SELECT DISTINCT
+        purchaseNo,
+        materialCode
+      FROM base
+      WHERE purchaseNo <> N''
+        AND materialCode <> N''
+    ),
     inbound AS (
       SELECT
         ${nvarcharTextExpr('h', 'kcan04', 200)} AS purchaseNo,
@@ -151,6 +167,9 @@ function buildReportSql(q) {
       FROM ${STOCK_IN_HEADER_FROM} AS h
       INNER JOIN ${STOCK_IN_LINE_FROM} AS l
         ON ${nvarcharTextExpr('h', 'kcan01', 200)} = ${nvarcharTextExpr('l', 'kcao01', 200)}
+      INNER JOIN inbound_keys AS k
+        ON k.purchaseNo = ${nvarcharTextExpr('h', 'kcan04', 200)}
+       AND k.lineGuid = ${nvarcharTextExpr('l', 'GUID', 200)}
       WHERE ${nvarcharTextExpr('h', 'del', 20)} IN (N'', N'0')
         AND ${nvarcharTextExpr('l', 'del', 20)} IN (N'', N'0')
         AND ${nvarcharTextExpr('h', 'kcan04', 200)} <> N''
@@ -165,6 +184,9 @@ function buildReportSql(q) {
       FROM ${STOCK_OUT_HEADER_FROM} AS h
       INNER JOIN ${STOCK_OUT_LINE_FROM} AS l
         ON ${nvarcharTextExpr('h', 'kcap01', 200)} = ${nvarcharTextExpr('l', 'kcaq01', 200)}
+      INNER JOIN return_keys AS k
+        ON k.purchaseNo = ${nvarcharTextExpr('h', 'kcap04', 200)}
+       AND k.materialCode = ${nvarcharTextExpr('l', 'kcaa01', 200)}
       WHERE ${nvarcharTextExpr('h', 'del', 20)} IN (N'', N'0')
         AND ${nvarcharTextExpr('l', 'del', 20)} IN (N'', N'0')
         AND ${nvarcharTextExpr('h', 'pass', 20)} = N'1'

@@ -1,6 +1,6 @@
 <template>
   <div class="erp-module-page assist-order-page" :class="{ 'assist-order-page--form': isFormPanel }">
-    <div class="assist-mode-bar">
+    <div class="assist-mode-bar erp-mode-bar">
       <el-button
         :type="pageMode === 'manage' ? 'primary' : 'default'"
         plain
@@ -21,20 +21,10 @@
     </div>
 
     <div v-show="pageMode === 'manage'" class="assist-manage-panel">
-    <div class="assist-toolbar">
-      <div class="assist-toolbar__actions">
-        <el-button :disabled="printSelectedCount === 0" @click="openBatchPrint">批量打印</el-button>
-        <el-button :loading="loading" @click="loadData">
-          <el-icon><Refresh /></el-icon>
-          刷新
-        </el-button>
-      </div>
-    </div>
-
     <el-alert v-if="errorMessage" :title="errorMessage" type="error" show-icon class="assist-alert" />
 
-    <div class="assist-filter-bar">
-      <div class="assist-filter-row">
+    <div class="assist-filter-bar erp-filter-bar">
+      <div class="assist-filter-row erp-filter-row">
         <el-select
           v-model="filters.supplier"
           clearable
@@ -65,8 +55,13 @@
           <el-option label="关联单号" value="referenceNo" />
           <el-option label="备注" value="remark" />
         </el-select>
+        <el-button :disabled="printSelectedCount === 0" @click="openBatchPrint">批量打印</el-button>
+        <el-button :loading="loading" @click="loadData">
+          <el-icon><Refresh /></el-icon>
+          刷新
+        </el-button>
       </div>
-      <div class="assist-filter-row">
+      <div class="assist-filter-row erp-filter-row">
         <el-input
           v-model="filters.keyword"
           clearable
@@ -75,11 +70,11 @@
           @keyup.enter="onSearch"
         />
         <el-button type="primary" size="small" @click="onSearch">查询</el-button>
-        <div class="audit-switch">
+        <div class="audit-switch erp-filter-switch">
           <span class="switch-label">回收站</span>
           <el-switch v-model="filters.recycled" @change="onRecycleChange" />
         </div>
-        <div v-if="!filters.recycled" class="audit-switch">
+        <div v-if="!filters.recycled" class="audit-switch erp-filter-switch">
           <span class="switch-label">显示未审核</span>
           <el-switch v-model="filters.showUnaudited" @change="onSearch" />
         </div>
@@ -328,9 +323,20 @@
     <div
       v-show="isFormPanel"
       ref="createPanelRef"
-      v-loading="pageMode === 'edit' && detailLoading"
+      v-loading="(pageMode === 'edit' || pageMode === 'view') && detailLoading"
       class="assist-create-panel"
+      :class="{ 'assist-create-panel--readonly': isReadonlyForm }"
     >
+      <div ref="formHeadRef" class="assist-form-head">
+        <strong>{{ pageMode === 'view' ? '查看外协订单' : pageMode === 'edit' ? '编辑外协订单' : '新增外协订单' }}</strong>
+        <div class="assist-form-head__actions">
+          <el-button v-if="pageMode === 'view' || pageMode === 'edit'" @click="switchToManage">返回列表</el-button>
+          <template v-if="pageMode !== 'view'">
+            <el-button type="primary" :loading="saveLoading" @click="onSave">立即提交</el-button>
+            <el-button @click="onFormReset">重置</el-button>
+          </template>
+        </div>
+      </div>
       <AssistOrderEditForm
         ref="activeFormRef"
         :model="editForm"
@@ -340,6 +346,7 @@
         :supplier-options="supplierOptions"
         :supplier-loading="supplierLoading"
         :currency-options="currencyOptions"
+        :readonly="isReadonlyForm"
         @assist-date-change="onAssistDateChange"
         @assist-order-no-focus="onAssistOrderNoFocus"
         @assist-order-no-blur="onAssistOrderNoBlur"
@@ -354,84 +361,7 @@
         @add-fee-row="addFeesRow"
         @reset-fees="resetFeesTab"
       />
-      <div ref="formFooterRef" class="assist-form-footer">
-        <el-button type="primary" :loading="saveLoading" @click="onSave">立即提交</el-button>
-        <el-button @click="onFormReset">重置</el-button>
-      </div>
     </div>
-
-    <el-dialog
-      v-model="detailVisible"
-      title="外协订单详情"
-      width="1180px"
-      top="5vh"
-      destroy-on-close
-      class="assist-detail-dialog"
-    >
-      <el-skeleton :loading="detailLoading" animated :rows="8">
-        <template #default>
-          <el-empty v-if="!detail.header" description="暂无详情" />
-          <el-tabs v-else v-model="activeTab">
-            <el-tab-pane label="外协订单基础资料" name="header">
-              <el-descriptions :column="3" border>
-                <el-descriptions-item label="外协订单号">{{ formatCell(detail.header.assistOrderNo) }}</el-descriptions-item>
-                <el-descriptions-item label="外协日期">{{ formatDate(detail.header.assistDate) }}</el-descriptions-item>
-                <el-descriptions-item label="外协类型">{{ assistTypeText(detail.header.assistType) }}</el-descriptions-item>
-                <el-descriptions-item label="关联单号">{{ formatCell(detail.header.referenceNo) }}</el-descriptions-item>
-                <el-descriptions-item label="外协商编码">{{ formatCell(detail.header.supplierCode) }}</el-descriptions-item>
-                <el-descriptions-item label="外协商">{{ formatCell(detail.header.supplierName) }}</el-descriptions-item>
-                <el-descriptions-item label="含税标记">{{ taxFlagText(detail.header.taxIncluded) }}</el-descriptions-item>
-                <el-descriptions-item label="币别">{{ formatCell(detail.header.currencyName || detail.header.currencyCode) }}</el-descriptions-item>
-                <el-descriptions-item label="交货日期">{{ formatDate(detail.header.deliveryDate) }}</el-descriptions-item>
-                <el-descriptions-item label="单价小数位">{{ formatCell(detail.header.decimalPlaces) }}</el-descriptions-item>
-                <el-descriptions-item label="审核状态">{{ isAudited(detail.header) ? '已审核' : '未审核' }}</el-descriptions-item>
-                <el-descriptions-item label="结案状态">{{ isClosed(detail.header) ? '已结案' : '未结案' }}</el-descriptions-item>
-                <el-descriptions-item label="系统编号">{{ formatCell(detail.header.systemCode) }}</el-descriptions-item>
-                <el-descriptions-item label="备注" :span="3">{{ formatCell(detail.header.remark) }}</el-descriptions-item>
-                <el-descriptions-item label="打印注释" :span="3">{{ formatCell(detail.header.notes) }}</el-descriptions-item>
-              </el-descriptions>
-            </el-tab-pane>
-
-            <el-tab-pane label="外协订单明细" name="lines">
-              <el-table :data="detail.lines" border stripe height="430" empty-text="暂无明细">
-                <el-table-column label="序号" width="72">
-                  <template #default="{ $index }">{{ $index + 1 }}</template>
-                </el-table-column>
-                <el-table-column label="款号/材料编码" prop="kcaa01" min-width="150" show-overflow-tooltip />
-                <el-table-column label="中文名" prop="kcaa02" min-width="160" show-overflow-tooltip />
-                <el-table-column label="数量" prop="wxak03" width="100" align="right" />
-                <el-table-column label="不含税单价" prop="wxak04" width="120" align="right" />
-                <el-table-column label="含税单价" prop="wxak041" width="120" align="right" />
-                <el-table-column label="不含税金额" prop="wxak05" width="120" align="right" />
-                <el-table-column label="含税金额" prop="wxak051" width="120" align="right" />
-                <el-table-column label="税点" prop="tax" width="90" align="right" />
-                <el-table-column label="交货日期" width="116">
-                  <template #default="{ row }">{{ formatDate(row.deliveryDate) }}</template>
-                </el-table-column>
-                <el-table-column label="参考单号" prop="referenceNo" min-width="130" show-overflow-tooltip />
-                <el-table-column label="备注" prop="remark" min-width="160" show-overflow-tooltip />
-              </el-table>
-            </el-tab-pane>
-
-            <el-tab-pane label="额外费用清单" name="fees">
-              <el-table :data="detail.fees" border stripe height="430" empty-text="暂无额外费用">
-                <el-table-column label="序号" width="72">
-                  <template #default="{ $index }">{{ $index + 1 }}</template>
-                </el-table-column>
-                <el-table-column label="费用编码" prop="feeCode" min-width="140" show-overflow-tooltip />
-                <el-table-column label="费用名称" prop="feeName" min-width="180" show-overflow-tooltip />
-                <el-table-column label="费用金额" prop="money" width="120" align="right" />
-                <el-table-column label="税点" prop="tax" width="100" align="right" />
-                <el-table-column label="备注" prop="remark" min-width="200" show-overflow-tooltip />
-              </el-table>
-            </el-tab-pane>
-          </el-tabs>
-        </template>
-      </el-skeleton>
-      <template #footer>
-        <el-button @click="detailVisible = false">关闭</el-button>
-      </template>
-    </el-dialog>
 
     <el-dialog v-model="printVisible" title="外协单打印预览" width="1180px" top="3vh" class="assist-print-dialog">
       <div class="assist-print-toolbar no-print">
@@ -539,6 +469,7 @@ import {
 } from '@/utils/assistOrderPageSubtotal'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
 import AssistOrderEditForm from './AssistOrderEditForm.vue'
+import { createExpandPrefetch } from '@/utils/erpExpandPrefetch.js'
 import {
   ASSIST_BATCH_MSG_ACCEPTED,
   ASSIST_BATCH_MSG_APPLY,
@@ -571,12 +502,11 @@ const currencyOptions = ref([])
 const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
-const detailVisible = ref(false)
 const printVisible = ref(false)
-const activeTab = ref('header')
 const editTab = ref('header')
 const editMode = ref('create')
 const editId = ref(null)
+const viewId = ref(null)
 const activeFormRef = ref(null)
 const activeBatchSessionId = ref('')
 const printSelectedIds = ref(new Set())
@@ -594,11 +524,6 @@ const filters = reactive({
   assistType: '',
   showUnaudited: false,
   recycled: false,
-})
-const detail = reactive({
-  header: null,
-  lines: [],
-  fees: [],
 })
 const editForm = reactive(defaultEditForm())
 
@@ -620,18 +545,19 @@ const printSelectedCount = computed(() => printSelectedIds.value.size)
 
 const pageSubtotal = computed(() => calcAssistOrderPageSubtotal(tableList.value))
 
-const isFormPanel = computed(() => pageMode.value === 'create' || pageMode.value === 'edit')
+const isFormPanel = computed(() => pageMode.value === 'create' || pageMode.value === 'edit' || pageMode.value === 'view')
+const isReadonlyForm = computed(() => pageMode.value === 'view')
 
 const createPanelRef = ref(null)
-const formFooterRef = ref(null)
+const formHeadRef = ref(null)
 const formFooterHeight = ref(56)
 let formFooterRo = null
 
 function syncFormFooterHeight() {
-  const footer = formFooterRef.value
+  const head = formHeadRef.value
   const panel = createPanelRef.value
-  if (!footer) return
-  const h = Math.ceil(footer.getBoundingClientRect().height)
+  if (!head) return
+  const h = Math.ceil(head.getBoundingClientRect().height)
   if (h > 0) {
     formFooterHeight.value = h
     panel?.style.setProperty('--assist-form-footer-height', `${h}px`)
@@ -641,10 +567,10 @@ function syncFormFooterHeight() {
 function bindFormFooterObserver() {
   formFooterRo?.disconnect()
   formFooterRo = null
-  if (!formFooterRef.value) return
+  if (!formHeadRef.value) return
   syncFormFooterHeight()
   formFooterRo = new ResizeObserver(() => syncFormFooterHeight())
-  formFooterRo.observe(formFooterRef.value)
+  formFooterRo.observe(formHeadRef.value)
 }
 
 watch(isFormPanel, async (on) => {
@@ -978,6 +904,7 @@ async function loadData() {
     if (body.code !== 200) throw new Error(body.msg || '读取外协订单列表失败')
     tableList.value = Array.isArray(body.data?.list) ? body.data.list : []
     total.value = Number(body.data?.total ?? 0)
+    expandPrefetch.prefetch(tableList.value)
   } catch (err) {
     errorMessage.value = err?.response?.data?.msg || err?.message || '读取外协订单列表失败'
     tableList.value = []
@@ -1089,6 +1016,8 @@ async function onAssistOrderNoBlur() {
 function switchToManage() {
   if (pageMode.value === 'manage') return
   pageMode.value = 'manage'
+  viewId.value = null
+  editId.value = null
 }
 
 async function switchToCreate() {
@@ -1096,11 +1025,13 @@ async function switchToCreate() {
   const preserveDraft =
     createPanelInitialized.value &&
     editMode.value === 'create' &&
-    pageMode.value !== 'edit'
+    pageMode.value !== 'edit' &&
+    pageMode.value !== 'view'
 
   pageMode.value = 'create'
   editMode.value = 'create'
   editId.value = null
+  viewId.value = null
   editTab.value = 'header'
 
   if (!preserveDraft) {
@@ -1181,6 +1112,7 @@ async function openEdit(row) {
   }
   editMode.value = 'edit'
   editId.value = id
+  viewId.value = null
   editTab.value = 'header'
   pageMode.value = 'edit'
   createPanelInitialized.value = true
@@ -1221,6 +1153,30 @@ async function loadDetail(id) {
   }
 }
 
+const expandPrefetch = createExpandPrefetch({
+  fetchBatch: async (ids) => {
+    const { data } = await axios.get('/api/assist-order/expand-detail/batch', { params: { ids: ids.join(',') } })
+    if (data.code !== 200) throw new Error(data.msg)
+    return data.data || {}
+  },
+  fetchSingle: async (id) => {
+    const detail = await loadDetail(id)
+    return { lines: detail.lines, fees: detail.fees }
+  },
+  getRowId: (row) => Number(row?.id),
+  applyToRow: (row, payload) => {
+    row.expandedLines = buildExpandedDisplayRows(payload?.lines, payload?.fees)
+    row.expandedLoaded = true
+    row.expandedLoading = false
+  },
+  resetRow: (row) => {
+    row.expandedLines = []
+    row.expandedLoaded = false
+    row.expandedLoading = false
+  },
+  onError: (msg) => ElMessage.error(msg),
+})
+
 function buildExpandedDisplayRows(lines, fees) {
   const lineRows = Array.isArray(lines) ? lines : []
   const feeRows = (Array.isArray(fees) ? fees : []).map((fee) => ({
@@ -1245,17 +1201,7 @@ async function onExpandChange(row, expandedRows) {
   const expanded = expandedRows.some((item) => item.id === row.id)
   if (!expanded) return
   if (row.expandedLoaded) return
-  row.expandedLoading = true
-  try {
-    const data = await loadDetail(row.id)
-    row.expandedLines = buildExpandedDisplayRows(data.lines, data.fees)
-    row.expandedLoaded = true
-  } catch (err) {
-    row.expandedLines = []
-    ElMessage.error(err?.response?.data?.msg || err?.message || '读取明细失败')
-  } finally {
-    row.expandedLoading = false
-  }
+  await expandPrefetch.ensureLoaded(row)
 }
 
 function onListRowClick(row, column, event) {
@@ -1554,20 +1500,20 @@ async function openView(row) {
     ElMessage.warning('外协订单参数无效')
     return
   }
-  detailVisible.value = true
+  viewId.value = id
+  editId.value = null
+  editTab.value = 'header'
+  pageMode.value = 'view'
+  createPanelInitialized.value = true
   detailLoading.value = true
-  activeTab.value = 'header'
-  detail.header = null
-  detail.lines = []
-  detail.fees = []
   try {
+    await Promise.all([fetchSupplierOptions(''), fetchCurrencyOptions()])
     const data = await loadDetail(id)
-    detail.header = data.header
-    detail.lines = data.lines
-    detail.fees = data.fees
+    applyDetailToEditForm(data)
   } catch (err) {
     ElMessage.error(err?.response?.data?.msg || err?.message || '读取外协订单详情失败')
-    detailVisible.value = false
+    pageMode.value = 'manage'
+    viewId.value = null
   } finally {
     detailLoading.value = false
   }
@@ -1754,19 +1700,6 @@ onUnmounted(() => {
   margin-bottom: 4px;
 }
 
-.assist-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 16px;
-}
-
-.assist-toolbar__actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .assist-create-panel {
   display: flex;
   flex-direction: column;
@@ -1781,6 +1714,28 @@ onUnmounted(() => {
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+.assist-form-head {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0 12px;
+  border-bottom: 1px solid var(--el-border-color-light);
+}
+
+.assist-form-head__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.assist-form-head__actions :deep(.el-button) {
+  min-height: 40px;
+  padding: 10px 20px;
+  font-size: 16px;
 }
 
 .assist-form-footer {

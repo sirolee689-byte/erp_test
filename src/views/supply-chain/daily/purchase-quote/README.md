@@ -21,6 +21,9 @@
 | GET | `/api/supply-chain/purchase-quotations/list` | 主表分页列表 |
 | GET | `/api/supply-chain/purchase-quotations/:id` | 主表 + 明细 |
 | GET | `/api/supply-chain/purchase-quotations/:id/lines` | 仅明细（表格展开懒加载） |
+| GET | `/api/supply-chain/purchase-quotations/lines/batch` | 批量预取当前页展开明细（列表加载后静默调用） |
+
+列表加载后后台批量预取当前页展开明细，点击展开优先读缓存秒开；预取失败时仍回退单条 `/:id/lines`。
 | POST | `/api/supply-chain/purchase-quotations` | 新增；body `{ header, lines[] }` |
 | PUT | `/api/supply-chain/purchase-quotations` | 保存；body `{ id, header, lines[] }` |
 | PUT | `/api/supply-chain/purchase-quotations/audit` | body `{ id }` |

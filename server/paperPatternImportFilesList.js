@@ -216,7 +216,7 @@ export async function handleGetPaperPatternImportFilesList(req, res) {
           LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(f.filename, N'')))) AS filename,
           LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(f.filepath, N'')))) AS filepath,
           LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(f.filesize, N'')))) AS filesize,
-          ROW_NUMBER() OVER (ORDER BY LTRIM(RTRIM(ISNULL(f.addtime, N''))) DESC, f.id DESC) AS rn
+          ROW_NUMBER() OVER (ORDER BY f.id DESC) AS rn
         FROM ${SYSTEM_UPLOAD_FILE_TABLE} AS f
         ${joinSql}
         ${whereScope}

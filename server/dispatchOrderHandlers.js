@@ -1,4 +1,4 @@
-import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
+import { clampErpPageSize } from './erpPagination.js'
 import { sql } from './db.js'
 import {
   DISPATCH_ORDER_HEADER_TABLE,
@@ -15,6 +15,7 @@ import {
 } from './dispatchOrderSaveService.js'
 import { applyDispatchOrderLifecycleAction } from './dispatchOrderLifecycle.js'
 import { resolveActorAuditTripletFromReq } from './businessAuditFields.js'
+import { fetchDispatchOrderExpandLinesBatch, queryDispatchOrderExpandLines } from './dispatchOrderExpandLines.js'
 
 const HEADER_FROM = `dbo.[${DISPATCH_ORDER_HEADER_TABLE}]`
 const LINE_FROM = 'dbo.[UB_ERP_Dispatch_order_list]'
@@ -197,6 +198,18 @@ export function registerDispatchOrderRoutes(app, deps) {
     }
   })
 
+  app.get('/api/dispatch-order/expand-lines/batch', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const ids = req.query?.ids ?? req.query?.id
+      const result = await fetchDispatchOrderExpandLinesBatch(pool, ids)
+      if (!result.ok) return res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+      res.json({ code: 200, msg: 'success', data: result.data })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `批量读取派工单展开明细失败：${String(err?.message ?? err)}`, data: null })
+    }
+  })
+
   app.get('/api/dispatch-order/:id', async (req, res) => {
     try {
       const id = normalizeId(req.params?.id)
@@ -214,19 +227,8 @@ export function registerDispatchOrderRoutes(app, deps) {
         return
       }
       const orderNo = String(header.scaj01 ?? '').trim()
-      const lineR = await pool.request().input('orderNo', sql.NVarChar(200), orderNo).query(`
-        SELECT
-          l.*,
-          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.[name], N'')))) AS colorName,
-          CAST(0 AS decimal(18, 4)) AS stockProcessDispatchedQty
-        FROM ${LINE_FROM} AS l
-        LEFT JOIN ${COLOR_FROM} AS c
-          ON LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.[code], N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[kcaa11], N''))))
-         AND (ISNULL(c.[del], N'') = N'' OR c.[del] = N'0')
-        WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[scak01], N'')))) = @orderNo
-        ORDER BY ISNULL(l.[seq], l.[id]), l.[id]
-      `)
-      res.json({ code: 200, msg: 'success', data: { header: serializeRow(header), lines: (lineR.recordset ?? []).map(serializeRow) } })
+      const lines = await queryDispatchOrderExpandLines(pool, orderNo)
+      res.json({ code: 200, msg: 'success', data: { header: serializeRow(header), lines } })
     } catch (err) {
       res.status(500).json({ code: 500, msg: `读取派工单详情失败：${String(err?.message ?? err)}`, data: null })
     }

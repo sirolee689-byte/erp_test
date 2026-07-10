@@ -39,7 +39,7 @@ export function bomCostFlatRowPxSortKey(r) {
  */
 export function aggregateBomCostUsageFlatForDisplay(flatRows, hidePrefixes) {
   if (!Array.isArray(flatRows) || !flatRows.length) return []
-  /** @type {Map<string, { kcaa01: string, kcaa02: string, kcaa03: string, kcaa04: string, Describe: string, sumYl: number, sumTotal: number, firstLoss: number, hasMixedLoss: boolean, minSort: number, minPx: number | null, firstFlatIndex: number }>} */
+  /** @type {Map<string, { kcaa01: string, kcaa11: string, kcaa02: string, kcaa03: string, kcaa04: string, Describe: string, sumYl: number, sumTotal: number, firstLoss: number, hasMixedLoss: boolean, minSort: number, minPx: number | null, firstFlatIndex: number }>} */
   const map = new Map()
   /** @type {string[]} */
   const order = []
@@ -51,6 +51,7 @@ export function aggregateBomCostUsageFlatForDisplay(flatRows, hidePrefixes) {
     const key = `${code}\u0000${remark}`
     const sortKey = bomCostFlatRowSortKey(r, i)
     const pxSortKey = bomCostFlatRowPxSortKey(r)
+    const colorCode = String(r?.kcaa11 ?? '').trim()
     const yl = Number(r?.yl ?? 0)
     const loss = Number(r?.loss_rate ?? 0)
     const rowTotal = Number.isFinite(Number(r?.total_qty)) ? Number(r.total_qty) : yl * (1 + loss)
@@ -58,6 +59,7 @@ export function aggregateBomCostUsageFlatForDisplay(flatRows, hidePrefixes) {
     if (!g) {
       g = {
         kcaa01: code,
+        kcaa11: colorCode,
         kcaa02: r?.kcaa02 != null ? String(r.kcaa02) : '',
         kcaa03: r?.kcaa03 != null ? String(r.kcaa03) : '',
         kcaa04: r?.kcaa04 != null ? String(r.kcaa04) : '',
@@ -76,6 +78,8 @@ export function aggregateBomCostUsageFlatForDisplay(flatRows, hidePrefixes) {
       if (!g.kcaa02 && r?.kcaa02) g.kcaa02 = String(r.kcaa02)
       if (!g.kcaa03 && r?.kcaa03) g.kcaa03 = String(r.kcaa03)
       if (!g.kcaa04 && r?.kcaa04) g.kcaa04 = String(r.kcaa04)
+      // 颜色口径：同编码+搭配合并后，只要有一条颜色非空就带出（取首个非空）
+      if (!g.kcaa11 && colorCode) g.kcaa11 = colorCode
       if (Math.abs((Number.isFinite(loss) ? loss : 0) - g.firstLoss) > 1e-9) {
         g.hasMixedLoss = true
       }
@@ -96,6 +100,7 @@ export function aggregateBomCostUsageFlatForDisplay(flatRows, hidePrefixes) {
     const total_qty = g.sumTotal
     out.push({
       kcaa01: g.kcaa01,
+      kcaa11: g.kcaa11,
       kcaa02: g.kcaa02,
       kcaa03: g.kcaa03,
       kcaa04: g.kcaa04,

@@ -593,6 +593,9 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'GET' && path === '/api/sales-order/check-pi') {
     return { menuPath: 'supply-chain/daily/sales-order', action: 'add' }
   }
+  if (m === 'GET' && path === '/api/sales-order/expand-lines/batch') {
+    return { menuPath: 'supply-chain/daily/sales-order', action: 'view' }
+  }
   if (m === 'GET' && /^\/api\/sales-order\/\d+$/.test(path)) {
     return { menuPath: 'supply-chain/daily/sales-order', action: 'view' }
   }
@@ -621,6 +624,9 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'view' }
   }
   if (m === 'GET' && path === '/api/assist-order/print-data') {
+    return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/assist-order/expand-detail/batch') {
     return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'view' }
   }
   if (m === 'GET' && /^\/api\/assist-order\/\d+$/.test(path)) {
@@ -654,6 +660,9 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'supply-chain/daily/purchase-order', action: 'add' }
   }
   if (m === 'GET' && /^\/api\/buy-order\/\d+$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/purchase-order', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/buy-order/expand-detail/batch') {
     return { menuPath: 'supply-chain/daily/purchase-order', action: 'view' }
   }
   if (m === 'GET' && /^\/api\/buy-order\/\d+\/expand-detail$/.test(path)) {
@@ -691,6 +700,9 @@ export function matchApiPermissionRule(method, path, body, params) {
   }
   if (m === 'GET' && path === '/api/dispatch-order/check-doc-no') {
     return { menuPath: 'production/daily/dispatch', action: 'add' }
+  }
+  if (m === 'GET' && path === '/api/dispatch-order/expand-lines/batch') {
+    return { menuPath: 'production/daily/dispatch', action: 'view' }
   }
   if (m === 'GET' && /^\/api\/dispatch-order\/\d+$/.test(path)) {
     return { menuPath: 'production/daily/dispatch', action: 'view' }
@@ -736,6 +748,7 @@ export function matchApiPermissionRule(method, path, body, params) {
       '/api/stock-in/label-print-data',
       '/api/stock-in/inventory-summary',
       '/api/stock-in/material-trace/list',
+      '/api/stock-in/expand-lines/batch',
     ].includes(path)
   ) {
     return { menuPath: 'inventory/daily/stock-in', action: 'view' }
@@ -794,6 +807,9 @@ export function matchApiPermissionRule(method, path, body, params) {
       '/api/stock-out/material-trace/list',
     ].includes(path)
   ) {
+    return { menuPath: 'inventory/daily/stock-out', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/stock-out/expand-lines/batch') {
     return { menuPath: 'inventory/daily/stock-out', action: 'view' }
   }
   if (m === 'GET' && /^\/api\/stock-out\/\d+$/.test(path)) {
@@ -899,6 +915,17 @@ export function matchApiPermissionRule(method, path, body, params) {
   ) {
     return { menuPath: 'supply-chain/analysis/order-status', action: 'view' }
   }
+  if (
+    m === 'GET' &&
+    [
+      '/api/history-price-query/print-header',
+      '/api/history-price-query/supplier-options',
+      '/api/history-price-query/material-options',
+      '/api/history-price-query/report',
+    ].includes(path)
+  ) {
+    return { menuPath: 'supply-chain/analysis/price-query', action: 'view' }
+  }
   if (m === 'PUT' && /^\/api\/stock-out\/\d+$/.test(path)) {
     return { menuPath: 'inventory/daily/stock-out', action: 'edit' }
   }
@@ -973,6 +1000,9 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'GET' && path === '/api/supply-chain/purchase-quotations/supplier-options') {
     return { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' }
   }
+  if (m === 'GET' && path === '/api/supply-chain/purchase-quotations/lines/batch') {
+    return { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' }
+  }
   if (m === 'GET' && /^\/api\/supply-chain\/purchase-quotations\/[^/]+\/lines$/.test(path)) {
     return { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' }
   }
@@ -1022,6 +1052,9 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'view' }
   }
   if (m === 'GET' && path === '/api/supply-chain/outsourcing-quotations/supplier-options') {
+    return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/supply-chain/outsourcing-quotations/lines/batch') {
     return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'view' }
   }
   if (m === 'GET' && /^\/api\/supply-chain\/outsourcing-quotations\/[^/]+\/lines$/.test(path)) {

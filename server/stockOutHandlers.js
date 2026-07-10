@@ -12,7 +12,7 @@ import { suggestStockOutNo, createStockOut, updateStockOut } from './stockOutSav
 import { applyStockOutLifecycleAction } from './stockOutLifecycle.js'
 import { buildStockOutAvailabilitySql } from './stockOutAvailability.js'
 import { queryStockOutSourceLines } from './stockOutSourceLines.js'
-import { queryStockOutExpandLines } from './stockOutExpandLines.js'
+import { queryStockOutExpandLines, fetchStockOutExpandLinesBatch } from './stockOutExpandLines.js'
 import {
   fetchStockOutOtherBatchLines,
   fetchStockOutOtherBatchPrices,
@@ -892,6 +892,18 @@ export function registerStockOutRoutes(app, deps) {
     }
     req.params = { id: req.query?.id }
     return detail(req, res, true)
+  })
+
+  app.get('/api/stock-out/expand-lines/batch', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const ids = req.query?.ids ?? req.query?.id
+      const result = await fetchStockOutExpandLinesBatch(pool, ids)
+      if (!result.ok) return res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+      res.json({ code: 200, msg: 'success', data: result.data })
+    } catch (err) {
+      res.status(500).json({ code: 500, msg: `批量读取出库单展开明细失败：${String(err?.message ?? err)}`, data: null })
+    }
   })
 
   async function detail(req, res, forPrint = false) {

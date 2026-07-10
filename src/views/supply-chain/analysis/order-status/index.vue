@@ -161,6 +161,27 @@
       </template>
     </el-dialog>
 
+    <Teleport to="body">
+      <div v-show="queryProgress.active" class="purchase-status-query-progress-overlay no-print">
+        <div class="query-progress-panel" aria-live="polite">
+          <div class="query-progress-head">
+            <el-icon class="query-progress-spinner" aria-hidden="true"><Loading /></el-icon>
+            <span ref="queryProgressStageEl" class="query-progress-stage">{{ queryProgressBootStageText }}</span>
+          </div>
+          <div class="query-progress-bar" aria-hidden="true">
+            <div class="query-progress-bar-inner"></div>
+            <div class="query-progress-bar-inner query-progress-bar-inner--delay"></div>
+          </div>
+          <p class="query-progress-text">
+            已等待 <span ref="queryProgressElapsedEl" class="query-progress-elapsed">0.0</span> 秒
+            <span class="query-progress-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          </p>
+          <p class="query-progress-hint">采购订单情况统计可能需要汇总入库和退货数据，请耐心等待</p>
+          <p ref="queryProgressAliveHintEl" class="query-progress-alive-hint">后台仍在查询，界面未卡死</p>
+        </div>
+      </div>
+    </Teleport>
+
     <section class="print-document" aria-hidden="true">
       <p class="print-time">打印时间：{{ reportGeneratedAt }}</p>
       <header class="report-header print-header">
@@ -196,8 +217,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Loading } from '@element-plus/icons-vue'
 import axios from 'axios'
 import ExcelJS from 'exceljs'
 import {
@@ -224,6 +246,15 @@ const hasExportPermission = computed(() => hasPageAction(permissionModel.value, 
 
 const loading = ref(false)
 const dialogVisible = ref(false)
+const queryProgress = reactive({ active: false })
+const queryProgressStageEl = ref(null)
+const queryProgressElapsedEl = ref(null)
+const queryProgressAliveHintEl = ref(null)
+let queryProgressWorker = null
+let queryProgressWorkerBlobUrl = ''
+let queryProgressRendering = false
+let queryProgressRenderTotal = 0
+let queryProgressRenderDone = 0
 const formRef = ref()
 const printConfig = reactive({ info: '' })
 const printLogoSrc = ref('')
@@ -314,6 +345,116 @@ const materialContextText = computed(() => {
   return parts.length ? parts.join(' / ') : '全部'
 })
 const displayRows = computed(() => buildDisplayRows(detailRows.value, canViewAmount.value))
+const queryProgressBootStageText = computed(() => resolveQueryProgressStageText(0))
+
+function resolveQueryProgressStageText(elapsedMs) {
+  if (queryProgressRendering) {
+    if (queryProgressRenderDone > 0 && queryProgressRenderDone < queryProgressRenderTotal) {
+      return `正在渲染报表（${queryProgressRenderDone}/${queryProgressRenderTotal} 条）`
+    }
+    return `正在渲染报表（共 ${queryProgressRenderTotal || 0} 条），请稍候`
+  }
+  const sec = Math.floor(elapsedMs / 1000)
+  if (sec < 3) return '正在读取采购订单明细'
+  if (sec < 6) return '正在汇总采购入库数量'
+  if (sec < 10) return '正在汇总采购退货数量'
+  if (sec < 18) return '正在计算差数并整理报表'
+  return '查询范围较大，后台仍在统计'
+}
+
+function formatQueryProgressElapsed(elapsedMs) {
+  const sec = elapsedMs / 1000
+  return sec < 10 ? sec.toFixed(1) : String(Math.floor(sec))
+}
+
+function ensureQueryProgressWorker() {
+  if (queryProgressWorker) return queryProgressWorker
+  const workerScript = [
+    'let timer = null',
+    'self.onmessage = function (event) {',
+    '  var action = event.data',
+    "  if (action === 'start') {",
+    '    var startedAt = Date.now()',
+    '    if (timer) clearInterval(timer)',
+    '    timer = setInterval(function () {',
+    "      self.postMessage({ elapsedMs: Date.now() - startedAt })",
+    '    }, 200)',
+    "  } else if (action === 'stop') {",
+    '    if (timer) clearInterval(timer)',
+    '    timer = null',
+    '  }',
+    '}',
+  ].join('\n')
+  const blob = new Blob([workerScript], { type: 'application/javascript' })
+  queryProgressWorkerBlobUrl = URL.createObjectURL(blob)
+  queryProgressWorker = new Worker(queryProgressWorkerBlobUrl)
+  queryProgressWorker.onmessage = (event) => {
+    paintQueryProgressUi(event.data?.elapsedMs ?? 0)
+  }
+  return queryProgressWorker
+}
+
+function disposeQueryProgressWorker() {
+  if (!queryProgressWorker) return
+  queryProgressWorker.postMessage('stop')
+  queryProgressWorker.terminate()
+  if (queryProgressWorkerBlobUrl) {
+    URL.revokeObjectURL(queryProgressWorkerBlobUrl)
+    queryProgressWorkerBlobUrl = ''
+  }
+  queryProgressWorker = null
+}
+
+function paintQueryProgressUi(elapsedMs) {
+  const stageEl = queryProgressStageEl.value
+  if (stageEl) stageEl.textContent = resolveQueryProgressStageText(elapsedMs)
+  const elapsedEl = queryProgressElapsedEl.value
+  if (elapsedEl) elapsedEl.textContent = formatQueryProgressElapsed(elapsedMs)
+  const aliveHintEl = queryProgressAliveHintEl.value
+  if (aliveHintEl) aliveHintEl.classList.toggle('is-visible', elapsedMs >= 6000)
+}
+
+function startQueryProgressTimer() {
+  stopQueryProgressTimer()
+  queryProgressRendering = false
+  queryProgressRenderTotal = 0
+  queryProgressRenderDone = 0
+  queryProgress.active = true
+  nextTick(() => {
+    paintQueryProgressUi(0)
+    ensureQueryProgressWorker().postMessage('start')
+  })
+}
+
+function markQueryProgressRendering(totalCount, renderedCount = 0) {
+  queryProgressRendering = true
+  queryProgressRenderTotal = totalCount
+  queryProgressRenderDone = renderedCount
+  const stageEl = queryProgressStageEl.value
+  if (stageEl) stageEl.textContent = resolveQueryProgressStageText(0)
+}
+
+function stopQueryProgressTimer() {
+  if (queryProgressWorker) queryProgressWorker.postMessage('stop')
+  queryProgress.active = false
+  queryProgressRendering = false
+  queryProgressRenderTotal = 0
+  queryProgressRenderDone = 0
+}
+
+async function applyDetailRowsInChunks(list) {
+  const rows = Array.isArray(list) ? list : []
+  if (rows.length <= 400) {
+    detailRows.value = rows
+    return
+  }
+  detailRows.value = []
+  for (let i = 0; i < rows.length; i += 400) {
+    detailRows.value = detailRows.value.concat(rows.slice(i, i + 400))
+    markQueryProgressRendering(rows.length, detailRows.value.length)
+    await nextTick()
+  }
+}
 
 function pad2(n) {
   return String(n).padStart(2, '0')
@@ -498,13 +639,14 @@ async function loadReport() {
     }
   }
   loading.value = true
+  startQueryProgressTimer()
   try {
     const wasDefaultColumns = sameColumnKeys(checkedColumnKeys.value, defaultColumnKeys.value)
     const params = { ...form }
     const { data } = await axios.get('/api/purchase-order-status/report', { params, timeout: 180000 })
     const body = data?.data ?? {}
     canViewAmount.value = body.canViewAmount === true
-    detailRows.value = Array.isArray(body.list) ? body.list : []
+    await applyDetailRowsInChunks(body.list)
     reportContext.startDate = body.startDate || form.startDate
     reportContext.endDate = body.endDate || form.endDate
     reportContext.supplierCode = body.supplierCode || form.supplierCode
@@ -523,6 +665,7 @@ async function loadReport() {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '读取采购订单情况表失败'))
   } finally {
     loading.value = false
+    stopQueryProgressTimer()
   }
 }
 function submitQuery() {
@@ -606,6 +749,11 @@ onMounted(async () => {
   form.endDate = today
   checkedColumnKeys.value = [...defaultColumnKeys.value]
   loadColumnSetting()
+})
+
+onBeforeUnmount(() => {
+  stopQueryProgressTimer()
+  disposeQueryProgressWorker()
 })
 </script>
 
@@ -731,6 +879,109 @@ onMounted(async () => {
 .query-grid :deep(.el-select) {
   width: 100%;
 }
+.purchase-status-query-progress-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.2);
+}
+.query-progress-panel {
+  width: min(520px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  background: #f5f7fa;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.14);
+  animation: query-progress-breathe 2.4s ease-in-out infinite;
+}
+.query-progress-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.query-progress-spinner {
+  color: var(--el-color-primary);
+  font-size: 18px;
+  animation: query-progress-spin 0.9s linear infinite;
+}
+.query-progress-stage {
+  color: #303133;
+  font-size: 13px;
+  font-weight: 500;
+}
+.query-progress-bar {
+  position: relative;
+  margin-top: 10px;
+  height: 6px;
+  border-radius: 3px;
+  background: #e4e7ed;
+  overflow: hidden;
+}
+.query-progress-bar-inner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 42%;
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #79bbff 0%, var(--el-color-primary) 50%, #79bbff 100%);
+  animation: query-progress-slide 1.1s ease-in-out infinite;
+}
+.query-progress-bar-inner--delay {
+  width: 28%;
+  opacity: 0.55;
+  animation-duration: 1.6s;
+  animation-delay: 0.35s;
+}
+.query-progress-text {
+  margin: 10px 0 0;
+  color: #606266;
+  font-size: 13px;
+}
+.query-progress-elapsed {
+  display: inline-block;
+  min-width: 28px;
+  color: #303133;
+  font-weight: 600;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.query-progress-dots {
+  display: inline-flex;
+  gap: 3px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.query-progress-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #909399;
+  animation: query-progress-dot-bounce 1s ease-in-out infinite;
+}
+.query-progress-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.query-progress-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.query-progress-hint {
+  margin: 8px 0 0;
+  color: #606266;
+  font-size: 12px;
+}
+.query-progress-alive-hint {
+  display: none;
+  margin: 4px 0 0;
+  color: #e6a23c;
+  font-size: 12px;
+}
+.query-progress-alive-hint.is-visible {
+  display: block;
+}
 .print-document {
   display: none;
 }
@@ -754,6 +1005,45 @@ onMounted(async () => {
 .print-row-total {
   font-weight: 700;
   background: #eee;
+}
+@keyframes query-progress-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes query-progress-slide {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+@keyframes query-progress-dot-bounce {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  40% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+@keyframes query-progress-breathe {
+  0%,
+  100% {
+    border-color: #dcdfe6;
+    background: #f5f7fa;
+  }
+  50% {
+    border-color: #c6e2ff;
+    background: #ecf5ff;
+  }
 }
 @media print {
   @page {

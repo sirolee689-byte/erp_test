@@ -5,9 +5,6 @@
       主键为数字 id；默认只查已审 pass=1；可切换显示未审核；回收站仅查 del=1。
     -->
     <el-card shadow="never">
-      <template #header>
-        <span class="page-title">{{ pageTitle }}</span>
-      </template>
       <p class="page-desc">
         数据表 <code>UB_ERP_Stocks_material</code>；字段：分类编码、分类名称、海关商品编码、入库浮动率、出库浮动率；默认按 id 降序，每页 20 条；已审核行不可软删，需先反审。
       </p>

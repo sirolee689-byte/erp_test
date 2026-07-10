@@ -61,6 +61,7 @@ import { registerStockIoStatsRoutes } from './stockIoStatsHandlers.js'
 import { registerProductionIssueStatsRoutes } from './productionIssueStatsHandlers.js'
 import { registerMaterialFlowLedgerRoutes } from './materialFlowLedgerHandlers.js'
 import { registerPurchaseOrderStatusRoutes } from './purchaseOrderStatusHandlers.js'
+import { registerHistoryPriceQueryRoutes } from './historyPriceQueryHandlers.js'
 import { registerSystemMailConfigRoutes } from './systemMailConfigHandlers.js'
 import { registerSystemPrintConfigRoutes } from './systemPrintConfigHandlers.js'
 import { registerSystemDatabaseConfigRoutes } from './systemDatabaseConfigHandlers.js'
@@ -12090,6 +12091,7 @@ registerStockIoStatsRoutes(app, { getPool })
 registerProductionIssueStatsRoutes(app, { getPool })
 registerMaterialFlowLedgerRoutes(app, { getPool })
 registerPurchaseOrderStatusRoutes(app, { getPool })
+registerHistoryPriceQueryRoutes(app, { getPool })
 registerSystemMailConfigRoutes(app, { getPool })
 registerSystemPrintConfigRoutes(app, { getPool })
 registerSystemDatabaseConfigRoutes(app, { getPool })
