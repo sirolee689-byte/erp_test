@@ -473,8 +473,18 @@ html[data-ui='comfortable'] .erp-module-page .erp-list-table .el-table__body td.
   font-weight: var(--erp-font-weight-body) !important;
 }
 
-/* 视口底横条激活后：仅隐藏主表根节点自身的表内横滚 UI（展开行/弹窗内嵌套 el-table 保留横滚条） */
-.erp-table-viewport-hscroll-active > .el-table__inner-wrapper > .el-table__body-wrapper > .el-scrollbar > .el-scrollbar__wrap,
+/*
+ * 视口底横条激活后：仅隐藏主表根节点自身的表内横滚 UI。
+ * 表体保留 overflow-y:auto + EP 竖条，定高配件表等仍可上下滚；
+ * 展开行/未挂横条的嵌套 el-table 不受本选择器影响（须带 erp-table-viewport-hscroll-active）。
+ */
+.erp-table-viewport-hscroll-active > .el-table__inner-wrapper > .el-table__body-wrapper > .el-scrollbar > .el-scrollbar__wrap {
+  overflow-x: auto;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
 .erp-table-viewport-hscroll-active > .el-table__inner-wrapper > .el-table__header-wrapper {
   overflow-x: auto;
   overflow-y: hidden;
@@ -488,8 +498,8 @@ html[data-ui='comfortable'] .erp-module-page .erp-list-table .el-table__body td.
   height: 0;
 }
 
-.erp-table-viewport-hscroll-active > .el-table__inner-wrapper > .el-table__body-wrapper > .el-scrollbar > .el-scrollbar__bar.is-horizontal,
-.erp-table-viewport-hscroll-active > .el-table__inner-wrapper > .el-table__body-wrapper > .el-scrollbar > .el-scrollbar__bar.is-vertical {
+/* 只藏表内横条；竖条留给定高表拖动 */
+.erp-table-viewport-hscroll-active > .el-table__inner-wrapper > .el-table__body-wrapper > .el-scrollbar > .el-scrollbar__bar.is-horizontal {
   display: none !important;
 }
 
@@ -498,7 +508,8 @@ html[data-ui='comfortable'] .erp-module-page .erp-list-table .el-table__body td.
   left: 0;
   width: 100px;
   bottom: 0;
-  z-index: 2000;
+  /* DIY：须高于 el-dialog（默认约 2000），低于 Message；弹窗内配件表横条才压得住 */
+  z-index: 2500;
   overflow-x: auto;
   overflow-y: hidden;
   height: 14px;

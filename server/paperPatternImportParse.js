@@ -399,7 +399,7 @@ export function tryParseMaterialRow(row, colorSources = []) {
 }
 
 /**
- * CUT 行：首格（从左第一个非空）须为「1-1」式序号；裁片名称优先第 2 列；第 3～13 列为尺寸与用量；长/宽/单位用量解析为 4 位小数（Excel 数值格读 v 非显示 w）
+ * CUT 行：首格（从左第一个非空）须为「1-1」式序号；裁片名称优先第 2 列；第 3～13 列为尺寸与用量；长/宽/单位用量解析为 6 位小数（Excel 数值格读 v 非显示 w）
  * @param {{ rowIndex: number, cells: Array<{ colIndex: number, value: string }> }} row
  * @returns {{
  *   cutSeq: string,

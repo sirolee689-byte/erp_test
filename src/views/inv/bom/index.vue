@@ -867,7 +867,13 @@
                     class="bom-parts-table-wrap"
                     :class="{ 'bom-parts-table-outer--fill': bomPartsUseFillLayout }"
                   >
+                    <!-- 视口底固定横条：随时可拖，不必滚到表最底；独立全屏时上移避开「实际用量总和」 -->
+                    <ErpTableViewportHScroll
+                      table-selector=".bom-parts-table"
+                      :bottom-offset="bomPartsHScrollBottomOffset"
+                    >
                     <el-table
+                      ref="detailPartsTableRef"
                       v-loading="partsLoading"
                       :data="partsList"
                       border
@@ -1017,6 +1023,17 @@
                     <el-table-column label="成本合计" width="88" align="right">
                       <template #default="{ row }">{{ formatMoney(partCostSum(row)) }}</template>
                     </el-table-column>
+                    <el-table-column label="搭配" :min-width="partsDetailColumnWidths.Describe || 100">
+                      <template #default="{ row }">
+                        <el-input
+                          v-model="row.Describe"
+                          :disabled="partLineReadonly(row)"
+                          maxlength="100"
+                          show-word-limit
+                          @input="markPartsSessionDirty"
+                        />
+                      </template>
+                    </el-table-column>
                     <el-table-column label="备注" :min-width="partsDetailColumnWidths.remark">
                       <template #default="{ row }">
                         <el-input
@@ -1029,6 +1046,7 @@
                       </template>
                     </el-table-column>
                   </el-table>
+                    </ErpTableViewportHScroll>
                   </div>
                   <div
                     class="bom-parts-sum-row"
@@ -1422,7 +1440,12 @@
                 class="bom-parts-table-wrap"
                 :class="{ 'bom-parts-table-outer--fill': bomPartsUseFillLayout }"
               >
+                <ErpTableViewportHScroll
+                  table-selector=".bom-parts-table"
+                  :bottom-offset="bomPartsHScrollBottomOffset"
+                >
                 <el-table
+                  ref="editPartsTableRef"
                   v-loading="editPartsLoading"
                   :data="editPartsList"
                   border
@@ -1534,6 +1557,16 @@
                   <el-table-column label="用量合计(kcac06)" width="128" align="right">
                     <template #default="{ row }">{{ formatUsageTotal(row) }}</template>
                   </el-table-column>
+                  <el-table-column label="搭配" :min-width="partsEditColumnWidths.Describe || 100">
+                    <template #default="{ row }">
+                      <el-input
+                        v-model="row.Describe"
+                        :disabled="editPartLineReadonly(row)"
+                        maxlength="100"
+                        show-word-limit
+                      />
+                    </template>
+                  </el-table-column>
                   <el-table-column label="说明" :min-width="partsEditColumnWidths.remark">
                     <template #default="{ row }">
                       <el-input
@@ -1563,6 +1596,7 @@
                     <template #default="{ row }">{{ formatMoney(partCostSum(row)) }}</template>
                   </el-table-column>
                 </el-table>
+                </ErpTableViewportHScroll>
               </div>
               <div
                 class="bom-parts-sum-row"
@@ -2318,6 +2352,7 @@ const PARTS_TEXT_COLUMN_DEFAULTS = Object.freeze({
   kcaa01: { min: 120, max: 340, label: '编码', asciiPx: 8.8, widePx: 14 },
   kcaa02: { min: 108, max: 260, label: '名称', asciiPx: 8.2, widePx: 14 },
   kcaa03: { min: 92, max: 280, label: '规格', asciiPx: 8.2, widePx: 14 },
+  Describe: { min: 100, max: 220, label: '搭配', asciiPx: 8, widePx: 14 },
   remark: { min: 140, max: 320, label: '备注', asciiPx: 8, widePx: 14 },
 })
 
@@ -2352,6 +2387,7 @@ function getPartsTableColumnWidths(rows, overrides = {}) {
     kcaa01: getPartsTextColumnWidth(rows, 'kcaa01', overrides.kcaa01),
     kcaa02: getPartsTextColumnWidth(rows, 'kcaa02', overrides.kcaa02),
     kcaa03: getPartsTextColumnWidth(rows, 'kcaa03', overrides.kcaa03),
+    Describe: getPartsTextColumnWidth(rows, 'Describe', overrides.Describe),
     remark: getPartsTextColumnWidth(rows, 'remark', overrides.remark),
   }
 }
@@ -2363,6 +2399,7 @@ const partsEditActionsColWidth = getErpTableActionsColMinWidth(2)
 const partsDetailColumnWidths = computed(() =>
   getPartsTableColumnWidths(partsList.value, {
     kcaa01: { min: 120, max: 360 },
+    Describe: { min: 100 },
   }),
 )
 const partsEditColumnWidths = computed(() =>
@@ -2370,6 +2407,7 @@ const partsEditColumnWidths = computed(() =>
     kcaa01: { min: 150, max: 380 },
     kcaa02: { min: 120 },
     kcaa03: { min: 100 },
+    Describe: { min: 100 },
     remark: { min: 105 },
   }),
 )
@@ -2508,6 +2546,16 @@ const bomEditEmbeddedPartsTableHeight = computed(() => undefined)
 const bomEditPartsTableHeight = computed(() =>
   bomPartsUseFillLayout.value ? bomPartsTableFillHeight.value : bomEditEmbeddedPartsTableHeight.value,
 )
+/**
+ * DIY：配件明细视口底横条距视口底的偏移。
+ * 独立全屏「实际用量总和」钉底时上移，避免挡住合计行；内嵌页为 0（与 BOM 主列表一致贴底）。
+ */
+const BOM_PARTS_HSCROLL_BOTTOM_WHEN_SUM_DOCKED = 44
+const bomPartsHScrollBottomOffset = computed(() =>
+  bomPartsUseFillLayout.value ? BOM_PARTS_HSCROLL_BOTTOM_WHEN_SUM_DOCKED : 0,
+)
+const detailPartsTableRef = ref(null)
+const editPartsTableRef = ref(null)
 // DIY：成本BOM用量表可视高度。此值是表格真正的封顶（el-table :max-height）。
 // 想让表格离窗口底更近就把 190 调小、想留更多空白就调大；须与下方独立窗口 CSS
 // 「.bom-window-standalone-detail...--fill { max-height }」保持一致。
@@ -2804,6 +2852,7 @@ function serializeEditPartsForCompare(partsList, pendingDeleteIds) {
       kcac05: editPartCompareDecKey(r.kcac05),
       kcac06: editPartCompareDecKey(r.kcac06),
       cost_price: editPartCompareDecKey(r.cost_price),
+      Describe: String(r.Describe ?? '').trim(),
       remark: String(r.remark ?? '').trim(),
       seq: seqNum,
     })
@@ -3495,6 +3544,7 @@ function appendEditPartBlankRow() {
     kcac05: 0,
     kcac06: 0,
     cost_price: null,
+    Describe: '',
     remark: '',
     seq: nextEditPartSeq(),
     _partsMarkSelected: false,
@@ -3546,6 +3596,7 @@ function onMaterialPicked(payload) {
     kcac05: 0,
     kcac06: 1,
     cost_price: 0,
+    Describe: '',
     remark: '',
   }
   syncPartKcac06(row)
@@ -3649,6 +3700,7 @@ async function saveBomParts() {
         kcac05: r.kcac05,
         kcac06: r.kcac06,
         cost_price: r.cost_price,
+        Describe: r.Describe != null ? String(r.Describe) : '',
         remark: r.remark,
         seq: idx + 1,
       }
@@ -3771,6 +3823,7 @@ async function saveEditBomParts() {
         kcac05: r.kcac05,
         kcac06: r.kcac06,
         cost_price: r.cost_price,
+        Describe: r.Describe != null ? String(r.Describe) : '',
         remark: r.remark,
         seq: seqNum,
       })
@@ -3841,6 +3894,7 @@ function onEditMaterialPicked(payload) {
     kcac05: 0,
     kcac06: 0,
     cost_price: null,
+    Describe: '',
     remark: '',
     seq: nextEditPartSeq(),
     _partsMarkSelected: false,
@@ -3930,6 +3984,18 @@ watch(
   },
 )
 
+/** 切到配件明细或数据变化后，刷新视口底横条几何 */
+watch(
+  () => [detailVisible.value, detailActiveTab.value, partsLoading.value, partsList.value.length],
+  async ([vis, tab]) => {
+    if (!vis || tab !== 'parts') return
+    await nextTick()
+    detailPartsTableRef.value?.doLayout?.()
+    const el = detailPartsTableRef.value?.$el
+    if (el) refreshErpTableViewportHScroll(el)
+  },
+)
+
 watch(
   () => [detailVisible.value, detailActiveTab.value],
   ([vis, tab]) => {
@@ -3943,6 +4009,17 @@ watch(
   ([tab, vis, sc]) => {
     if (!vis || !String(sc ?? '').trim()) return
     if (tab === 'parts') void loadEditBomParts()
+  },
+)
+
+watch(
+  () => [editVisible.value, editActiveTab.value, editPartsLoading.value, editPartsList.value.length],
+  async ([vis, tab]) => {
+    if (!vis || tab !== 'parts') return
+    await nextTick()
+    editPartsTableRef.value?.doLayout?.()
+    const el = editPartsTableRef.value?.$el
+    if (el) refreshErpTableViewportHScroll(el)
   },
 )
 

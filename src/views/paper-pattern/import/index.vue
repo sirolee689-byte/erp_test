@@ -315,7 +315,11 @@
           <el-table-column prop="seqNo" label="序号" width="72" align="center" />
           <el-table-column prop="accessoryName" label="名称" min-width="140" show-overflow-tooltip />
           <el-table-column prop="erpCode" label="ERP 编码" min-width="220" show-overflow-tooltip />
-          <el-table-column prop="usageQty" label="用量" min-width="100" align="right" />
+          <el-table-column label="用量" min-width="100" align="right">
+            <template #default="{ row }">
+              {{ formatErpTrimDecimal(row.usageQty, { maxDecimals: 6 }) }}
+            </template>
+          </el-table-column>
           <el-table-column prop="wastage" label="损耗" min-width="100" align="right" />
           <el-table-column prop="lineTotal" label="合计" min-width="100" align="right" />
           <el-table-column prop="matching" label="搭配" min-width="120" show-overflow-tooltip />
@@ -343,9 +347,9 @@ import {
   normalizeFactoryStyleForEncoding,
 } from '@/utils/paperPatternImportCodes.js'
 import {
-  formatPaperPatternCutNumericDisplay,
   formatPaperPatternCutTextDisplay,
 } from '@/utils/paperPatternCutDisplayFormat.js'
+import { formatErpTrimDecimal } from '@/utils/erpNumberDisplay.js'
 import { erpCodeLookupKey, normalizeErpCodeDisplay } from '@/utils/paperPatternErpCodeNormalize.js'
 import {
   canEditPaperPatternMaterialWastage,
@@ -752,15 +756,16 @@ const liveCutsPreview = computed(() => {
       cutSeq: c.cutSeq,
       clearanceOrder: sharedClearanceOrder.value,
     }),
-    lengthDisplay: formatPaperPatternCutTextDisplay(c.length),
-    widthDisplay: formatPaperPatternCutTextDisplay(c.width),
-    quantityDisplay: formatPaperPatternCutNumericDisplay(c.quantity),
-    fabricWidthDisplay: formatPaperPatternCutNumericDisplay(c.fabricWidth),
-    unitConsumptionDisplay: formatPaperPatternCutTextDisplay(c.unitConsumption),
-    wastageDisplay: formatPaperPatternCutNumericDisplay(c.wastage),
-    actualConsumptionDisplay: formatPaperPatternCutNumericDisplay(c.actualConsumption),
-    unitPriceDisplay: formatPaperPatternCutNumericDisplay(c.unitPrice),
-    totalAmountDisplay: formatPaperPatternCutNumericDisplay(c.totalAmount),
+    lengthDisplay: formatErpTrimDecimal(c.length, { maxDecimals: 6 }),
+    widthDisplay: formatErpTrimDecimal(c.width, { maxDecimals: 6 }),
+    quantityDisplay: formatErpTrimDecimal(c.quantity, { maxDecimals: 3 }),
+    fabricWidthDisplay: formatErpTrimDecimal(c.fabricWidth, { maxDecimals: 3 }),
+    // 长/宽/单位用量/损耗/实际用量：最多六位；数量/宽幅/单价/总价：最多三位；均去尾 0（仅展示）
+    unitConsumptionDisplay: formatErpTrimDecimal(c.unitConsumption, { maxDecimals: 6 }),
+    wastageDisplay: formatErpTrimDecimal(c.wastage, { maxDecimals: 6 }),
+    actualConsumptionDisplay: formatErpTrimDecimal(c.actualConsumption, { maxDecimals: 6 }),
+    unitPriceDisplay: formatErpTrimDecimal(c.unitPrice, { maxDecimals: 3 }),
+    totalAmountDisplay: formatErpTrimDecimal(c.totalAmount, { maxDecimals: 3 }),
     matchingDisplay: formatPaperPatternCutTextDisplay(c.matching),
     // CUT 裁片属纸格 BOM，单位与旧系统一致统一为「张」；预览阶段不展示 Excel 单位列
     unitDisplay: '张',

@@ -43,7 +43,9 @@
               </div>
               <el-alert v-if="partsError" :title="partsError" type="error" show-icon class="bom-parts-alert" />
               <div class="bom-parts-table-wrap">
+                <ErpTableViewportHScroll table-selector=".bom-parts-table">
                 <el-table
+                  ref="linkedPartsTableRef"
                   v-loading="partsLoading"
                   :data="partsList"
                   border
@@ -146,6 +148,17 @@
                   <el-table-column label="成本合计" width="110" align="right">
                     <template #default="{ row }">{{ formatMoney(partCostSum(row)) }}</template>
                   </el-table-column>
+                  <el-table-column label="搭配" min-width="100">
+                    <template #default="{ row }">
+                      <el-input
+                        v-model="row.Describe"
+                        :disabled="partLineReadonly(row)"
+                        maxlength="100"
+                        show-word-limit
+                        @input="markPartsDirty"
+                      />
+                    </template>
+                  </el-table-column>
                   <el-table-column label="备注" min-width="140">
                     <template #default="{ row }">
                       <el-input
@@ -158,6 +171,7 @@
                     </template>
                   </el-table-column>
                 </el-table>
+                </ErpTableViewportHScroll>
               </div>
               <div class="bom-parts-sum-row">
                 <span>实际用量总和：<strong>{{ formatQtySumFooter(partsSumActualUsage) }}</strong></span>
@@ -173,7 +187,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ErpPageDialog from '@/components/erp/ErpPageDialog.vue'
@@ -181,6 +195,7 @@ import BomDetailBasicReadonly from './BomDetailBasicReadonly.vue'
 import MaterialSelector from '../../supply-chain/daily/purchase-quote/MaterialSelector.vue'
 import { useUiDensity } from '@/composables/useUiDensity'
 import { formatErpTrimDecimal } from '@/utils/erpNumberDisplay.js'
+import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
 
 defineOptions({ inheritAttrs: false })
 
@@ -206,6 +221,7 @@ const bootError = ref('')
 const titleCode = ref('')
 const bomBasic = ref(null)
 const activeTab = ref('parts')
+const linkedPartsTableRef = ref(null)
 const basicFullLoading = ref(false)
 
 const partsList = ref([])
@@ -575,6 +591,7 @@ function onMaterialPicked(payload) {
     kcac05: 0,
     kcac06: 1,
     cost_price: 0,
+    Describe: '',
     remark: '',
   }
   syncPartKcac06(row)
@@ -609,6 +626,7 @@ async function saveParts() {
         kcac05: r.kcac05,
         kcac06: r.kcac06,
         cost_price: r.cost_price,
+        Describe: r.Describe != null ? String(r.Describe) : '',
         remark: r.remark,
         seq: idx + 1,
       }
@@ -665,6 +683,17 @@ watch(
   ([vis, tab, sc]) => {
     if (!vis || !String(sc ?? '').trim() || tab !== 'parts') return
     void loadParts()
+  },
+)
+
+watch(
+  () => [open.value, activeTab.value, partsLoading.value, partsList.value.length],
+  async ([vis, tab]) => {
+    if (!vis || tab !== 'parts') return
+    await nextTick()
+    linkedPartsTableRef.value?.doLayout?.()
+    const el = linkedPartsTableRef.value?.$el
+    if (el) refreshErpTableViewportHScroll(el)
   },
 )
 

@@ -1,6 +1,6 @@
 /**
  * 纸格 CUT 表：按 Excel 绝对列号（1=A）读取裁片尺寸/用量等（与模板第 4、5 行表头对齐）
- * 长/宽/单位用量在解析阶段规范为 4 位小数（真实 cell 值四舍五入，非 Excel 显示文本）
+ * 长/宽/单位用量在解析阶段规范为 6 位小数（真实 cell 值四舍五入，非 Excel 显示文本）
  */
 import { normalizePaperPatternCutMetric4Digits } from './paperPatternCutMetricNormalize.js'
 

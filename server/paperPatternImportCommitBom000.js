@@ -18,6 +18,7 @@ import { deletePaperPatternBomTreeByMainKcaa01InTx } from './paperPatternImportD
 import { filterAccessoriesForCommitColor } from './paperPatternAccessoryParse.js'
 import { writePaperPatternBomPartsInTx } from './paperPatternImportCommitBomParts.js'
 import { fetchKcaa04Kcaa33ByKcaa01In } from './paperPatternMaterialBomFields.js'
+import { PAPER_PATTERN_CUT_METRIC_DECIMALS } from './paperPatternCutMetricNormalize.js'
 import {
   collectMaterialErpCodesForAllColors,
   resolveCommitColorNos,
@@ -55,7 +56,7 @@ function generateInvBomSystemcode(uidPart) {
 }
 
 /**
- * CUT 规格 kcaa03：长*宽，各保留 4 位小数（与纸格解析长/宽规范一致）
+ * CUT 规格 kcaa03：长*宽，各保留与解析相同的小数位（PAPER_PATTERN_CUT_METRIC_DECIMALS）
  * @param {string|number|null|undefined} lenStr
  * @param {string|number|null|undefined} widStr
  */
@@ -66,7 +67,8 @@ export function formatPaperPatternCutKcaa03(lenStr, widStr) {
   }
   const L = parseN(lenStr)
   const W = parseN(widStr)
-  return `${L.toFixed(4)}*${W.toFixed(4)}`
+  const places = PAPER_PATTERN_CUT_METRIC_DECIMALS
+  return `${L.toFixed(places)}*${W.toFixed(places)}`
 }
 
 /**

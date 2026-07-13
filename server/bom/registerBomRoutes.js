@@ -343,7 +343,7 @@ function bomPartsBuildPartsSystemcodeAssignment(partColset, alias = 'b0') {
 }
 
 /**
- * 单行保存 UPDATE：WHERE id + kcac01（主档 systemcode）双重锁定；kcaa01～35、kcac02、systemcode（若存在列）从 UB_ERP_Bom_000 同步；kcac04/05/06、cost_price、remark、Seq 来自请求体
+ * 单行保存 UPDATE：WHERE id + kcac01（主档 systemcode）双重锁定；kcaa01～35、kcac02、systemcode（若存在列）从 UB_ERP_Bom_000 同步；kcac04/05/06、cost_price、remark、Describe、Seq 来自请求体
  * @param {import('mssql').Transaction} tx
  * @param {Set<string>} partColset
  * @param {string} systemcode 主档 systemcode（即明细 kcac01）
@@ -361,6 +361,9 @@ async function bomPartsApplyFullLineUpdate(tx, partColset, systemcode, rawId, ra
   )
   const costNum = bomPartParseDecimal(raw?.cost_price)
   const seqNum = bomPartParseSeq(raw?.seq)
+  // 搭配：请求体 Describe（兼容 describe）；库列 nvarchar(100)
+  const describeRaw = raw?.Describe != null ? raw.Describe : raw?.describe
+  const describeVal = describeRaw != null ? String(describeRaw).trim().slice(0, 100) : ''
 
   const q = new sql.Request(tx)
   bomPartsSqlBindId(q, rawId)
@@ -378,6 +381,9 @@ async function bomPartsApplyFullLineUpdate(tx, partColset, systemcode, rawId, ra
   if (partColset.has('kcac06')) {
     q.input('kcac06', sql.Decimal(18, 6), kcac06)
   }
+  if (partColset.has('describe')) {
+    q.input('describe', sql.NVarChar(100), describeVal)
+  }
 
   const applySql = bomPartsSqlOuterApplyLatestBom000ByPartKcaa01('b0')
   const setParts = []
@@ -391,6 +397,9 @@ async function bomPartsApplyFullLineUpdate(tx, partColset, systemcode, rawId, ra
     setParts.push('p.kcac06 = @kcac06')
   }
   setParts.push('p.cost_price = @cost_price', 'p.remark = @remark', 'p.[Seq] = @seq')
+  if (partColset.has('describe')) {
+    setParts.push('p.[Describe] = @describe')
+  }
 
   const ur = await q.query(`
     UPDATE p
@@ -2700,6 +2709,7 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
         ${bomPartsNumericColAsDecimalSql('p.kcac06')} AS kcac06,
         ${bomPartsNumericColAsDecimalSql('p.cost_price')} AS cost_price,
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(p.remark, N'')))) AS remark,
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.[Describe], N'')))) AS [Describe],
         p.[Seq] AS seq,
         LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(10), p.del), N''))) AS del,
         LTRIM(RTRIM(ISNULL(bh.child_systemcode, N''))) AS child_systemcode,
@@ -2746,6 +2756,8 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
       kcac06: Number(row.kcac06 ?? 0),
       cost_price: Number(row.cost_price ?? 0),
       remark: row.remark != null ? String(row.remark) : '',
+      /** 搭配：UB_ERP_Bom_parts.Describe */
+      Describe: row.Describe != null ? String(row.Describe) : '',
       seq:
         row.seq != null && row.seq !== '' && Number.isFinite(Number(row.seq)) ? Number(row.seq) : null,
       del: row.del != null ? String(row.del) : '0',
@@ -2763,7 +2775,7 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
  * BOM 配件明细批量保存：物理删除待删行 + 更新 + 新增
  * PUT /api/inventory/bom/parts/:systemcode
  * POST /api/inventory/bom/save-parts（body.systemcode + 与 PUT 相同 lines）
- * body: { lines: [{ id?, pendingDelete?, kcac01?, kcaa01, kcaa02, kcaa03, kcaa04, kcaa11, kcac04, kcac05, kcac06?, cost_price, remark, seq }] }
+ * body: { lines: [{ id?, pendingDelete?, kcac01?, kcaa01, kcaa02, kcaa03, kcaa04, kcaa11, kcac04, kcac05, kcac06?, cost_price, remark, Describe, seq }] }
  * 保存逻辑：`UPDATE` 双重锁定 `id` + `kcac01`；`kcaa01`～`kcaa35`/`kcac02` 由 `UB_ERP_Bom_000` OUTER APPLY 同步（见 bomPartsApplyFullLineUpdate）。
  */
 async function handleInventoryBomPartsPut(req, res) {

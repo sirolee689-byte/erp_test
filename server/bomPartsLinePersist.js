@@ -603,6 +603,12 @@ async function bomPartsApplyFullLineUpdate(tx, partColset, systemcode, rawId, ra
   }
   q.input('remark', sql.NVarChar(500), raw?.remark != null ? String(raw.remark) : '')
   q.input('seq', sql.Int, seqNum)
+  // 搭配：Describe（兼容 describe）；库列 nvarchar(100)
+  const describeRaw = raw?.Describe != null ? raw.Describe : raw?.describe
+  const describeVal = describeRaw != null ? String(describeRaw).trim().slice(0, 100) : ''
+  if (partColset.has('describe')) {
+    q.input('describe', sql.NVarChar(100), describeVal)
+  }
   if (partColset.has('kcac06')) {
     q.input('kcac06', sql.Decimal(18, 6), kcac06 === null ? null : kcac06)
   }
@@ -619,6 +625,9 @@ async function bomPartsApplyFullLineUpdate(tx, partColset, systemcode, rawId, ra
     setParts.push('p.kcac06 = @kcac06')
   }
   setParts.push('p.cost_price = @cost_price', 'p.remark = @remark', 'p.[Seq] = @seq')
+  if (partColset.has('describe')) {
+    setParts.push('p.[Describe] = @describe')
+  }
   if (partColset.has('sale_price')) {
     setParts.push('p.sale_price = @sale_price')
   }

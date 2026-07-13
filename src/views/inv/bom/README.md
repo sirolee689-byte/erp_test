@@ -27,7 +27,8 @@
 ## 配件明细（`UB_ERP_Bom_parts`）
 
 - **`GET /api/inventory/bom/parts/:systemcode`**：`kcaa01`/`kcaa02`/`kcaa03`/`kcaa11` 优先按 **`UB_ERP_Bom_000.kcaa01`**（在册主档，`OUTER APPLY` **TOP 1**）展示；无匹配则用配件表原列。查询按 `UB_ERP_Bom_parts.kcac01 = 当前 systemcode`、`UB_ERP_Bom_000.systemcode = 当前 systemcode` 直接匹配，不再在大表条件里包 `LTRIM/RTRIM/CONVERT`，避免配件明细打开时全表逐行函数计算。
-- **`PUT /api/inventory/bom/parts/:systemcode`**（及 **`POST /api/inventory/bom/save-parts`**）：保存时每行 **UPDATE** 使用 **`id` + `kcac01`（主档 `systemcode`）** 双重锁定；按配件 **`kcaa01`** 关联 **`UB_ERP_Bom_000`** 最新在册行，将表中存在的 **`kcaa01`～`kcaa35`**、**`kcac02`** 与 **`systemcode`**（若明细表有该列，同子 BOM `systemcode`）从主档写回明细；用量/单价/备注/排序仍以请求为准。新增行先 **INSERT OUTPUT id** 再执行同一套 UPDATE。详见 `docs/sql/database_map.md`（`UB_ERP_Bom_parts` 条目）。
+- **`PUT /api/inventory/bom/parts/:systemcode`**（及 **`POST /api/inventory/bom/save-parts`**）：保存时每行 **UPDATE** 使用 **`id` + `kcac01`（主档 `systemcode`）** 双重锁定；按配件 **`kcaa01`** 关联 **`UB_ERP_Bom_000`** 最新在册行，将表中存在的 **`kcaa01`～`kcaa35`**、**`kcac02`** 与 **`systemcode`**（若明细表有该列，同子 BOM `systemcode`）从主档写回明细；用量/单价/备注/搭配/排序仍以请求为准。新增行先 **INSERT OUTPUT id** 再执行同一套 UPDATE。详见 `docs/sql/database_map.md`（`UB_ERP_Bom_parts` 条目）。
+- **搭配列（2026-07）**：配件明细（查看详情、编辑弹窗、联动查看大弹窗）新增可编辑「搭配」列，绑定 **`UB_ERP_Bom_parts.Describe`**（最长 100），放在「说明/备注」（`remark`）左侧；保存随配件 PUT 落库。一键运算已读该字段写入成本用量表备注合并键。
 - **`kcac06`**：用量合计 = **`kcac04 × (1 + kcac05)`**；前端损耗按 **百分比** 编辑，库内 **`kcac05`** 为小数；保存时写入 **`kcac04`/`kcac05`/`kcac06`**（若库中存在 **`kcac06`** 列）。
 - **编辑弹窗新增配件**：新增空行或选材新增时，`单位用量(kcac04)` 与 `单价(cost_price)` 默认留空，交给用户填写；若用户不填直接保存，仍按后端现有规则落为 0。
 - **添加配件选材表**（`MaterialSelector.vue`，`GET /api/inv/bom/list`）：BOM 配件明细传 `fullscreen`，弹窗 **100vh 铺满**（行数多少表体区都占满，分页钉底）；编码列右侧 **输入/修改时间** 等同主列表。采购/外协/销售批量选材默认仍近全屏 `max-height`。
@@ -123,7 +124,7 @@
 - **展开明细可读性**：对应成品与 PI 明细两张表改为固定列宽（不再用 `min-width` 拉伸整行），并将「PI号」列名改为「对应PI号」，避免短值列占据过宽区域。
 - **主页成本用量列展示**：`成本：kcac04合计,kcac06合计` 统一按 4 位小数格式化并去掉无意义尾零（例如 `1.2300` 显示 `1.23`，`80.0000` 显示 `80`）。
 - BOM资料页面及下钻弹窗里的数量、损耗、合计、金额类显示统一去掉无意义尾零，例如 `1.000000` 显示 `1`、`0.00` 显示 `0`、`1.230000` 显示 `1.23`；查看详情的配件明细为只读，工具栏不再显示「保存配件明细」，且只显示查看按钮不显示删除按钮；编辑弹窗内「保存配件明细」成功后会自动切回「BOM资料」页签。只改显示与交互，不改保存值和计算精度。
-- **配件明细 Tab 铺满 / 展开（2026-07）**：**独立全屏窗**（新标签 `bom-data-window`）仍用 `bom-parts-tab-fill` 纵向 flex——工具栏在上、表格 `height:100%` 吃满中间、**「实际用量总和」**（`bom-parts-sum-row--dock`）钉在 Tab 最底。**当前页面内查看/编辑**（列表点「查看详情」或「编辑」后切到「配件明细」）不再给表格固定高度或最大高度，配件明细按内容自然展开，纵向滚动交给页面最外层，视觉高度与「BOM基础资料」保持一致；横向滚动仍保留在表格外层。独立全屏编辑页配件 Tab 无底栏（保存走工具栏）。DIY：`index.vue` 搜 `bomPartsTableMaxHeight`、`bomEditPartsTableHeight`、`bom-parts-tab-fill`、`bom-edit-dialog--parts-tab`。
+- **配件明细 Tab 铺满 / 展开（2026-07）**：**独立全屏窗**（新标签 `bom-data-window`）仍用 `bom-parts-tab-fill` 纵向 flex——工具栏在上、表格 `height:100%` 吃满中间、**「实际用量总和」**（`bom-parts-sum-row--dock`）钉在 Tab 最底。**当前页面内查看/编辑**（列表点「查看详情」或「编辑」后切到「配件明细」）不再给表格固定高度或最大高度，配件明细按内容自然展开，纵向滚动交给页面最外层，视觉高度与「BOM基础资料」保持一致。**横向滚动**：查看/编辑/联动弹窗配件表均接 `ErpTableViewportHScroll`（与 BOM 主列表同款视口底固定横条），列多时不必滚到表最底才能拖；独立全屏钉底合计时横条 `bottom-offset` 上移避开合计行。独立全屏编辑页配件 Tab 无底栏（保存走工具栏）。DIY：`index.vue` 搜 `bomPartsHScrollBottomOffset`、`bomPartsTableMaxHeight`、`bomEditPartsTableHeight`、`bom-parts-tab-fill`；全局横条样式 `element-override.scss` 搜 `erp-table-viewport-hscroll`。
 
 ## MOQ查询（复刻旧系统）
 

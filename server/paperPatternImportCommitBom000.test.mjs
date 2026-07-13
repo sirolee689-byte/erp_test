@@ -12,14 +12,15 @@ import {
   resolveCutsResolvedForColor,
 } from './paperPatternImportCommitBom000.js'
 
-test('formatPaperPatternCutKcaa03 四位小数与乘号', () => {
-  assert.equal(formatPaperPatternCutKcaa03('4.4489', '4.7390'), '4.4489*4.7390')
-  assert.equal(formatPaperPatternCutKcaa03(4.4491, 4.7394), '4.4491*4.7394')
+test('formatPaperPatternCutKcaa03 六位小数与乘号', () => {
+  assert.equal(formatPaperPatternCutKcaa03('4.448853', '4.739000'), '4.448853*4.739000')
+  assert.equal(formatPaperPatternCutKcaa03(4.4491, 4.7394), '4.449100*4.739400')
+  assert.equal(formatPaperPatternCutKcaa03('8.81884765625', '1'), '8.818848*1.000000')
 })
 
 test('formatPaperPatternCutKcaa03 非法为空按 0', () => {
-  assert.equal(formatPaperPatternCutKcaa03('x', ''), '0.0000*0.0000')
-  assert.equal(formatPaperPatternCutKcaa03('', null), '0.0000*0.0000')
+  assert.equal(formatPaperPatternCutKcaa03('x', ''), '0.000000*0.000000')
+  assert.equal(formatPaperPatternCutKcaa03('', null), '0.000000*0.000000')
 })
 
 test('normalizeFactoryStyleForBomPathDisplay 保留横线、去星与空白', () => {
