@@ -4,7 +4,14 @@ import {
   buildMaterialBillConsumptionLinesFromCost,
   buildMaterialBillCostLines,
   buildMaterialBillSingleUsageByProduct,
+  formatMaterialBillColorDisplay,
 } from './salesOrderMaterialBillService.js'
+
+test('formatMaterialBillColorDisplay joins code and Chinese name like BOM', () => {
+  assert.equal(formatMaterialBillColorDisplay('419', '深灰色'), '419,深灰色')
+  assert.equal(formatMaterialBillColorDisplay('419', ''), '419')
+  assert.equal(formatMaterialBillColorDisplay('', '深灰色'), '')
+})
 
 test('buildMaterialBillCostLines returns px and sorts by pq then px then id', () => {
   const rows = [
@@ -27,6 +34,36 @@ test('buildMaterialBillCostLines returns px and sorts by pq then px then id', ()
   assert.equal(out[0].prepQty, 5)
 })
 
+test('buildMaterialBillCostLines formats kcaa11 with colorName', () => {
+  const out = buildMaterialBillCostLines(
+    [
+      {
+        id: 1,
+        pq: 'PQ-A',
+        kcaa01: 'BP-0079/419',
+        kcaa11: '419',
+        colorName: '深灰色',
+        kcac04: 1,
+        kcac05: 0,
+        kcac06: 1,
+      },
+      {
+        id: 2,
+        pq: 'PQ-A',
+        kcaa01: 'MAT-NO-NAME',
+        kcaa11: '580',
+        colorName: '',
+        kcac04: 1,
+        kcac05: 0,
+        kcac06: 1,
+      },
+    ],
+    new Map(),
+  )
+  assert.equal(out[0].kcaa11, '419,深灰色')
+  assert.equal(out[1].kcaa11, '580')
+})
+
 test('buildMaterialBillConsumptionLinesFromCost scales usage by orderQty before merge', () => {
   const costLines = buildMaterialBillCostLines(
     [
@@ -44,6 +81,42 @@ test('buildMaterialBillConsumptionLinesFromCost scales usage by orderQty before 
   assert.equal(out[0].kcaa01, 'MAT-1')
   assert.equal(out[0].sumay, 90)
   assert.equal(out[0].sumby, 90)
+})
+
+test('buildMaterialBillConsumptionLinesFromCost joins distinct colors with semicolon', () => {
+  const costLines = buildMaterialBillCostLines(
+    [
+      {
+        id: 1,
+        pq: 'PQ-A',
+        kcaa01: 'MAT-1',
+        kcaa11: '419',
+        colorName: '深灰色',
+        kcac04: 1,
+        kcac05: 0,
+        kcac06: 1,
+        Describe: '',
+      },
+      {
+        id: 2,
+        pq: 'PQ-B',
+        kcaa01: 'MAT-1',
+        kcaa11: '580',
+        colorName: '黑色',
+        kcac04: 1,
+        kcac05: 0,
+        kcac06: 1,
+        Describe: '',
+      },
+    ],
+    new Map([
+      ['PQ-A', 1],
+      ['PQ-B', 1],
+    ]),
+  )
+  const out = buildMaterialBillConsumptionLinesFromCost(costLines)
+  assert.equal(out.length, 1)
+  assert.equal(out[0].kcaa11, '419,深灰色;580,黑色')
 })
 
 test('buildMaterialBillSingleUsageByProduct sums kcac06 by product code', () => {

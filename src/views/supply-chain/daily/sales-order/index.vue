@@ -331,7 +331,7 @@
         { 'so-edit-panel--standalone': isSalesOrderStandaloneWindow, 'so-edit-panel--readonly': isReadonlyForm },
       ]"
     >
-      <div class="so-edit-panel__header">
+      <div class="so-edit-panel__header so-unified-btn-font">
         <h2 class="so-edit-panel__title">
           {{
             editMode === 'view'
@@ -341,6 +341,34 @@
                 : '编辑销售订单'
           }}
         </h2>
+        <!-- 操作钮对齐采购订单：放在标题行右侧，不再用底栏 -->
+        <div class="so-edit-panel__actions">
+          <template v-if="isReadonlyForm">
+            <el-button @click="switchToManage">返回列表</el-button>
+          </template>
+          <template v-else>
+            <el-button @click="closeEditWindowOrDialog">取消</el-button>
+            <el-button
+              v-if="editMode === 'create'"
+              v-permission="'add'"
+              type="primary"
+              :loading="saveLoading"
+              @click="onSave"
+            >
+              保存
+            </el-button>
+            <el-button
+              v-else
+              v-permission="'edit'"
+              type="primary"
+              :loading="saveLoading"
+              :disabled="editDetailLocked"
+              @click="onSave"
+            >
+              保存
+            </el-button>
+          </template>
+        </div>
       </div>
       <div v-loading="editLoading" class="detail-wrap">
         <el-tabs v-model="editActiveTab" @tab-change="onEditTabChange">
@@ -351,50 +379,38 @@
               :disabled="editDetailLocked || isReadonlyForm"
               @submit.prevent
             >
-              <el-row :gutter="12">
-                <el-col :xs="24" :sm="12">
+              <!-- 主表布局对齐派工单：左对齐分行 + 三档固定宽度 -->
+              <div class="so-header-rows">
+                <div class="so-form-row so-form-row--1">
                   <el-form-item label="PI 号" required>
                     <el-input
                       v-model="headerForm.piNo"
                       :disabled="editMode !== 'create'"
-                      clearable
-                      placeholder="如 PI-0001"
+                      :clearable="editMode === 'create'"
+                      :placeholder="editMode === 'create' ? '如 PI-0001' : ''"
                       @blur="onPiNoBlur"
                     />
                   </el-form-item>
-                </el-col>
-                <el-col :xs="24" :sm="12">
-                  <el-form-item label="PO 号">
-                    <el-input
-                      v-model="headerForm.poNo"
-                      clearable
-                      placeholder="请输入 PO 号"
-                    />
-                  </el-form-item>
-                </el-col>
-                <el-col :xs="24" :sm="12">
+                </div>
+                <div class="so-form-row so-form-row--2">
                   <el-form-item label="销售日期" required>
                     <el-date-picker
                       v-model="headerForm.salesDate"
                       type="date"
                       value-format="YYYY-MM-DD"
-                      style="width: 100%"
                     />
                   </el-form-item>
-                </el-col>
-                <el-col :xs="24" :sm="12">
                   <el-form-item label="交货日期">
                     <el-date-picker
                       v-model="headerForm.deliveryDate"
                       type="date"
                       value-format="YYYY-MM-DD"
                       clearable
-                      style="width: 100%"
                     />
                   </el-form-item>
-                </el-col>
-                <el-col :xs="24" :sm="12">
-                  <el-form-item label="客户" required>
+                </div>
+                <div class="so-form-row so-form-row--1 so-form-row--wide">
+                  <el-form-item label="销售客户" required>
                     <el-select
                       v-model="headerForm.customerCode"
                       filterable
@@ -404,7 +420,6 @@
                       :remote-method="searchCustomers"
                       :loading="customerLoading"
                       clearable
-                      style="width: 100%"
                     >
                       <el-option
                         v-for="c in customerOptions"
@@ -414,14 +429,17 @@
                       />
                     </el-select>
                   </el-form-item>
-                </el-col>
-                <el-col :xs="24" :sm="12">
+                </div>
+                <div class="so-form-row so-form-row--3">
+                  <el-form-item label="PO 号">
+                    <el-input
+                      v-model="headerForm.poNo"
+                      clearable
+                      placeholder="请输入 PO 号"
+                    />
+                  </el-form-item>
                   <el-form-item label="币别" required>
-                    <el-select
-                      v-model="headerForm.currencyCode"
-                      placeholder="选择币别"
-                      style="width: 100%"
-                    >
+                    <el-select v-model="headerForm.currencyCode" placeholder="选择币别">
                       <el-option
                         v-for="c in currencyOptions"
                         :key="c.id"
@@ -430,24 +448,21 @@
                       />
                     </el-select>
                   </el-form-item>
-                </el-col>
-                <el-col :xs="24" :sm="12">
-                  <el-form-item label="小数位数">
+                  <el-form-item label="小数点配置" class="so-form-item--narrow">
                     <el-input-number
                       v-model="headerForm.decimalPlaces"
                       :min="0"
                       :max="8"
                       controls-position="right"
-                      style="width: 100%"
                     />
                   </el-form-item>
-                </el-col>
-                <el-col :span="24">
+                </div>
+                <div class="so-form-row so-form-row--1 so-form-row--wide">
                   <el-form-item label="备注">
                     <el-input v-model="headerForm.remark" type="textarea" :rows="2" />
                   </el-form-item>
-                </el-col>
-              </el-row>
+                </div>
+              </div>
             </el-form>
           </el-tab-pane>
           <el-tab-pane label="明细" name="lines">
@@ -706,35 +721,6 @@
           </el-tab-pane>
         </el-tabs>
       </div>
-      <div class="so-edit-panel__footer so-unified-btn-font">
-        <div class="action-bar action-bar--footer">
-          <template v-if="isReadonlyForm">
-            <el-button @click="switchToManage">返回列表</el-button>
-          </template>
-          <template v-else>
-            <el-button @click="closeEditWindowOrDialog">取消</el-button>
-            <el-button
-              v-if="editMode === 'create'"
-              v-permission="'add'"
-              type="primary"
-              :loading="saveLoading"
-              @click="onSave"
-            >
-              保存
-            </el-button>
-            <el-button
-              v-else
-              v-permission="'edit'"
-              type="primary"
-              :loading="saveLoading"
-              :disabled="editDetailLocked"
-              @click="onSave"
-            >
-              保存
-            </el-button>
-          </template>
-        </div>
-      </div>
     </section>
 
     <MaterialSelector v-model="materialVisible" multiple @batch-confirm="onMaterialsPicked" />
@@ -868,7 +854,12 @@ const expandPrefetch = createExpandPrefetch({
   getRowId: (row) => Number(row?.id),
   applyToRow: (row, payload) => {
     const lines = Array.isArray(payload?.lines) ? payload.lines : []
-    rememberDetail(row?.id ?? getOrderCacheKey(row), { header: null, lines })
+    // 展开行只预取明细；禁止把 header:null 写入详情缓存，否则点「编辑」会读到空主表（PI 只剩占位符）
+    const cacheKey = getOrderCacheKey(row)
+    const existing = cacheKey ? detailCache.get(cacheKey) : null
+    if (existing?.header) {
+      rememberDetail(row?.id ?? cacheKey, { header: existing.header, lines })
+    }
     row.__lines = lines
     row.__linesLoaded = true
     row.__linesLoading = false
@@ -1439,8 +1430,9 @@ async function openCreate() {
   editVisible.value = true
 }
 
-/** @param {Record<string, unknown>} header */
+/** @param {Record<string, unknown> | null | undefined} header */
 function fillHeaderFromDetail(header) {
+  if (!header) return
   headerForm.piNo = String(header.piNo ?? '').trim()
   headerForm.poNo = String(header.poNo ?? '').trim()
   headerForm.salesDate = formatSalesOrderDate(header.salesDate)
@@ -1463,7 +1455,8 @@ function fillHeaderFromDetail(header) {
  * @param {{ captureSnapshot?: boolean }} [options]
  */
 async function loadOrderIntoPanel(orderId, options = {}) {
-  const data = await fetchOrderDetail(orderId)
+  // 编辑/查看必须强制拉完整详情，避免命中「仅展开明细」的残缺缓存
+  const data = await fetchOrderDetail(orderId, { force: true })
   const hdr = data.header ?? {}
   fillHeaderFromDetail(hdr)
   editHeaderPass.value = String(hdr.pass ?? '0')
@@ -2141,9 +2134,6 @@ onUnmounted(() => {
   max-width: 100%;
   padding: 2px 0;
 }
-.action-bar--footer {
-  justify-content: flex-end;
-}
 .so-order-actions :deep(.el-button),
 .so-line-actions :deep(.el-button) {
   margin-left: 0;
@@ -2160,29 +2150,56 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
+  min-height: 42px;
   margin-bottom: 12px;
+  padding: 0 2px;
+  gap: 12px;
 }
 .so-edit-panel__title {
   margin: 0;
   font-size: var(--so-dialog-title-size, 18px);
   font-weight: 600;
 }
-.so-edit-panel__footer {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
-  margin: 12px -16px -12px;
-  padding: 10px 16px;
-  border-top: 1px solid var(--el-border-color-light);
-  background: var(--el-bg-color);
+/* DIY：标题行右侧「取消 / 保存 / 返回列表」间距，对齐采购订单 buy-form-head__actions */
+.so-edit-panel__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 .so-edit-form {
-  max-width: 1180px;
-  margin: 0 auto;
+  max-width: 1280px;
   padding-top: 4px;
+}
+/* DIY：主表输入框三档宽度（对齐派工单左对齐分行）
+ * --so-field-width：PI/日期/PO/币别，建议 220～280
+ * --so-field-width-wide：销售客户/备注，约 2× 基准
+ * --so-field-width-narrow：小数点配置，约 1/3 基准
+ * --so-row-gap：同行字段间距 */
+.so-header-rows {
+  display: flex;
+  flex-direction: column;
+  --so-field-width: 250px;
+  --so-field-width-wide: 500px;
+  --so-field-width-narrow: 83px;
+  --so-row-gap: 14px;
+}
+.so-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  column-gap: var(--so-row-gap);
+  row-gap: 8px;
+}
+.so-form-row--1 {
+  flex-direction: column;
 }
 .so-edit-form :deep(.el-form-item) {
   margin-bottom: 16px;
+}
+.so-form-row :deep(.el-form-item__content) {
+  justify-content: flex-start;
 }
 /* DIY：主表表单字段字号与主列表列数据一致 */
 .so-edit-form :deep(.el-form-item__label) {
@@ -2196,12 +2213,21 @@ onUnmounted(() => {
   font-size: var(--erp-table-data-size) !important;
   font-weight: var(--erp-font-weight-body) !important;
 }
-.so-edit-form :deep(.el-input),
-.so-edit-form :deep(.el-select),
-.so-edit-form :deep(.el-date-editor),
-.so-edit-form :deep(.el-input-number),
-.so-edit-form :deep(.el-textarea) {
-  width: 100%;
+.so-form-row :deep(.el-input),
+.so-form-row :deep(.el-select),
+.so-form-row :deep(.el-date-editor) {
+  width: var(--so-field-width);
+  max-width: 100%;
+}
+.so-form-row--wide :deep(.el-input),
+.so-form-row--wide :deep(.el-select),
+.so-form-row--wide :deep(.el-textarea) {
+  width: var(--so-field-width-wide);
+  max-width: 100%;
+}
+.so-form-item--narrow :deep(.el-input-number) {
+  width: var(--so-field-width-narrow);
+  max-width: 100%;
 }
 .so-lines-hint {
   margin: 0 0 8px;
@@ -2267,25 +2293,10 @@ onUnmounted(() => {
 }
 .so-edit-panel--standalone {
   min-height: 100vh;
-  padding: 10px 12px 60px;
+  padding: 10px 12px 12px;
   border: 0;
-}
-.so-edit-panel--standalone .so-edit-panel__header {
-  display: none;
 }
 .so-edit-panel--standalone .so-edit-form {
   max-width: 1180px;
-}
-.so-edit-panel--standalone .so-edit-panel__footer {
-  box-sizing: border-box;
-  position: fixed;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 48px;
-  margin: 0;
-  padding: 8px 12px;
-  border-top: 1px solid var(--el-border-color-light);
-  background: var(--el-bg-color);
 }
 </style>

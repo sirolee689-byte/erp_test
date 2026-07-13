@@ -4,6 +4,7 @@ import {
   aggregateBomConsumptionFromFlat,
   flattenBomPartsCostUsageFlat,
   flattenBomPartsCostUsageFlatForBomCost,
+  flattenBomPartsCostUsageFlatForLegacyBomCost,
 } from './bomUsageFlatten.js'
 
 function round4(n) {
@@ -189,6 +190,43 @@ test('UB_ERP_Bom_cost 写库：CUT 中间层不继续放大更深层子 BOM', ()
   assert.equal(round4(displayBn8.yl), 0.0037)
   assert.equal(round4(bomCostBn5.yl), 0.0037)
   assert.equal(round4(bomCostBn8.yl), 0.0037)
+})
+
+test('旧一键运算：CUT 中间层数量持续放大下层与更深层子件', () => {
+  const tree = [
+    {
+      kcaa01: 'CUT-SSPQ3122I2/GRN<5-1>',
+      kcaa02: 'CUT',
+      kcac04: 2,
+      kcac05: 0,
+      children: [
+        {
+          kcaa01: 'BN-0005/-',
+          kcaa02: 'middle bom',
+          kcac04: 0.0037,
+          kcac05: 0,
+          children: [
+            {
+              kcaa01: 'BN-0008/-',
+              kcaa02: 'leaf bom',
+              kcac04: 1,
+              kcac05: 0,
+              children: [],
+            },
+          ],
+        },
+      ],
+    },
+  ]
+
+  const oldFlat = flattenBomPartsCostUsageFlatForLegacyBomCost(tree, null, [])
+  const oldBn5 = oldFlat.find((r) => r.kcaa01 === 'BN-0005/-')
+  const oldBn8 = oldFlat.find((r) => r.kcaa01 === 'BN-0008/-')
+
+  assert.ok(oldBn5)
+  assert.ok(oldBn8)
+  assert.equal(round4(oldBn5.yl), 0.0074)
+  assert.equal(round4(oldBn8.yl), 0.0074)
 })
 
 test('UB_ERP_Bom_cost 写库：非 CUT 父层数量仍逐层相乘', () => {

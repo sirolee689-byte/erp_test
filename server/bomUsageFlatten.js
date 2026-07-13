@@ -128,6 +128,30 @@ export function flattenBomPartsCostUsageFlatForBomCost(
 }
 
 /**
+ * 旧系统兼容写库平铺：CUT- 中间层和普通父级一样参与路径逐层累乘。
+ * 仅供「一键运算(旧)」接口使用，普通一键运算仍走 flattenBomPartsCostUsageFlatForBomCost。
+ * @param {any[]} treeNodes
+ * @param {number|null|undefined} parentYl
+ * @param {any[]} [acc]
+ */
+export function flattenBomPartsCostUsageFlatForLegacyBomCost(
+  treeNodes,
+  parentYl,
+  acc,
+  parentTopKcaa01 = '',
+  parentTopKcaa02 = '',
+) {
+  return flattenBomPartsCostUsageFlatCore(
+    treeNodes,
+    parentYl,
+    acc,
+    true,
+    parentTopKcaa01,
+    parentTopKcaa02,
+  )
+}
+
+/**
  * 按子件编码 + 备注合并（pi_consumption / Bom_consumption）
  * @param {Record<string, unknown>[]} flatRows
  * @param {string[]} hidePrefixes

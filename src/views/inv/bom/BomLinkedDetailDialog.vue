@@ -56,6 +56,7 @@
                   :row-key="partsRowKey"
                   max-height="calc(100vh - 320px)"
                 >
+                  <el-table-column type="selection" label="选择" width="58" align="center" fixed="left" />
                   <el-table-column type="index" label="序号" width="56" align="center" fixed="left" :index="partsRowIndex" />
                   <el-table-column label="操作" width="96" align="center" fixed="left">
                     <template #default="{ row }">
@@ -72,12 +73,9 @@
                       </ErpTableActions>
                     </template>
                   </el-table-column>
-                  <el-table-column prop="kcaa01" label="编码" min-width="120" fixed="left" show-overflow-tooltip />
-                  <el-table-column prop="kcaa02" label="名称" min-width="108" show-overflow-tooltip />
-                  <el-table-column prop="kcaa03" label="规格" min-width="92" show-overflow-tooltip />
-                  <el-table-column prop="kcaa11" label="颜色" width="80" show-overflow-tooltip />
-                  <el-table-column prop="kcaa04" label="单位" width="64" show-overflow-tooltip />
-                  <el-table-column label="单位用量" width="118">
+                  <!-- DIY：编码固定宽，与主流程配件明细一致；样例 CUT-BAGPQ2803G1/MO<1-10> -->
+                  <el-table-column prop="kcaa01" label="编码" width="280" fixed="left" show-overflow-tooltip />
+                  <el-table-column label="用量" width="118">
                     <template #default="{ row }">
                       <span v-if="partLineReadonly(row)" class="bom-parts-readonly-num">
                         {{ formatPartNumberDisplay(row.kcac04) }}
@@ -102,7 +100,7 @@
                       />
                     </template>
                   </el-table-column>
-                  <el-table-column label="损耗率(%)" width="108">
+                  <el-table-column label="损耗" width="108">
                     <template #default="{ row }">
                       <span v-if="partLineReadonly(row)" class="bom-parts-readonly-num">
                         {{ formatPartLossPct(row) }}
@@ -122,31 +120,8 @@
                       />
                     </template>
                   </el-table-column>
-                  <el-table-column label="用量合计(kcac06)" width="124" align="right">
+                  <el-table-column label="合计" width="124" align="right">
                     <template #default="{ row }">{{ formatUsageTotal(row) }}</template>
-                  </el-table-column>
-                  <el-table-column label="单价" width="112">
-                    <template #default="{ row }">
-                      <span v-if="partLineReadonly(row)" class="bom-parts-readonly-num">
-                        {{ formatMoney(row.cost_price) }}
-                      </span>
-                      <el-input-number
-                        v-else
-                        v-model="row.cost_price"
-                        :disabled="partLineReadonly(row)"
-                        :min="0"
-                        :precision="4"
-                        :step="0.0001"
-                        :controls="false"
-                        :formatter="formatBomNumberInput"
-                        :parser="parseBomNumberInput"
-                        class="bom-parts-num"
-                        @change="markPartsDirty"
-                      />
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="成本合计" width="110" align="right">
-                    <template #default="{ row }">{{ formatMoney(partCostSum(row)) }}</template>
                   </el-table-column>
                   <el-table-column label="搭配" min-width="100">
                     <template #default="{ row }">
@@ -159,17 +134,15 @@
                       />
                     </template>
                   </el-table-column>
-                  <el-table-column label="备注" min-width="140">
-                    <template #default="{ row }">
-                      <el-input
-                        v-model="row.remark"
-                        :disabled="partLineReadonly(row)"
-                        maxlength="500"
-                        show-word-limit
-                        @input="markPartsDirty"
-                      />
-                    </template>
-                  </el-table-column>
+                  <el-table-column prop="kcaa02" label="名称" min-width="108" show-overflow-tooltip />
+                  <el-table-column prop="kcaa03" label="规格" min-width="92" show-overflow-tooltip />
+                  <el-table-column prop="kcaa04" label="单位" width="64" show-overflow-tooltip />
+                  <el-table-column prop="kcaa05" label="分类" min-width="100" show-overflow-tooltip />
+                  <el-table-column prop="kcaa06" label="客户款号" min-width="120" show-overflow-tooltip />
+                  <el-table-column prop="kcaa09" label="工厂款号" min-width="120" show-overflow-tooltip />
+                  <el-table-column prop="kcaa10" label="组别" min-width="92" show-overflow-tooltip />
+                  <el-table-column prop="kcaa15" label="生产车间编码" min-width="120" show-overflow-tooltip />
+                  <el-table-column prop="kcaa11" label="颜色" width="80" show-overflow-tooltip />
                 </el-table>
                 </ErpTableViewportHScroll>
               </div>

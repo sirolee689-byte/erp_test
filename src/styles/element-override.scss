@@ -475,14 +475,13 @@ html[data-ui='comfortable'] .erp-module-page .erp-list-table .el-table__body td.
 
 /*
  * 视口底横条激活后：仅隐藏主表根节点自身的表内横滚 UI。
- * 表体保留 overflow-y:auto + EP 竖条，定高配件表等仍可上下滚；
+ * 表体保留 overflow-y:auto + 原生/EP 竖条（定高配件表等可上下滚）；
+ * 禁止 scrollbar-width:none / webkit width:0 一并藏掉竖条。
  * 展开行/未挂横条的嵌套 el-table 不受本选择器影响（须带 erp-table-viewport-hscroll-active）。
  */
 .erp-table-viewport-hscroll-active > .el-table__inner-wrapper > .el-table__body-wrapper > .el-scrollbar > .el-scrollbar__wrap {
   overflow-x: auto;
   overflow-y: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
 }
 
 .erp-table-viewport-hscroll-active > .el-table__inner-wrapper > .el-table__header-wrapper {
@@ -492,13 +491,17 @@ html[data-ui='comfortable'] .erp-module-page .erp-list-table .el-table__body td.
   -ms-overflow-style: none;
 }
 
-.erp-table-viewport-hscroll-active > .el-table__inner-wrapper > .el-table__body-wrapper > .el-scrollbar > .el-scrollbar__wrap::-webkit-scrollbar,
-.erp-table-viewport-hscroll-active > .el-table__inner-wrapper > .el-table__header-wrapper::-webkit-scrollbar {
-  width: 0;
+/* DIY：只藏表体/表头横向原生条；竖向 width 勿置 0，否则配件明细看不到纵向滚动条 */
+.erp-table-viewport-hscroll-active > .el-table__inner-wrapper > .el-table__body-wrapper > .el-scrollbar > .el-scrollbar__wrap::-webkit-scrollbar:horizontal,
+.erp-table-viewport-hscroll-active > .el-table__inner-wrapper > .el-table__header-wrapper::-webkit-scrollbar:horizontal {
   height: 0;
 }
 
-/* 只藏表内横条；竖条留给定高表拖动 */
+.erp-table-viewport-hscroll-active > .el-table__inner-wrapper > .el-table__header-wrapper::-webkit-scrollbar {
+  height: 0;
+}
+
+/* 只藏 EP 表内横条；竖条留给定高表拖动 */
 .erp-table-viewport-hscroll-active > .el-table__inner-wrapper > .el-table__body-wrapper > .el-scrollbar > .el-scrollbar__bar.is-horizontal {
   display: none !important;
 }

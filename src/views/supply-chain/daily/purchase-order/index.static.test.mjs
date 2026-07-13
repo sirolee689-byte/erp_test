@@ -70,6 +70,18 @@ describe('purchase-order index static UI contract', () => {
     assert.match(source, /formatErpTrimDecimal\(row\.tax/)
   })
 
+  test('purchase-order delivery header uses a date button to open the picker once', () => {
+    assert.match(source, /openLinesBatchDeliveryDatePicker/)
+    assert.match(source, /linesBatchDeliveryPickerRef/)
+    assert.match(source, /handleOpen\(\)/)
+    assert.match(source, /class="buy-delivery-header__button"/)
+    assert.match(source, /class="buy-delivery-floating-picker"/)
+    assert.match(source, /:teleported="false"/)
+    assert.match(source, /buy-delivery-floating-picker__control/)
+    assert.match(source, /linesBatchDeliveryPickerStyle/)
+    assert.match(source, />\s*日期\s*</)
+  })
+
   test('purchase-order detail lines batch add keeps quantity empty and trims edit inputs', () => {
     assert.match(source, /resolveBatchLineQuantity/)
     assert.match(source, /formatBuyLineTaxInput/)

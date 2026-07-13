@@ -1,43 +1,56 @@
 <template>
-  <div class="erp-module-page">
+  <div class="erp-module-page pq-quote-page">
     <!--
       采购报价：UB_ERP_Buy_offer + UB_ERP_Buy_offer_list
-      主表分页；展开懒加载明细；查看/新增/编辑弹窗（主表表单 + 明细表）
+      顶栏「管理 / 添加」；列表分页 + 展开明细；新增/编辑为页内嵌面板（对齐外协报价/入库单）
     -->
-    <el-card shadow="never">
+    <div class="pq-mode-bar erp-mode-bar">
+      <el-button
+        :type="pageMode === 'manage' ? 'primary' : 'default'"
+        plain
+        @click="switchToManage"
+      >
+        管理采购报价
+      </el-button>
+      <el-button
+        v-permission="'add'"
+        :type="pageMode === 'create' || pageMode === 'edit' ? 'primary' : 'default'"
+        plain
+        @click="switchToCreate"
+      >
+        采购报价添加
+      </el-button>
+    </div>
+
+    <el-card v-show="pageMode === 'manage'" shadow="never">
       <template #header>
         <span class="page-title">{{ pageTitle }}</span>
       </template>
-      <p class="page-desc">
-        主表 <code>UB_ERP_Buy_offer</code>（单号 <code>cgaa01</code>）与明细 <code>UB_ERP_Buy_offer_list</code>（<code>cgab01</code>）关联；列表汇总明细
-        <code>cgab04</code>/<code>cgab05</code>；供应商字段为 <code>kehu</code>（界面称供应商/外协商）。
-      </p>
 
-      <div class="search-row">
-        <el-input
-          v-model="keyword"
-          placeholder="关键词（匹配主表文本字段）"
-          clearable
-          style="max-width: 360px"
-          @keyup.enter="onSearch"
-        />
-        <div class="audit-switch">
-          <span class="switch-label">回收站</span>
-          <el-switch v-model="showRecycle" @change="onRecycleChange" />
+      <div class="pq-filter-bar erp-filter-bar">
+        <div class="pq-filter-row erp-filter-row">
+          <el-input
+            v-model="keyword"
+            clearable
+            class="pq-filter-keyword"
+            placeholder="关键词（匹配主表文本字段）"
+            @keyup.enter="onSearch"
+          />
+          <el-button type="primary" size="small" @click="onSearch">查询</el-button>
+          <el-button size="small" @click="onReset">重置</el-button>
+          <div class="pq-filter-divider erp-filter-divider" aria-hidden="true" />
+          <div class="pq-filter-switch erp-filter-switch">
+            <span class="switch-label">回收站</span>
+            <el-switch v-model="showRecycle" @change="onRecycleChange" />
+          </div>
+          <template v-if="!showRecycle">
+            <div class="pq-filter-divider erp-filter-divider" aria-hidden="true" />
+            <div class="pq-filter-switch erp-filter-switch">
+              <span class="switch-label">显示未审核</span>
+              <el-switch v-model="showUnAudited" @change="onSearch" />
+            </div>
+          </template>
         </div>
-        <div v-if="!showRecycle" class="audit-switch">
-          <span class="switch-label">显示未审核</span>
-          <el-switch v-model="showUnAudited" @change="onSearch" />
-        </div>
-        <el-button type="primary" @click="onSearch">查询</el-button>
-        <el-button @click="onReset">重置</el-button>
-        <el-button v-if="!showRecycle" v-permission="'add'" type="success" plain @click="openCreate">
-          新增报价
-        </el-button>
-        <el-button class="btn-view" :loading="loading" @click="loadData">
-          <el-icon class="btn-icon"><Refresh /></el-icon>
-          刷新
-        </el-button>
       </div>
 
       <el-alert v-if="errorMessage" :title="errorMessage" type="error" show-icon class="error-alert" />
@@ -73,7 +86,7 @@
         <template #default>
           <el-table
             ref="pqMainTableRef"
-            class="pq-main-table"
+            class="pq-main-table erp-list-table"
             :data="tableList"
             row-key="id"
             border
@@ -136,36 +149,7 @@
               </template>
             </el-table-column>
 
-            <el-table-column label="采购报价单号" prop="cgaa01" min-width="132" show-overflow-tooltip>
-              <template #default="{ row }">
-                <span class="code-bold">{{ displayQuotationNo(row) }}</span>
-              </template>
-            </el-table-column>
-
-            <el-table-column label="采购报价日期" width="118" show-overflow-tooltip>
-              <template #default="{ row }">{{ quoteDateDisplay(row) }}</template>
-            </el-table-column>
-
-            <el-table-column label="报价汇总" min-width="340" show-overflow-tooltip>
-              <template #default="{ row }">{{ quoteSummaryRow(row) }}</template>
-            </el-table-column>
-
-            <el-table-column label="有效期" width="118" show-overflow-tooltip>
-              <template #default="{ row }">{{ validUntilDisplay(row) }}</template>
-            </el-table-column>
-
-            <el-table-column label="供应商/外协商" prop="kehu" min-width="160" show-overflow-tooltip />
-
-            <el-table-column label="备注" prop="remark" min-width="140" show-overflow-tooltip />
-
-            <el-table-column label="审核" width="88">
-              <template #default="{ row }">
-                <el-tag v-if="passIsAudited(row)" type="success" size="small">已审</el-tag>
-                <el-tag v-else type="warning" size="small">未审</el-tag>
-              </template>
-            </el-table-column>
-
-            <el-table-column label="操作" :width="quoteActionsColWidth" fixed="right" class-name="erp-col-actions">
+            <el-table-column label="操作" :width="quoteActionsColWidth" fixed="left" class-name="erp-col-actions">
               <template #default="{ row }">
                 <ErpTableActions>
                   <template v-if="showRecycle">
@@ -233,6 +217,47 @@
                   </template>
                 </ErpTableActions>
               </template>
+            </el-table-column>
+
+            <el-table-column label="采购报价单号" prop="cgaa01" min-width="132" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span class="code-bold">{{ displayQuotationNo(row) }}</span>
+              </template>
+            </el-table-column>
+
+            <el-table-column label="状态" width="88">
+              <template #default="{ row }">
+                <el-tag v-if="passIsAudited(row)" type="success" size="small">已审</el-tag>
+                <el-tag v-else type="warning" size="small">未审</el-tag>
+              </template>
+            </el-table-column>
+
+            <el-table-column label="采购报价日期" width="118" show-overflow-tooltip>
+              <template #default="{ row }">{{ quoteDateDisplay(row) }}</template>
+            </el-table-column>
+
+            <el-table-column label="采购报价数据" min-width="340" show-overflow-tooltip>
+              <template #default="{ row }">{{ quoteSummaryRow(row) }}</template>
+            </el-table-column>
+
+            <el-table-column label="供应商/外协商" prop="kehu" min-width="160" show-overflow-tooltip />
+
+            <el-table-column label="备注" prop="remark" min-width="140" show-overflow-tooltip />
+
+            <el-table-column label="客户报价单号" prop="cgaa06" min-width="120" show-overflow-tooltip>
+              <template #default="{ row }">{{ formatCell(lineField(row, 'cgaa06')) }}</template>
+            </el-table-column>
+
+            <el-table-column label="关联单号" prop="PI" min-width="120" show-overflow-tooltip>
+              <template #default="{ row }">{{ formatCell(lineField(row, 'PI')) }}</template>
+            </el-table-column>
+
+            <el-table-column label="有效期" width="118" show-overflow-tooltip>
+              <template #default="{ row }">{{ validUntilDisplay(row) }}</template>
+            </el-table-column>
+
+            <el-table-column label="币别" prop="rmb" width="100" show-overflow-tooltip>
+              <template #default="{ row }">{{ formatCell(lineField(row, 'rmb')) }}</template>
             </el-table-column>
           </el-table>
 
@@ -319,113 +344,125 @@
       </div>
     </el-dialog>
 
-    <!-- 新增/编辑：Tab — 基础资料 / 明细 -->
-    <el-dialog
-      v-model="editVisible"
-      :title="editMode === 'create' ? '新增采购报价' : '编辑采购报价'"
-      width="75%"
-      top="5vh"
-      draggable
-      destroy-on-close
-      :close-on-click-modal="false"
-      class="pq-edit-dialog"
-    >
+    <!-- 新增/编辑：页内嵌面板（基础资料 / 明细 Tab） -->
+    <section v-show="editVisible" v-loading="editLoading" class="pq-edit-panel">
+      <div class="pq-edit-panel__header">
+        <h2 class="pq-edit-panel__title">
+          {{ editMode === 'create' ? '新增采购报价' : '编辑采购报价' }}
+        </h2>
+        <div class="pq-edit-panel__actions">
+          <el-button @click="switchToManage">取消</el-button>
+          <el-button type="primary" :loading="editSaving" :disabled="detailLocked" @click="submitEdit">
+            保存
+          </el-button>
+        </div>
+      </div>
       <div class="edit-wrap">
         <el-tabs v-model="editActiveTab" class="pq-edit-tabs" @tab-change="onEditTabChange">
           <el-tab-pane label="报价单基础资料" name="basic">
             <el-form label-width="122px" class="pq-basic-form" @submit.prevent>
-              <el-row :gutter="10">
-                <el-col :xs="24" :sm="14">
-                  <el-form-item label="报价单号" required>
-                    <div class="pq-docno-row">
-                      <el-input v-model="basicForm.cgaa01" clearable placeholder="采购报价单号 cgaa01" />
-                      <el-button :loading="docNoChecking" @click="checkQuotationDocNo">编码检测</el-button>
-                    </div>
-                  </el-form-item>
-                </el-col>
-                <el-col :xs="24" :sm="10">
-                  <el-form-item label="报价日期">
-                    <el-date-picker
-                      v-model="basicForm.quoteDate"
-                      type="date"
-                      value-format="YYYY-MM-DD"
-                      placeholder="选择报价日期（写入 addtime / cgaa02）"
-                      style="width: 100%"
+              <!-- 行1：报价单号 -->
+              <div class="pq-basic-row">
+                <el-form-item label="报价单号" required>
+                  <el-input
+                    v-model="basicForm.cgaa01"
+                    class="pq-field-w"
+                    clearable
+                    placeholder="采购报价单号"
+                  />
+                </el-form-item>
+              </div>
+              <!-- 行2：报价日期、有效日期 -->
+              <div class="pq-basic-row">
+                <el-form-item label="报价日期">
+                  <el-date-picker
+                    v-model="basicForm.quoteDate"
+                    class="pq-field-w"
+                    type="date"
+                    value-format="YYYY-MM-DD"
+                    placeholder="报价日期"
+                  />
+                </el-form-item>
+                <el-form-item label="有效日期">
+                  <el-date-picker
+                    v-model="basicForm.validUntil"
+                    class="pq-field-w"
+                    type="date"
+                    value-format="YYYY-MM-DD"
+                    placeholder="有效期"
+                    clearable
+                  />
+                </el-form-item>
+              </div>
+              <!-- 行3：供应商/外协商 -->
+              <div class="pq-basic-row">
+                <el-form-item label="供应商/外协商">
+                  <el-select
+                    v-model="basicForm.kehu"
+                    class="pq-field-w2"
+                    filterable
+                    remote
+                    reserve-keyword
+                    placeholder="远程搜索（pass=1 且在册）"
+                    :remote-method="searchSuppliers"
+                    :loading="supplierLoading"
+                    clearable
+                    @visible-change="onSupplierDropdownVisible"
+                  >
+                    <el-option
+                      v-for="opt in supplierOptions"
+                      :key="`${opt.id}-${opt.s_code || ''}`"
+                      :label="formatSupplierOptionLabel(opt)"
+                      :value="opt.s_name"
                     />
-                  </el-form-item>
-                </el-col>
-                <el-col :xs="24" :sm="10">
-                  <el-form-item label="有效日期">
-                    <el-date-picker
-                      v-model="basicForm.validUntil"
-                      type="date"
-                      value-format="YYYY-MM-DD"
-                      placeholder="有效期 cgaa07"
-                      clearable
-                      style="width: 100%"
+                  </el-select>
+                </el-form-item>
+              </div>
+              <!-- 行4：客户报价单号、币别、小数点配置 -->
+              <div class="pq-basic-row">
+                <el-form-item label="客户报价单号">
+                  <el-input
+                    v-model="basicForm.cgaa06"
+                    class="pq-field-w"
+                    clearable
+                    placeholder="客户报价单号"
+                  />
+                </el-form-item>
+                <el-form-item label="币别">
+                  <el-select v-model="currencyCode" class="pq-field-w" placeholder="选择币别" clearable>
+                    <el-option
+                      v-for="opt in CURRENCY_OPTIONS"
+                      :key="opt.code"
+                      :label="`${opt.code}，${opt.name}`"
+                      :value="opt.code"
                     />
-                  </el-form-item>
-                </el-col>
-                <el-col :xs="24" :sm="14">
-                  <el-form-item label="供应商">
-                    <el-select
-                      v-model="basicForm.kehu"
-                      filterable
-                      remote
-                      reserve-keyword
-                      placeholder="远程搜索（pass=1 且在册）"
-                      :remote-method="searchSuppliers"
-                      :loading="supplierLoading"
-                      clearable
-                      style="width: 100%"
-                      @visible-change="onSupplierDropdownVisible"
-                    >
-                      <el-option
-                        v-for="opt in supplierOptions"
-                        :key="`${opt.id}-${opt.s_code || ''}`"
-                        :label="formatSupplierOptionLabel(opt)"
-                        :value="opt.s_name"
-                      />
-                    </el-select>
-                  </el-form-item>
-                </el-col>
-                <el-col :xs="24" :sm="14">
-                  <el-form-item label="币别">
-                    <el-select v-model="currencyCode" placeholder="选择币别" clearable style="width: 100%">
-                      <el-option
-                        v-for="opt in CURRENCY_OPTIONS"
-                        :key="opt.code"
-                        :label="`${opt.code}，${opt.name}`"
-                        :value="opt.code"
-                      />
-                    </el-select>
-                  </el-form-item>
-                </el-col>
-                <el-col :xs="24" :sm="10">
-                  <el-form-item label="小数位数">
-                    <el-input-number
-                      v-model="basicForm.decimalPlaces"
-                      :min="0"
-                      :max="8"
-                      :step="1"
-                      controls-position="right"
-                      style="width: 100%"
-                    />
-                  </el-form-item>
-                </el-col>
-                <el-col :span="24">
-                  <el-form-item label="备注">
-                    <el-input
-                      v-model="basicForm.remark"
-                      type="textarea"
-                      :rows="3"
-                      maxlength="500"
-                      show-word-limit
-                      placeholder="备注 remark"
-                    />
-                  </el-form-item>
-                </el-col>
-              </el-row>
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="小数点配置">
+                  <el-input-number
+                    v-model="basicForm.decimalPlaces"
+                    class="pq-field-w3"
+                    :min="0"
+                    :max="8"
+                    :step="1"
+                    controls-position="right"
+                  />
+                </el-form-item>
+              </div>
+              <!-- 行5：备注 -->
+              <div class="pq-basic-row">
+                <el-form-item label="备注">
+                  <el-input
+                    v-model="basicForm.remark"
+                    class="pq-field-w2"
+                    type="textarea"
+                    :rows="3"
+                    maxlength="500"
+                    show-word-limit
+                    placeholder="备注"
+                  />
+                </el-form-item>
+              </div>
             </el-form>
           </el-tab-pane>
           <el-tab-pane label="采购报价明细" name="lines">
@@ -608,13 +645,7 @@
           </el-tab-pane>
         </el-tabs>
       </div>
-      <template #footer>
-        <el-button @click="editVisible = false">取消</el-button>
-        <el-button type="primary" :loading="editSaving" :disabled="detailLocked" @click="submitEdit">
-          保存
-        </el-button>
-      </template>
-    </el-dialog>
+    </section>
 
     <MaterialSelector
       v-model="materialSelectorVisible"
@@ -635,13 +666,18 @@ import { computed, reactive, ref, watch } from 'vue'
 defineOptions({ name: 'supply-chain-daily-purchase-quote' })
 const { onErpListRowContextMenu } = useErpListRowContextMenu()
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { DocumentCopy, Refresh, Search } from '@element-plus/icons-vue'
+import { DocumentCopy, Search } from '@element-plus/icons-vue'
 import axios from 'axios'
 import MaterialSelector from './MaterialSelector.vue'
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
 import { createExpandPrefetch } from '@/utils/erpExpandPrefetch.js'
 
 const pageTitle = '采购报价'
+
+/** manage | create | edit — 顶栏模式；表单区用 editVisible 控制显示 */
+const pageMode = ref('manage')
+/** 是否已初始化过添加面板（用于切回「添加」时保留未保存草稿） */
+const createPanelInitialized = ref(false)
 
 const loading = ref(false)
 const errorMessage = ref('')
@@ -674,13 +710,13 @@ const bomDetailLoading = ref(false)
 const bomDetailEntries = ref([])
 
 const editVisible = ref(false)
+const editLoading = ref(false)
 const editMode = ref('create')
 const editId = ref(null)
 /** 编辑时服务端返回的完整主表快照（合并后再提交，保留未出现在表单中的列） */
 const loadedEditHeader = ref(null)
 const editActiveTab = ref('basic')
 const editSaving = ref(false)
-const docNoChecking = ref(false)
 const supplierLoading = ref(false)
 /** @type {import('vue').Ref<{ id: unknown, s_code: string, s_name: string }[]>} */
 const supplierOptions = ref([])
@@ -698,6 +734,7 @@ const basicForm = reactive({
   quoteDate: '',
   validUntil: '',
   kehu: '',
+  cgaa06: '',
   decimalPlaces: 4,
   remark: '',
 })
@@ -1250,6 +1287,7 @@ function resetBasicForm() {
   basicForm.quoteDate = formatTodayYmd()
   basicForm.validUntil = ''
   basicForm.kehu = ''
+  basicForm.cgaa06 = ''
   basicForm.decimalPlaces = 4
   basicForm.remark = ''
   currencyCode.value = '001'
@@ -1266,25 +1304,29 @@ async function fetchSuggestedDocNo() {
   }
 }
 
-async function checkQuotationDocNo() {
+/**
+ * 保存前单号查重（无「编码检测」按钮）。
+ * 编辑且单号未改时跳过：check-doc-no 不带 excludeId，会把自己判成重复。
+ * @returns {Promise<boolean>} true=可继续保存
+ */
+async function ensureDocNoAvailableBeforeSave() {
   const code = String(basicForm.cgaa01 ?? '').trim()
-  if (!code) {
-    ElMessage.warning('请先填写报价单号')
-    return
+  if (!code) return false
+  if (editMode.value === 'edit' && loadedEditHeader.value) {
+    const orig = String(lineField(loadedEditHeader.value, 'cgaa01') ?? '').trim()
+    if (orig && orig === code) return true
   }
-  docNoChecking.value = true
   try {
     const res = await axios.get('/api/supply-chain/purchase-quotations/check-doc-no', {
       params: { cgaa01: code },
     })
     const ok = res?.data?.data?.available
-    const msg = res?.data?.data?.message
-    if (ok) ElMessage.success('该单号可以使用')
-    else ElMessage.error(String(msg || '单号已在在册记录中存在'))
+    if (ok) return true
+    ElMessage.error(String(res?.data?.data?.message || `单号「${code}」已在在册记录中存在`))
+    return false
   } catch (e) {
-    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '检测失败'))
-  } finally {
-    docNoChecking.value = false
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '单号查重失败'))
+    return false
   }
 }
 
@@ -1320,6 +1362,7 @@ function buildHeaderForSubmit() {
   const header = {
     cgaa01: String(basicForm.cgaa01 ?? '').trim(),
     kehu: String(basicForm.kehu ?? '').trim(),
+    cgaa06: String(basicForm.cgaa06 ?? '').trim(),
     remark: String(basicForm.remark ?? '').trim(),
     cgaa05: cur.code,
     rmb: cur.name,
@@ -1336,17 +1379,38 @@ function buildHeaderForSubmit() {
   return header
 }
 
-async function openCreate() {
-  editMode.value = 'create'
-  editId.value = null
-  loadedEditHeader.value = null
-  dialogHeaderPass.value = '0'
-  editActiveTab.value = 'basic'
-  editSaving.value = false
-  resetBasicForm()
-  lineRows.value = []
+function switchToManage() {
+  editVisible.value = false
+  pageMode.value = 'manage'
+}
+
+async function switchToCreate() {
+  if (pageMode.value === 'create' && editVisible.value) return
+
+  const preserveDraft =
+    createPanelInitialized.value &&
+    editMode.value === 'create' &&
+    pageMode.value !== 'edit'
+
+  pageMode.value = 'create'
   editVisible.value = true
-  await fetchSuggestedDocNo()
+
+  if (!preserveDraft) {
+    editMode.value = 'create'
+    editId.value = null
+    loadedEditHeader.value = null
+    dialogHeaderPass.value = '0'
+    editActiveTab.value = 'basic'
+    editSaving.value = false
+    resetBasicForm()
+    lineRows.value = []
+    await fetchSuggestedDocNo()
+  }
+  createPanelInitialized.value = true
+}
+
+async function openCreate() {
+  await switchToCreate()
 }
 
 async function openView(row) {
@@ -1408,8 +1472,12 @@ async function openEdit(row) {
   }
   editMode.value = 'edit'
   editId.value = row.id
+  pageMode.value = 'edit'
   editSaving.value = false
   editActiveTab.value = 'basic'
+  createPanelInitialized.value = true
+  editVisible.value = true
+  editLoading.value = true
   try {
     const res = await axios.get(`/api/supply-chain/purchase-quotations/${row.id}`)
     const header = { ...(res?.data?.data?.header ?? {}) }
@@ -1418,6 +1486,7 @@ async function openEdit(row) {
 
     basicForm.cgaa01 = String(lineField(header, 'cgaa01') ?? '').trim()
     basicForm.kehu = String(lineField(header, 'kehu') ?? '').trim()
+    basicForm.cgaa06 = String(lineField(header, 'cgaa06') ?? '').trim()
     basicForm.remark = String(lineField(header, 'remark') ?? '').trim()
     const addt = lineField(header, 'addtime')
     const c2 = lineField(header, 'cgaa02')
@@ -1441,9 +1510,12 @@ async function openEdit(row) {
       else applyInclToEx(x)
       return x
     })
-    editVisible.value = true
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '加载失败'))
+    switchToManage()
+    editId.value = null
+  } finally {
+    editLoading.value = false
   }
 }
 
@@ -1493,6 +1565,11 @@ async function submitEdit() {
     return
   }
   if (!validateQuoteLines()) return
+  const docOk = await ensureDocNoAvailableBeforeSave()
+  if (!docOk) {
+    editActiveTab.value = 'basic'
+    return
+  }
   editSaving.value = true
   try {
     const header = buildHeaderForSubmit()
@@ -1508,7 +1585,7 @@ async function submitEdit() {
       })
       ElMessage.success('保存成功')
     }
-    editVisible.value = false
+    switchToManage()
     loadData()
   } catch (e) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '保存失败'))
@@ -1645,29 +1722,48 @@ loadData()
 </script>
 
 <style scoped>
-.erp-module-page {
+.pq-quote-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   min-height: 200px;
+}
+.pq-mode-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  padding: 10px 12px;
+  border-left: 4px solid var(--el-color-primary);
+  background: var(--el-fill-color-lighter);
 }
 .page-title {
   font-size: 18px;
   font-weight: 600;
 }
-.page-desc {
-  margin: 0 0 12px;
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-}
-.page-desc code {
-  font-size: 12px;
-}
-.search-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
+.pq-filter-bar {
   margin-bottom: 12px;
 }
-.audit-switch {
+.pq-filter-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+}
+.pq-filter-keyword {
+  flex: 0 1 420px;
+  width: min(420px, 100%);
+}
+.pq-filter-divider {
+  width: 1px;
+  align-self: stretch;
+  min-height: 22px;
+  margin: 0 12px;
+  background: var(--el-border-color);
+}
+.pq-filter-switch {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1679,9 +1775,6 @@ loadData()
 .error-alert,
 .audit-alert {
   margin-bottom: 12px;
-}
-.btn-view .btn-icon {
-  margin-right: 4px;
 }
 .code-bold {
   font-weight: 600;
@@ -1721,68 +1814,107 @@ loadData()
   max-height: 280px;
   overflow: auto;
 }
-/* 新增/编辑弹窗：加宽不改占比前提下放大字号与行距，避免「大屏宽、字显小」 */
-.pq-edit-dialog :deep(.el-dialog__header) {
-  padding-bottom: 12px;
-  margin-right: 0;
-}
-.pq-edit-dialog :deep(.el-dialog__title) {
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 1.35;
-  letter-spacing: 0.02em;
-}
-.pq-edit-dialog :deep(.el-dialog__body) {
-  padding-top: 8px;
+/* 新增/编辑页内嵌面板 */
+.pq-edit-panel {
+  box-sizing: border-box;
+  min-height: 360px;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--el-border-color-light);
+  background: var(--el-bg-color);
   font-size: 15px;
   line-height: 1.55;
 }
-.pq-edit-dialog :deep(.el-dialog__footer) {
-  padding-top: 16px;
+.pq-edit-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
 }
-.pq-edit-dialog :deep(.el-dialog__footer .el-button) {
+.pq-edit-panel__title {
+  margin: 0;
+  font-size: var(--pq-edit-title-size, 18px);
+  font-weight: 600;
+}
+.pq-edit-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.pq-edit-panel__actions :deep(.el-button) {
   font-size: 15px;
   padding: 10px 22px;
 }
 .pq-edit-tabs {
   margin-top: -4px;
 }
-.pq-edit-dialog .pq-edit-tabs :deep(.el-tabs__item) {
+.pq-edit-panel .pq-edit-tabs :deep(.el-tabs__item) {
   font-size: 15px;
   padding: 0 20px;
   height: 42px;
   line-height: 42px;
 }
-.pq-edit-dialog .pq-edit-tabs :deep(.el-tabs__nav-wrap::after) {
+.pq-edit-panel .pq-edit-tabs :deep(.el-tabs__nav-wrap::after) {
   height: 1px;
 }
 .pq-basic-form {
   padding-top: 8px;
+  max-width: 1180px;
 }
-.pq-edit-dialog .pq-basic-form :deep(.el-form-item) {
+.pq-basic-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0 8px;
+}
+.pq-basic-row > .el-form-item {
+  margin-right: 0;
+}
+/* 基础资料固定宽度：基准 250；双倍 500；三分之一约 83 */
+.pq-field-w {
+  width: 250px !important;
+  max-width: 100%;
+}
+.pq-field-w2 {
+  width: 500px !important;
+  max-width: 100%;
+}
+.pq-field-w3 {
+  width: 83px !important;
+  max-width: 100%;
+}
+.pq-edit-panel .pq-basic-form :deep(.el-form-item) {
   margin-bottom: 18px;
 }
-.pq-edit-dialog .pq-basic-form :deep(.el-form-item__label) {
+.pq-edit-panel .pq-basic-form :deep(.el-form-item__label) {
   font-size: 15px;
   line-height: 36px;
   color: var(--el-text-color-primary);
 }
-.pq-edit-dialog .pq-basic-form :deep(.el-input__inner),
-.pq-edit-dialog .pq-basic-form :deep(.el-textarea__inner) {
+.pq-edit-panel .pq-basic-form :deep(.el-input__inner),
+.pq-edit-panel .pq-basic-form :deep(.el-textarea__inner) {
   font-size: 15px;
 }
-.pq-edit-dialog .pq-basic-form :deep(.el-input__wrapper) {
+.pq-edit-panel .pq-basic-form :deep(.el-input__wrapper) {
   font-size: 15px;
 }
-.pq-edit-dialog .pq-basic-form :deep(.el-select .el-select__wrapper),
-.pq-edit-dialog .pq-basic-form :deep(.el-select__placeholder) {
+.pq-edit-panel .pq-basic-form :deep(.el-select .el-select__wrapper),
+.pq-edit-panel .pq-basic-form :deep(.el-select__placeholder) {
   font-size: 15px;
 }
-.pq-edit-dialog .pq-basic-form :deep(.el-date-editor .el-input__wrapper) {
+.pq-edit-panel .pq-basic-form :deep(.el-date-editor.pq-field-w) {
+  width: 250px !important;
+  max-width: 100%;
+}
+.pq-edit-panel .pq-basic-form :deep(.el-date-editor .el-input__wrapper) {
   font-size: 15px;
 }
-.pq-edit-dialog .pq-docno-row :deep(.el-button) {
-  font-size: 14px;
+.pq-edit-panel .pq-basic-form :deep(.el-select.pq-field-w),
+.pq-edit-panel .pq-basic-form :deep(.el-select.pq-field-w2) {
+  width: inherit;
+}
+.pq-edit-panel .pq-basic-form :deep(.el-input-number.pq-field-w3) {
+  width: 83px !important;
 }
 .pq-lines-hint {
   margin: 0 0 10px;
@@ -1790,24 +1922,12 @@ loadData()
   line-height: 1.5;
   color: var(--el-text-color-secondary);
 }
-.pq-docno-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  width: 100%;
-  align-items: center;
-}
-.pq-docno-row .el-input {
-  flex: 1;
-  min-width: 160px;
-}
-/* 明细横向滚动条与编码区留白，避免误点滚动条 */
-.pq-edit-dialog .pq-lines-table :deep(.el-table),
-.pq-edit-dialog .pq-lines-table :deep(.el-table__header .cell),
-.pq-edit-dialog .pq-lines-table :deep(.el-table__body .cell) {
+.pq-edit-panel .pq-lines-table :deep(.el-table),
+.pq-edit-panel .pq-lines-table :deep(.el-table__header .cell),
+.pq-edit-panel .pq-lines-table :deep(.el-table__body .cell) {
   font-size: 14px;
 }
-.pq-edit-dialog .pq-lines-table :deep(.el-input__inner) {
+.pq-edit-panel .pq-lines-table :deep(.el-input__inner) {
   font-size: 14px;
 }
 .pq-lines-table :deep(.el-table__body-wrapper) {

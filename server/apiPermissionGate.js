@@ -279,7 +279,11 @@ export function matchApiPermissionRule(method, path, body, params) {
   }
 
   /* BOM 用量运算：写 UB_ERP_Bom_cost（须先于 GET /api/bom/tree） */
-  if (m === 'POST' && (path === '/api/bom/usage-calc' || path === '/api/bom/usage-calc-batch')) {
+  if (m === 'POST' && (
+    path === '/api/bom/usage-calc'
+    || path === '/api/bom/usage-calc-batch'
+    || path === '/api/bom/usage-calc-legacy'
+  )) {
     return {
       anyOf: [
         { menuPath: 'inv/bom', action: 'edit' },
@@ -647,7 +651,16 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'DELETE' && /^\/api\/assist-order\/\d+(?:\/hard)?$/.test(path)) {
     return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'delete' }
   }
-  if (m === 'GET' && /^\/api\/buy-order(?:\/list|\/supplier-options|\/currency-options|\/pi-options|\/batch-add-lines|\/material-options|\/fee-options|\/print-data)?$/.test(path)) {
+  /* 选 PI 候选：采购单与物料单共用；有其一 view 即可（物料单「查询内容」弹窗） */
+  if (m === 'GET' && path === '/api/buy-order/pi-options') {
+    return {
+      anyOf: [
+        { menuPath: 'supply-chain/daily/purchase-order', action: 'view' },
+        { menuPath: 'production/analysis/material-sheet', action: 'view' },
+      ],
+    }
+  }
+  if (m === 'GET' && /^\/api\/buy-order(?:\/list|\/supplier-options|\/currency-options|\/batch-add-lines|\/material-options|\/fee-options|\/print-data)?$/.test(path)) {
     return { menuPath: 'supply-chain/daily/purchase-order', action: 'view' }
   }
   if (m === 'POST' && path === '/api/buy-order/batch-add-prices') {

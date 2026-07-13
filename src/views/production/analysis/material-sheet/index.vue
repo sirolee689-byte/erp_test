@@ -27,7 +27,7 @@
         <div class="column-setting-panel">
           <div class="column-setting-title">勾选要显示的列（打印同步）</div>
           <el-checkbox-group v-model="checkedColumnKeys" @change="onColumnSettingChange">
-            <el-checkbox v-for="col in reportColumns" :key="col.key" :label="col.key">{{ col.label }}</el-checkbox>
+            <el-checkbox v-for="col in columnSettingOptions" :key="col.key" :label="col.key">{{ col.label }}</el-checkbox>
           </el-checkbox-group>
           <div class="column-setting-actions">
             <el-button link type="primary" @click="resetColumnSetting">恢复默认</el-button>
@@ -65,7 +65,7 @@
                       <th v-if="hasColumn('match')" class="col-match">搭配</th>
                       <th v-if="hasColumn('unit')" class="col-unit">单位</th>
                       <th v-if="hasColumn('usage')" class="col-num">用量</th>
-                      <th v-if="hasColumn('loss')" class="col-num">损耗</th>
+                      <th v-if="hasColumn('loss')" class="col-loss">损耗</th>
                       <th v-if="hasColumn('total')" class="col-num">合计</th>
                       <th v-if="hasColumn('singleTotal')" class="col-num">单物料合计</th>
                     </tr>
@@ -99,14 +99,14 @@
               <thead>
                 <tr>
                   <th v-if="hasColumn('seq')" class="col-index">序号</th>
-                  <th v-if="hasColumn('code')" class="col-code">ERP编码</th>
+                  <th v-if="hasColumn('code')" class="col-code">编码</th>
                   <th v-if="hasColumn('color')" class="col-color">颜色</th>
                   <th v-if="hasColumn('name')">名称</th>
                   <th v-if="hasColumn('spec')">规格</th>
                   <th v-if="hasColumn('match')" class="col-match">搭配</th>
                   <th v-if="hasColumn('unit')" class="col-unit">单位</th>
                   <th v-if="hasColumn('usage')" class="col-num">用量</th>
-                  <th v-if="hasColumn('loss')" class="col-num">损耗</th>
+                  <th v-if="hasColumn('loss')" class="col-loss">损耗</th>
                   <th v-if="hasColumn('total')" class="col-num">合计</th>
                   <th v-if="hasColumn('singleTotal')" class="col-num">单物料合计</th>
                 </tr>
@@ -283,7 +283,10 @@ import { aggregateBomCostUsageFlatForDisplay } from '@/utils/bomCostUsageAggrega
 const REPORT_BRAND = '中山市卓越皮具有限公司'
 const REPORT_TITLE = '成本物料单统计报表（成本价物料明细）'
 const DETAIL_MATERIAL_SHEET_COL_COUNT = 11
-const SUMMARY_MATERIAL_SHEET_COL_COUNT = 11
+/** 汇总不含「单物料合计」，最多 10 列 */
+const SUMMARY_MATERIAL_SHEET_COL_COUNT = 10
+/** 仅明细页签提供的列（汇总表/打印/导出/列设置均不出现） */
+const DETAIL_ONLY_COLUMN_KEYS = new Set(['singleTotal'])
 const COLUMN_SETTING_STORAGE_KEY = 'erp.production.materialSheet.columnSetting.v1'
 const reportColumns = [
   { key: 'seq', label: '序号' },
@@ -323,9 +326,9 @@ const DETAIL_HEADER_FIELD_ROWS = [
 ]
 
 const DETAIL_EXPORT_HEADERS = ['序号', '编码', '颜色', '名称', '规格', '搭配', '单位', '用量', '损耗', '合计', '单物料合计']
-const SUMMARY_EXPORT_HEADERS = ['序号', 'ERP编码', '颜色', '名称', '规格', '搭配', '单位', '用量', '损耗', '合计', '单物料合计']
-const DETAIL_MATERIAL_SHEET_EXPORT_COL_WIDTHS = [8, 18, 10, 18, 18, 14, 8, 12, 10, 12, 14]
-const SUMMARY_MATERIAL_SHEET_EXPORT_COL_WIDTHS = [8, 18, 10, 18, 18, 14, 8, 12, 10, 12, 14]
+const SUMMARY_EXPORT_HEADERS = ['序号', 'ERP编码', '颜色', '名称', '规格', '搭配', '单位', '用量', '损耗', '合计']
+const DETAIL_MATERIAL_SHEET_EXPORT_COL_WIDTHS = [8, 18, 14, 18, 18, 14, 8, 12, 10, 12, 14]
+const SUMMARY_MATERIAL_SHEET_EXPORT_COL_WIDTHS = [8, 18, 14, 18, 18, 14, 8, 12, 10, 12]
 const MATERIAL_SHEET_EXPORT_THIN_BORDER = {
   top: { style: 'thin', color: { argb: 'FF333333' } },
   left: { style: 'thin', color: { argb: 'FF333333' } },
@@ -440,9 +443,19 @@ const materialHeaders = ref([])
 const generatedAt = ref('')
 const reportCode = ref('')
 const checkedColumnKeys = ref(loadColumnSetting())
+/** 列设置勾选项：汇总页不提供「单物料合计」 */
+const columnSettingOptions = computed(() =>
+  activeTab.value === 'summary'
+    ? reportColumns.filter((col) => !DETAIL_ONLY_COLUMN_KEYS.has(col.key))
+    : reportColumns,
+)
 const visibleReportColumns = computed(() => {
-  const cols = reportColumns.filter((col) => checkedColumnKeys.value.includes(col.key))
-  return cols.length ? cols : reportColumns
+  const source =
+    activeTab.value === 'summary'
+      ? reportColumns.filter((col) => !DETAIL_ONLY_COLUMN_KEYS.has(col.key))
+      : reportColumns
+  const cols = source.filter((col) => checkedColumnKeys.value.includes(col.key))
+  return cols.length ? cols : source
 })
 const queryForm = reactive({ piNo: '' })
 const piDialogPageSizes = [10, 20, 50, 100]
@@ -627,6 +640,8 @@ function resetColumnSetting() {
 }
 
 function hasColumn(key) {
+  // 汇总页硬性隐藏仅明细列，避免本地列设置残留勾选仍显示
+  if (activeTab.value === 'summary' && DETAIL_ONLY_COLUMN_KEYS.has(key)) return false
   return checkedColumnKeys.value.includes(key)
 }
 
@@ -1241,9 +1256,6 @@ function onPrintMaterialSheet() {
   font-weight: 600;
   background: #eef4fb;
 }
-.report-table tbody tr:nth-child(even) {
-  background: #fafcff;
-}
 .report-table tbody tr:hover {
   background: #edf6ff;
 }
@@ -1254,22 +1266,28 @@ function onPrintMaterialSheet() {
   font-weight: 600;
 }
 .col-index {
-  width: 58px;
+  width: 18px;
 }
 .col-code {
   width: 150px;
 }
 .col-color {
-  width: 90px;
+  /* 颜色含「编码,中文名」，略加宽；汇总多色用分号拼接时靠自动换行 */
+  width: 100px;
 }
 .col-match {
   width: 92px;
 }
 .col-unit {
-  width: 62px;
+  width: 30px;
 }
 .col-num {
-  width: 90px;
+  /* 用量 / 合计 / 单物料合计 共用列宽 */
+  width: 49px;
+}
+.col-loss {
+  /* 损耗列独立宽度（与 .col-num 分开，可单独改） */
+  width: 28px;
 }
 @media (max-width: 900px) {
   .top-search-row {

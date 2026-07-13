@@ -532,7 +532,14 @@
               <el-button type="danger" plain @click="deleteAllBuyLines">删除全部明细</el-button>
               <el-button type="primary" @click="openBuyBatchAdd">批量添加</el-button>
             </div>
-            <el-table :data="form.lines" border class="buy-lines-table" :row-class-name="buyLineRowClassName">
+            <el-table
+              ref="linesTableRef"
+              v-erp-list-h-scroll
+              :data="form.lines"
+              border
+              class="erp-list-table buy-lines-table"
+              :row-class-name="buyLineRowClassName"
+            >
               <el-table-column v-if="!isReadonlyForm" label="选择" width="88" align="center" fixed="left">
                 <template #default="{ row }">
                   <el-button
@@ -624,7 +631,21 @@
               <el-table-column label="PO/PI" min-width="150" show-overflow-tooltip>
                 <template #default="{ row }">{{ linePoPiText(row) }}</template>
               </el-table-column>
-              <el-table-column label="交货日期" width="160">
+              <!-- DIY：列头批量交货日期；标题在上、下方按钮一键打开日期面板 purchase-order/index.vue -->
+              <el-table-column :width="isReadonlyForm ? 160 : 180" label-class-name="buy-delivery-header-cell">
+                <template #header>
+                  <div class="buy-delivery-header">
+                    <span class="buy-delivery-header__title">交货日期</span>
+                    <el-button
+                      v-if="!isReadonlyForm"
+                      size="small"
+                      class="buy-delivery-header__button"
+                      @click.stop="openLinesBatchDeliveryDatePicker($event)"
+                    >
+                      日期
+                    </el-button>
+                  </div>
+                </template>
                 <template #default="{ row }">
                   <template v-if="isReadonlyForm">{{ fmtDate(row.deliveryDate) || '-' }}</template>
                   <el-date-picker v-else v-model="row.deliveryDate" type="date" value-format="YYYY-MM-DD" />
@@ -637,6 +658,19 @@
                 </template>
               </el-table-column>
             </el-table>
+            <span v-if="!isReadonlyForm" class="buy-delivery-floating-picker" :style="linesBatchDeliveryPickerStyle">
+              <el-date-picker
+                ref="linesBatchDeliveryPickerRef"
+                v-model="linesBatchDeliveryDate"
+                type="date"
+                value-format="YYYY-MM-DD"
+                :clearable="false"
+                :editable="false"
+                :teleported="false"
+                class="buy-delivery-floating-picker__control"
+                @change="onLinesBatchDeliveryDateChange"
+              />
+            </span>
           </el-tab-pane>
           <el-tab-pane label="额外费用清单" name="fees">
             <div v-if="!isReadonlyForm" class="line-toolbar">
@@ -758,6 +792,11 @@ const currentYear = String(new Date().getFullYear())
 const pageMode = ref('manage')
 const createPanelInitialized = ref(false)
 const listTableRef = ref(null)
+const linesTableRef = ref(null)
+const linesBatchDeliveryPickerRef = ref(null)
+const linesBatchDeliveryPickerStyle = reactive({ left: '0px', top: '0px' })
+/** 明细列头批量交货日期：选中后覆盖当前行，并作为后续新增行默认值 */
+const linesBatchDeliveryDate = ref('')
 const createPanelRef = ref(null)
 const activeTab = ref('header')
 const loading = ref(false)
@@ -838,6 +877,48 @@ const rules = {
   referenceNo: [{ validator: (_r, _v, cb) => (['1', '2'].includes(form.header.buyType) && !form.header.referenceNo ? cb(new Error('请选择或填写关联单号')) : cb()), trigger: 'blur' }],
   supplierCode: [{ required: true, message: '请选择供应商', trigger: 'change' }],
   currencyCode: [{ required: true, message: '请选择币别', trigger: 'change' }],
+}
+
+async function refreshLinesTableHScroll() {
+  await nextTick()
+  linesTableRef.value?.doLayout?.()
+  const el = linesTableRef.value?.$el
+  if (el) refreshErpTableViewportHScroll(el)
+}
+
+watch([activeTab, () => form.lines.length, isFormPanel], ([tab, , inForm]) => {
+  if (!inForm || tab !== 'lines') return
+  refreshLinesTableHScroll()
+})
+
+/** 列头选日期：立刻覆盖当前全部明细交货日期；清空列头只清记忆、不动各行 */
+function onLinesBatchDeliveryDateChange(val) {
+  const date = String(val || '').trim()
+  if (!date) return
+  form.lines.forEach((line) => {
+    line.deliveryDate = date
+  })
+}
+
+async function openLinesBatchDeliveryDatePicker(event) {
+  const rect = event?.currentTarget?.getBoundingClientRect?.()
+  if (rect) {
+    linesBatchDeliveryPickerStyle.left = `${Math.round(rect.left)}px`
+    linesBatchDeliveryPickerStyle.top = `${Math.round(rect.bottom + 4)}px`
+  }
+  await nextTick()
+  const picker = linesBatchDeliveryPickerRef.value
+  if (typeof picker?.handleOpen === 'function') {
+    picker.handleOpen()
+    return
+  }
+  picker?.focus?.()
+}
+
+function resolveNewLineDeliveryDate(rowDate) {
+  const batch = String(linesBatchDeliveryDate.value || '').trim()
+  if (batch) return batch
+  return String(rowDate || '').trim()
 }
 
 const buyTypeOptions = computed(() => {
@@ -1123,6 +1204,7 @@ function resetFormData() {
   form.lines = []
   form.fees = []
   selectedPis.value = []
+  linesBatchDeliveryDate.value = ''
   editId.value = null
   viewId.value = null
   formRef.value?.clearValidate?.()
@@ -1379,6 +1461,7 @@ function buyExpandSummaryMethod(rows, { columns }) {
   })
 }
 function hydrateForm(data) {
+  linesBatchDeliveryDate.value = ''
   const h1 = data.header || {}
   Object.assign(form.header, {
     numberType: String(h1.kcaj01 || '').startsWith('PO-') ? 'PO' : String(h1.kcaj01 || '').startsWith('ZY-') ? 'ZY' : currentYear,
@@ -1467,7 +1550,7 @@ function addMaterial() {
     taxIncludedAmount: 0,
     taxExcludedAmount: 0,
     tax: resolveLineTax(),
-    deliveryDate: '',
+    deliveryDate: resolveNewLineDeliveryDate(''),
     info: '',
     _lineMarked: false,
   })
@@ -1592,7 +1675,7 @@ function applyBatchAddLines(lines) {
       taxIncludedAmount: hasPrice.value ? Number(row.taxIncludedAmount ?? row.kcak051 ?? 0) : 0,
       taxExcludedAmount: hasPrice.value ? Number(row.taxExcludedAmount ?? row.kcak05 ?? 0) : 0,
       tax: resolveLineTax(row.tax),
-      deliveryDate: row.deliveryDate || '',
+      deliveryDate: resolveNewLineDeliveryDate(row.deliveryDate),
       info: row.info || '',
       _lineMarked: false,
     }
@@ -2415,6 +2498,56 @@ onUnmounted(() => {
   font-size: 12px;
   line-height: 1.2;
   white-space: nowrap;
+}
+/* DIY：交货日期列头批量选择器（标题在上、日期按钮在下） purchase-order/index.vue .buy-delivery-header */
+.buy-delivery-header {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  line-height: 1.2;
+}
+.buy-delivery-header__title {
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 13px;
+}
+.buy-delivery-header__button {
+  width: 48px;
+  height: 24px;
+  padding: 0;
+  font-size: 12px;
+}
+.buy-delivery-floating-picker {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  z-index: 3000;
+}
+:deep(.buy-delivery-floating-picker__control) {
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+:deep(.buy-delivery-floating-picker__control .el-input__wrapper) {
+  width: 1px;
+  height: 1px;
+  min-height: 1px;
+  padding: 0;
+  box-shadow: none;
+}
+/* DIY：仅交货日期列表头按内容撑高，避免全局表格裁切该日期按钮 purchase-order/index.vue */
+:deep(.buy-lines-table .buy-delivery-header-cell.el-table__cell) {
+  padding-top: 4px;
+  padding-bottom: 4px;
+  overflow: visible;
+}
+:deep(.buy-lines-table .buy-delivery-header-cell .cell) {
+  overflow: visible;
+  white-space: normal;
 }
 
 .buy-material-trace-panel {

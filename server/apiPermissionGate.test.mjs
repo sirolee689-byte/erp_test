@@ -98,6 +98,26 @@ describe('matchApiPermissionRule — 采购报价', () => {
   })
 })
 
+describe('matchApiPermissionRule — 采购 PI 候选（物料单共用）', () => {
+  test('GET /api/buy-order/pi-options：采购订单或物料单 view 任一即可', () => {
+    const rule = matchApiPermissionRule('GET', '/api/buy-order/pi-options', {}, {})
+    assert.ok(rule?.anyOf)
+    const keys = rule.anyOf.map((x) => `${x.menuPath}:${x.action}`).sort()
+    assert.deepEqual(keys, [
+      'production/analysis/material-sheet:view',
+      'supply-chain/daily/purchase-order:view',
+    ])
+  })
+
+  test('其它 buy-order 只读列表仍仅挂采购订单 view（未扩大）', () => {
+    const rule = matchApiPermissionRule('GET', '/api/buy-order/list', {}, {})
+    assert.deepEqual(rule, {
+      menuPath: 'supply-chain/daily/purchase-order',
+      action: 'view',
+    })
+  })
+})
+
 describe('matchApiPermissionRule — 未匹配路径', () => {
   test('未知路径返回 null（仅登录校验）', () => {
     assert.equal(matchApiPermissionRule('GET', '/api/not-a-real-route', {}, {}), null)

@@ -287,6 +287,12 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
     targetTable: 'UB_ERP_Bom_cost',
   },
   {
+    method: 'POST',
+    path: '/api/bom/usage-calc-legacy',
+    action: '旧口径BOM用量运算并写入UB_ERP_Bom_cost明细',
+    targetTable: 'UB_ERP_Bom_cost',
+  },
+  {
     method: 'GET',
     path: '/api/bom/tree',
     action: '查询BOM用量树(只读递归)+成本用量平铺(内存不落库)',

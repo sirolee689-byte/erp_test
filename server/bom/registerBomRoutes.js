@@ -9,7 +9,7 @@ import {
   resolveActorAuditTripletFromReq,
 } from '../businessAuditFields.js'
 import { writeLog } from '../operationLogWriter.js'
-import { getSysUsersColumnsMeta } from '../sysUsersDb.js'
+import { getSysUsersColumnsMeta, resolveSysUserIsAdminByUserId } from '../sysUsersDb.js'
 import {
   BOM_CONSUMPTION_FROM,
   BOM_COST_FROM,
@@ -34,7 +34,10 @@ import {
   isPqBomCostHead,
 } from '../bomCostEnrichFromBom000.js'
 import { buildBomPartsUsageTreeNodes } from '../bomUsageTreeBuild.js'
-import { flattenBomPartsCostUsageFlatForBomCost } from '../bomUsageFlatten.js'
+import {
+  flattenBomPartsCostUsageFlatForBomCost,
+  flattenBomPartsCostUsageFlatForLegacyBomCost,
+} from '../bomUsageFlatten.js'
 import { handlePostBomMasterPropagate } from '../bomMasterPropagate.js'
 import { markCurrentBomCostStale } from '../bomCostImpactScope.js'
 
@@ -2198,7 +2201,7 @@ async function fetchBomUsageCalcEligibility(pool, systemcode) {
   }
 }
 
-async function runBomUsageCalcForHead(pool, head, hidePrefixes, actor) {
+async function runBomUsageCalcForHead(pool, head, hidePrefixes, actor, legacyCutMultiplier = false) {
   const systemcode = String(head?.sid ?? head?.systemcode ?? '').trim()
   const pq = String(head?.pq ?? '').trim()
   if (!systemcode || !pq) throw new Error('主档缺少 systemcode 或物料编码')
@@ -2209,7 +2212,9 @@ async function runBomUsageCalcForHead(pool, head, hidePrefixes, actor) {
   const data = await buildBomPartsUsageTreeNodes(pool, systemcode, 1, bomHeadStack)
   const treeMs = Date.now() - tTree0
   const tFlat0 = Date.now()
-  const flatCostUsageRaw = flattenBomPartsCostUsageFlatForBomCost(data, null, [])
+  const flatCostUsageRaw = legacyCutMultiplier
+    ? flattenBomPartsCostUsageFlatForLegacyBomCost(data, null, [])
+    : flattenBomPartsCostUsageFlatForBomCost(data, null, [])
   const flatMs = Date.now() - tFlat0
   const bomCostInsertPayload = buildBomCostInsertPayloadFromFlatUsage(
     flatCostUsageRaw,
@@ -2285,6 +2290,7 @@ async function runBomUsageCalcForHead(pool, head, hidePrefixes, actor) {
     bomCost,
     metrics: {
       systemcode,
+      legacyCutMultiplier,
       flatRows: flatCostUsageRaw.length,
       bomCostFlatRows: flatCostUsageRaw.length,
       bomCostRows: bomCost.length,
@@ -2295,6 +2301,18 @@ async function runBomUsageCalcForHead(pool, head, hidePrefixes, actor) {
       totalMs,
     },
   }
+}
+
+/** 旧一键运算只允许超级管理员，必须实时读库而非相信前端隐藏。 */
+async function assertLegacyBomUsageCalcAdmin(pool, req) {
+  const actor = await resolveActorAuditTripletFromReq(pool, req)
+  const uid = actor.uidInt ?? req?.user?.userId ?? req?.user?.UserID
+  if (!(await resolveSysUserIsAdminByUserId(pool, uid))) {
+    const err = new Error('仅超级管理员可使用一键运算(旧)')
+    err.status = 403
+    throw err
+  }
+  return actor
 }
 
 /**
@@ -2485,6 +2503,51 @@ app.post('/api/bom/usage-calc', async (req, res) => {
       return
     }
     console.error('POST /api/bom/usage-calc 失败：', err)
+    res.status(500).json({ success: false, msg: 'UB_ERP_Bom_cost写入失败', total: 0 })
+  }
+})
+
+/**
+ * 旧系统兼容运算：仅 CUT- 中间层倍率与普通一键运算不同，仍覆盖当前 pq + sid 的成本缓存。
+ * POST /api/bom/usage-calc-legacy
+ */
+app.post('/api/bom/usage-calc-legacy', async (req, res) => {
+  try {
+    const systemcode = String(req.body?.systemcode ?? '').trim()
+    if (!systemcode) {
+      res.status(400).json({ success: false, msg: '参数错误：systemcode 不能为空', total: 0 })
+      return
+    }
+    const hidePrefixes = normalizeBomCostHidePrefixesServer(
+      Array.isArray(req.body?.hidePrefixes) ? req.body.hidePrefixes : [],
+    )
+    const pool = await getPool()
+    const actor = await assertLegacyBomUsageCalcAdmin(pool, req)
+    const head = await fetchBomUsageHeadBySystemcode(pool, systemcode)
+    if (!head) {
+      res.status(404).json({ success: false, msg: '未找到对应主档或主档缺少 systemcode', total: 0 })
+      return
+    }
+
+    const calc = await runBomUsageCalcForHead(pool, head, hidePrefixes, actor, true)
+    console.log('[bom-usage-calc-legacy]', JSON.stringify(calc.metrics))
+    res.json({
+      success: true,
+      total: calc.total,
+      data: calc.data,
+      flatCostUsageRaw: calc.flatCostUsageRaw,
+      bomCost: calc.bomCost,
+    })
+  } catch (err) {
+    if (Number(err?.status) === 403) {
+      res.status(403).json({ success: false, msg: String(err.message), total: 0 })
+      return
+    }
+    if (err?.code === 'BOM_CYCLE') {
+      res.status(409).json({ success: false, msg: String(err.message ?? '检测到BOM循环引用'), total: 0 })
+      return
+    }
+    console.error('POST /api/bom/usage-calc-legacy 失败：', err)
     res.status(500).json({ success: false, msg: 'UB_ERP_Bom_cost写入失败', total: 0 })
   }
 })
@@ -2700,10 +2763,20 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
           ELSE LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(p.kcaa03, N''))))
         END AS kcaa03,
         LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcaa04, N'')))) AS kcaa04,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(p.kcaa05, N'')))) AS p_kcaa05,
+        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p.kcaa06, N'')))) AS p_kcaa06,
+        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(p.kcaa09, N'')))) AS p_kcaa09,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(p.kcaa10, N'')))) AS p_kcaa10,
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(p.kcaa15, N'')))) AS p_kcaa15,
         CASE
           WHEN bh.j11 IS NOT NULL AND LTRIM(RTRIM(bh.j11)) <> N'' THEN bh.j11
           ELSE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(p.kcaa11, N''))))
         END AS kcaa11,
+        bh.j05,
+        bh.j06,
+        bh.j09,
+        bh.j10,
+        bh.j15,
         ${bomPartsNumericColAsDecimalSql('p.kcac04')} AS kcac04,
         ${bomPartsNumericColAsDecimalSql('p.kcac05')} AS kcac05,
         ${bomPartsNumericColAsDecimalSql('p.kcac06')} AS kcac06,
@@ -2720,7 +2793,12 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
           LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) AS j01,
           LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa02, N'')))) AS j02,
           LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(b.kcaa03, N'')))) AS j03,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.kcaa05, N'')))) AS j05,
+          LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa06, N'')))) AS j06,
+          LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa09, N'')))) AS j09,
+          LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.kcaa10, N'')))) AS j10,
           LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(b.kcaa11, N'')))) AS j11,
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.kcaa15, N'')))) AS j15,
           LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS child_systemcode,
           LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(10), b.pass), N''))) AS child_pass
         FROM ${INV_BOM_MASTER_FROM} AS b
@@ -2750,6 +2828,12 @@ app.get('/api/inventory/bom/parts/:systemcode', async (req, res) => {
       kcaa02: row.kcaa02 != null ? String(row.kcaa02) : '',
       kcaa03: row.kcaa03 != null ? String(row.kcaa03) : '',
       kcaa04: row.kcaa04 != null ? String(row.kcaa04) : '',
+      /** 基础资料列：子 BOM 主档优先，空值回退 UB_ERP_Bom_parts 快照。 */
+      kcaa05: row.j05 != null && String(row.j05).trim() ? String(row.j05) : String(row.p_kcaa05 ?? ''),
+      kcaa06: row.j06 != null && String(row.j06).trim() ? String(row.j06) : String(row.p_kcaa06 ?? ''),
+      kcaa09: row.j09 != null && String(row.j09).trim() ? String(row.j09) : String(row.p_kcaa09 ?? ''),
+      kcaa10: row.j10 != null && String(row.j10).trim() ? String(row.j10) : String(row.p_kcaa10 ?? ''),
+      kcaa15: row.j15 != null && String(row.j15).trim() ? String(row.j15) : String(row.p_kcaa15 ?? ''),
       kcaa11: row.kcaa11 != null ? String(row.kcaa11) : '',
       kcac04: Number(row.kcac04 ?? 0),
       kcac05: Number(row.kcac05 ?? 0),

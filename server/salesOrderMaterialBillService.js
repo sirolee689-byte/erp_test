@@ -13,6 +13,19 @@ const HEADER_FROM = `dbo.[${SALES_ORDER_HEADER_TABLE}]`
 const LINE_FROM = 'dbo.[UB_ERP_Sales_order_list]'
 const PI_COST_FROM = 'dbo.[UB_ERP_Bom_pi_cost]'
 const PI_CONSUMPTION_FROM = 'dbo.[UB_ERP_Bom_pi_consumption]'
+const COLOR_FROM = 'dbo.[UB_ERP_Stocks_colorcode]'
+
+/**
+ * 颜色展示对齐 BOM 资料：有中文名则「编码,中文名」，否则只留编码。
+ * @param {unknown} code
+ * @param {unknown} colorName
+ */
+export function formatMaterialBillColorDisplay(code, colorName) {
+  const c = String(code ?? '').trim()
+  if (!c) return ''
+  const name = String(colorName ?? '').trim()
+  return name ? `${c},${name}` : c
+}
 
 /** @type {Promise<string> | null} */
 let CALC_COL_PROMISE = null
@@ -111,6 +124,7 @@ export function buildMaterialBillConsumptionLinesFromCost(costLines) {
       if (!target.kcaa03) target.kcaa03 = String(row?.kcaa03 ?? '')
       if (!target.kcaa04) target.kcaa04 = String(row?.kcaa04 ?? '')
     }
+    // colorCode 在明细侧已是「编码,中文名」展示串；汇总多色用分号拼接
     if (colorCode) target.colorSet.add(colorCode)
     target.sumay += scaledUsage
     target.sumby += scaledTotal
@@ -122,7 +136,7 @@ export function buildMaterialBillConsumptionLinesFromCost(costLines) {
     return {
       id: idx + 1,
       kcaa01: row?.kcaa01 ?? '',
-      kcaa11: row ? [...row.colorSet].join(',') : '',
+      kcaa11: row ? [...row.colorSet].join(';') : '',
       kcaa02: row?.kcaa02 ?? '',
       kcaa03: row?.kcaa03 ?? '',
       kcaa04: row?.kcaa04 ?? '',
@@ -158,7 +172,7 @@ export function buildMaterialBillCostLines(recordset, qtyByProduct = new Map()) 
       id: row.id,
       pq,
       kcaa01: String(row.kcaa01 ?? ''),
-      kcaa11: String(row.kcaa11 ?? '').trim(),
+      kcaa11: formatMaterialBillColorDisplay(row.kcaa11, row.colorName),
       kcaa02: String(row.kcaa02 ?? ''),
       kcaa03: String(row.kcaa03 ?? ''),
       kcaa04: String(row.kcaa04 ?? ''),
@@ -244,36 +258,41 @@ export async function fetchSalesOrderMaterialBill(pool, id) {
     orderQty: Number(row.orderQty ?? 0),
   }))
   const qtyByProduct = new Map(lines.map((l) => [l.kcaa01, l.orderQty]))
+  // 颜色中文名：LEFT JOIN 颜色编码表（与 BOM 资料同口径，按 code = kcaa11）
   const costR = await pool.request().input('pi', sql.NVarChar(200), piNo).query(`
     SELECT
-      [id],
-      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL([pq], N'')))) AS pq,
-      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL([kcaa01], N'')))) AS kcaa01,
-      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([kcaa02], N'')))) AS kcaa02,
-      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([kcaa03], N'')))) AS kcaa03,
-      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL([kcaa04], N'')))) AS kcaa04,
-      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL([kcaa11], N'')))) AS kcaa11,
-      CAST(ISNULL([kcac04], 0) AS decimal(18, 6)) AS kcac04,
-      CAST(ISNULL([kcac05], 0) AS decimal(18, 6)) AS kcac05,
-      CAST(ISNULL([kcac06], 0) AS decimal(18, 6)) AS kcac06,
+      c.[id],
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[pq], N'')))) AS pq,
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[kcaa01], N'')))) AS kcaa01,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(c.[kcaa02], N'')))) AS kcaa02,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(c.[kcaa03], N'')))) AS kcaa03,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.[kcaa04], N'')))) AS kcaa04,
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.[kcaa11], N'')))) AS kcaa11,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(color.[name], N'')))) AS colorName,
+      CAST(ISNULL(c.[kcac04], 0) AS decimal(18, 6)) AS kcac04,
+      CAST(ISNULL(c.[kcac05], 0) AS decimal(18, 6)) AS kcac05,
+      CAST(ISNULL(c.[kcac06], 0) AS decimal(18, 6)) AS kcac06,
       CASE
-        WHEN [px] IS NULL THEN NULL
-        WHEN ISNUMERIC(LTRIM(RTRIM(CONVERT(nvarchar(100), [px])))) = 1
-          THEN CONVERT(int, LTRIM(RTRIM(CONVERT(nvarchar(100), [px]))))
+        WHEN c.[px] IS NULL THEN NULL
+        WHEN ISNUMERIC(LTRIM(RTRIM(CONVERT(nvarchar(100), c.[px])))) = 1
+          THEN CONVERT(int, LTRIM(RTRIM(CONVERT(nvarchar(100), c.[px]))))
         ELSE NULL
       END AS px,
-      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([${matchCol}], N'')))) AS bnfo,
-      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([Describe], N'')))) AS Describe,
-      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL([top_kcaa01], N'')))) AS topKcaa01,
-      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([top_kcaa02], N'')))) AS topKcaa02
-    FROM ${PI_COST_FROM}
-    WHERE LTRIM(RTRIM(ISNULL([sid], N''))) = @pi
-      AND ISNULL([isok], 0) = 1
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(c.[${matchCol}], N'')))) AS bnfo,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(c.[Describe], N'')))) AS Describe,
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[top_kcaa01], N'')))) AS topKcaa01,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(c.[top_kcaa02], N'')))) AS topKcaa02
+    FROM ${PI_COST_FROM} AS c
+    LEFT JOIN ${COLOR_FROM} AS color
+      ON LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(200), c.[kcaa11]), N''))) =
+         LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(200), color.[code]), N'')))
+    WHERE LTRIM(RTRIM(ISNULL(c.[sid], N''))) = @pi
+      AND ISNULL(c.[isok], 0) = 1
     ORDER BY
-      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL([pq], N'')))) ASC,
-      CASE WHEN [px] IS NULL THEN 1 ELSE 0 END ASC,
-      [px] ASC,
-      [id] ASC
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(c.[pq], N'')))) ASC,
+      CASE WHEN c.[px] IS NULL THEN 1 ELSE 0 END ASC,
+      c.[px] ASC,
+      c.[id] ASC
   `)
 
   const costLines = buildMaterialBillCostLines(costR.recordset ?? [], qtyByProduct)

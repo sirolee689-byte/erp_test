@@ -84,7 +84,7 @@
 |----------|--------|-----------------|
 | 销售订单来源 | `UB_ERP_Sales_order` + `UB_ERP_Sales_order_list` | `xsak03` 销售数量；主表 `pass=1`、`del=0`、`closed=0` |
 | 销售订单运算状态 | `UB_ERP_Sales_order` + `UB_ERP_Bom_pi_cost` | 销售订单列表、详情、物料单入口、PI-BOM资料首页统一按 `UB_ERP_Bom_pi_cost.sid = xsaj01` 且 `isok=1` 判断；存在有效行显示已运算，否则显示未运算。主表 `isok/is_pur/sign` 不再作为显示状态主判断。 |
-| 物料单颜色与搭配展示 | `UB_ERP_Bom_pi_cost` + `UB_ERP_Sales_order` + `UB_ERP_Sales_order_list` | `GET /api/sales-order/:id/material-bill`：颜色取 `pi_cost.kcaa11`（空值保持空）；搭配优先 `bnfo`（历史库兼容 `binfo`）再回退 `Describe`；汇总按“编码 + 搭配”合并时，颜色做去重后逗号拼接。 |
+| 物料单颜色与搭配展示 | `UB_ERP_Bom_pi_cost` + `UB_ERP_Stocks_colorcode` + `UB_ERP_Sales_order` + `UB_ERP_Sales_order_list` | `GET /api/sales-order/:id/material-bill`：颜色取 `pi_cost.kcaa11`，LEFT JOIN `UB_ERP_Stocks_colorcode`（`code=kcaa11`）取 `name`，接口返回展示串「编码,中文名」（无名称则仅编码）；搭配优先 `bnfo`（历史库兼容 `binfo`）再回退 `Describe`；汇总按“编码 + 搭配”合并时，颜色展示串去重后用分号 `;` 拼接。 |
 | 已派工扣减 | `UB_ERP_Dispatch_order` + `UB_ERP_Dispatch_order_list` | `GET /api/dispatch-order/goods-options`；保存校验同口径；**本厂/大板**：按 `scaj04`(PI)+`scaj05`(车间)+`kcaa01` 独立池，不同车间互不占用；委外保留 `cj like '%生产%'` 或按 `scaj05` 特殊口径 |
 | 接口 | — | `GET /api/dispatch-order/goods-options`；`POST/PUT /api/dispatch-order` 保存前数量校验 |
 
