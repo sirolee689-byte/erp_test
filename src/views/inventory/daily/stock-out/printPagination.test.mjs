@@ -32,7 +32,7 @@ describe('stock-out print pagination', () => {
     assert.equal(blocks[0].lines.length, 51)
     assert.equal(blocks[0].showTotal, true)
     assert.equal(blocks[0].manualPageBreak, false)
-    assert.equal(blocks[0].pageLabel, '1-1 Pages')
+    assert.equal(blocks[0].pageLabel, '')
   })
 
   test('splits 51 rows into 6 blocks when 10 rows per page is selected', () => {
@@ -40,8 +40,22 @@ describe('stock-out print pagination', () => {
     assert.equal(blocks.length, 6)
     assert.deepEqual(blocks.map((block) => block.lines.length), [10, 10, 10, 10, 10, 1])
     assert.deepEqual(blocks.map((block) => block.showTotal), [false, false, false, false, false, true])
-    assert.equal(blocks[0].pageLabel, '(1)-(1) Pages')
-    assert.equal(blocks[5].pageLabel, '(6)-(1) Pages')
+    assert.equal(blocks[0].pageLabel, '1/6页')
+    assert.equal(blocks[5].pageLabel, '6/6页')
+  })
+
+  test('restarts page numbering for each document in a batch', () => {
+    const blocks = buildStockOutPrintBlocks([
+      makeDoc(32, { header: { systemcode: 'S1', kcap01: 'C0001' } }),
+      makeDoc(11, { header: { systemcode: 'S2', kcap01: 'C0002' } }),
+    ], '4')
+    const firstDocBlocks = blocks.filter((block) => block.header.kcap01 === 'C0001')
+    const secondDocBlocks = blocks.filter((block) => block.header.kcap01 === 'C0002')
+
+    assert.equal(firstDocBlocks[0].pageLabel, '1/8页')
+    assert.equal(firstDocBlocks.at(-1).pageLabel, '8/8页')
+    assert.equal(secondDocBlocks[0].pageLabel, '1/3页')
+    assert.equal(secondDocBlocks.at(-1).pageLabel, '3/3页')
   })
 
   test('uses the same split logic for detail and summary print modes', () => {

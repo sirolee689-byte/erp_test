@@ -1,6 +1,6 @@
 import { sql } from './db.js'
 import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
-import { getActorAuditTripletFromReq } from './businessAuditFields.js'
+import { getActorAuditTripletFromReq, resolveActorAuditTripletFromReq } from './businessAuditFields.js'
 import { getRequestIp } from './operationAuditMiddleware.js'
 import { resolveSysUserIsAdminByUserId } from './sysUsersDb.js'
 import {
@@ -871,10 +871,15 @@ export function registerStockOutRoutes(app, deps) {
     if (text(req.query?.p_sum)) {
       try {
         const pool = await getPool()
+        const auditActor = await resolveActorAuditTripletFromReq(pool, req)
         const result = await fetchStockOutPrintDocuments(pool, {
           pSum: req.query?.p_sum,
           printMode: req.query?.print_cn,
-          actor: req.user ?? req.session?.user ?? {},
+          actor: {
+            ...(req.user ?? req.session?.user ?? {}),
+            ...auditActor,
+            truename: auditActor.utruename ?? '',
+          },
         })
         if (!result.ok) {
           res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })

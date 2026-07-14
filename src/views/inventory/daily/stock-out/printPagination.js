@@ -5,16 +5,6 @@ export function normalizePrintRowsPerPage(value) {
   return n
 }
 
-function docIndexText(doc, index) {
-  const value = Number(doc?.pageIndex)
-  return Number.isFinite(value) && value > 0 ? String(value) : String(index + 1)
-}
-
-function docTotalText(doc, total) {
-  const value = Number(doc?.pageTotal)
-  return Number.isFinite(value) && value > 0 ? String(value) : String(total)
-}
-
 function docKey(doc, index) {
   return String(doc?.header?.systemcode || doc?.header?.kcap01 || index)
 }
@@ -30,7 +20,8 @@ export function buildStockOutPrintBlocks(docs, rowsPerPageValue) {
       chunkTotal: 1,
       showTotal: true,
       manualPageBreak: false,
-      pageLabel: `${docIndexText(doc, index)}-${docTotalText(doc, list.length)} Pages`,
+      // 自然分页受浏览器纸张和边距影响，打印前无法得出可靠物理页数。
+      pageLabel: '',
     }))
   }
 
@@ -52,7 +43,8 @@ export function buildStockOutPrintBlocks(docs, rowsPerPageValue) {
         chunkTotal: chunks.length,
         showTotal: pageNo === chunks.length,
         manualPageBreak: true,
-        pageLabel: `(${pageNo})-(${docIndexText(doc, index)}) Pages`,
+        // 每张出库单独立计页，下一张单据从 1/X 页重新开始。
+        pageLabel: `${pageNo}/${chunks.length}页`,
       }
     })
   })

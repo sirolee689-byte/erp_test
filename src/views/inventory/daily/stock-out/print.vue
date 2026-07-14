@@ -32,7 +32,7 @@
               &lt;{{ doc.printMode === '1' ? '明细' : '汇总' }}&gt;
               <span v-if="String(doc.header.pass) === '0'" class="stock-out-print-unaudited">【未审】</span>
             </div>
-            <div class="stock-out-print-pages">{{ doc.pageLabel }}</div>
+            <div v-if="doc.pageLabel" class="stock-out-print-pages">{{ doc.pageLabel }}</div>
             <div class="stock-out-print-no">NO. {{ doc.header.kcap01 }}</div>
           </div>
         </header>
@@ -54,7 +54,7 @@
               <th class="col-code">电脑编码</th>
               <th>材料名称</th>
               <th>规格</th>
-              <th>颜色</th>
+              <th class="col-color">颜色</th>
               <th class="col-unit">单位</th>
               <th class="col-qty">数量</th>
               <th>备注</th>
@@ -64,7 +64,7 @@
               <th class="col-code">电脑编码</th>
               <th>材料名称</th>
               <th>规格</th>
-              <th>颜色</th>
+              <th class="col-color">颜色</th>
               <th class="col-unit">单位</th>
               <th class="col-qty">数量</th>
             </tr>
@@ -252,7 +252,11 @@ function printPage() {
 }
 
 function goBack() {
-  window.history.back()
+  window.close()
+  // 不是脚本打开的页签可能被浏览器拒绝关闭，关闭失败后回退到来源页。
+  setTimeout(() => {
+    if (!window.closed) window.history.back()
+  }, 100)
 }
 
 onMounted(loadPrintData)
@@ -399,17 +403,22 @@ onMounted(loadPrintData)
   width: 130px;
 }
 
+/* DIY：打印「颜色」列固定宽 — print.vue .col-color */
+.stock-out-print-table .col-color {
+  width: 110px;
+}
+
 .stock-out-print-table .col-unit {
-  width: 58px;
+  width: 50px;
 }
 
 .stock-out-print-table .col-qty {
-  width: 80px;
+  width: 50px;
 }
 
 .stock-out-print-table .num {
-  text-align: right;
-  padding-right: 6px;
+  text-align: center;
+  padding-right: 2px;
 }
 
 .stock-out-print-total td {
