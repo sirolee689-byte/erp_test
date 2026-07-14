@@ -21,6 +21,15 @@
       >
         销售订单添加
       </el-button>
+      <el-button
+        class="so-mode-btn erp-mode-btn"
+        :type="pageMode === 'material-trace' ? 'primary' : 'default'"
+        plain
+        @click="switchToMaterialTrace"
+        @contextmenu.prevent="onErpModeBtnContextMenu('material-trace', $event)"
+      >
+        转向物料查询
+      </el-button>
     </div>
 
     <el-card v-show="!isSalesOrderStandaloneWindow && pageMode === 'manage' && !editVisible" shadow="never">
@@ -323,6 +332,10 @@
         </template>
       </el-skeleton>
     </el-card>
+
+    <section v-if="!isSalesOrderStandaloneWindow && pageMode === 'material-trace'" class="so-material-trace-panel">
+      <SalesOrderMaterialTracePanel />
+    </section>
 
     <section
       v-show="editVisible"
@@ -741,6 +754,7 @@ import { Refresh } from '@element-plus/icons-vue'
 import axios from 'axios'
 import { createExpandPrefetch } from '@/utils/erpExpandPrefetch.js'
 import MaterialSelector from '../purchase-quote/MaterialSelector.vue'
+import SalesOrderMaterialTracePanel from './material-trace-panel.vue'
 import {
   buildSalesOrderListQueryParams,
   formatCell,
@@ -1372,6 +1386,12 @@ function switchToManage() {
   editVisible.value = false
   viewId.value = null
   pageMode.value = 'manage'
+}
+
+function switchToMaterialTrace() {
+  editVisible.value = false
+  viewId.value = null
+  pageMode.value = 'material-trace'
 }
 
 async function switchToCreate() {

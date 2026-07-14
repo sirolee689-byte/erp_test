@@ -367,6 +367,8 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
     action: '查询销售订单币别选项',
     targetTable: 'UB_ERP_System_currency',
   },
+  { method: 'GET', path: '/api/sales-order/material-trace/categories', action: '查询销售订单转向物料分类', targetTable: 'UB_ERP_Bom_code' },
+  { method: 'GET', path: '/api/sales-order/material-trace/list', action: '查询销售订单转向物料列表', targetTable: 'UB_ERP_Sales_order_list,UB_ERP_Sales_order,UB_ERP_Stocks_material,UB_ERP_Finance_currency' },
   { method: 'GET', path: '/api/sales-order/list', action: '查询销售订单列表', targetTable: 'UB_ERP_Sales_order' },
   { method: 'GET', path: '/api/sales-order/pi-suggest', action: '查询销售订单 PI 候选', targetTable: 'UB_ERP_Sales_order' },
   { method: 'GET', path: '/api/sales-order/expand-lines/batch', action: '批量查询销售订单展开明细', targetTable: 'UB_ERP_Sales_order_list' },
@@ -453,6 +455,18 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
     path: /^\/api\/sales-order\/\d+\/material-bill$/,
     action: '查看销售订单物料单',
     targetTable: 'UB_ERP_Bom_pi_cost',
+  },
+  {
+    method: 'GET',
+    path: '/api/production/material-sheet/outsourcing-list',
+    action: '查看物料单外协清单',
+    targetTable: 'UB_ERP_Sales_order,UB_ERP_Bom_pi_cost,UB_ERP_Bom_Sales_list',
+  },
+  {
+    method: 'GET',
+    path: '/api/production/material-sheet/cut-position-list',
+    action: '查看物料单位置裁片清单',
+    targetTable: 'UB_ERP_Sales_order,UB_ERP_Bom_pi_cost,UB_ERP_Bom_Sales_list',
   },
   {
     method: 'GET',
@@ -588,6 +602,12 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
     path: '/api/supply-chain/purchase-quotations/lines/batch',
     action: '批量查询采购报价展开明细',
     targetTable: 'UB_ERP_Buy_offer_list',
+  },
+  {
+    method: 'POST',
+    path: '/api/supply-chain/purchase-quotations/excel-import/materials',
+    action: '核验采购报价Excel物料',
+    targetTable: 'UB_ERP_Bom_000',
   },
   {
     method: 'GET',

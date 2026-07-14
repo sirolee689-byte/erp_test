@@ -332,14 +332,19 @@ async function fetchBomPayload(row, opt = {}) {
     })
     const bom = res?.data?.data?.bom ?? {}
     return {
+      materialGuid: bomField(bom, 'GUID') || bomField(bom, 'systemcode'),
       kcaa01: bomField(bom, 'kcaa01') || code,
       kcaa02: bomField(bom, 'kcaa02') || String(row.name ?? '').trim(),
       kcaa03: bomField(bom, 'kcaa03') || String(row.spec ?? '').trim(),
+      kcaa04: bomField(bom, 'kcaa04'),
       kcaa06: bomField(bom, 'kcaa06'),
       kcaa09: bomField(bom, 'kcaa09'),
       kcaa10: bomField(bom, 'kcaa10'),
       kcaa11: bomField(bom, 'kcaa11'),
       kcaa05: bomField(bom, 'kcaa05') || String(row.unit ?? '').trim(),
+      kcaa25: bomField(bom, 'kcaa25'),
+      mq: bomField(bom, 'mq'),
+      zq: bomField(bom, 'zq'),
       version: bomField(bom, 'version'),
       remark: bomField(bom, 'remark') || String(row.remark ?? '').trim(),
     }
@@ -350,14 +355,19 @@ async function fetchBomPayload(row, opt = {}) {
         ElMessage.warning(`【${code}】未查到完整 BOM 资料，已使用列表字段填充`)
       }
       return {
+        materialGuid: '',
         kcaa01: code,
         kcaa02: String(row.name ?? '').trim(),
         kcaa03: String(row.spec ?? '').trim(),
+        kcaa04: '',
         kcaa06: '',
         kcaa09: '',
         kcaa10: '',
         kcaa11: '',
         kcaa05: String(row.unit ?? '').trim(),
+        kcaa25: '',
+        mq: '',
+        zq: '',
         version: '',
         remark: String(row.remark ?? '').trim(),
       }

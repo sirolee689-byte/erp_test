@@ -96,6 +96,20 @@ describe('matchApiPermissionRule — 采购报价', () => {
     )
     assert.ok(rule?.anyOf?.length >= 2)
   })
+
+  test('POST Excel 物料核验 → add', () => {
+    assert.deepEqual(
+      matchApiPermissionRule('POST', '/api/supply-chain/purchase-quotations/excel-import/materials', {}, {}),
+      { menuPath: 'supply-chain/daily/purchase-quote', action: 'add' },
+    )
+  })
+
+  test('转向物料查询使用采购报价 view 权限', () => {
+    assert.deepEqual(
+      matchApiPermissionRule('GET', '/api/supply-chain/purchase-quotations/material-query', {}, {}),
+      { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' },
+    )
+  })
 })
 
 describe('matchApiPermissionRule — 采购 PI 候选（物料单共用）', () => {
@@ -115,6 +129,30 @@ describe('matchApiPermissionRule — 采购 PI 候选（物料单共用）', () 
       menuPath: 'supply-chain/daily/purchase-order',
       action: 'view',
     })
+  })
+})
+
+describe('matchApiPermissionRule — 物料单外协清单', () => {
+  test('GET /api/production/material-sheet/outsourcing-list：销售订单或物料单 view 任一即可', () => {
+    const rule = matchApiPermissionRule('GET', '/api/production/material-sheet/outsourcing-list', {}, {})
+    assert.ok(rule?.anyOf)
+    const keys = rule.anyOf.map((x) => `${x.menuPath}:${x.action}`).sort()
+    assert.deepEqual(keys, [
+      'production/analysis/material-sheet:view',
+      'supply-chain/daily/sales-order:view',
+    ])
+  })
+})
+
+describe('matchApiPermissionRule — 物料单位置裁片清单', () => {
+  test('GET /api/production/material-sheet/cut-position-list：销售订单或物料单 view 任一即可', () => {
+    const rule = matchApiPermissionRule('GET', '/api/production/material-sheet/cut-position-list', {}, {})
+    assert.ok(rule?.anyOf)
+    const keys = rule.anyOf.map((x) => `${x.menuPath}:${x.action}`).sort()
+    assert.deepEqual(keys, [
+      'production/analysis/material-sheet:view',
+      'supply-chain/daily/sales-order:view',
+    ])
   })
 })
 

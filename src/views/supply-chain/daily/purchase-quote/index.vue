@@ -20,6 +20,13 @@
       >
         采购报价添加
       </el-button>
+      <el-button
+        :type="pageMode === 'material-query' ? 'primary' : 'default'"
+        plain
+        @click="switchToMaterialQuery"
+      >
+        转向物料查询
+      </el-button>
     </div>
 
     <el-card v-show="pageMode === 'manage'" shadow="never">
@@ -84,6 +91,7 @@
 
       <el-skeleton :loading="loading" animated :rows="6">
         <template #default>
+          <ErpTableViewportHScroll>
           <el-table
             ref="pqMainTableRef"
             class="pq-main-table erp-list-table"
@@ -98,7 +106,7 @@
            @row-contextmenu="onErpListRowContextMenu">
             <el-table-column type="expand">
               <template #default="{ row }">
-                <div v-loading="row.__linesLoading" class="expand-inner">
+                <div v-loading="row.__linesLoading" class="expand-inner" @click.stop>
                   <el-table
                     v-if="(row.__lines || []).length"
                     :data="row.__lines"
@@ -135,9 +143,9 @@
                     <el-table-column label="单价(含税)" width="112" show-overflow-tooltip>
                       <template #default="{ row: line }">{{ formatMoney(lineField(line, 'cgab05')) }}</template>
                     </el-table-column>
-                    <el-table-column label="税点" width="72" show-overflow-tooltip>
-                      <template #default="{ row: line }">{{ formatTaxPercent(lineField(line, 'Tax')) }}</template>
-                    </el-table-column>
+                      <el-table-column label="税点" width="72" show-overflow-tooltip>
+                        <template #default="{ row: line }">{{ formatTaxRateDisplay(lineField(line, 'Tax')) }}</template>
+                      </el-table-column>
                     <el-table-column label="备注" min-width="120" show-overflow-tooltip>
                       <template #default="{ row: line }">{{
                         formatCell(lineField(line, 'remark') ?? lineField(line, 'info'))
@@ -236,11 +244,11 @@
               <template #default="{ row }">{{ quoteDateDisplay(row) }}</template>
             </el-table-column>
 
-            <el-table-column label="采购报价数据" min-width="340" show-overflow-tooltip>
+            <el-table-column label="采购报价数据" min-width="640" show-overflow-tooltip>
               <template #default="{ row }">{{ quoteSummaryRow(row) }}</template>
             </el-table-column>
 
-            <el-table-column label="供应商/外协商" prop="kehu" min-width="160" show-overflow-tooltip />
+            <el-table-column label="供应商/外协商" prop="kehu" min-width="260" show-overflow-tooltip />
 
             <el-table-column label="备注" prop="remark" min-width="140" show-overflow-tooltip />
 
@@ -260,6 +268,7 @@
               <template #default="{ row }">{{ formatCell(lineField(row, 'rmb')) }}</template>
             </el-table-column>
           </el-table>
+          </ErpTableViewportHScroll>
 
           <div class="pagination-row pagination-row--bottom">
             <el-pagination
@@ -277,58 +286,60 @@
       </el-skeleton>
     </el-card>
 
-    <!-- 查看 -->
-    <el-dialog v-model="viewVisible" title="查看采购报价" width="920px" destroy-on-close>
-      <div v-loading="viewLoading" class="detail-wrap">
-        <h4 class="sub-title">主表</h4>
-        <el-descriptions :column="2" border size="small">
-          <el-descriptions-item v-for="([k, v], idx) in viewHeaderEntries" :key="idx" :label="k">
-            {{ formatCell(v) }}
-          </el-descriptions-item>
-        </el-descriptions>
-        <h4 class="sub-title">明细</h4>
-        <el-table v-if="viewLines.length" :data="viewLines" border size="small" style="width: 100%">
-          <el-table-column type="index" label="序号" width="58" />
-          <el-table-column label="操作" width="72">
-            <template #default="{ row: line }">
-              <el-button type="primary" link size="small" @click="openBomDetail(line)">查看</el-button>
-            </template>
-          </el-table-column>
-          <el-table-column label="材料编码" min-width="120" show-overflow-tooltip>
-            <template #default="{ row: line }">{{ formatCell(lineField(line, 'kcaa01')) }}</template>
-          </el-table-column>
-          <el-table-column label="材料名称" min-width="140" show-overflow-tooltip>
-            <template #default="{ row: line }">{{ formatCell(lineField(line, 'kcaa02')) }}</template>
-          </el-table-column>
-          <el-table-column label="规格" min-width="100" show-overflow-tooltip>
-            <template #default="{ row: line }">{{ formatCell(lineField(line, 'kcaa03')) }}</template>
-          </el-table-column>
-          <el-table-column label="颜色" width="88" show-overflow-tooltip>
-            <template #default="{ row: line }">{{ formatCell(lineField(line, 'kcaa11')) }}</template>
-          </el-table-column>
-          <el-table-column label="单位" width="72" show-overflow-tooltip>
-            <template #default="{ row: line }">{{ formatCell(lineField(line, 'kcaa05')) }}</template>
-          </el-table-column>
-          <el-table-column label="单价" width="100" show-overflow-tooltip>
-            <template #default="{ row: line }">{{ formatMoney(lineField(line, 'cgab04')) }}</template>
-          </el-table-column>
-          <el-table-column label="单价(含税)" width="112" show-overflow-tooltip>
-            <template #default="{ row: line }">{{ formatMoney(lineField(line, 'cgab05')) }}</template>
-          </el-table-column>
-          <el-table-column label="税点" width="72" show-overflow-tooltip>
-            <template #default="{ row: line }">{{ formatTaxPercent(lineField(line, 'Tax')) }}</template>
-          </el-table-column>
-          <el-table-column label="备注" min-width="120" show-overflow-tooltip>
-            <template #default="{ row: line }">{{
-              formatCell(lineField(line, 'remark') ?? lineField(line, 'info'))
-            }}</template>
-          </el-table-column>
-        </el-table>
-        <el-empty v-else description="暂无明细" />
-      </div>
-    </el-dialog>
-
     <!-- 明细行「查看」：BOM 主档资料 -->
+    <el-card v-show="pageMode === 'material-query'" shadow="never" class="pq-material-query-card">
+      <template #header><span class="page-title">按物料查询采购报价</span></template>
+      <div class="pq-filter-bar erp-filter-bar">
+        <div class="pq-filter-row erp-filter-row">
+          <el-input v-model="materialQuery.keyword" clearable class="pq-filter-keyword" placeholder="输入材料编码（支持模糊匹配）" @keyup.enter="onMaterialQuerySearch" />
+          <el-button type="primary" size="small" @click="onMaterialQuerySearch">查询</el-button>
+          <el-button size="small" @click="onMaterialQueryReset">重置</el-button>
+        </div>
+      </div>
+      <el-alert title="请输入材料编码后查询；仅显示主表和明细均已审核、未删除的采购报价记录，每条报价明细单独显示。" type="info" show-icon class="audit-alert" />
+      <div class="pagination-row pagination-row--top">
+        <el-pagination v-model:current-page="materialQuery.page" v-model:page-size="materialQuery.pageSize" background layout="total, sizes, prev, pager, next, jumper" :total="materialQuery.total" :page-sizes="ERP_PAGE_SIZE_OPTIONS" @size-change="onMaterialQueryPageSizeChange" @current-change="loadMaterialQuery" />
+      </div>
+      <el-skeleton :loading="materialQuery.loading" animated :rows="6">
+        <template #default>
+          <ErpTableViewportHScroll>
+          <el-table
+            ref="pqMaterialQueryTableRef"
+            :data="materialQuery.list"
+            border
+            stripe
+            class="erp-list-table pq-material-query-table"
+            style="width: 100%"
+            empty-text="暂无有效报价记录"
+          >
+            <el-table-column type="index" label="序号" width="58" />
+            <el-table-column label="材料编码" prop="kcaa01" min-width="130" show-overflow-tooltip />
+            <el-table-column label="中文名称" prop="kcaa02" min-width="140" show-overflow-tooltip />
+            <el-table-column label="英文名称" prop="kcaa02_en" min-width="160" show-overflow-tooltip />
+            <el-table-column label="规格" prop="kcaa03" min-width="120" show-overflow-tooltip />
+            <el-table-column label="单位" prop="kcaa05" width="82" show-overflow-tooltip />
+            <el-table-column v-if="materialQuery.availableFields.mq" label="最低定量" prop="mq" width="100" show-overflow-tooltip />
+            <el-table-column v-if="materialQuery.availableFields.zq" label="供货周期" prop="zq" width="100" show-overflow-tooltip />
+            <el-table-column label="明细备注" prop="info" min-width="150" show-overflow-tooltip />
+            <el-table-column label="未税单价" width="108"><template #default="{ row }">{{ formatMoney(row.cgab04) }}</template></el-table-column>
+            <el-table-column label="含税单价" width="108"><template #default="{ row }">{{ formatMoney(row.cgab05) }}</template></el-table-column>
+            <el-table-column label="税点" width="86"><template #default="{ row }">{{ formatTaxRateDisplay(row.Tax ?? row.tax) }}</template></el-table-column>
+            <el-table-column label="报价单号" prop="cgaa01" min-width="132" show-overflow-tooltip />
+            <el-table-column label="报价日期" width="112"><template #default="{ row }">{{ formatDateCell(row.cgaa02) }}</template></el-table-column>
+            <el-table-column label="供应商编码" prop="cgaa04" min-width="110" show-overflow-tooltip />
+            <el-table-column label="供应商名称" prop="kehu" min-width="150" show-overflow-tooltip />
+            <el-table-column label="币种" prop="rmb" width="90" show-overflow-tooltip />
+            <el-table-column label="汇率" prop="rmb_hl" width="90" show-overflow-tooltip />
+            <el-table-column label="有效日期" width="112"><template #default="{ row }">{{ formatDateCell(row.cgaa07) }}</template></el-table-column>
+          </el-table>
+          </ErpTableViewportHScroll>
+          <div class="pagination-row pagination-row--bottom">
+            <el-pagination v-model:current-page="materialQuery.page" v-model:page-size="materialQuery.pageSize" background layout="total, sizes, prev, pager, next, jumper" :total="materialQuery.total" :page-sizes="ERP_PAGE_SIZE_OPTIONS" @size-change="onMaterialQueryPageSizeChange" @current-change="loadMaterialQuery" />
+          </div>
+        </template>
+      </el-skeleton>
+    </el-card>
+
     <el-dialog v-model="bomDetailVisible" title="BOM 资料" width="760px" destroy-on-close>
       <div v-loading="bomDetailLoading" class="bom-detail-wrap">
         <el-descriptions v-if="bomDetailEntries.length" :column="2" border size="small">
@@ -344,15 +355,15 @@
       </div>
     </el-dialog>
 
-    <!-- 新增/编辑：页内嵌面板（基础资料 / 明细 Tab） -->
+    <!-- 新增/编辑/查看：页内嵌面板（基础资料 / 明细 Tab） -->
     <section v-show="editVisible" v-loading="editLoading" class="pq-edit-panel">
       <div class="pq-edit-panel__header">
         <h2 class="pq-edit-panel__title">
-          {{ editMode === 'create' ? '新增采购报价' : '编辑采购报价' }}
+          {{ editMode === 'create' ? '新增采购报价' : isReadonlyView ? '查看采购报价' : '编辑采购报价' }}
         </h2>
         <div class="pq-edit-panel__actions">
-          <el-button @click="switchToManage">取消</el-button>
-          <el-button type="primary" :loading="editSaving" :disabled="detailLocked" @click="submitEdit">
+          <el-button @click="switchToManage">{{ isReadonlyView ? '返回' : '取消' }}</el-button>
+          <el-button v-if="!isReadonlyView" type="primary" :loading="editSaving" :disabled="detailLocked" @click="submitEdit">
             保存
           </el-button>
         </div>
@@ -367,6 +378,7 @@
                   <el-input
                     v-model="basicForm.cgaa01"
                     class="pq-field-w"
+                    :disabled="detailLocked"
                     clearable
                     placeholder="采购报价单号"
                   />
@@ -379,6 +391,7 @@
                     v-model="basicForm.quoteDate"
                     class="pq-field-w"
                     type="date"
+                    :disabled="detailLocked"
                     value-format="YYYY-MM-DD"
                     placeholder="报价日期"
                   />
@@ -388,6 +401,7 @@
                     v-model="basicForm.validUntil"
                     class="pq-field-w"
                     type="date"
+                    :disabled="detailLocked"
                     value-format="YYYY-MM-DD"
                     placeholder="有效期"
                     clearable
@@ -398,14 +412,15 @@
               <div class="pq-basic-row">
                 <el-form-item label="供应商/外协商">
                   <el-select
-                    v-model="basicForm.kehu"
+                    v-model="basicForm.supplierCombo"
                     class="pq-field-w2"
                     filterable
                     remote
                     reserve-keyword
-                    placeholder="远程搜索（pass=1 且在册）"
+                    placeholder="选择供应商/外协商"
                     :remote-method="searchSuppliers"
                     :loading="supplierLoading"
+                    :disabled="detailLocked"
                     clearable
                     @visible-change="onSupplierDropdownVisible"
                   >
@@ -413,7 +428,7 @@
                       v-for="opt in supplierOptions"
                       :key="`${opt.id}-${opt.s_code || ''}`"
                       :label="formatSupplierOptionLabel(opt)"
-                      :value="opt.s_name"
+                      :value="`${opt.s_code},${opt.s_name},${opt.id}`"
                     />
                   </el-select>
                 </el-form-item>
@@ -424,12 +439,13 @@
                   <el-input
                     v-model="basicForm.cgaa06"
                     class="pq-field-w"
+                    :disabled="detailLocked"
                     clearable
                     placeholder="客户报价单号"
                   />
                 </el-form-item>
                 <el-form-item label="币别">
-                  <el-select v-model="currencyCode" class="pq-field-w" placeholder="选择币别" clearable>
+                  <el-select v-model="currencyCode" class="pq-field-w" placeholder="选择币别" clearable :disabled="detailLocked">
                     <el-option
                       v-for="opt in CURRENCY_OPTIONS"
                       :key="opt.code"
@@ -446,6 +462,7 @@
                     :max="8"
                     :step="1"
                     controls-position="right"
+                    :disabled="detailLocked"
                   />
                 </el-form-item>
               </div>
@@ -457,6 +474,7 @@
                     class="pq-field-w2"
                     type="textarea"
                     :rows="3"
+                    :disabled="detailLocked"
                     maxlength="500"
                     show-word-limit
                     placeholder="备注"
@@ -466,72 +484,127 @@
             </el-form>
           </el-tab-pane>
           <el-tab-pane label="采购报价明细" name="lines">
-            <p class="pq-lines-hint">
-              单价、单价(含税)均可录入（按主表小数位四舍五入）；一般填其一，另一项随税点自动计算。改税点时若已填单价则重算含税，否则从未含税反推单价。保存前请点击保存写入数据库。
-            </p>
-            <div class="lines-toolbar">
+            <div v-if="!isReadonlyView" class="lines-toolbar">
               <div class="lines-toolbar-left">
                 <el-button
                   v-if="editMode === 'create'"
                   v-permission="'add'"
-                  type="primary"
+                  type="danger"
                   plain
                   size="small"
                   :disabled="detailLocked"
-                  @click="addLineRow"
+                  @click="deleteSelectedQuoteLines"
                 >
-                  增行
+                  删除选定明细
                 </el-button>
                 <el-button
                   v-else
                   v-permission="'edit'"
-                  type="primary"
+                  type="danger"
                   plain
                   size="small"
                   :disabled="detailLocked"
-                  @click="addLineRow"
+                  @click="deleteSelectedQuoteLines"
                 >
-                  增行
+                  删除选定明细
+                </el-button>
+                <el-button
+                  v-if="editMode === 'create'"
+                  v-permission="'add'"
+                  type="danger"
+                  plain
+                  size="small"
+                  :disabled="detailLocked"
+                  @click="deleteAllQuoteLines"
+                >
+                  删除全部明细
+                </el-button>
+                <el-button
+                  v-else
+                  v-permission="'edit'"
+                  type="danger"
+                  plain
+                  size="small"
+                  :disabled="detailLocked"
+                  @click="deleteAllQuoteLines"
+                >
+                  删除全部明细
                 </el-button>
                 <el-button
                   v-if="editMode === 'create'"
                   v-permission="'add'"
                   type="primary"
-                  plain
                   size="small"
                   :disabled="detailLocked"
                   @click="openBatchMaterialPicker"
                 >
-                  <el-icon class="lines-toolbar-icon"><DocumentCopy /></el-icon>
-                  批量增行
+                  批量添加
                 </el-button>
                 <el-button
                   v-else
                   v-permission="'edit'"
                   type="primary"
-                  plain
                   size="small"
                   :disabled="detailLocked"
                   @click="openBatchMaterialPicker"
                 >
-                  <el-icon class="lines-toolbar-icon"><DocumentCopy /></el-icon>
-                  批量增行
+                  批量添加
+                </el-button>
+                <el-button
+                  v-if="editMode === 'create'"
+                  v-permission="'add'"
+                  type="success"
+                  size="small"
+                  :disabled="detailLocked"
+                  :loading="excelImportLoading"
+                  @click="triggerExcelImport"
+                >
+                  Excel批量添加
+                </el-button>
+                <el-button
+                  v-if="editMode === 'create'"
+                  v-permission="'add'"
+                  size="small"
+                  :disabled="detailLocked"
+                  @click="downloadExcelImportTemplate"
+                >
+                  下载模板
                 </el-button>
               </div>
             </div>
             <el-table
+              v-erp-list-h-scroll
               :data="lineRows"
               border
               size="small"
-              class="pq-lines-table"
-              scrollbar-always-on
+              class="pq-lines-table erp-list-table"
+              :row-class-name="pqLineRowClassName"
               max-height="calc(80vh - 200px)"
               style="width: 100%"
             >
+              <el-table-column
+                v-if="!isReadonlyView"
+                label="选择"
+                width="88"
+                align="center"
+                fixed="left"
+              >
+                <template #default="{ row }">
+                  <el-button
+                    size="small"
+                    class="pq-line-mark-btn"
+                    :class="{ 'pq-line-mark-btn--on': row._lineMarked }"
+                    :disabled="detailLocked"
+                    @click="toggleQuoteLineMark(row)"
+                  >
+                    {{ row._lineMarked ? '已选择' : '删除' }}
+                  </el-button>
+                </template>
+              </el-table-column>
               <el-table-column label="序号" width="58" fixed="left">
                 <template #default="{ $index }">{{ $index + 1 }}</template>
               </el-table-column>
-              <el-table-column label="编码" width="160" fixed="left">
+              <el-table-column label="编码" width="220" fixed="left">
                 <template #default="{ row, $index }">
                   <div class="pq-code-cell">
                     <span class="pq-cell-readonly pq-code-text">{{ row.kcaa01 || '—' }}</span>
@@ -561,15 +634,45 @@
                   />
                 </template>
               </el-table-column>
-              <el-table-column label="税点(%)" width="100" fixed="left">
+              <!-- DIY：税点列头整列填充；小数口径 0.13=百分十三 purchase-quote/index.vue -->
+              <el-table-column
+                :width="isReadonlyView || detailLocked ? 110 : 148"
+                fixed="left"
+                label-class-name="pq-tax-header-cell"
+              >
+                <template #header>
+                  <div class="pq-tax-header">
+                    <span class="pq-tax-header__title">税点</span>
+                    <div v-if="!isReadonlyView && !detailLocked" class="pq-tax-header__fill">
+                      <el-input-number
+                        v-model="batchTaxRate"
+                        :min="0"
+                        :max="0.99"
+                        :controls="false"
+                        :formatter="formatPqTaxInput"
+                        :parser="parsePqTaxInput"
+                        size="small"
+                        class="pq-tax-header__input"
+                        @click.stop
+                      />
+                      <el-button size="small" class="pq-tax-header__btn" @click.stop="applyBatchTaxRate">
+                        应用
+                      </el-button>
+                    </div>
+                  </div>
+                </template>
                 <template #default="{ row }">
+                  <template v-if="isReadonlyView || detailLocked">
+                    {{ formatTaxRateDisplay(row.Tax) }}
+                  </template>
                   <el-input-number
+                    v-else
                     v-model="row.Tax"
-                    :disabled="detailLocked"
                     :min="0"
-                    :max="100"
-                    :precision="2"
+                    :max="0.99"
                     :controls="false"
+                    :formatter="formatPqTaxInput"
+                    :parser="parsePqTaxInput"
                     size="small"
                     style="width: 100%"
                     @change="() => syncLineOnTaxChange(row)"
@@ -595,12 +698,12 @@
                   <el-input v-model="row.remark" :disabled="detailLocked" size="small" maxlength="500" />
                 </template>
               </el-table-column>
-              <el-table-column label="材料名称" min-width="130">
+              <el-table-column label="材料名称" min-width="300">
                 <template #default="{ row }">
                   <span class="pq-cell-readonly">{{ row.kcaa02 || '—' }}</span>
                 </template>
               </el-table-column>
-              <el-table-column label="规格" min-width="100">
+              <el-table-column label="规格" min-width="300">
                 <template #default="{ row }">
                   <span class="pq-cell-readonly">{{ row.kcaa03 || '—' }}</span>
                 </template>
@@ -615,30 +718,9 @@
                   <span class="pq-cell-readonly">{{ row.kcaa05 || '—' }}</span>
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="72" fixed="right">
-                <template #default="{ $index }">
-                  <el-button
-                    v-if="editMode === 'create'"
-                    v-permission="'add'"
-                    type="danger"
-                    link
-                    size="small"
-                    :disabled="detailLocked"
-                    @click="removeLineRow($index)"
-                  >
-                    删除
-                  </el-button>
-                  <el-button
-                    v-else
-                    v-permission="'edit'"
-                    type="danger"
-                    link
-                    size="small"
-                    :disabled="detailLocked"
-                    @click="removeLineRow($index)"
-                  >
-                    删除
-                  </el-button>
+              <el-table-column label="供货周期" width="100">
+                <template #default="{ row }">
+                  <span class="pq-cell-readonly">{{ row.zq || '—' }}</span>
                 </template>
               </el-table-column>
             </el-table>
@@ -653,6 +735,26 @@
       @picked="onMaterialPicked"
       @batch-confirm="onMaterialBatchConfirm"
     />
+
+    <input
+      ref="excelImportInputRef"
+      class="pq-excel-import-input"
+      type="file"
+      accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      @change="onExcelImportFileChange"
+    />
+    <el-dialog v-model="excelImportResultVisible" title="Excel 批量添加结果" width="760px" destroy-on-close>
+      <p class="pq-excel-import-summary">
+        成功添加 {{ excelImportResult.successCount }} 条；失败 {{ excelImportResult.failedRows.length }} 条。
+      </p>
+      <el-table v-if="excelImportResult.failedRows.length" :data="excelImportResult.failedRows" border size="small" max-height="360">
+        <el-table-column prop="rowNo" label="Excel行号" width="100" />
+        <el-table-column prop="code" label="编码" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="reason" label="失败原因" min-width="300" show-overflow-tooltip />
+      </el-table>
+      <el-empty v-else description="全部明细校验通过" :image-size="80" />
+      <template #footer><el-button type="primary" @click="excelImportResultVisible = false">知道了</el-button></template>
+    </el-dialog>
   </div>
 </template>
 
@@ -660,34 +762,44 @@
 import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
 import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 
 // 与 router 生成的 route.name 一致，供布局 keep-alive 按组件名缓存
 defineOptions({ name: 'supply-chain-daily-purchase-quote' })
 const { onErpListRowContextMenu } = useErpListRowContextMenu()
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { DocumentCopy, Search } from '@element-plus/icons-vue'
+import { Search } from '@element-plus/icons-vue'
 import axios from 'axios'
 import MaterialSelector from './MaterialSelector.vue'
+import ErpTableViewportHScroll from '@/components/erp/ErpTableViewportHScroll.vue'
+import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
 import { createExpandPrefetch } from '@/utils/erpExpandPrefetch.js'
+import { formatErpTrimDecimal } from '@/utils/erpNumberDisplay'
+import ExcelJS from 'exceljs'
+import {
+  groupPurchaseQuoteExcelResultsByCode,
+  normalizePurchaseQuoteExcelCell,
+  validatePurchaseQuoteExcelRows,
+} from '@/utils/purchaseQuotationExcelImport.js'
 
 const pageTitle = '采购报价'
 
-/** manage | create | edit — 顶栏模式；表单区用 editVisible 控制显示 */
+/** manage | create | edit | view — 顶栏模式；表单区用 editVisible 控制显示 */
 const pageMode = ref('manage')
 /** 是否已初始化过添加面板（用于切回「添加」时保留未保存草稿） */
 const createPanelInitialized = ref(false)
 
 const loading = ref(false)
 const errorMessage = ref('')
+let listLoadToken = 0
 const keyword = ref('')
 const showRecycle = ref(false)
 const showUnAudited = ref(false)
 
 const quoteActionsColWidth = computed(() => {
   if (showRecycle.value) return getErpTableActionsColMinWidth(2)
-  if (showUnAudited.value) return getErpTableActionsColMinWidth(4)
+  if (showUnAudited.value) return getErpTableActionsColMinWidth(2)
   return getErpTableActionsColMinWidth(2)
 })
 
@@ -696,13 +808,48 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 
+/** 转向物料查询：只读使用独立分页，避免影响按报价单管理列表。 */
+const materialQuery = reactive({
+  keyword: '',
+  list: [],
+  total: 0,
+  page: 1,
+  pageSize: 20,
+  loading: false,
+  availableFields: { mq: false, zq: false },
+})
+
 /** 主表：用于点击整行展开/收起明细 */
 const pqMainTableRef = ref(null)
+/** 按物料查询列表：视口底横条刷新 */
+const pqMaterialQueryTableRef = ref(null)
 
-const viewVisible = ref(false)
-const viewLoading = ref(false)
-const viewHeaderEntries = ref([])
-const viewLines = ref([])
+async function refreshPqMainTableHScroll() {
+  await nextTick()
+  pqMainTableRef.value?.doLayout?.()
+  const el = pqMainTableRef.value?.$el
+  if (el) refreshErpTableViewportHScroll(el)
+}
+
+async function refreshPqMaterialQueryHScroll() {
+  await nextTick()
+  pqMaterialQueryTableRef.value?.doLayout?.()
+  const el = pqMaterialQueryTableRef.value?.$el
+  if (el) refreshErpTableViewportHScroll(el)
+}
+
+watch([tableList, loading, showRecycle, showUnAudited], async () => {
+  if (loading.value) return
+  await refreshPqMainTableHScroll()
+})
+
+watch(
+  () => [materialQuery.list, materialQuery.loading, materialQuery.availableFields.mq, materialQuery.availableFields.zq],
+  async () => {
+    if (materialQuery.loading) return
+    await refreshPqMaterialQueryHScroll()
+  },
+)
 
 const bomDetailVisible = ref(false)
 const bomDetailLoading = ref(false)
@@ -730,28 +877,37 @@ const CURRENCY_OPTIONS = [
 const currencyCode = ref('001')
 
 const basicForm = reactive({
+  systemcode: '',
   cgaa01: '',
   quoteDate: '',
   validUntil: '',
-  kehu: '',
+  supplierCombo: '',
   cgaa06: '',
   decimalPlaces: 4,
   remark: '',
 })
 
 const lineRows = ref([])
+const deletedLineGuids = ref([])
+/** 列头整列填充税点（小数口径，如 0.13） */
+const batchTaxRate = ref(0.13)
 
-/** 编辑弹窗内主表审核状态（明细锁定）：pass=1 禁止改明细 */
+/** 编辑/查看面板内主表审核状态：pass=1 禁止编辑 */
 const dialogHeaderPass = ref('0')
 const materialSelectorVisible = ref(false)
 /** 是否批量选材（与单笔「增行旁放大镜」互斥模式） */
 const materialSelectorBatchMode = ref(false)
 const materialSelectorRowIndex = ref(-1)
+const excelImportInputRef = ref(null)
+const excelImportLoading = ref(false)
+const excelImportResultVisible = ref(false)
+const excelImportResult = reactive({ successCount: 0, failedRows: [] })
 
 /** 单笔选材前请勿开批量模式 */
 const BATCH_ADD_THRESHOLD = 50
 
-const detailLocked = computed(() => String(dialogHeaderPass.value ?? '').trim() === '1')
+const isReadonlyView = computed(() => editMode.value === 'view')
+const detailLocked = computed(() => isReadonlyView.value || String(dialogHeaderPass.value ?? '').trim() === '1')
 
 // 主表小数位变更时重算所有明细含税价
 watch(
@@ -833,18 +989,26 @@ function lineField(line, name) {
 }
 
 /**
- * 税点展示：0.13 → 13%；已为百分比形式如 13 → 13%
+ * 税点只读展示：小数口径（0.13）；库内偶发百分数如 13 折成 0.13 再显示
  */
-function formatTaxPercent(v) {
+function formatTaxRateDisplay(v) {
   if (v == null || v === '') return '—'
-  const s = String(v).trim().replace(/%/g, '')
-  if (!s) return '—'
-  const n = Number(s)
-  if (!Number.isFinite(n)) return String(v)
-  const pct = n > 0 && n < 1 ? n * 100 : n
-  const rounded = Math.round(pct * 10000) / 10000
-  const text = Number.isInteger(rounded) ? String(rounded) : String(rounded)
-  return `${text}%`
+  const rate = normalizeTaxFromApi(v)
+  if (rate === undefined || rate === null) return '—'
+  return formatErpTrimDecimal(rate, { maxDecimals: 4, empty: '—' })
+}
+
+/** 明细税点输入框：展示去尾 0 */
+function formatPqTaxInput(v) {
+  if (v === null || v === undefined || v === '') return ''
+  return formatErpTrimDecimal(v, { maxDecimals: 4, empty: '' })
+}
+
+function parsePqTaxInput(v) {
+  const text = String(v ?? '').trim().replace(/,/g, '')
+  if (!text) return 0
+  const n = Number(text)
+  return Number.isFinite(n) ? n : 0
 }
 
 function quoteSummaryRow(row) {
@@ -878,34 +1042,35 @@ function roundByDecimals(num, places) {
   return Math.round(n * f) / f
 }
 
-/** 税点存入/API：支持旧库小数税率 0.13 → 13 */
+/**
+ * 税点落库/计算：小数口径 0.13=百分十三；偶发百分数 (>1) 折成小数
+ */
 function normalizeTaxInput(v) {
   const n = Number(v)
   if (!Number.isFinite(n)) return 0
-  if (n > 0 && n < 1) return Math.round(n * 10000) / 100
-  return Math.min(100, Math.max(0, n))
+  if (n > 1) return Math.min(0.99, Math.round((n / 100) * 10000) / 10000)
+  return Math.min(0.99, Math.max(0, Math.round(n * 10000) / 10000))
 }
 
-/** 税点展示录入：库内 0.13 转为 13 */
+/** 从接口加载税点：<=1 原样；>1 按百分数折小数（兼容旧错数据） */
 function normalizeTaxFromApi(v) {
   if (v === '' || v === undefined || v === null) return undefined
   const n = Number(v)
   if (!Number.isFinite(n)) return undefined
-  if (n > 0 && n <= 1) return Math.round(n * 10000) / 100
-  return Math.min(100, Math.max(0, n))
+  return normalizeTaxInput(n)
 }
 
-/** 填单价 → 按税点计算含税价 */
+/** 填单价 → 按税点计算含税价（tax 为小数税率） */
 function applyExToIncl(row) {
   if (!row) return
   const places = Math.min(8, Math.max(0, Number(basicForm.decimalPlaces) || 4))
   const rawEx = lineField(row, 'cgab04')
   const ex = Number(rawEx)
-  const taxPct = normalizeTaxInput(lineField(row, 'Tax'))
+  const tax = normalizeTaxInput(lineField(row, 'Tax'))
   if (rawEx === '' || rawEx === null || rawEx === undefined || !Number.isFinite(ex)) {
     return
   }
-  row.cgab05 = roundByDecimals(ex * (1 + taxPct / 100), places)
+  row.cgab05 = roundByDecimals(ex * (1 + tax), places)
 }
 
 /** 填含税价 → 反推单价 */
@@ -914,8 +1079,8 @@ function applyInclToEx(row) {
   const places = Math.min(8, Math.max(0, Number(basicForm.decimalPlaces) || 4))
   const rawIncl = lineField(row, 'cgab05')
   const incl = Number(rawIncl)
-  const taxPct = normalizeTaxInput(lineField(row, 'Tax'))
-  const denom = 1 + taxPct / 100
+  const tax = normalizeTaxInput(lineField(row, 'Tax'))
+  const denom = 1 + tax
   if (denom <= 0) return
   if (rawIncl === '' || rawIncl === null || rawIncl === undefined || !Number.isFinite(incl)) {
     return
@@ -926,6 +1091,7 @@ function applyInclToEx(row) {
 /** 改税点：优先按已有单价重算含税；无单价则按含税反推单价 */
 function syncLineOnTaxChange(row) {
   if (!row) return
+  row.Tax = normalizeTaxInput(lineField(row, 'Tax'))
   const rawEx = lineField(row, 'cgab04')
   const ex = Number(rawEx)
   const hasEx =
@@ -943,8 +1109,43 @@ function syncLineOnTaxChange(row) {
   }
 }
 
+/** 列头「应用」：把税点写入当前全部明细行并联动重算价格 */
+function applyBatchTaxRate() {
+  if (detailLocked.value) {
+    ElMessage.warning('该报价单已审核，请先反审后再修改明细。')
+    return
+  }
+  const rate = normalizeTaxInput(batchTaxRate.value)
+  batchTaxRate.value = rate
+  const rows = lineRows.value || []
+  if (!rows.length) {
+    ElMessage.warning('当前没有明细行')
+    return
+  }
+  for (const row of rows) {
+    row.Tax = rate
+    syncLineOnTaxChange(row)
+  }
+  ElMessage.success(`已将 ${rows.length} 行税点设为 ${formatTaxRateDisplay(rate)}`)
+}
+
+function toggleQuoteLineMark(row) {
+  if (!row || detailLocked.value) return
+  row._lineMarked = !row._lineMarked
+}
+
+function pqLineRowClassName({ row }) {
+  return row?._lineMarked ? 'pq-line-row--marked' : ''
+}
+
+/** 软删落库：已有行 GUID 记入 deletedLineGuids */
+function rememberDeletedLineGuid(row) {
+  const guid = String(lineField(row, 'GUID') ?? lineField(row, 'cgab02') ?? '').trim()
+  if (guid) deletedLineGuids.value.push(guid)
+}
+
 function onEditTabChange(tabName) {
-  if (tabName === 'lines' && detailLocked.value) {
+  if (tabName === 'lines' && !isReadonlyView.value && detailLocked.value) {
     ElMessage.warning('该报价单已审核，请先反审后再修改明细。')
   }
 }
@@ -986,6 +1187,12 @@ function applyPickedPayloadToLineRow(row, payload) {
   row.kcaa03 = payload.kcaa03 ?? ''
   row.kcaa11 = payload.kcaa11 ?? ''
   row.kcaa05 = payload.kcaa05 ?? ''
+  row.kcaa02_en = payload.kcaa02_en ?? ''
+  row.kcaa04 = payload.kcaa04 ?? ''
+  row.kcaa25 = payload.kcaa25 ?? ''
+  row.mq = payload.mq ?? ''
+  row.zq = payload.zq ?? ''
+  row.materialGuid = payload.materialGuid ?? ''
   const rawEx = lineField(row, 'cgab04')
   const ex = Number(rawEx)
   const hasEx =
@@ -1024,15 +1231,22 @@ function onMaterialBatchConfirm(payloads) {
     }
     existing.add(code)
     toAdd.push({
+      materialGuid: String(p.materialGuid ?? '').trim(),
       kcaa01: code,
       kcaa02: String(p.kcaa02 ?? '').trim(),
+      kcaa02_en: String(p.kcaa02_en ?? '').trim(),
       kcaa03: String(p.kcaa03 ?? '').trim(),
+      kcaa04: String(p.kcaa04 ?? '').trim(),
       kcaa11: String(p.kcaa11 ?? '').trim(),
       kcaa05: String(p.kcaa05 ?? '').trim(),
+      kcaa25: String(p.kcaa25 ?? '').trim(),
+      mq: String(p.mq ?? '').trim(),
+      zq: String(p.zq ?? '').trim(),
       cgab04: undefined,
       Tax: undefined,
       cgab05: undefined,
       remark: '',
+      _lineMarked: false,
     })
   }
   if (skippedDup) {
@@ -1047,7 +1261,135 @@ function onMaterialBatchConfirm(payloads) {
   } else {
     lineRows.value.push(...toAdd)
   }
-  ElMessage.success(`已添加 ${toAdd.length} 条明细，请补充单价与税点后保存`)
+  ElMessage.success(`已批量添加 ${toAdd.length} 条明细，请补充单价与税点后保存`)
+}
+
+function excelCellText(value) {
+  const normalized = normalizePurchaseQuoteExcelCell(value)
+  return String(normalized ?? '').trim()
+}
+
+function excelCellIsBlank(value) {
+  const normalized = normalizePurchaseQuoteExcelCell(value)
+  return normalized === undefined || normalized === null || String(normalized).trim() === ''
+}
+
+function triggerExcelImport() {
+  if (detailLocked.value) return
+  const input = excelImportInputRef.value
+  if (!input) return
+  input.value = ''
+  input.click()
+}
+
+async function downloadExcelImportTemplate() {
+  const workbook = new ExcelJS.Workbook()
+  const sheet = workbook.addWorksheet('明细')
+  sheet.addRow(['序号', '编码', '税点', '含税价'])
+  sheet.getRow(1).font = { bold: true }
+  sheet.getCell('C1').note = '税点请填写小数，例如 0.03代表3%'
+  sheet.columns = [{ width: 10 }, { width: 24 }, { width: 14 }, { width: 16 }]
+  const buffer = await workbook.xlsx.writeBuffer()
+  const url = URL.createObjectURL(new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  }))
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = '采购报价明细导入模板.xlsx'
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
+function readExcelImportRows(sheet, headerColumns) {
+  const rows = []
+  for (let rowNo = 2; rowNo <= sheet.rowCount; rowNo += 1) {
+    const row = sheet.getRow(rowNo)
+    const serial = normalizePurchaseQuoteExcelCell(row.getCell(headerColumns.get('序号')).value)
+    const code = normalizePurchaseQuoteExcelCell(row.getCell(headerColumns.get('编码')).value)
+    const tax = normalizePurchaseQuoteExcelCell(row.getCell(headerColumns.get('税点')).value)
+    const inclusivePrice = normalizePurchaseQuoteExcelCell(row.getCell(headerColumns.get('含税价')).value)
+    if ([serial, code, tax, inclusivePrice].every(excelCellIsBlank)) continue
+    rows.push({ rowNo, serial, code: excelCellText(code), tax, inclusivePrice })
+  }
+  return rows
+}
+
+function createImportedQuoteLine(source, material) {
+  const places = Math.min(8, Math.max(0, Number(basicForm.decimalPlaces) || 4))
+  const tax = Number(source.tax)
+  const inclusive = roundByDecimals(Number(source.inclusivePrice), places)
+  return {
+    materialGuid: String(material?.GUID ?? material?.systemcode ?? '').trim(),
+    kcaa01: String(material?.kcaa01 ?? source.code).trim(),
+    kcaa02: String(material?.kcaa02 ?? '').trim(),
+    kcaa02_en: String(material?.kcaa02_en ?? '').trim(),
+    kcaa03: String(material?.kcaa03 ?? '').trim(),
+    kcaa04: String(material?.kcaa04 ?? '').trim(),
+    kcaa05: String(material?.kcaa05 ?? '').trim(),
+    kcaa11: String(material?.kcaa11 ?? '').trim(),
+    kcaa25: String(material?.kcaa25 ?? '').trim(),
+    mq: String(material?.mq ?? '').trim(),
+    zq: String(material?.zq ?? '').trim(),
+    cgab04: roundByDecimals(inclusive / (1 + tax), places),
+    cgab05: inclusive,
+    Tax: tax,
+    remark: '',
+    _lineMarked: false,
+  }
+}
+
+async function onExcelImportFileChange(event) {
+  const file = event?.target?.files?.[0]
+  if (!file) return
+  if (!/\.xlsx$/i.test(String(file.name ?? ''))) {
+    ElMessage.warning('请上传 .xlsx 格式的采购报价明细文件')
+    return
+  }
+  excelImportLoading.value = true
+  try {
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(await file.arrayBuffer())
+    const sheet = workbook.getWorksheet('明细')
+    if (!sheet) throw new Error('未找到“明细”工作表')
+    const headerColumns = new Map()
+    sheet.getRow(1).eachCell((cell, column) => {
+      const title = excelCellText(cell.value)
+      if (title && !headerColumns.has(title)) headerColumns.set(title, column)
+    })
+    const missingHeaders = ['序号', '编码', '税点', '含税价'].filter((name) => !headerColumns.has(name))
+    if (missingHeaders.length) throw new Error(`模板缺少表头：${missingHeaders.join('、')}`)
+    const rawRows = readExcelImportRows(sheet, headerColumns)
+    if (rawRows.length > 1000) throw new Error('单次 Excel 最多导入 1000 条非空明细')
+
+    const existing = new Set([...collectExistingMaterialCodes()].map((code) => String(code).toLocaleLowerCase()))
+    const checked = validatePurchaseQuoteExcelRows(rawRows, existing)
+    const failedRows = [...checked.failed]
+    const resultByCode = checked.valid.length
+      ? groupPurchaseQuoteExcelResultsByCode((await axios.post(
+        '/api/supply-chain/purchase-quotations/excel-import/materials',
+        { codes: checked.valid.map((row) => row.code) },
+      ))?.data?.data?.list)
+      : new Map()
+    const imported = []
+    for (const row of checked.valid) {
+      const hit = resultByCode.get(String(row.code).toLocaleLowerCase())
+      if (!hit || hit.status !== 'ok' || !hit.material) {
+        failedRows.push({ rowNo: row.rowNo, code: row.code, reason: hit?.message || '物料核验失败' })
+        continue
+      }
+      imported.push(createImportedQuoteLine(row, hit.material))
+    }
+    if (imported.length) lineRows.value.push(...imported)
+    excelImportResult.successCount = imported.length
+    excelImportResult.failedRows = failedRows.sort((a, b) => Number(a.rowNo) - Number(b.rowNo))
+    excelImportResultVisible.value = true
+    if (imported.length) ElMessage.success(`已从 Excel 添加 ${imported.length} 条采购报价明细`)
+  } catch (error) {
+    ElMessage.error(String(error?.response?.data?.msg ?? error?.message ?? 'Excel 解析或物料核验失败'))
+  } finally {
+    excelImportLoading.value = false
+    if (event?.target) event.target.value = ''
+  }
 }
 
 function lineHasNumericPrice(r) {
@@ -1076,7 +1418,7 @@ function validateQuoteLines() {
       return false
     }
     if (tx === '' || tx === undefined || tx === null || Number.isNaN(Number(tx))) {
-      ElMessage.warning(`第 ${i + 1} 行：请填写税点（0–100）`)
+      ElMessage.warning(`第 ${i + 1} 行：请填写税点（0–0.99，如 0.13 表示百分十三）`)
       editActiveTab.value = 'lines'
       return false
     }
@@ -1087,7 +1429,7 @@ function validateQuoteLines() {
 /** 提交前统一两项金额：有单价则以单价为准算含税，否则从含税反推单价 */
 function syncLinePricesForSubmit(r) {
   const places = Math.min(8, Math.max(0, Number(basicForm.decimalPlaces) || 4))
-  const taxPct = normalizeTaxInput(lineField(r, 'Tax'))
+  const tax = normalizeTaxInput(lineField(r, 'Tax'))
   const rawEx = lineField(r, 'cgab04')
   const rawIncl = lineField(r, 'cgab05')
   const exN = Number(rawEx)
@@ -1096,7 +1438,7 @@ function syncLinePricesForSubmit(r) {
     rawEx !== '' && rawEx != null && rawEx !== undefined && Number.isFinite(exN)
   const hasIncl =
     rawIncl !== '' && rawIncl != null && rawIncl !== undefined && Number.isFinite(inclN)
-  const denom = 1 + taxPct / 100
+  const denom = 1 + tax
   if (hasEx) {
     r.cgab04 = roundByDecimals(exN, places)
     r.cgab05 = roundByDecimals(exN * denom, places)
@@ -1116,10 +1458,11 @@ function sanitizeLinesForApi() {
     const code = String(lineField(r, 'kcaa01') ?? '').trim()
     if (!code) continue
     syncLinePricesForSubmit(r)
-    const taxPct = normalizeTaxInput(lineField(r, 'Tax'))
+    const tax = normalizeTaxInput(lineField(r, 'Tax'))
     const ex = roundByDecimals(lineField(r, 'cgab04'), places)
     const incl = roundByDecimals(Number(lineField(r, 'cgab05')), places)
     out.push({
+      materialGuid: String(lineField(r, 'materialGuid') ?? lineField(r, 'cgab02') ?? lineField(r, 'GUID') ?? '').trim(),
       kcaa01: code,
       kcaa02: String(lineField(r, 'kcaa02') ?? '').trim(),
       kcaa03: String(lineField(r, 'kcaa03') ?? '').trim(),
@@ -1127,7 +1470,7 @@ function sanitizeLinesForApi() {
       kcaa05: String(lineField(r, 'kcaa05') ?? '').trim(),
       cgab04: ex,
       cgab05: incl,
-      Tax: taxPct,
+      Tax: tax,
       remark: String(lineField(r, 'remark') ?? '').trim(),
       Seq: out.length + 1,
     })
@@ -1160,6 +1503,7 @@ const expandPrefetch = createExpandPrefetch({
 })
 
 async function loadData() {
+  const currentLoadToken = ++listLoadToken
   loading.value = true
   errorMessage.value = ''
   try {
@@ -1173,21 +1517,25 @@ async function loadData() {
     }
     const res = await axios.get('/api/supply-chain/purchase-quotations/list', { params })
     const data = res?.data?.data ?? {}
-    total.value = Number(data.total ?? 0) || 0
     const list = Array.isArray(data.list) ? data.list : []
-    tableList.value = list.map((r) => ({
+    const preparedRows = list.map((r) => ({
       ...r,
       __opLoading: '',
       __lines: null,
       __linesLoaded: false,
       __linesLoading: false,
     }))
-    expandPrefetch.prefetch(tableList.value)
+    // 当前页明细预取完成后再显示列表，保证用户点击报价单时直接读取页面缓存。
+    await expandPrefetch.prefetch(preparedRows)
+    if (currentLoadToken !== listLoadToken) return
+    total.value = Number(data.total ?? 0) || 0
+    tableList.value = preparedRows
   } catch (err) {
+    if (currentLoadToken !== listLoadToken) return
     const msg = err?.response?.data?.msg || err?.message || '加载失败'
     errorMessage.value = String(msg)
   } finally {
-    loading.value = false
+    if (currentLoadToken === listLoadToken) loading.value = false
   }
 }
 
@@ -1283,15 +1631,25 @@ function formatSupplierOptionLabel(opt) {
 }
 
 function resetBasicForm() {
+  basicForm.systemcode = createQuotationSystemcode()
   basicForm.cgaa01 = ''
   basicForm.quoteDate = formatTodayYmd()
   basicForm.validUntil = ''
-  basicForm.kehu = ''
+  basicForm.supplierCombo = ''
   basicForm.cgaa06 = ''
   basicForm.decimalPlaces = 4
   basicForm.remark = ''
   currencyCode.value = '001'
   supplierOptions.value = []
+}
+
+/** 新增时在界面生成并随单据提交；编辑始终沿用已存编码。 */
+function createQuotationSystemcode() {
+  const year = String(new Date().getFullYear()).slice(-2)
+  const bytes = new Uint8Array(23)
+  crypto.getRandomValues(bytes)
+  const random = Array.from(bytes, (n) => n.toString(16).padStart(2, '0')).join('').toUpperCase()
+  return `BJ-${year}${random}`.slice(0, 50)
 }
 
 async function fetchSuggestedDocNo() {
@@ -1360,8 +1718,10 @@ function buildHeaderForSubmit() {
   )
   /** @type {Record<string, unknown>} */
   const header = {
+    systemcode: String(basicForm.systemcode ?? '').trim(),
     cgaa01: String(basicForm.cgaa01 ?? '').trim(),
-    kehu: String(basicForm.kehu ?? '').trim(),
+    supplierCombo: String(basicForm.supplierCombo ?? '').trim(),
+    currencyCombo: `${cur.code},${cur.name}`,
     cgaa06: String(basicForm.cgaa06 ?? '').trim(),
     remark: String(basicForm.remark ?? '').trim(),
     cgaa05: cur.code,
@@ -1384,6 +1744,76 @@ function switchToManage() {
   pageMode.value = 'manage'
 }
 
+function clearMaterialQuery() {
+  materialQuery.keyword = ''
+  materialQuery.list = []
+  materialQuery.total = 0
+  materialQuery.page = 1
+  materialQuery.availableFields = { mq: false, zq: false }
+}
+
+function switchToMaterialQuery() {
+  editVisible.value = false
+  pageMode.value = 'material-query'
+  clearMaterialQuery()
+}
+
+async function loadMaterialQuery() {
+  const keyword = materialQuery.keyword.trim()
+  if (!keyword) {
+    materialQuery.list = []
+    materialQuery.total = 0
+    materialQuery.availableFields = { mq: false, zq: false }
+    return
+  }
+  materialQuery.loading = true
+  errorMessage.value = ''
+  try {
+    const res = await axios.get('/api/supply-chain/purchase-quotations/material-query', {
+      params: {
+        page: materialQuery.page,
+        pageSize: materialQuery.pageSize,
+        keyword,
+      },
+    })
+    const data = res?.data?.data ?? {}
+    materialQuery.total = Number(data.total ?? 0) || 0
+    materialQuery.list = Array.isArray(data.list) ? data.list : []
+    materialQuery.availableFields = {
+      mq: Boolean(data.availableFields?.mq),
+      zq: Boolean(data.availableFields?.zq),
+    }
+  } catch (err) {
+    const msg = err?.response?.data?.msg || err?.message || '加载物料报价失败'
+    ElMessage.error(String(msg))
+    materialQuery.list = []
+    materialQuery.total = 0
+  } finally {
+    materialQuery.loading = false
+  }
+}
+
+function onMaterialQuerySearch() {
+  if (!materialQuery.keyword.trim()) {
+    materialQuery.list = []
+    materialQuery.total = 0
+    ElMessage.warning('请输入材料编码')
+    return
+  }
+  materialQuery.page = 1
+  loadMaterialQuery()
+}
+
+function onMaterialQueryReset() {
+  clearMaterialQuery()
+}
+
+function onMaterialQueryPageSizeChange(pageSize) {
+  materialQuery.pageSize = pageSize
+  materialQuery.page = 1
+  loadMaterialQuery()
+}
+
 async function switchToCreate() {
   if (pageMode.value === 'create' && editVisible.value) return
 
@@ -1404,6 +1834,7 @@ async function switchToCreate() {
     editSaving.value = false
     resetBasicForm()
     lineRows.value = []
+    deletedLineGuids.value = []
     await fetchSuggestedDocNo()
   }
   createPanelInitialized.value = true
@@ -1414,22 +1845,7 @@ async function openCreate() {
 }
 
 async function openView(row) {
-  viewVisible.value = true
-  viewLoading.value = true
-  viewLines.value = []
-  viewHeaderEntries.value = []
-  try {
-    const res = await axios.get(`/api/supply-chain/purchase-quotations/${row.id}`)
-    const header = res?.data?.data?.header ?? {}
-    const lines = Array.isArray(res?.data?.data?.lines) ? res.data.data.lines : []
-    viewHeaderEntries.value = Object.entries(header)
-    viewLines.value = lines
-  } catch (e) {
-    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '加载失败'))
-    viewVisible.value = false
-  } finally {
-    viewLoading.value = false
-  }
+  await openQuotePanel(row, 'view')
 }
 useErpDeepLinkOpen({
   handlers: {
@@ -1470,22 +1886,34 @@ async function openEdit(row) {
     await ElMessageBox.alert('该数据已审核，需先反审后才能编辑。', '提示', { type: 'warning' })
     return
   }
-  editMode.value = 'edit'
+  await openQuotePanel(row, 'edit')
+}
+
+/** 查看与编辑共用详情读取和表单填充，避免两种入口的字段转换逐渐不一致。 */
+async function openQuotePanel(row, mode) {
+  editMode.value = mode
   editId.value = row.id
-  pageMode.value = 'edit'
+  pageMode.value = mode
   editSaving.value = false
   editActiveTab.value = 'basic'
+  deletedLineGuids.value = []
   createPanelInitialized.value = true
   editVisible.value = true
   editLoading.value = true
   try {
     const res = await axios.get(`/api/supply-chain/purchase-quotations/${row.id}`)
     const header = { ...(res?.data?.data?.header ?? {}) }
+    basicForm.systemcode = String(lineField(header, 'systemcode') ?? lineField(header, 'GUID') ?? '').trim()
     loadedEditHeader.value = JSON.parse(JSON.stringify(header))
     const lines = Array.isArray(res?.data?.data?.lines) ? res.data.data.lines.map((x) => ({ ...x })) : []
 
     basicForm.cgaa01 = String(lineField(header, 'cgaa01') ?? '').trim()
-    basicForm.kehu = String(lineField(header, 'kehu') ?? '').trim()
+    const supplierCode = String(lineField(header, 'cgaa04') ?? '').trim()
+    const supplierName = String(lineField(header, 'kehu') ?? '').trim()
+    basicForm.supplierCombo = supplierCode && supplierName ? `${supplierCode},${supplierName},legacy` : ''
+    if (supplierCode && supplierName) {
+      supplierOptions.value = [{ id: 'legacy', s_code: supplierCode, s_name: supplierName }]
+    }
     basicForm.cgaa06 = String(lineField(header, 'cgaa06') ?? '').trim()
     basicForm.remark = String(lineField(header, 'remark') ?? '').trim()
     const addt = lineField(header, 'addtime')
@@ -1501,7 +1929,9 @@ async function openEdit(row) {
     dialogHeaderPass.value = String(lineField(header, 'pass') ?? row.pass ?? '').trim() || '0'
     lineRows.value = lines.map((raw) => {
       const x = { ...raw }
+      x.materialGuid = String(lineField(x, 'cgab02') ?? lineField(x, 'GUID') ?? '').trim()
       x.Tax = normalizeTaxFromApi(lineField(x, 'Tax'))
+      x._lineMarked = false
       const rawEx = lineField(x, 'cgab04')
       const ex = Number(rawEx)
       const hasEx =
@@ -1519,39 +1949,52 @@ async function openEdit(row) {
   }
 }
 
-function addLineRow() {
+async function deleteSelectedQuoteLines() {
   if (detailLocked.value) {
     ElMessage.warning('该报价单已审核，请先反审后再修改明细。')
     return
   }
-  lineRows.value.push({
-    kcaa01: '',
-    kcaa02: '',
-    kcaa03: '',
-    kcaa11: '',
-    kcaa05: '',
-    cgab04: undefined,
-    Tax: undefined,
-    cgab05: undefined,
-    remark: '',
-  })
-}
-
-async function removeLineRow(idx) {
-  if (detailLocked.value) {
-    ElMessage.warning('该报价单已审核，请先反审后再修改明细。')
+  const marked = (lineRows.value || []).filter((line) => line._lineMarked)
+  if (!marked.length) {
+    ElMessage.warning('请先在「选择」列点击删除标记要移除的行')
     return
   }
   try {
     await ElMessageBox.confirm(
-      '确认要删除该条物料报价吗？删除后需重新保存单据方可生效。',
-      '删除确认',
+      `确认删除已标记的 ${marked.length} 条明细吗？此操作只影响当前页面，点击保存后才会落库。`,
+      '删除选定明细',
       { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
     )
   } catch {
     return
   }
-  lineRows.value.splice(idx, 1)
+  const removeSet = new Set(marked)
+  for (const row of marked) rememberDeletedLineGuid(row)
+  lineRows.value = lineRows.value.filter((line) => !removeSet.has(line))
+  ElMessage.success('已删除选定明细')
+}
+
+async function deleteAllQuoteLines() {
+  if (detailLocked.value) {
+    ElMessage.warning('该报价单已审核，请先反审后再修改明细。')
+    return
+  }
+  if (!(lineRows.value || []).length) {
+    ElMessage.warning('当前没有报价明细')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      '确认删除全部采购报价明细吗？此操作只影响当前页面，点击保存后才会落库。',
+      '删除全部明细',
+      { type: 'warning', confirmButtonText: '删除全部', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  for (const row of lineRows.value) rememberDeletedLineGuid(row)
+  lineRows.value = []
+  ElMessage.success('已清空全部明细')
 }
 
 async function submitEdit() {
@@ -1582,6 +2025,7 @@ async function submitEdit() {
         id: editId.value,
         header,
         lines,
+        deletedLineGuids: deletedLineGuids.value,
       })
       ElMessage.success('保存成功')
     }
@@ -1749,28 +2193,39 @@ loadData()
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
+  justify-content: flex-start;
   gap: 8px;
+  width: 100%;
   overflow-x: auto;
 }
 .pq-filter-keyword {
-  flex: 0 1 420px;
-  width: min(420px, 100%);
+  flex: 0 0 420px;
+  width: 420px;
+  min-width: 420px;
+  max-width: 420px;
 }
+.pq-material-query-card {
+  margin-bottom: 12px;
+}
+/* 间隔符对齐采购订单 buy-filter-divider / 全局 --erp-filter-divider-* */
 .pq-filter-divider {
   width: 1px;
-  align-self: stretch;
-  min-height: 22px;
-  margin: 0 12px;
+  height: var(--erp-filter-divider-height, 22px);
+  margin: 0 var(--erp-filter-divider-gap, 20px);
   background: var(--el-border-color);
+  flex-shrink: 0;
 }
 .pq-filter-switch {
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: 6px;
+  white-space: nowrap;
 }
 .switch-label {
   font-size: 13px;
   color: var(--el-text-color-regular);
+  white-space: nowrap;
 }
 .error-alert,
 .audit-alert {
@@ -1798,7 +2253,7 @@ loadData()
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 .lines-toolbar-left {
   display: flex;
@@ -1806,9 +2261,72 @@ loadData()
   align-items: center;
   gap: 8px;
 }
-.lines-toolbar-icon {
-  margin-right: 4px;
-  vertical-align: middle;
+/* DIY：明细标记删除按钮，对齐采购订单 buy-line-mark-btn */
+.pq-line-mark-btn {
+  background-color: #ff7800;
+  border-color: #ff7800;
+  color: #fff;
+}
+.pq-line-mark-btn:hover {
+  background-color: #e56e00;
+  border-color: #e56e00;
+  color: #fff;
+}
+.pq-line-mark-btn--on {
+  background-color: #ccc !important;
+  border-color: #ccc !important;
+  color: #333 !important;
+}
+.pq-line-mark-btn--on:hover {
+  background-color: #bbb !important;
+  border-color: #bbb !important;
+  color: #333 !important;
+}
+:deep(.pq-line-row--marked) {
+  --el-table-tr-bg-color: #f5f5f5;
+}
+/* DIY：税点列头整列填充 purchase-quote/index.vue .pq-tax-header */
+.pq-tax-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  line-height: 1.2;
+}
+.pq-tax-header__title {
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 13px;
+}
+.pq-tax-header__fill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.pq-tax-header__input {
+  width: 64px;
+}
+.pq-tax-header__btn {
+  width: 40px;
+  height: 24px;
+  padding: 0;
+  font-size: 12px;
+}
+.pq-excel-import-input {
+  display: none;
+}
+.pq-excel-import-summary {
+  margin: 0 0 12px;
+}
+:deep(.pq-lines-table .pq-tax-header-cell.el-table__cell) {
+  padding-top: 4px;
+  padding-bottom: 4px;
+  overflow: visible;
+}
+:deep(.pq-lines-table .pq-tax-header-cell .cell) {
+  overflow: visible;
+  white-space: normal;
 }
 .header-form {
   max-height: 280px;

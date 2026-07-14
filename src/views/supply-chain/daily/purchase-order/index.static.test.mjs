@@ -44,6 +44,11 @@ describe('purchase-order index static UI contract', () => {
     assert.match(printSource, /index \+ 3/)
     assert.match(printSource, /formatErpQtyDisplay/)
     assert.match(printSource, /formatErpMoneyDisplay/)
+    assert.match(printSource, /class="buy-print-meta-remark"/)
+    assert.match(printSource, /\.buy-print-meta-remark\s*\{\s*grid-column: 1 \/ -1/)
+    assert.match(printSource, /\.buy-print-meta\s*\{[\s\S]*?column-gap: 36px;[\s\S]*?row-gap: 0/)
+    assert.match(printSource, /\.buy-print-table th,\s*\.buy-print-table td\s*\{[\s\S]*?text-align: center/)
+    assert.match(printSource, /\.buy-print-table \.num\s*\{\s*text-align: center/)
   })
 
   test('purchase-order view mode reuses edit form panel read-only', () => {

@@ -577,6 +577,9 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'GET' && path === '/api/sales-order/currency-options') {
     return { menuPath: 'supply-chain/daily/sales-order', action: 'view' }
   }
+  if (m === 'GET' && ['/api/sales-order/material-trace/categories', '/api/sales-order/material-trace/list'].includes(path)) {
+    return { menuPath: 'supply-chain/daily/sales-order', action: 'view' }
+  }
   if (m === 'GET' && path === '/api/sales-order/list') {
     return {
       anyOf: [
@@ -989,6 +992,22 @@ export function matchApiPermissionRule(method, path, body, params) {
       ],
     }
   }
+  if (m === 'GET' && path === '/api/production/material-sheet/outsourcing-list') {
+    return {
+      anyOf: [
+        { menuPath: 'supply-chain/daily/sales-order', action: 'view' },
+        { menuPath: 'production/analysis/material-sheet', action: 'view' },
+      ],
+    }
+  }
+  if (m === 'GET' && path === '/api/production/material-sheet/cut-position-list') {
+    return {
+      anyOf: [
+        { menuPath: 'supply-chain/daily/sales-order', action: 'view' },
+        { menuPath: 'production/analysis/material-sheet', action: 'view' },
+      ],
+    }
+  }
   if (m === 'GET' && /^\/api\/sales-order\/\d+\/pi-bom$/.test(path)) {
     return {
       anyOf: [
@@ -1016,6 +1035,9 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'GET' && path === '/api/supply-chain/purchase-quotations/lines/batch') {
     return { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' }
   }
+  if (m === 'GET' && path === '/api/supply-chain/purchase-quotations/material-query') {
+    return { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' }
+  }
   if (m === 'GET' && /^\/api\/supply-chain\/purchase-quotations\/[^/]+\/lines$/.test(path)) {
     return { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' }
   }
@@ -1023,6 +1045,9 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'supply-chain/daily/purchase-quote', action: 'view' }
   }
   if (m === 'POST' && path === '/api/supply-chain/purchase-quotations') {
+    return { menuPath: 'supply-chain/daily/purchase-quote', action: 'add' }
+  }
+  if (m === 'POST' && path === '/api/supply-chain/purchase-quotations/excel-import/materials') {
     return { menuPath: 'supply-chain/daily/purchase-quote', action: 'add' }
   }
   if (m === 'PUT' && path === '/api/supply-chain/purchase-quotations') {
@@ -1201,13 +1226,13 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'inventory/basic/pi-bom-data', action: 'view' }
   }
   if (m === 'GET' && path === '/api/inventory/pi-bom-data/detail') {
-    return { menuPath: 'inventory/basic/pi-bom-data', action: 'view' }
+    return { anyOf: [{ menuPath: 'inventory/basic/pi-bom-data', action: 'view' }, { menuPath: 'supply-chain/daily/sales-order', action: 'view' }] }
   }
   if (m === 'GET' && path === '/api/inventory/pi-bom-data/parts') {
-    return { menuPath: 'inventory/basic/pi-bom-data', action: 'view' }
+    return { anyOf: [{ menuPath: 'inventory/basic/pi-bom-data', action: 'view' }, { menuPath: 'supply-chain/daily/sales-order', action: 'view' }] }
   }
   if (m === 'GET' && path === '/api/inventory/pi-bom-data/node-basic') {
-    return { menuPath: 'inventory/basic/pi-bom-data', action: 'view' }
+    return { anyOf: [{ menuPath: 'inventory/basic/pi-bom-data', action: 'view' }, { menuPath: 'supply-chain/daily/sales-order', action: 'view' }] }
   }
   if (m === 'GET' && path === '/api/inventory/pi-bom-data/pi-suggest') {
     return { menuPath: 'inventory/basic/pi-bom-data', action: 'view' }

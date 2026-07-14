@@ -43,7 +43,6 @@
             <p><span>{{ label('to') }}:</span> {{ blank(block.doc.header.supplierName || block.doc.header.supplierShortName || block.doc.header.supplierCode) }}</p>
             <p><span>{{ label('tel') }}:</span> {{ blank(block.doc.header.supplierTel) }}</p>
             <p><span>{{ label('attn') }}:</span> {{ blank(block.doc.header.supplierContact) }}</p>
-            <p><span>{{ label('remark') }}:</span> {{ blank(block.doc.header.remark) }}</p>
           </div>
           <div>
             <p><span>{{ label('payment') }}:</span> {{ blank(block.doc.header.paymentTerms || block.doc.header.supplierPayFor) }}</p>
@@ -54,6 +53,7 @@
             <p><span>{{ label('currency') }}:</span> {{ blank(block.doc.header.currencyName || block.doc.header.currencyCode) }}</p>
             <p><span>PI:</span> {{ blank(block.doc.header.referenceNo) }}</p>
           </div>
+          <p class="buy-print-meta-remark"><span>{{ label('remark') }}:</span> {{ blank(block.doc.header.remark) }}</p>
         </section>
 
         <table class="buy-print-table">
@@ -478,12 +478,16 @@ h1 {
 .buy-print-meta {
   display: grid;
   grid-template-columns: 1.4fr 1fr 1fr;
-  gap: 36px;
+  column-gap: 36px;
+  row-gap: 0;
   margin-bottom: 14px;
   font-size: 14px;
 }
 .buy-print-meta p {
   margin: 0 0 8px;
+}
+.buy-print-meta-remark {
+  grid-column: 1 / -1;
 }
 .buy-print-meta span {
   font-weight: 700;
@@ -499,6 +503,7 @@ h1 {
 .buy-print-table td {
   border: 1px solid #000;
   padding: 6px 5px;
+  text-align: center;
   vertical-align: middle;
   word-break: break-word;
 }
@@ -507,7 +512,7 @@ h1 {
   font-weight: 700;
 }
 .buy-print-table .num {
-  text-align: right;
+  text-align: center;
 }
 .col-seq { width: 42px; }
 .col-code { width: 150px; }

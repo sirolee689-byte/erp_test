@@ -7,6 +7,7 @@ import { sql } from './db.js'
 import { bindIntInList, bindNVarCharInList, groupRowsByKey, normalizeIntIds } from './sqlInListHelpers.js'
 import { applySupplierCodeColumnFromKehu } from './supplierSCodeLookup.js'
 import { invBomMasterFrom } from './bomTables.js'
+import { writeLog } from './operationLogWriter.js'
 
 /**
  * @typedef {{
@@ -23,8 +24,32 @@ import { invBomMasterFrom } from './bomTables.js'
  *   lineFkCandidates: string[],
  *   apiBase: string,
  *   checkDocNoQueryParam: string,
+ *   operationLog?: { code: string, documentName: string, systemcodeCol?: string },
+ *   materialQuery?: boolean,
+ *   compactBatchHeader?: boolean,
  * }} QuotationHandlerConfig
  */
+
+/**
+ * 采购报价生命周期日志的纯组装逻辑，供接口和回归测试共用。
+ */
+export function buildQuotationOperationLogPayload({ operation, operationLog, docNo, systemcode, nowStr, actorName }) {
+  if (!operationLog) return null
+  const operationName = {
+    unaudit: '反审核',
+    delete: '删除',
+    'permanent-delete': '彻底删除',
+  }[operation]
+  if (!operationName) return null
+  const documentName = String(operationLog.documentName ?? '').trim()
+  const actName = `${documentName}${operationName}`
+  return {
+    actName,
+    actInfo: `${actName}成功，${documentName}号：${String(docNo ?? '').trim()}，操作时间：${String(nowStr ?? '').trim()}，操作人：${String(actorName ?? '').trim() || '当前操作人'}`,
+    code: String(operationLog.code ?? '').trim(),
+    systemcode: String(systemcode ?? '').trim(),
+  }
+}
 
 /**
  * @param {QuotationHandlerConfig} config
@@ -44,11 +69,38 @@ export function createQuotationHandlers(config) {
     lineFkCandidates,
     apiBase,
     checkDocNoQueryParam,
+    operationLog,
+    materialQuery = false,
+    compactBatchHeader = false,
   } = config
 
   const HEADER_FROM = `dbo.[${HEADER_TABLE}]`
   const LINE_FROM = `dbo.[${LINE_TABLE}]`
   const SYS_SUPPLIER_FROM = 'dbo.[UB_ERP_System_supplier]'
+
+  /**
+   * 采购报价等需要留痕的生命周期操作：只在模块显式配置时写日志，避免影响外协报价。
+   */
+  function buildLifecycleOperationLog(operation, header, meta, nowStr, actor) {
+    return buildQuotationOperationLogPayload({
+      operation,
+      operationLog,
+      docNo: getQuotationDisplayLabel(meta, header),
+      systemcode: cellStr(pickBodyField(header, operationLog?.systemcodeCol || 'systemcode')),
+      nowStr,
+      actorName: cellStr(actor?.utruename) || cellStr(actor?.uname),
+    })
+  }
+
+  async function writeLifecycleOperationLog(req, tx, operation, header, meta, nowStr, actor) {
+    const payload = buildLifecycleOperationLog(operation, header, meta, nowStr, actor)
+    if (!payload) return
+    await writeLog(req, payload.actName, payload.actInfo, {
+      pool: tx,
+      code: payload.code,
+      systemcode: payload.systemcode,
+    })
+  }
 
 /** INSERT/UPDATE 参数名：避免列名与 T-SQL 保留字冲突（如 decimal） */
 function pqSafeParamSuffix(colName) {
@@ -678,6 +730,47 @@ function lineListProjectionSql(meta) {
     .join(',\n          ')
 }
 
+/**
+ * 列表展开/批量预取专用瘦投影：只拉界面展示列，避免 300+ 行×百余列拖垮秒开。
+ * 录单详情 GET /:id 仍用 lineListProjectionSql 全量。
+ */
+function lineExpandProjectionSql(meta) {
+  const wanted = [
+    meta.linePk,
+    'kcaa01',
+    'kcaa02',
+    'kcaa03',
+    'kcaa11',
+    'kcaa05',
+    lineExclTaxCol,
+    lineInclTaxCol,
+    'Tax',
+    'tax',
+    'remark',
+    'info',
+  ]
+  const seen = new Set()
+  const cols = []
+  for (const name of wanted) {
+    const key = String(name ?? '')
+      .trim()
+      .toLowerCase()
+    if (!key || seen.has(key) || !meta.lineColNames.has(key)) continue
+    seen.add(key)
+    const cm = meta.lineCols.find((c) => c.name.toLowerCase() === key)
+    if (!cm) continue
+    cols.push(cm)
+  }
+  if (!cols.length) return lineListProjectionSql(meta)
+  return cols
+    .map((c) => {
+      const b = bracketIdent(c.name)
+      if (c.dataType.toLowerCase() === 'xml') return `CONVERT(nvarchar(max), ISNULL(l.${b}, N'')) AS ${b}`
+      return `l.${b} AS ${b}`
+    })
+    .join(',\n          ')
+}
+
 function lineOrderBy(meta) {
   const orderCols = ['Seq', 'seq', 'xh', 'sort', 'line_no', 'line_no_', 'xuhao']
   for (const oc of orderCols) {
@@ -930,6 +1023,119 @@ function registerQuotationRoutes(app, deps) {
   })
 
   /**
+   * GET ${apiBase}/material-query
+   * 采购报价“转向物料查询”：以报价明细为一行，不合并物料或供应商。
+   */
+  if (materialQuery) app.get(`${apiBase}/material-query`, async (req, res) => {
+    try {
+      // 按物料查询只在用户输入材料编码后才查库，避免刚切换页面就扫描全部有效报价。
+      const keyword = String(req.query?.keyword ?? '').trim()
+      if (!keyword) {
+        res.json({
+          code: 200,
+          msg: 'success',
+          data: { total: 0, list: [], availableFields: { mq: false, zq: false } },
+        })
+        return
+      }
+
+      const pool = await getPool()
+      const meta = await ensureQuotationMeta(pool)
+      const requiredLineCols = [lineDocNoCol, 'del', 'pass', 'kcaa01']
+      const requiredHeaderCols = [docNoCol, 'del', 'pass']
+      const missing = [
+        ...requiredLineCols.filter((field) => !meta.lineColNames.has(String(field).toLowerCase())).map((field) => `明细.${field}`),
+        ...requiredHeaderCols.filter((field) => !meta.headerColNames.has(String(field).toLowerCase())).map((field) => `主表.${field}`),
+      ]
+      if (missing.length) {
+        res.status(500).json({ code: 500, msg: `物料报价查询缺少必要字段：${missing.join('、')}`, data: null })
+        return
+      }
+
+      const page = Math.max(1, Number(req.query?.page ?? 1) || 1)
+      const pageSize = clampErpPageSize(Number(req.query?.pageSize ?? 20) || 20, 20)
+      const materialCodeCol = colMeta(meta, 'l', 'kcaa01')?.name
+
+      const lineSelectFields = [
+        'kcaa01', 'kcaa02', 'kcaa02_en', 'kcaa03', 'kcaa05', 'mq', 'zq', 'info',
+        lineExclTaxCol, lineInclTaxCol, 'Tax', 'Seq',
+      ]
+      const headerSelectFields = [docNoCol, quoteDateCol, supplierCol, 'kehu', 'cgaa05', 'rmb', 'rmb_hl', expiryDateCol]
+      const selectField = (tableAlias, field, table) => {
+        const actual = colMeta(meta, table, field)?.name
+        return actual ? `${tableAlias}.${bracketIdent(actual)} AS ${bracketIdent(actual)}` : null
+      }
+      const selectParts = [
+        meta.linePk ? `l.${bracketIdent(meta.linePk)} AS [line_id]` : `CAST(N'' AS nvarchar(50)) AS [line_id]`,
+        ...lineSelectFields.map((field) => selectField('l', field, 'l')).filter(Boolean),
+        ...headerSelectFields.map((field) => selectField('h', field, 'h')).filter(Boolean),
+      ]
+      const lineDoc = bracketIdent(lineDocNoCol)
+      const headerDoc = bracketIdent(docNoCol)
+      const conditions = [
+        `(ISNULL(l.${bracketIdent('del')}, N'') = N'' OR l.${bracketIdent('del')} = N'0')`,
+        `LTRIM(RTRIM(ISNULL(l.${bracketIdent('pass')}, N''))) = N'1'`,
+        `(ISNULL(h.${bracketIdent('del')}, N'') = N'' OR h.${bracketIdent('del')} = N'0')`,
+        `LTRIM(RTRIM(ISNULL(h.${bracketIdent('pass')}, N''))) = N'1'`,
+      ]
+      // 只允许材料编码的包含匹配；kcaa01 为真实 nvarchar 列，直接比较避免对列做转换。
+      conditions.push(`l.${bracketIdent(materialCodeCol)} LIKE @keyword`)
+      const whereSql = conditions.join('\n          AND ')
+      const orderParts = [
+        meta.headerColNames.has(String(quoteDateCol).toLowerCase()) ? `h.${bracketIdent(quoteDateCol)} DESC` : '',
+        meta.lineColNames.has('seq') ? `l.${bracketIdent(colMeta(meta, 'l', 'seq').name)} ASC` : '',
+        meta.linePk ? `l.${bracketIdent(meta.linePk)} DESC` : `l.${lineDoc} DESC`,
+      ].filter(Boolean)
+      const startRow = (page - 1) * pageSize + 1
+      const endRow = startRow + pageSize - 1
+      const listReq = pool.request().input('startRow', sql.Int, startRow).input('endRow', sql.Int, endRow)
+      listReq.input('keyword', sql.NVarChar(400), `%${escapeSqlLikePattern(keyword)}%`)
+      const listRs = await listReq.query(`
+        SELECT x.*
+        FROM (
+          SELECT ${selectParts.join(',\n                 ')},
+            COUNT(1) OVER () AS [total_count],
+            ROW_NUMBER() OVER (ORDER BY ${orderParts.join(', ')}) AS [rn]
+          FROM ${LINE_FROM} AS l
+          INNER JOIN ${HEADER_FROM} AS h
+            ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.${lineDoc}, N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.${headerDoc}, N''))))
+          WHERE ${whereSql}
+        ) AS x
+        WHERE x.[rn] BETWEEN @startRow AND @endRow
+        ORDER BY x.[rn]
+      `)
+      const rows = listRs.recordset ?? []
+      let total = Number(rows[0]?.total_count ?? 0)
+      if (!rows.length && page > 1) {
+        const countReq = pool.request()
+        countReq.input('keyword', sql.NVarChar(400), `%${escapeSqlLikePattern(keyword)}%`)
+        const countRs = await countReq.query(`
+          SELECT COUNT(1) AS [total]
+          FROM ${LINE_FROM} AS l
+          INNER JOIN ${HEADER_FROM} AS h
+            ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.${lineDoc}, N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.${headerDoc}, N''))))
+          WHERE ${whereSql}
+        `)
+        total = Number(countRs.recordset?.[0]?.total ?? 0)
+      }
+      const list = rows.map(({ rn: _rn, total_count: _total, ...row }) => row)
+      res.json({
+        code: 200,
+        msg: 'success',
+        data: {
+          total,
+          list,
+          availableFields: { mq: meta.lineColNames.has('mq'), zq: meta.lineColNames.has('zq') },
+        },
+      })
+    } catch (err) {
+      console.error(`GET ${apiBase}/material-query 失败：`, err)
+      const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
+      res.status(500).json({ code: 500, msg: `读取${label}物料报价失败：${detail}`, data: null })
+    }
+  })
+
+  /**
    * GET ${apiBase}/list
    */
   app.get(`${apiBase}/list`, async (req, res) => {
@@ -1177,8 +1383,16 @@ function registerQuotationRoutes(app, deps) {
       const pkCol = colMeta(meta, 'h', pk)
       const headerReq = pool.request()
       const idIn = bindIntInList(headerReq, 'id', ids)
+      // 采购报价展开预取只用主键和单号关联明细，避免把主表全部字段带入内存。
+      const batchHeaderProjection = (() => {
+        if (!compactBatchHeader) return 'h.*'
+        const names = [pk, headerDocLinkColumn(meta)]
+          .filter(Boolean)
+          .filter((name, index, list) => list.findIndex((item) => String(item).toLowerCase() === String(name).toLowerCase()) === index)
+        return names.map((name) => `h.${bracketIdent(name)} AS ${bracketIdent(name)}`).join(', ')
+      })()
       const hr = await headerReq.query(`
-        SELECT h.*
+        SELECT ${batchHeaderProjection}
         FROM ${HEADER_FROM} AS h
         WHERE h.${bracketIdent(pk)} IN (${idIn.inSql})
       `)
@@ -1210,8 +1424,9 @@ function registerQuotationRoutes(app, deps) {
       }
 
       const lineReq = pool.request()
-      const proj = lineListProjectionSql(meta)
+      const proj = lineExpandProjectionSql(meta)
       const orderBy = lineOrderBy(meta)
+      const delClause = sqlLineDelActiveClause(meta, 'l')
       let lineR
       if (fkCol && isStringishSqlType(fkCol.dataType)) {
         const linkIn = bindNVarCharInList(lineReq, 'hid', linkValues, 200)
@@ -1219,6 +1434,7 @@ function registerQuotationRoutes(app, deps) {
           SELECT ${proj}, l.${bracketIdent(fk)} AS __lineFk
           FROM ${LINE_FROM} AS l
           WHERE l.${bracketIdent(fk)} IN (${linkIn.inSql})
+            AND ${delClause}
           ORDER BY l.${bracketIdent(fk)}, ${orderBy}
         `)
       } else {
@@ -1228,6 +1444,7 @@ function registerQuotationRoutes(app, deps) {
           SELECT ${proj}, l.${bracketIdent(fk)} AS __lineFk
           FROM ${LINE_FROM} AS l
           WHERE l.${bracketIdent(fk)} IN (${linkIn.inSql})
+            AND ${delClause}
           ORDER BY l.${bracketIdent(fk)}, ${orderBy}
         `)
       }
@@ -1278,8 +1495,9 @@ function registerQuotationRoutes(app, deps) {
       ) {
         lineBindVal = await fetchLineFilterStringFromNumericHeader(pool, meta, parsed.value)
       }
-      const proj = lineListProjectionSql(meta)
+      const proj = lineExpandProjectionSql(meta)
       const orderBy = lineOrderBy(meta)
+      const delClause = sqlLineDelActiveClause(meta, 'l')
       const lrq = pool.request()
       bindPkOrFkParam(lrq, 'hid', fkCol, lineBindVal)
       const r = await lrq.query(`
@@ -1287,6 +1505,7 @@ function registerQuotationRoutes(app, deps) {
           ${proj}
         FROM ${LINE_FROM} AS l
         WHERE l.${bracketIdent(fk)} = @hid
+          AND ${delClause}
         ORDER BY ${orderBy}
       `)
       res.json({ code: 200, msg: 'success', data: { list: r.recordset ?? [] } })
@@ -1914,6 +2133,7 @@ function registerQuotationRoutes(app, deps) {
    * PUT ${apiBase}/unaudit  body: { id }
    */
   app.put(`${apiBase}/unaudit`, async (req, res) => {
+    let tx = null
     try {
       const pool = await getPool()
       const meta = await ensureQuotationMeta(pool)
@@ -1937,11 +2157,16 @@ function registerQuotationRoutes(app, deps) {
         return
       }
       const nowStr = formatBomColorcodeTimestamp()
+      const headerForLog = operationLog ? await fetchQuotationHeaderFullForAudit(pool, id) : null
+      if (operationLog) {
+        tx = new sql.Transaction(pool)
+        await tx.begin()
+      }
       const pk = meta.headerPk
       const pkColUn = colMeta(meta, 'h', pk)
       const unauditSets = [`${bracketIdent('pass')} = N'0'`]
       if (meta.headerColNames.has('edittime')) unauditSets.push(`${bracketIdent('edittime')} = @edittime`)
-      const unauditReq = pool.request()
+      const unauditReq = tx ? new sql.Request(tx) : pool.request()
       bindPkOrFkParam(unauditReq, 'id', pkColUn, id)
       if (meta.headerColNames.has('edittime')) unauditReq.input('edittime', sql.NVarChar(50), nowStr)
       const unauditRs = await unauditReq.query(`
@@ -1952,11 +2177,25 @@ function registerQuotationRoutes(app, deps) {
       `)
       const affected = Array.isArray(unauditRs.rowsAffected) ? Number(unauditRs.rowsAffected[0] ?? 0) : 0
       if (affected <= 0) {
+        if (tx) {
+          await tx.rollback()
+          tx = null
+        }
         res.status(400).json({ code: 400, msg: '反审失败：记录未审核或不存在', data: null })
         return
       }
+      if (tx) {
+        await writeLifecycleOperationLog(req, tx, 'unaudit', headerForLog, meta, nowStr, getActorAuditTripletFromReq(req))
+        await tx.commit()
+        tx = null
+      }
       res.json({ code: 200, msg: 'success', data: null })
     } catch (err) {
+      try {
+        if (tx) await tx.rollback()
+      } catch {
+        /* ignore */
+      }
       console.error(`PUT ${apiBase}/unaudit 失败：`, err)
       const detail = String(err?.message ?? err?.originalError?.message ?? '数据库写入失败')
       res.status(500).json({ code: 500, msg: `反审失败：${detail}`, data: null })
@@ -2012,6 +2251,7 @@ function registerQuotationRoutes(app, deps) {
    * DELETE ${apiBase}/:id  软删
    */
   app.delete(`${apiBase}/:id`, async (req, res) => {
+    let tx = null
     try {
       const pool = await getPool()
       const meta = await ensureQuotationMeta(pool)
@@ -2035,12 +2275,17 @@ function registerQuotationRoutes(app, deps) {
         return
       }
       const nowStr = formatBomColorcodeTimestamp()
+      const headerForLog = operationLog ? await fetchQuotationHeaderFullForAudit(pool, id) : null
+      if (operationLog) {
+        tx = new sql.Transaction(pool)
+        await tx.begin()
+      }
       const pk = meta.headerPk
       const pkColSf = colMeta(meta, 'h', pk)
       const softSets = [`${bracketIdent('del')} = N'1'`]
       if (meta.headerColNames.has('deltime')) softSets.push(`${bracketIdent('deltime')} = @deltime`)
       if (meta.headerColNames.has('edittime')) softSets.push(`${bracketIdent('edittime')} = @edittime`)
-      const softReq = pool.request()
+      const softReq = tx ? new sql.Request(tx) : pool.request()
       bindPkOrFkParam(softReq, 'id', pkColSf, id)
       if (meta.headerColNames.has('deltime')) softReq.input('deltime', sql.NVarChar(50), nowStr)
       if (meta.headerColNames.has('edittime')) softReq.input('edittime', sql.NVarChar(50), nowStr)
@@ -2052,11 +2297,25 @@ function registerQuotationRoutes(app, deps) {
       `)
       const affected = Array.isArray(softRs.rowsAffected) ? Number(softRs.rowsAffected[0] ?? 0) : 0
       if (affected <= 0) {
+        if (tx) {
+          await tx.rollback()
+          tx = null
+        }
         res.status(400).json({ code: 400, msg: '删除失败：记录状态已变化', data: null })
         return
       }
+      if (tx) {
+        await writeLifecycleOperationLog(req, tx, 'delete', headerForLog, meta, nowStr, getActorAuditTripletFromReq(req))
+        await tx.commit()
+        tx = null
+      }
       res.json({ code: 200, msg: 'success', data: { id } })
     } catch (err) {
+      try {
+        if (tx) await tx.rollback()
+      } catch {
+        /* ignore */
+      }
       console.error(`DELETE ${apiBase}/:id 失败：`, err)
       const detail = String(err?.message ?? err?.originalError?.message ?? '数据库写入失败')
       res.status(500).json({ code: 500, msg: `删除失败：${detail}`, data: null })
@@ -2124,6 +2383,10 @@ function registerQuotationRoutes(app, deps) {
         await tx.rollback()
         res.status(400).json({ code: 400, msg: '彻底删除失败：状态不符', data: null })
         return
+      }
+      if (operationLog) {
+        const nowStr = formatBomColorcodeTimestamp()
+        await writeLifecycleOperationLog(req, tx, 'permanent-delete', hdrPm, meta, nowStr, getActorAuditTripletFromReq(req))
       }
       await tx.commit()
       res.json({ code: 200, msg: 'success', data: { id } })

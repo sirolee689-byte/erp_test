@@ -15,12 +15,31 @@
         >
           物料单统计表（汇总）
         </el-button>
+        <el-button
+          :type="activeTab === 'outsourcing' ? 'primary' : undefined"
+          size="small"
+          @click="activeTab = 'outsourcing'"
+        >
+          外协清单
+        </el-button>
+        <el-button
+          :type="activeTab === 'cut-position' ? 'primary' : undefined"
+          size="small"
+          @click="activeTab = 'cut-position'"
+        >
+          位置裁片清单
+        </el-button>
     </div>
 
     <div class="report-tool-row no-print">
       <el-button type="primary" @click="onPrintMaterialSheet">打印统计报表</el-button>
       <el-button type="primary" @click="onClickQueryContent">查询内容</el-button>
-      <el-popover placement="bottom-start" trigger="click" width="300">
+      <el-popover
+        v-if="activeTab !== 'outsourcing' && activeTab !== 'cut-position'"
+        placement="bottom-start"
+        trigger="click"
+        width="300"
+      >
         <template #reference>
           <el-button>列设置</el-button>
         </template>
@@ -92,7 +111,7 @@
           <el-empty v-else description="请选择 PI 号并查询物料单明细" />
         </template>
 
-        <template v-else>
+        <template v-else-if="activeTab === 'summary'">
           <ReportHeader :header="summaryHeader" compact />
           <div v-if="consumptionLines.length" class="report-table-wrap">
             <table class="report-table">
@@ -130,6 +149,175 @@
           </div>
           <el-empty v-else description="请选择 PI 号并查询物料单汇总" />
         </template>
+
+        <template v-else-if="activeTab === 'outsourcing'">
+          <template v-if="outsourcingGroups.length">
+            <section
+              v-for="piGroup in outsourcingGroups"
+              :key="piGroup.piNo"
+              class="outsourcing-pi-section"
+            >
+              <div class="blank-report-head">
+                <div class="brand-line">{{ REPORT_BRAND }}</div>
+                <div class="report-title">{{ OUTSOURCING_REPORT_TITLE }}</div>
+                <div class="head-grid">
+                  <div class="head-row">
+                    <div class="head-field">
+                      <span class="head-label">PI号：</span>
+                      <span class="head-value">{{ piGroup.piNo }}</span>
+                    </div>
+                    <div class="head-field">
+                      <span class="head-label">PO号：</span>
+                      <span class="head-value">{{ piGroup.poNo }}</span>
+                    </div>
+                    <div class="head-field">
+                      <span class="head-label">日期：</span>
+                      <span class="head-value">{{ formatHeaderDate(piGroup.salesDate) }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div
+                v-for="(product, pIdx) in piGroup.products"
+                :key="`${piGroup.piNo}-${product.factoryStyleNo}-${pIdx}`"
+                class="outsourcing-product-block"
+              >
+                <div class="outsourcing-product-meta">
+                  <span>厂款号：{{ product.factoryStyleNo || '-' }}</span>
+                  <span>客款号：{{ product.customerStyleNo || '-' }}</span>
+                  <span>组别：{{ product.groupName || '-' }}</span>
+                  <span>订单量：{{ formatOutsourcingOrderQty(product.orderQty) }}</span>
+                </div>
+                <div class="report-table-wrap">
+                  <table class="report-table outsourcing-table">
+                    <thead>
+                      <tr>
+                        <th class="col-index">序号</th>
+                        <th class="col-code">编码</th>
+                        <th>名称</th>
+                        <th>规格</th>
+                        <th class="col-color">材料颜色</th>
+                        <th class="col-unit">单位</th>
+                        <th class="col-num">单个用量</th>
+                        <th class="col-num">合计</th>
+                        <th class="col-position">位置</th>
+                        <th class="col-leather">裁片物料皮名及颜色</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-if="!(product.materials || []).length">
+                        <td colspan="10" class="outsourcing-empty-cell">本款暂无外协材料</td>
+                      </tr>
+                      <tr
+                        v-for="(row, idx) in product.materials"
+                        :key="`${product.factoryStyleNo}-${row.kcaa01}-${idx}`"
+                      >
+                        <td>{{ idx + 1 }}</td>
+                        <td>{{ row.kcaa01 }}</td>
+                        <td>{{ row.kcaa02 }}</td>
+                        <td>{{ row.kcaa03 }}</td>
+                        <td>{{ row.kcaa11 }}</td>
+                        <td>{{ row.unit }}</td>
+                        <td>{{ formatOutsourcingQty(row.unitUsage) }}</td>
+                        <td>{{ formatOutsourcingQty(row.totalQty) }}</td>
+                        <td>{{ row.position || '-' }}</td>
+                        <td>{{ row.cutLeather || '-' }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+          </template>
+          <el-empty v-else description="请点击「查询内容」设置条件后生成外协清单" />
+        </template>
+
+        <template v-else-if="activeTab === 'cut-position'">
+          <template v-if="cutPositionGroups.length">
+            <section
+              v-for="piGroup in cutPositionGroups"
+              :key="`cut-${piGroup.piNo}`"
+              class="outsourcing-pi-section"
+            >
+              <div class="blank-report-head">
+                <div class="brand-line">{{ REPORT_BRAND }}</div>
+                <div class="report-title">{{ CUT_POSITION_REPORT_TITLE }}</div>
+                <div class="head-grid">
+                  <div class="head-row">
+                    <div class="head-field">
+                      <span class="head-label">PI号：</span>
+                      <span class="head-value">{{ piGroup.piNo }}</span>
+                    </div>
+                    <div class="head-field">
+                      <span class="head-label">PO号：</span>
+                      <span class="head-value">{{ piGroup.poNo }}</span>
+                    </div>
+                    <div class="head-field">
+                      <span class="head-label">日期：</span>
+                      <span class="head-value">{{ formatHeaderDate(piGroup.salesDate) }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div
+                v-for="(product, pIdx) in piGroup.products"
+                :key="`cut-${piGroup.piNo}-${product.factoryStyleNo}-${pIdx}`"
+                class="outsourcing-product-block"
+              >
+                <div class="outsourcing-product-meta">
+                  <span>厂款号：{{ product.factoryStyleNo || '-' }}</span>
+                  <span>客款号：{{ product.customerStyleNo || '-' }}</span>
+                  <span>组别：{{ product.groupName || '-' }}</span>
+                  <span>订单量：{{ formatOutsourcingOrderQty(product.orderQty) }}</span>
+                </div>
+                <div class="report-table-wrap">
+                  <table class="report-table outsourcing-table">
+                    <thead>
+                      <tr>
+                        <th class="col-index">序号</th>
+                        <th class="col-code">编码</th>
+                        <th>名称</th>
+                        <th>规格</th>
+                        <th class="col-color">材料颜色</th>
+                        <th class="col-unit">单位</th>
+                        <th class="col-num">单个用量</th>
+                        <th class="col-num">合计</th>
+                        <th class="col-position">位置</th>
+                        <th class="col-leather">裁片物料皮名及颜色</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-if="!(product.materials || []).length">
+                        <td colspan="10" class="outsourcing-empty-cell">本款暂无裁片材料</td>
+                      </tr>
+                      <tr
+                        v-for="(row, idx) in product.materials"
+                        :key="`cut-${product.factoryStyleNo}-${row.kcaa01}-${idx}`"
+                      >
+                        <td>{{ idx + 1 }}</td>
+                        <td>{{ row.kcaa01 }}</td>
+                        <td>{{ row.kcaa02 }}</td>
+                        <td>{{ row.kcaa03 }}</td>
+                        <td>{{ row.kcaa11 }}</td>
+                        <td>{{ row.unit }}</td>
+                        <td>{{ formatOutsourcingQty(row.unitUsage) }}</td>
+                        <td>{{ formatOutsourcingQty(row.totalQty) }}</td>
+                        <td>{{ row.position || '-' }}</td>
+                        <td>{{ row.cutLeather || '-' }}</td>
+                      </tr>
+                      <tr v-if="(product.materials || []).length" class="cut-position-total-row">
+                        <td colspan="7" class="cut-position-total-label">合计数量</td>
+                        <td>{{ formatOutsourcingQty(productMaterialsTotal(product)) }}</td>
+                        <td colspan="2"></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+          </template>
+          <el-empty v-else description="请点击「查询内容」设置条件后生成位置裁片清单" />
+        </template>
       </div>
     </div>
 
@@ -166,6 +354,53 @@
         @size-change="onPiPageSizeChange"
         @current-change="onPiPageChange"
       />
+    </el-dialog>
+
+    <el-dialog
+      v-model="outsourcingQuery.visible"
+      :title="rangeQueryDialogTitle"
+      width="520px"
+      class="outsourcing-query-dialog"
+      destroy-on-close
+    >
+      <el-form label-width="120px" @submit.prevent>
+        <el-form-item label="统计开始日期" required>
+          <el-date-picker
+            v-model="outsourcingQuery.startDate"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="开始日期"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="统计结束日期" required>
+          <el-date-picker
+            v-model="outsourcingQuery.endDate"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="结束日期"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item label="PI号">
+          <el-autocomplete
+            v-model="outsourcingQuery.piNo"
+            :fetch-suggestions="fetchPiSuggestions"
+            clearable
+            placeholder="可选，输入选择已审核销售订单 PI"
+            value-key="value"
+            style="width: 100%"
+            @select="onOutsourcingPickPi"
+          />
+        </el-form-item>
+        <el-form-item label="PO号">
+          <el-input v-model="outsourcingQuery.poNo" clearable placeholder="可选，手动输入 PO 号" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="outsourcingQuery.visible = false">取消</el-button>
+        <el-button type="primary" :loading="loading" @click="submitRangeReportQuery">查询</el-button>
+      </template>
     </el-dialog>
 
     <section class="material-sheet-print-document" aria-hidden="true">
@@ -223,7 +458,7 @@
           </table>
         </div>
       </template>
-      <template v-else>
+      <template v-else-if="activeTab === 'summary'">
         <div v-if="consumptionLines.length" class="material-sheet-print-section">
           <p class="material-sheet-print-brand">{{ REPORT_BRAND }}</p>
           <p class="material-sheet-print-title">{{ REPORT_TITLE }}</p>
@@ -266,6 +501,135 @@
           </table>
         </div>
       </template>
+      <template v-else-if="activeTab === 'outsourcing'">
+        <div
+          v-for="piGroup in outsourcingGroups"
+          :key="`print-out-${piGroup.piNo}`"
+          class="material-sheet-print-section"
+        >
+          <p class="material-sheet-print-brand">{{ REPORT_BRAND }}</p>
+          <p class="material-sheet-print-title">{{ OUTSOURCING_REPORT_TITLE }}</p>
+          <div class="material-sheet-print-head-row">
+            <span class="material-sheet-print-head-item">PI号：{{ piGroup.piNo }}</span>
+            <span class="material-sheet-print-head-item">PO号：{{ piGroup.poNo }}</span>
+            <span class="material-sheet-print-head-item">日期：{{ formatHeaderDate(piGroup.salesDate) }}</span>
+          </div>
+          <div
+            v-for="(product, pIdx) in piGroup.products"
+            :key="`print-out-${piGroup.piNo}-${product.factoryStyleNo}-${pIdx}`"
+          >
+            <div class="material-sheet-print-head-row">
+              <span class="material-sheet-print-head-item">厂款号：{{ product.factoryStyleNo || '-' }}</span>
+              <span class="material-sheet-print-head-item">客款号：{{ product.customerStyleNo || '-' }}</span>
+              <span class="material-sheet-print-head-item">组别：{{ product.groupName || '-' }}</span>
+              <span class="material-sheet-print-head-item">订单量：{{ formatOutsourcingOrderQty(product.orderQty) }}</span>
+            </div>
+            <table class="material-sheet-print-table">
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>编码</th>
+                  <th>名称</th>
+                  <th>规格</th>
+                  <th>材料颜色</th>
+                  <th>单位</th>
+                  <th>单个用量</th>
+                  <th>合计</th>
+                  <th>位置</th>
+                  <th>裁片物料皮名及颜色</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="!(product.materials || []).length">
+                  <td colspan="10">本款暂无外协材料</td>
+                </tr>
+                <tr
+                  v-for="(row, idx) in product.materials"
+                  :key="`print-mat-${product.factoryStyleNo}-${idx}`"
+                >
+                  <td>{{ idx + 1 }}</td>
+                  <td>{{ row.kcaa01 }}</td>
+                  <td>{{ row.kcaa02 }}</td>
+                  <td>{{ row.kcaa03 }}</td>
+                  <td>{{ row.kcaa11 }}</td>
+                  <td>{{ row.unit }}</td>
+                  <td class="num">{{ formatOutsourcingQty(row.unitUsage) }}</td>
+                  <td class="num">{{ formatOutsourcingQty(row.totalQty) }}</td>
+                  <td>{{ row.position || '-' }}</td>
+                  <td>{{ row.cutLeather || '-' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+      <template v-else-if="activeTab === 'cut-position'">
+        <div
+          v-for="piGroup in cutPositionGroups"
+          :key="`print-cut-${piGroup.piNo}`"
+          class="material-sheet-print-section"
+        >
+          <p class="material-sheet-print-brand">{{ REPORT_BRAND }}</p>
+          <p class="material-sheet-print-title">{{ CUT_POSITION_REPORT_TITLE }}</p>
+          <div class="material-sheet-print-head-row">
+            <span class="material-sheet-print-head-item">PI号：{{ piGroup.piNo }}</span>
+            <span class="material-sheet-print-head-item">PO号：{{ piGroup.poNo }}</span>
+            <span class="material-sheet-print-head-item">日期：{{ formatHeaderDate(piGroup.salesDate) }}</span>
+          </div>
+          <div
+            v-for="(product, pIdx) in piGroup.products"
+            :key="`print-cut-${piGroup.piNo}-${product.factoryStyleNo}-${pIdx}`"
+          >
+            <div class="material-sheet-print-head-row">
+              <span class="material-sheet-print-head-item">厂款号：{{ product.factoryStyleNo || '-' }}</span>
+              <span class="material-sheet-print-head-item">客款号：{{ product.customerStyleNo || '-' }}</span>
+              <span class="material-sheet-print-head-item">组别：{{ product.groupName || '-' }}</span>
+              <span class="material-sheet-print-head-item">订单量：{{ formatOutsourcingOrderQty(product.orderQty) }}</span>
+            </div>
+            <table class="material-sheet-print-table">
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>编码</th>
+                  <th>名称</th>
+                  <th>规格</th>
+                  <th>材料颜色</th>
+                  <th>单位</th>
+                  <th>单个用量</th>
+                  <th>合计</th>
+                  <th>位置</th>
+                  <th>裁片物料皮名及颜色</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="!(product.materials || []).length">
+                  <td colspan="10">本款暂无裁片材料</td>
+                </tr>
+                <tr
+                  v-for="(row, idx) in product.materials"
+                  :key="`print-cut-mat-${product.factoryStyleNo}-${idx}`"
+                >
+                  <td>{{ idx + 1 }}</td>
+                  <td>{{ row.kcaa01 }}</td>
+                  <td>{{ row.kcaa02 }}</td>
+                  <td>{{ row.kcaa03 }}</td>
+                  <td>{{ row.kcaa11 }}</td>
+                  <td>{{ row.unit }}</td>
+                  <td class="num">{{ formatOutsourcingQty(row.unitUsage) }}</td>
+                  <td class="num">{{ formatOutsourcingQty(row.totalQty) }}</td>
+                  <td>{{ row.position || '-' }}</td>
+                  <td>{{ row.cutLeather || '-' }}</td>
+                </tr>
+                <tr v-if="(product.materials || []).length">
+                  <td colspan="7">合计数量</td>
+                  <td class="num">{{ formatOutsourcingQty(productMaterialsTotal(product)) }}</td>
+                  <td colspan="2"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
     </section>
   </div>
 </template>
@@ -275,13 +639,30 @@
 defineOptions({ name: 'production-analysis-material-sheet' })
 
 import { computed, defineComponent, h, nextTick, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 import ExcelJS from 'exceljs'
 import { aggregateBomCostUsageFlatForDisplay } from '@/utils/bomCostUsageAggregate.js'
+import { formatErpQtyDisplay } from '@/utils/erpNumberDisplay.js'
 
 const REPORT_BRAND = '中山市卓越皮具有限公司'
 const REPORT_TITLE = '成本物料单统计报表（成本价物料明细）'
+const OUTSOURCING_REPORT_TITLE = '外协材料清单'
+const CUT_POSITION_REPORT_TITLE = '位置裁片材料清单（含非外协）'
+const OUTSOURCING_COL_COUNT = 10
+const OUTSOURCING_EXPORT_HEADERS = [
+  '序号',
+  '编码',
+  '名称',
+  '规格',
+  '材料颜色',
+  '单位',
+  '单个用量',
+  '合计',
+  '位置',
+  '裁片物料皮名及颜色',
+]
+const OUTSOURCING_EXPORT_COL_WIDTHS = [8, 18, 18, 18, 14, 8, 12, 12, 12, 22]
 const DETAIL_MATERIAL_SHEET_COL_COUNT = 11
 /** 汇总不含「单物料合计」，最多 10 列 */
 const SUMMARY_MATERIAL_SHEET_COL_COUNT = 10
@@ -440,6 +821,8 @@ const activeTab = ref('detail')
 const costLines = ref([])
 const consumptionLines = ref([])
 const materialHeaders = ref([])
+const outsourcingGroups = ref([])
+const cutPositionGroups = ref([])
 const generatedAt = ref('')
 const reportCode = ref('')
 const checkedColumnKeys = ref(loadColumnSetting())
@@ -457,6 +840,9 @@ const visibleReportColumns = computed(() => {
   const cols = source.filter((col) => checkedColumnKeys.value.includes(col.key))
   return cols.length ? cols : source
 })
+const rangeQueryDialogTitle = computed(() =>
+  activeTab.value === 'cut-position' ? '位置裁片清单查询条件' : '外协清单查询条件',
+)
 const queryForm = reactive({ piNo: '' })
 const piDialogPageSizes = [10, 20, 50, 100]
 const piDialog = reactive({
@@ -468,6 +854,25 @@ const piDialog = reactive({
   pageSize: 10,
   total: 0,
   loading: false,
+})
+
+/** 外协清单条件默认：统计结束=今天，统计开始=三年前（同一月日） */
+function defaultOutsourcingDateRange() {
+  const end = new Date()
+  const start = new Date()
+  start.setFullYear(end.getFullYear() - 3)
+  const p = (n) => String(n).padStart(2, '0')
+  const fmt = (d) => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+  return { startDate: fmt(start), endDate: fmt(end) }
+}
+
+const outsourcingDefaultDates = defaultOutsourcingDateRange()
+const outsourcingQuery = reactive({
+  visible: false,
+  startDate: outsourcingDefaultDates.startDate,
+  endDate: outsourcingDefaultDates.endDate,
+  piNo: '',
+  poNo: '',
 })
 
 const headerByProduct = computed(() => {
@@ -613,6 +1018,8 @@ function clearReport() {
   costLines.value = []
   consumptionLines.value = []
   materialHeaders.value = []
+  outsourcingGroups.value = []
+  cutPositionGroups.value = []
   generatedAt.value = ''
   reportCode.value = ''
 }
@@ -646,8 +1053,131 @@ function hasColumn(key) {
 }
 
 function onClickQueryContent() {
+  if (activeTab.value === 'outsourcing' || activeTab.value === 'cut-position') {
+    openOutsourcingQueryDialog()
+    return
+  }
   queryForm.piNo = String(piKeyword.value ?? '').trim()
   openPiDialog()
+}
+
+function openOutsourcingQueryDialog() {
+  if (!outsourcingQuery.startDate || !outsourcingQuery.endDate) {
+    const range = defaultOutsourcingDateRange()
+    outsourcingQuery.startDate = range.startDate
+    outsourcingQuery.endDate = range.endDate
+  }
+  outsourcingQuery.visible = true
+}
+
+function onOutsourcingPickPi(row) {
+  outsourcingQuery.piNo = String(row?.piNo ?? row?.value ?? '').trim()
+}
+
+async function submitRangeReportQuery() {
+  const startDate = String(outsourcingQuery.startDate ?? '').trim()
+  const endDate = String(outsourcingQuery.endDate ?? '').trim()
+  if (!startDate || !endDate) {
+    ElMessage.warning('统计开始日期和统计结束日期不能为空')
+    return
+  }
+  if (startDate > endDate) {
+    ElMessage.warning('统计开始日期不能晚于统计结束日期')
+    return
+  }
+  const piNo = String(outsourcingQuery.piNo ?? '').trim()
+  const poNo = String(outsourcingQuery.poNo ?? '').trim()
+  if (!piNo && !poNo) {
+    try {
+      await ElMessageBox.confirm(
+        '未填写 PI号 / PO号，将按指定日期范围查询大量数据，是否继续？',
+        '查询确认',
+        { type: 'warning', confirmButtonText: '继续查询', cancelButtonText: '取消' },
+      )
+    } catch {
+      return
+    }
+  }
+  outsourcingQuery.visible = false
+  if (activeTab.value === 'cut-position') {
+    await loadCutPositionReport({ startDate, endDate, piNo, poNo })
+    return
+  }
+  await loadOutsourcingReport({ startDate, endDate, piNo, poNo })
+}
+
+async function loadOutsourcingReport({ startDate, endDate, piNo, poNo }) {
+  loading.value = true
+  try {
+    const res = await axios.get('/api/production/material-sheet/outsourcing-list', {
+      params: {
+        startDate,
+        endDate,
+        piNo: piNo || undefined,
+        poNo: poNo || undefined,
+      },
+    })
+    const list = Array.isArray(res?.data?.data?.list) ? res.data.data.list : []
+    outsourcingGroups.value = list
+    generatedAt.value = formatNow()
+    reportCode.value = makeReportCode()
+    if (!list.length) {
+      ElMessage.info('没有符合条件的外协清单数据')
+    }
+  } catch (e) {
+    outsourcingGroups.value = []
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '加载外协清单失败'))
+  } finally {
+    loading.value = false
+  }
+}
+
+async function loadCutPositionReport({ startDate, endDate, piNo, poNo }) {
+  loading.value = true
+  try {
+    const res = await axios.get('/api/production/material-sheet/cut-position-list', {
+      params: {
+        startDate,
+        endDate,
+        piNo: piNo || undefined,
+        poNo: poNo || undefined,
+      },
+    })
+    const list = Array.isArray(res?.data?.data?.list) ? res.data.data.list : []
+    cutPositionGroups.value = list
+    generatedAt.value = formatNow()
+    reportCode.value = makeReportCode()
+    if (!list.length) {
+      ElMessage.info('没有符合条件的位置裁片清单数据')
+    }
+  } catch (e) {
+    cutPositionGroups.value = []
+    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '加载位置裁片清单失败'))
+  } finally {
+    loading.value = false
+  }
+}
+
+function productMaterialsTotal(product) {
+  const fromApi = Number(product?.materialsTotalQty)
+  if (Number.isFinite(fromApi)) return fromApi
+  const mats = Array.isArray(product?.materials) ? product.materials : []
+  let sum = 0
+  for (const row of mats) {
+    const n = Number(row?.totalQty)
+    if (Number.isFinite(n)) sum += n
+  }
+  return Math.round(sum * 1e6) / 1e6
+}
+
+function formatOutsourcingQty(value) {
+  return formatErpQtyDisplay(value, '0')
+}
+
+function formatOutsourcingOrderQty(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return '-'
+  return formatErpQtyDisplay(n, '-')
 }
 
 function openPiDialog() {
@@ -972,6 +1502,22 @@ async function exportSummaryMaterialSheetXls(downloadFileName = materialSheetDef
 }
 
 async function exportMaterialSheetXls() {
+  if (activeTab.value === 'outsourcing') {
+    if (!outsourcingGroups.value.length) {
+      ElMessage.warning('暂无数据可导出')
+      return
+    }
+    await exportOutsourcingListXls()
+    return
+  }
+  if (activeTab.value === 'cut-position') {
+    if (!cutPositionGroups.value.length) {
+      ElMessage.warning('暂无数据可导出')
+      return
+    }
+    await exportCutPositionListXls()
+    return
+  }
   if (activeTab.value === 'detail') {
     if (!detailGroups.value.length) {
       ElMessage.warning('暂无数据可导出')
@@ -985,6 +1531,130 @@ async function exportMaterialSheetXls() {
     return
   }
   await exportSummaryMaterialSheetXls()
+}
+
+async function exportOutsourcingListXls(downloadFileName = '外协清单.xls') {
+  await exportRangeListWorkbook({
+    groups: outsourcingGroups.value,
+    sheetName: '外协清单',
+    reportTitle: OUTSOURCING_REPORT_TITLE,
+    emptyText: '本款暂无外协材料',
+    includeProductTotal: false,
+    downloadFileName,
+    fileNamePrefix: '外协清单',
+  })
+}
+
+async function exportCutPositionListXls(downloadFileName = '位置裁片清单.xls') {
+  await exportRangeListWorkbook({
+    groups: cutPositionGroups.value,
+    sheetName: '位置裁片清单',
+    reportTitle: CUT_POSITION_REPORT_TITLE,
+    emptyText: '本款暂无裁片材料',
+    includeProductTotal: true,
+    downloadFileName,
+    fileNamePrefix: '位置裁片清单',
+  })
+}
+
+/**
+ * 外协清单 / 位置裁片清单共用 Excel 导出骨架。
+ */
+async function exportRangeListWorkbook({
+  groups,
+  sheetName,
+  reportTitle,
+  emptyText,
+  includeProductTotal,
+  downloadFileName,
+  fileNamePrefix,
+}) {
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet(sheetName, {
+    views: [{ state: 'frozen', ySplit: 2 }],
+    pageSetup: materialSheetExportPageSetup(),
+  })
+  let rowNum = 0
+  for (let gi = 0; gi < groups.length; gi++) {
+    const piGroup = groups[gi]
+    if (gi > 0) {
+      ws.addRow([])
+      rowNum += 1
+    }
+    const brandRow = ws.addRow([REPORT_BRAND])
+    rowNum = brandRow.number
+    ws.mergeCells(rowNum, 1, rowNum, OUTSOURCING_COL_COUNT)
+    ws.getRow(rowNum).font = { bold: true, size: 14 }
+    ws.getCell(rowNum, 1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+
+    const titleRow = ws.addRow([reportTitle])
+    rowNum = titleRow.number
+    ws.mergeCells(rowNum, 1, rowNum, OUTSOURCING_COL_COUNT)
+    ws.getRow(rowNum).font = { bold: true, size: 12 }
+    ws.getCell(rowNum, 1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+
+    const headText = `PI号：${piGroup.piNo || ''}    PO号：${piGroup.poNo || ''}    日期：${formatHeaderDate(piGroup.salesDate)}`
+    const headRow = ws.addRow([headText])
+    rowNum = headRow.number
+    ws.mergeCells(rowNum, 1, rowNum, OUTSOURCING_COL_COUNT)
+
+    for (const product of piGroup.products || []) {
+      const meta = `厂款号：${product.factoryStyleNo || '-'}    客款号：${product.customerStyleNo || '-'}    组别：${product.groupName || '-'}    订单量：${formatOutsourcingOrderQty(product.orderQty)}`
+      const metaRow = ws.addRow([meta])
+      rowNum = metaRow.number
+      ws.mergeCells(rowNum, 1, rowNum, OUTSOURCING_COL_COUNT)
+
+      const headerAdded = ws.addRow(OUTSOURCING_EXPORT_HEADERS)
+      applyMaterialSheetExportTableStyle(ws, headerAdded.number, {
+        bold: true,
+        fill: MATERIAL_SHEET_EXPORT_HEADER_FILL,
+        numStartCol: 7,
+      })
+      const mats = Array.isArray(product.materials) ? product.materials : []
+      if (!mats.length) {
+        const emptyRow = ws.addRow([emptyText])
+        ws.mergeCells(emptyRow.number, 1, emptyRow.number, OUTSOURCING_COL_COUNT)
+      } else {
+        for (let i = 0; i < mats.length; i++) {
+          const row = mats[i]
+          const added = ws.addRow([
+            i + 1,
+            row.kcaa01,
+            row.kcaa02,
+            row.kcaa03,
+            row.kcaa11,
+            row.unit,
+            formatOutsourcingQty(row.unitUsage),
+            formatOutsourcingQty(row.totalQty),
+            row.position || '-',
+            row.cutLeather || '-',
+          ])
+          applyMaterialSheetExportTableStyle(ws, added.number, { numStartCol: 7 })
+        }
+        if (includeProductTotal) {
+          const totalRow = ws.addRow([
+            '合计数量',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            formatOutsourcingQty(productMaterialsTotal(product)),
+            '',
+            '',
+          ])
+          applyMaterialSheetExportTableStyle(ws, totalRow.number, { numStartCol: 7, bold: true })
+          ws.mergeCells(totalRow.number, 1, totalRow.number, 7)
+        }
+      }
+    }
+  }
+  ws.columns.forEach((col, index) => {
+    col.width = OUTSOURCING_EXPORT_COL_WIDTHS[index] || 10
+  })
+  const piHint = String(outsourcingQuery.piNo ?? '').trim()
+  await downloadMaterialSheetWorkbook(wb, piHint ? `${fileNamePrefix}-${piHint}` : downloadFileName)
 }
 
 function applyMaterialSheetPrintPageStyle() {
@@ -1023,7 +1693,13 @@ function formatMaterialSheetPrintTimestamp(d = new Date()) {
 
 function onPrintMaterialSheet() {
   const hasData =
-    activeTab.value === 'detail' ? detailGroups.value.length > 0 : consumptionLines.value.length > 0
+    activeTab.value === 'detail'
+      ? detailGroups.value.length > 0
+      : activeTab.value === 'summary'
+        ? consumptionLines.value.length > 0
+        : activeTab.value === 'cut-position'
+          ? cutPositionGroups.value.length > 0
+          : outsourcingGroups.value.length > 0
   if (!hasData) {
     ElMessage.warning('暂无数据可打印')
     return
@@ -1170,6 +1846,43 @@ function onPrintMaterialSheet() {
 }
 .product-section + .product-section {
   margin-top: 18px;
+}
+.outsourcing-pi-section + .outsourcing-pi-section {
+  margin-top: 36px;
+  padding-top: 20px;
+  border-top: 1px dashed var(--el-border-color);
+}
+.outsourcing-product-block {
+  margin-top: 12px;
+}
+.outsourcing-product-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 28px;
+  margin: 8px 0 10px;
+  padding: 8px 12px;
+  color: #334155;
+  font-size: 14px;
+  background: var(--el-fill-color-light, #f7f9fc);
+  border-radius: 6px;
+}
+.outsourcing-empty-cell {
+  text-align: center;
+  color: var(--el-text-color-secondary);
+}
+.cut-position-total-row td {
+  font-weight: 600;
+  background: #fafafa;
+}
+.cut-position-total-label {
+  text-align: right;
+  padding-right: 12px;
+}
+.col-position {
+  width: 90px;
+}
+.col-leather {
+  min-width: 160px;
 }
 :deep(.blank-report-head) {
   position: relative;

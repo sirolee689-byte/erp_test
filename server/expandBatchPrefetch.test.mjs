@@ -7,6 +7,7 @@ const stockOutExpand = readFileSync(new URL('./stockOutExpandLines.js', import.m
 const stockOutHandlers = readFileSync(new URL('./stockOutHandlers.js', import.meta.url), 'utf8')
 const dispatchHandlers = readFileSync(new URL('./dispatchOrderHandlers.js', import.meta.url), 'utf8')
 const quotationHandlers = readFileSync(new URL('./createQuotationHandlers.js', import.meta.url), 'utf8')
+const purchaseQuotationHandlers = readFileSync(new URL('./purchaseQuotationHandlers.js', import.meta.url), 'utf8')
 const assistExpand = readFileSync(new URL('./assistOrderExpandDetail.js', import.meta.url), 'utf8')
 const salesExpand = readFileSync(new URL('./salesOrderExpandLines.js', import.meta.url), 'utf8')
 const stockInHandlers = readFileSync(new URL('./stockInHandlers.js', import.meta.url), 'utf8')
@@ -42,6 +43,12 @@ test('quotation lines batch routes are registered before single lines route', ()
   assert.ok(pqLines > pqBatch)
   assert.match(gate, /purchase-quotations\/lines\/batch/)
   assert.match(gate, /outsourcing-quotations\/lines\/batch/)
+})
+
+test('purchase quotation batch prefetch only selects the header fields needed for line linkage', () => {
+  assert.match(purchaseQuotationHandlers, /compactBatchHeader:\s*true/)
+  assert.match(quotationHandlers, /const batchHeaderProjection/)
+  assert.match(quotationHandlers, /SELECT \$\{batchHeaderProjection\}/)
 })
 
 test('stock-out expand batch uses IN clause grouping', () => {

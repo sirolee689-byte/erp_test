@@ -33,11 +33,14 @@ import { syncSalesOrderBomForLine } from './salesOrderSyncBomService.js'
 import { calculateSalesOrderMaterialBill } from './salesOrderCalculateService.js'
 import { addSalesOrderSpareUsage } from './salesOrderSpareUsageService.js'
 import { fetchSalesOrderMaterialBill } from './salesOrderMaterialBillService.js'
+import { fetchOutsourcingMaterialList } from './salesOrderOutsourcingListService.js'
+import { fetchCutPositionMaterialList } from './salesOrderCutPositionListService.js'
 import {
   fetchSalesOrderPiBom,
   saveSalesOrderPiBom,
 } from './salesOrderPiBomMaintainService.js'
 import { fetchSalesOrderExpandLinesBatch } from './salesOrderExpandLines.js'
+import { fetchSalesOrderMaterialTrace, fetchSalesOrderMaterialTraceCategories } from './salesOrderMaterialTrace.js'
 
 const HEADER_FROM = `dbo.[${SALES_ORDER_HEADER_TABLE}]`
 const LINE_FROM = 'dbo.[UB_ERP_Sales_order_list]'
@@ -517,6 +520,27 @@ export function registerSalesOrderRoutes(app, deps) {
     } catch (err) {
       console.error('GET /api/sales-order/currency-options 失败：', err)
       res.status(500).json({ code: 500, msg: '读取币别失败', data: null })
+    }
+  })
+
+  app.get('/api/sales-order/material-trace/categories', async (_req, res) => {
+    try {
+      const list = await fetchSalesOrderMaterialTraceCategories(await getPool())
+      res.json({ code: 200, msg: 'success', data: { list } })
+    } catch (err) {
+      const detail = String(err?.message ?? err?.originalError?.message ?? err)
+      res.status(500).json({ code: 500, msg: `读取销售订单物料分类失败：${detail}`, data: null })
+    }
+  })
+
+  app.get('/api/sales-order/material-trace/list', async (req, res) => {
+    try {
+      const result = await fetchSalesOrderMaterialTrace(await getPool(), req.query ?? {})
+      res.json({ code: 200, msg: 'success', data: result })
+    } catch (err) {
+      const detail = String(err?.message ?? err?.originalError?.message ?? err)
+      const isQueryError = /^(开始日期|结束日期).*(格式无效|无效)$/.test(detail) || detail === '开始日期不能晚于结束日期'
+      res.status(isQueryError ? 400 : 500).json({ code: isQueryError ? 400 : 500, msg: `读取销售订单转向物料失败：${detail}`, data: null })
     }
   })
 
@@ -1064,6 +1088,64 @@ export function registerSalesOrderRoutes(app, deps) {
       console.error('GET /api/sales-order/:id/material-bill 失败：', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? '查询失败')
       res.status(500).json({ code: 500, msg: `读取物料单失败：${detail}`, data: null })
+    }
+  })
+
+  /**
+   * GET /api/production/material-sheet/outsourcing-list
+   * 物料单「外协清单」报表：按日期/PI/PO 查销售订单，展开 kcaa13=1 外协材料。
+   */
+  app.get('/api/production/material-sheet/outsourcing-list', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const result = await fetchOutsourcingMaterialList(pool, {
+        startDate: req.query?.startDate,
+        endDate: req.query?.endDate,
+        piNo: req.query?.piNo,
+        poNo: req.query?.poNo,
+      })
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({
+          code: result.status ?? 400,
+          msg: result.msg,
+          data: null,
+        })
+        return
+      }
+      res.json({ code: 200, msg: 'success', data: { list: result.list ?? [] } })
+    } catch (err) {
+      console.error('GET /api/production/material-sheet/outsourcing-list 失败：', err)
+      const detail = String(err?.message ?? err?.originalError?.message ?? '查询失败')
+      res.status(500).json({ code: 500, msg: `读取外协清单失败：${detail}`, data: null })
+    }
+  })
+
+  /**
+   * GET /api/production/material-sheet/cut-position-list
+   * 物料单「位置裁片清单」：PI 成本用量（不限外协）+ 销售 BOM 补充 kcaa13=1。
+   */
+  app.get('/api/production/material-sheet/cut-position-list', async (req, res) => {
+    try {
+      const pool = await getPool()
+      const result = await fetchCutPositionMaterialList(pool, {
+        startDate: req.query?.startDate,
+        endDate: req.query?.endDate,
+        piNo: req.query?.piNo,
+        poNo: req.query?.poNo,
+      })
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({
+          code: result.status ?? 400,
+          msg: result.msg,
+          data: null,
+        })
+        return
+      }
+      res.json({ code: 200, msg: 'success', data: { list: result.list ?? [] } })
+    } catch (err) {
+      console.error('GET /api/production/material-sheet/cut-position-list 失败：', err)
+      const detail = String(err?.message ?? err?.originalError?.message ?? '查询失败')
+      res.status(500).json({ code: 500, msg: `读取位置裁片清单失败：${detail}`, data: null })
     }
   })
 
