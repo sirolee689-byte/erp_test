@@ -321,7 +321,8 @@ export async function fetchStockInProductionDispatchPickPage(pool, query = {}) {
   const hasKeyword = Boolean(keyword)
   const { page, pageSize, startRow, endRow } = parsePage(query)
 
-  if (inboundType === '4' && !hasKeyword) {
+  // 生产入库/生产退料：无关键字默认不加载，由用户自行搜索
+  if (['4', '5'].includes(inboundType) && !hasKeyword) {
     return {
       ok: true,
       inboundType,

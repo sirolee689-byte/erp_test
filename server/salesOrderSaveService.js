@@ -10,6 +10,7 @@ import {
   shouldMarkSalesOrderUncalculated,
   validateSalesOrderSavePayload,
 } from './salesOrderSaveLogic.js'
+import { parseSyncedKcaa01List } from './salesOrderCalculateLogic.js'
 import {
   applyPiBomAlignPlan,
   fetchPiBomHeadKcaa01Set,
@@ -584,7 +585,11 @@ export async function updateSalesOrder(opts) {
 
   const oldLines = await fetchOrderLinesForCompare(pool, id)
   const merged = mergeSalesOrderLinesByKcaa01(linesIn)
-  const markUncalc = shouldMarkSalesOrderUncalculated(oldLines, merged)
+  // 本会话同步过 BOM（syncedKcaa01）后保存：整单清 pi_cost，回到未运算；不同步则仍按明细变更判断
+  const syncedParsed = parseSyncedKcaa01List(body?.syncedKcaa01)
+  if (!syncedParsed.ok) return { ok: false, status: 400, msg: syncedParsed.msg }
+  const markUncalc =
+    shouldMarkSalesOrderUncalculated(oldLines, merged) || syncedParsed.list.length > 0
 
   const actorRow = {
     uname: actor.uname,

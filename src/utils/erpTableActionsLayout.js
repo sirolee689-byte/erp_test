@@ -39,3 +39,39 @@ export function getErpTableActionsColMinWidth(buttonCount, options = {}) {
   if (cols <= 0) return btnW + cellPad + extra
   return Math.ceil(cols * btnW + Math.max(0, cols - 1) * colGap + cellPad + extra)
 }
+
+/**
+ * 按实际按钮文案估算操作列宽度。
+ * 只依赖传入数据，不读取或监听 DOM，避免表格列宽与组件渲染互相触发更新。
+ *
+ * @param {Array<string | null | undefined | false>} actionLabels 当前会显示的按钮文案
+ * @param {{ comfortable?: boolean, cellPadPx?: number, colGapPx?: number, extraPx?: number }} [options]
+ */
+export function getErpTableActionsColWidthByLabels(actionLabels, options = {}) {
+  const labels = (Array.isArray(actionLabels) ? actionLabels : [])
+    .filter((label) => label != null && label !== false && String(label).trim() !== '')
+    .map((label) => String(label).trim())
+  const comfortable = options.comfortable !== false
+  const fontSize = comfortable ? 13 : 11
+  const buttonPad = 18
+  const minButtonWidth = comfortable ? 44 : 40
+  const cellPad = Number(options.cellPadPx ?? 10)
+  const colGap = Number(options.colGapPx ?? 4)
+  const extra = Number(options.extraPx) || 0
+  const cols = getErpTableActionsColCount(labels.length)
+  const columnWidths = Array.from({ length: cols }, () => 0)
+
+  labels.forEach((label, index) => {
+    let textUnits = 0
+    for (const char of Array.from(label)) textUnits += /[\u0000-\u00ff]/.test(char) ? 0.65 : 1
+    const buttonWidth = Math.max(minButtonWidth, Math.ceil(textUnits * fontSize + buttonPad))
+    columnWidths[index % cols] = Math.max(columnWidths[index % cols], buttonWidth)
+  })
+
+  return Math.ceil(
+    columnWidths.reduce((total, width) => total + width, 0)
+      + Math.max(0, cols - 1) * colGap
+      + Math.max(0, cellPad)
+      + extra,
+  )
+}

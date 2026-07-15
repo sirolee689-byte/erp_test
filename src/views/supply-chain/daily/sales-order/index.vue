@@ -261,7 +261,7 @@
             <el-table-column label="币别" prop="currencyName" width="88" />
             <el-table-column label="客户" prop="customerName" min-width="160" />
             <el-table-column label="备注" prop="remark" min-width="180" show-overflow-tooltip />
-            <el-table-column type="expand" width="48">
+            <el-table-column type="expand" width="1">
               <template #default="{ row }">
                 <div v-loading="row.__linesLoading" class="expand-inner">
                   <el-table
@@ -1685,6 +1685,8 @@ function buildSaveBody() {
       orderQty: row.orderQty,
       unitPrice: row.unitPrice,
     })),
+    // 本会话同步过 BOM 的款；保存时后端据此整单清空 pi_cost（同步当下不删）
+    syncedKcaa01: [...syncedSinceCalc.value],
   }
 }
 
@@ -1854,9 +1856,11 @@ async function onSave() {
     const body = buildSaveBody()
     if (editMode.value === 'create') {
       const res = await axios.post('/api/sales-order', body)
+      syncedSinceCalc.value = []
       ElMessage.success(res?.data?.msg ?? '保存成功')
     } else {
       const res = await axios.put(`/api/sales-order/${editId.value}`, body)
+      syncedSinceCalc.value = []
       forgetDetail(savedOrderId)
       ElMessage.success(res?.data?.msg ?? '保存成功')
     }

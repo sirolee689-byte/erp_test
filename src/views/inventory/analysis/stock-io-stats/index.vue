@@ -111,6 +111,7 @@
               @focus="fetchWarehouses('')"
               placeholder="请选择仓库"
             >
+              <el-option label="全部仓库" :value="ALL_WAREHOUSE" />
               <el-option v-for="item in warehouseOptions" :key="item.code" :label="formatWarehouseLabel(item)" :value="item.code" />
             </el-select>
           </el-form-item>
@@ -215,6 +216,7 @@ defineOptions({ name: 'InventoryAnalysisStockIoStats' })
 
 const MENU_PATH = 'inventory/analysis/stock-io-stats'
 const REPORT_TITLE = '进销存统计报表'
+const ALL_WAREHOUSE = '__ALL__'
 const COLUMN_SETTING_KEY = 'erp.stockIoStats.columnSetting.v2'
 const EXPORT_THIN_BORDER = {
   top: { style: 'thin', color: { argb: 'FF333333' } },
@@ -577,6 +579,7 @@ function pickDefaultWarehouseCode() {
 }
 
 function currentWarehouseLabel() {
+  if (form.warehouseCode === ALL_WAREHOUSE) return '全部仓库'
   const hit = warehouseOptions.value.find((row) => String(row.code ?? '').trim() === String(form.warehouseCode ?? '').trim())
   return hit ? formatWarehouseLabel(hit) : form.warehouseCode || ''
 }
@@ -677,7 +680,7 @@ async function loadReport() {
     reportContext.startDate = body.startDate || form.startDate
     reportContext.endDate = body.endDate || form.endDate
     reportContext.warehouseCode = body.warehouseCode || form.warehouseCode
-    reportContext.warehouseLabel = currentWarehouseLabel()
+    reportContext.warehouseLabel = body.allWarehouse ? '全部仓库' : currentWarehouseLabel()
     reportContext.materialCode = body.materialCode || form.materialCode
     reportContext.materialName = body.materialName || form.materialName
     reportContext.materialSpec = body.materialSpec || form.materialSpec

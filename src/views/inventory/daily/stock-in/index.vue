@@ -108,7 +108,7 @@
         @expand-change="onExpandChange"
         @row-click="onListRowClick"
        @row-contextmenu="onErpListRowContextMenu">
-        <el-table-column type="expand" width="48">
+        <el-table-column type="expand" width="1">
           <template #default="{ row }">
             <div v-loading="row.__linesLoading" class="stock-expand-inner" @click.stop>
               <el-table
@@ -168,7 +168,9 @@
           <template #default="{ row }">
             <ErpTableActions class="stock-actions" @click.stop>
               <el-button type="info" plain @click="viewReceipt(row)">查看</el-button>
+              <el-button v-if="!showRecycle && canUnaudit(row)" v-permission="'audit'" type="warning" plain :loading="row.__op === 'unaudit'" @click="runAction(row, 'unaudit')">反审</el-button>
               <el-button
+                v-if="hasPrintPermission"
                 :type="isPrintSelected(row) ? 'primary' : 'default'"
                 plain
                 @click="togglePrintSelect(row)"
@@ -180,7 +182,6 @@
                 <el-button v-if="canUnreview(row)" v-permission="'unreview'" type="warning" plain :loading="row.__op === 'unreview'" @click="runAction(row, 'unreview')">反复核</el-button>
                 <el-button v-if="canEdit(row)" v-permission="'edit'" type="primary" plain @click="editReceipt(row)">编辑</el-button>
                 <el-button v-if="canAudit(row)" v-permission="'audit'" type="success" plain :loading="row.__op === 'audit'" @click="runAction(row, 'audit')">审核</el-button>
-                <el-button v-if="canUnaudit(row)" v-permission="'audit'" type="warning" plain :loading="row.__op === 'unaudit'" @click="runAction(row, 'unaudit')">反审核</el-button>
                 <el-button v-if="canDelete(row)" v-permission="'delete'" type="danger" plain :loading="row.__op === 'delete'" @click="runAction(row, 'delete')">删除</el-button>
                 <span v-if="isLocked(row) && !canUnreview(row)" class="locked-mark" title="此单只读，不可操作">🚫</span>
               </template>
@@ -492,7 +493,7 @@
         stripe
         max-height="calc(100vh - 280px)"
         class="production-dispatch-pick-table"
-        :empty-text="form.inboundType === '4' && !String(sourceDialog.keyword || '').trim() ? '请输入派工单号或PI号后查询' : '暂无数据'"
+        :empty-text="['4', '5'].includes(form.inboundType) && !String(sourceDialog.keyword || '').trim() ? '请输入派工单号或PI号后查询' : '暂无数据'"
       >
         <el-table-column label="操作" width="110" align="center" fixed="left">
           <template #default="{ row }">
@@ -533,6 +534,7 @@
         stripe
         max-height="calc(100vh - 280px)"
         class="purchase-source-detail-table"
+        :empty-text="!String(sourceDialog.keyword || '').trim() ? '请输入采购单号 / 材料编码 / PI号后查询' : '暂无数据'"
       >
         <el-table-column label="操作" width="100" align="center" fixed="left">
           <template #default="{ row }">
@@ -586,6 +588,7 @@
         stripe
         max-height="calc(100vh - 280px)"
         class="assist-source-detail-table"
+        :empty-text="!String(sourceDialog.keyword || '').trim() && !String(sourceDialog.assistSupplierCode || '').trim() ? '请选择外协商或输入关键字后查询' : '暂无数据'"
       >
         <el-table-column label="操作" width="100" align="center" fixed="left">
           <template #default="{ row }">
@@ -675,7 +678,8 @@ import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
-import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import { getErpTableActionsColWidthByLabels } from '@/utils/erpTableActionsLayout'
+import { getStoredUiDensity, UI_DENSITY_COMFORTABLE } from '@/utils/uiDensity'
 import { createExpandPrefetch } from '@/utils/erpExpandPrefetch.js'
 import StockInMaterialTracePanel from './material-trace-panel.vue'
 import {
@@ -700,6 +704,7 @@ const { onErpListRowContextMenu } = useErpListRowContextMenu()
 const MENU_PATH = 'inventory/daily/stock-in'
 const permissionModel = computed(() => getPermissionModelFromStorage())
 const hasPricePermission = computed(() => hasPageAction(permissionModel.value, MENU_PATH, 'price'))
+const hasPrintPermission = computed(() => hasPageAction(permissionModel.value, MENU_PATH, 'print'))
 
 const inboundTypeOptions = [
   { value: '0', label: '其他入库' },
@@ -723,8 +728,8 @@ const showUnreviewed = ref(false)
 const showRecycle = ref(false)
 
 const stockInActionsColWidth = computed(() => {
-  if (showRecycle.value) return getErpTableActionsColMinWidth(2)
-  return getErpTableActionsColMinWidth(7, { compact: true })
+  const widths = list.value.map((row) => getStockInRowActionsWidth(row))
+  return Math.max(56, ...widths)
 })
 
 const listTableRef = ref(null)
@@ -1566,7 +1571,8 @@ async function openSourceOrderDialog() {
   sourceDialog.assistSupplierOptions = []
   resetSourceOrderCache()
   if (isAssistSourcePick.value) await loadSourceDialogAssistSuppliers(form.relatedPartyName || form.relatedPartyCode || '')
-  if (form.inboundType === '4') {
+  // 采购/外协/生产入库/生产退料：打开选择弹窗默认不查库，由用户自行搜索（对齐生产入库）
+  if (['1', '2', '4', '5'].includes(form.inboundType)) {
     sourceDialog.list = []
     sourceDialog.total = 0
     return
@@ -2439,6 +2445,32 @@ function canUnreview(row) {
     && String(row.inboundType ?? '') !== '8'
 }
 
+function getStockInRowActionLabels(row) {
+  const actionLabels = ['查看']
+  if (!showRecycle.value && canUnaudit(row) && hasPageAction(permissionModel.value, MENU_PATH, 'audit')) actionLabels.push('反审')
+  if (hasPrintPermission.value) actionLabels.push('打印选择')
+
+  if (showRecycle.value) {
+    if (row.pass !== '1' && hasPageAction(permissionModel.value, MENU_PATH, 'delete')) {
+      actionLabels.push('恢复', '彻底删除')
+    }
+    return actionLabels
+  }
+
+  if (showUnreviewed.value && canReview(row) && hasPageAction(permissionModel.value, MENU_PATH, 'review')) actionLabels.push('复核')
+  if (canUnreview(row) && hasPageAction(permissionModel.value, MENU_PATH, 'unreview')) actionLabels.push('反复核')
+  if (canEdit(row) && hasPageAction(permissionModel.value, MENU_PATH, 'edit')) actionLabels.push('编辑')
+  if (canAudit(row) && hasPageAction(permissionModel.value, MENU_PATH, 'audit')) actionLabels.push('审核')
+  if (canDelete(row) && hasPageAction(permissionModel.value, MENU_PATH, 'delete')) actionLabels.push('删除')
+  return actionLabels
+}
+
+function getStockInRowActionsWidth(row) {
+  return getErpTableActionsColWidthByLabels(getStockInRowActionLabels(row), {
+    comfortable: getStoredUiDensity() === UI_DENSITY_COMFORTABLE,
+  })
+}
+
 async function fetchFilterRelatedParties(keyword = '') {
   const kw = String(keyword ?? '').trim()
   filterRelatedPartyLoading.value = true
@@ -2613,6 +2645,10 @@ onUnmounted(() => {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
+}
+.stock-in-page :deep(.erp-list-table td.erp-col-actions .cell) {
+  padding-left: 5px;
+  padding-right: 5px;
 }
 .locked-mark {
   display: inline-flex;

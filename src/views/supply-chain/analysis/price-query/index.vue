@@ -51,6 +51,7 @@
         <template #default>
           <div class="legacy-table-wrap">
             <el-table
+              ref="reportTableRef"
               v-erp-list-h-scroll
               class="legacy-report-table"
               :data="reportRows"
@@ -58,10 +59,11 @@
               stripe
               row-key="rowKey"
               empty-text="暂无数据"
+              @row-click="onReportRowClick"
             >
-              <el-table-column type="expand" width="48">
+              <el-table-column type="expand" width="1">
                 <template #default="{ row }">
-                  <div class="price-history-panel">
+                  <div class="price-history-panel" @click.stop>
                     <el-table
                       v-if="row.prices.length"
                       class="price-history-table"
@@ -294,6 +296,7 @@ const hasExportPermission = computed(() => hasPageAction(permissionModel.value, 
 const loading = ref(false)
 const dialogVisible = ref(false)
 const formRef = ref()
+const reportTableRef = ref(null)
 const printConfig = reactive({ info: '' })
 const printLogoSrc = ref('')
 const reportGeneratedAt = ref('')
@@ -319,6 +322,18 @@ const queryProgress = reactive({
   rendering: false,
 })
 let queryProgressTimer = null
+
+/** 点行展开/收起历史价明细（箭头列已全局隐藏） */
+function onReportRowClick(row, column, event) {
+  if (!row?.rowKey || !reportTableRef.value) return
+  const target = event?.target
+  if (target && typeof target.closest === 'function') {
+    if (target.closest('.el-button, button, a, input, textarea, select')) return
+    if (target.closest('.price-history-panel, .el-table__expand-icon')) return
+  }
+  if (column?.type === 'expand') return
+  reportTableRef.value.toggleRowExpansion(row)
+}
 
 const form = reactive({
   startDate: '',

@@ -83,7 +83,7 @@
 | 业务功能 | 物理表 | 关键字段 / 说明 |
 |----------|--------|-----------------|
 | 销售订单来源 | `UB_ERP_Sales_order` + `UB_ERP_Sales_order_list` | `xsak03` 销售数量；主表 `pass=1`、`del=0`、`closed=0` |
-| 销售订单运算状态 | `UB_ERP_Sales_order` + `UB_ERP_Bom_pi_cost` | 销售订单列表、详情、物料单入口、PI-BOM资料首页统一按 `UB_ERP_Bom_pi_cost.sid = xsaj01` 且 `isok=1` 判断；存在有效行显示已运算，否则显示未运算。主表 `isok/is_pur/sign` 不再作为显示状态主判断。 |
+| 销售订单运算状态 | `UB_ERP_Sales_order` + `UB_ERP_Bom_pi_cost` | 销售订单列表、详情、物料单入口、PI-BOM资料首页统一按 `UB_ERP_Bom_pi_cost.sid = xsaj01` 且 `isok=1` 判断；存在有效行显示已运算，否则显示未运算。主表 `isok/is_pur/sign` 不再作为显示状态主判断。`POST /api/sales-order/:id/sync-bom` 只按点选 `kcaa01` 覆盖该款 PI BOM 并写 `is_pur=0`，**不删** pi_cost；`PUT /api/sales-order/:id` 若 body 带非空 `syncedKcaa01`（本会话同步过），则 `DELETE` 该 PI 下全部 `UB_ERP_Bom_pi_cost`（`sid=PI`）并标未运算。 |
 | 物料单颜色与搭配展示 | `UB_ERP_Bom_pi_cost` + `UB_ERP_Stocks_colorcode` + `UB_ERP_Sales_order` + `UB_ERP_Sales_order_list` | `GET /api/sales-order/:id/material-bill`：颜色取 `pi_cost.kcaa11`，LEFT JOIN `UB_ERP_Stocks_colorcode`（`code=kcaa11`）取 `name`，接口返回展示串「编码,中文名」（无名称则仅编码）；搭配优先 `bnfo`（历史库兼容 `binfo`）再回退 `Describe`；汇总按“编码 + 搭配”合并时，颜色展示串去重后用分号 `;` 拼接。 |
 | 物料单外协清单报表 | `UB_ERP_Sales_order` + `UB_ERP_Sales_order_list` + `UB_ERP_Bom_pi_cost` + `UB_ERP_Stocks_colorcode` + `UB_ERP_Bom_Sales_list` | `GET /api/production/material-sheet/outsourcing-list`：主表 `del=0/pass=1`、未结案（`Closed` 空/0），日期 `xsaj02` 落在起止日；可选 `xsaj01`=PI、`xsaj06`=PO。明细厂款号用 `kcaa01` 匹配 `pi_cost.pq`；材料仅 `pi_cost.kcaa13=1` 且 `isok=1`，按编码+颜色+名称+规格合并 `SUM(kcac06)`，合计=`合并用量×xsak03`；颜色 JOIN `UB_ERP_Stocks_colorcode`。位置/裁片皮名：同 PI+厂款下 `Bom_Sales_list` 的 `CUT-` 行，清洗「主皮色/主皮/副皮色/副皮」后模糊匹配材料名/规格，下级按 `kcac01=cut.systemcode` 取描述+编码。只读，非外协订单。 |
 | 物料单位置裁片清单报表 | `UB_ERP_Sales_order` + `UB_ERP_Sales_order_list` + `UB_ERP_Bom_pi_cost` + `UB_ERP_Stocks_colorcode` + `UB_ERP_Bom_Sales_list` | `GET /api/production/material-sheet/cut-position-list`：销售单筛选同外协清单。厂款号=`list.kcaa01` 对 `pi_cost.pq`。Part1：`pi_cost` 且 `isok=1`（**不限** `kcaa13`），合并与 CUT 匹配同外协清单。Part2：`Bom_Sales_list` 中 `sid=明细.xsak01` 且 `kcac01=明细.xsak02` 且 `kcaa13=1`/`del=0`，按 `seq` 追加，单位=`kcaa04`、单用量=`kcac04`、合计=`kcac04×xsak03`，位置/皮名固定 `-`；两段不去重；厂款 `materialsTotalQty`=全部行合计之和。只读。 |
@@ -229,6 +229,14 @@
 | 展示与总计 | 同上 | 数量取实际出库数量 `l.kcaq03`；出库类别 `4` 显示「生产领料」；单价/金额取 `l.kcaq04/kcaq05/kcaq041/kcaq051`，受 `inventory/analysis/stock-out-stats:price` 控制；备注优先取明细 `Describe`，为空取主表 `remark`；前端不显示仓库分组首行，也不生成仓库小计行，只保留真实明细和底部总计。 |
 | 候选与抬头 | `UB_ERP_Stocks_Warehouse` + `UB_ERP_Bom_000` + `UB_ERP_Stocks_material` + `UB_ERP_System_Head` | 仓库候选只取已审核、未删除；材料代码候选来自 BOM 主档并返回 `systemcode`；材料分类候选来自 `UB_ERP_Stocks_material`；打印抬头复用 `UB_ERP_System_Head`。 |
 
+## 出入库统计表 · 收发流水统计（第一期）
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|----------|--------|-----------------|
+| 报表来源 | `UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list` + `UB_ERP_Stocks_out` + `UB_ERP_Stocks_out_list` | `GET /api/stock-movement-stats/report` 用参数化 `UNION ALL` 合并入库、出库明细，再按日期、方向、单号、明细主键升序展示；不写入 `UB_ERP_Stocks_acc`。 |
+| 筛选口径 | 入库 `kcan02/kcan06/kcan03`，出库 `kcap02/kcap06/kcap03` | 主表均要求 `del=0/pass=1`，明细要求 `del=0`；从物料联想列表选择时按两侧明细 `systemcode` 精确匹配，手工填写物料编码时按两侧明细 `kcaa01` 精确匹配；分类按两侧明细 `kcaa05` 多选 OR；收发类别以 `in:类别`、`out:类别` 分方向参数化过滤，避免同编号混淆。 |
+| 字段与权限 | 明细物料快照 + `UB_ERP_Stocks_colorcode` | 入库数量/价格取 `kcao03/kcao04/kcao041/kcao05/kcao051`，出库取 `kcaq03/kcaq04/kcaq041/kcaq05/kcaq051`；颜色按 `kcaa11` 关联；价格金额列受 `inventory/analysis/stock-movement-stats:price` 控制，导出受 `export` 控制。 |
+
 ## 生产领用统计表（明细）· 生产管理（第一期）
 
 | 业务功能 | 物理表 | 关键字段 / 说明 |
@@ -268,7 +276,7 @@
 
 | 业务功能 | 物理表 | 关键字段 / 说明 |
 |----------|--------|-----------------|
-| 报表来源 | `UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list` + `UB_ERP_Stocks_out` + `UB_ERP_Stocks_out_list` | `GET /api/material-flow-ledger/report` 用 `UNION ALL` 合并入库、出库明细；入库 `l.kcao01=h.kcan01`，出库 `l.kcaq01=h.kcap01`；主表要求 `del=0/pass=1`，明细只要求 `del=0`，不按明细 `pass` 过滤，以便结存对齐库存统计表“账存数量”；物料按明细 `kcaa01` 精确匹配；仓库分别按 `kcan06/kcap06` 精确匹配；不使用也不写入 `UB_ERP_Stocks_acc`。 |
+| 报表来源 | `UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list` + `UB_ERP_Stocks_out` + `UB_ERP_Stocks_out_list` | `GET /api/material-flow-ledger/report` 用 `UNION ALL` 合并入库、出库明细；入库 `l.kcao01=h.kcan01`，出库 `l.kcaq01=h.kcap01`；主表统计 `del=0/pass in (0,1)`，明细只要求 `del=0`；未审单据同样参与期初和逐行结存，且注释前以红色“(未审)”标记；物料按明细 `kcaa01` 精确匹配；仓库分别按 `kcan06/kcap06` 精确匹配；不使用也不写入 `UB_ERP_Stocks_acc`。 |
 | 上期结存 | 同上 | 查询开始日期之前：已审入库数量 `l.kcao03` 合计 - 已审出库数量 `l.kcaq03` 合计；第一行固定显示“上期结存”，后端再对区间内流水逐行滚动计算结存。 |
 | 查询字段 | 同上 + `UB_ERP_Bom_000` + `UB_ERP_Stocks_material` | 必填开始日期、结束日期、仓库、物料编码；仓库默认“货仓”；弹窗不显示物料唯一码；材料分类筛入库/出库明细 `kcaa05`。 |
 | 采购在途 | `UB_ERP_Buy_order` + `UB_ERP_Buy_order_list` | `包含采购在途=是` 时额外展示采购在途行，来源为已审核、未删除、未结案采购单明细；只作为展示，不参与上期结存和滚动结存。 |
@@ -294,3 +302,8 @@
 | 采购/外协报价列表展开 | `UB_ERP_Buy_offer_list` / 外协对应明细表 | `GET …/lines/batch`、`GET …/:id/lines` 仅投影展开展示列（主键、`kcaa01~03/05/11`、不含税/含税价、`Tax`、`remark`/`info`），并过滤明细 `del=0`；录单 `GET …/:id` 仍全量明细。 |
 | 采购价格 | `UB_ERP_Buy_order` + `UB_ERP_Buy_order_list` | 主从按 `h.kcaj01 = l.kcak01`；主表取 `del=0/pass=1`，明细取 `del=0`；采购日期 `kcaj02 >= 开始日 00:00:00` 且 `< 结束日次日 00:00:00`；供应商按 `h.kcaj05`；物料按 `l.kcaa01`；价格取 `l.kcak04`，税率取 `l.Tax`，币别 `h.rmb`，供应商名称 `h.kehu`，来源单号 `h.kcaj01`。 |
 | 展示与性能 | 同上 | 报价和采购用 `UNION ALL` 合并后按物料分组、价格日期倒序展示；第一条为“最近价格”，其余为“历史价格”；含税价格按 `价格 + 价格 * Tax`，`Tax > 1` 时按百分数除以 100；不走单独 `price` 权限，导出受 `supply-chain/analysis/price-query:export` 控制；SQL 先圈定 BOM 物料集合，再批量查报价/采购，禁止逐物料循环查价，不使用全局中间表。 |
+## 库存统计表类别多选（2026-07-15）
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|---|---|---|
+| 类别多选筛选 | `UB_ERP_Stocks_material` + `UB_ERP_Stocks_Storage_list` | `GET /api/stock-stats/category-options` 返回已审核、未删除分类，按 `px/code` 排序，支持按分类编码或分类名称模糊搜索，并用 SQL Server 2008 R2 兼容的 `ROW_NUMBER()` 分页（默认每页 10 条）。`GET /api/stock-stats/report` 将多分类编码参数化写入会话临时表 `#selectedCategory`，入库侧按 `l.kcaa05` 精确匹配任意已选分类；不按 BOM `kcaa05` 或类别名称模糊筛选。 |

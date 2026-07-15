@@ -16,6 +16,7 @@ import {
   __buildSourceOrderListSqlForTest,
   __buildSourceOrderPartyFilterSqlForTest,
   __buildMaterialOptionsSqlForTest,
+  __shouldReturnEmptySourceOrderPageForTest,
   __stockInSourceMetaForTest,
 } from './stockInHandlers.js'
 
@@ -240,6 +241,27 @@ describe('stockIn source-order-page SQL', () => {
     assert.ok(countSql.includes('@relatedPartyCode'))
     assertSql2008(listSql)
     assertSql2008(countSql)
+  })
+
+  it('采购入库选择窗口无关键字默认不查库', () => {
+    assert.equal(__shouldReturnEmptySourceOrderPageForTest({ inboundType: '1', keyword: '' }), true)
+    assert.equal(__shouldReturnEmptySourceOrderPageForTest({ inboundType: '1', keyword: 'ZY-260904' }), false)
+  })
+
+  it('外协入库选择窗口无关键字且无外协商默认不查库；仅选外协商可查', () => {
+    assert.equal(__shouldReturnEmptySourceOrderPageForTest({ inboundType: '2', keyword: '', assistSupplierCode: '' }), true)
+    assert.equal(__shouldReturnEmptySourceOrderPageForTest({ inboundType: '2', keyword: '', assistSupplierCode: 'W001' }), false)
+    assert.equal(__shouldReturnEmptySourceOrderPageForTest({ inboundType: '2', keyword: 'WX2601', assistSupplierCode: '' }), false)
+  })
+
+  it('外协退料/销售退货不走空搜索闸', () => {
+    assert.equal(__shouldReturnEmptySourceOrderPageForTest({ inboundType: '3', keyword: '' }), false)
+    assert.equal(__shouldReturnEmptySourceOrderPageForTest({ inboundType: '6', keyword: '' }), false)
+  })
+
+  it('采购/外协/生产入库/生产退料打开选择弹窗默认不加载', () => {
+    const page = fs.readFileSync(new URL('../src/views/inventory/daily/stock-in/index.vue', import.meta.url), 'utf8')
+    assert.match(page, /if \(\['1', '2', '4', '5'\]\.includes\(form\.inboundType\)\)/)
   })
 
   it('material options SQL supports paged and non-paged modes', () => {

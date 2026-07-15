@@ -104,7 +104,7 @@
             @expand-change="onExpandChange"
             @row-click="onPqMainRowClick"
            @row-contextmenu="onErpListRowContextMenu">
-            <el-table-column type="expand">
+            <el-table-column type="expand" width="1">
               <template #default="{ row }">
                 <div v-loading="row.__linesLoading" class="expand-inner" @click.stop>
                   <el-table

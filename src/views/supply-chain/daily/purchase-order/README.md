@@ -84,7 +84,7 @@
 - 保存明细会写入 `UB_ERP_Buy_order_list.uid/uname/utruename/addtime`；保存订单 BOM 快照会写入 `UB_ERP_Bom_buy_order` 的 `GUID`/`systemcode`（同值）、扩展物料字段、审核字段和录入人字段。
 
 ## 管理页展开明细
-- 管理采购订单主页面支持点击行展开明细；列表加载完成后会后台批量预取当前页全部采购单的展开数据（`GET /api/buy-order/expand-detail/batch`），点击展开时优先读缓存秒开；预取失败或个别未命中时，展开仍回退单条 `GET /api/buy-order/:id/expand-detail`。
+- 管理采购订单主页面支持**点行展开**明细（左边展开箭头列已全局隐藏）；列表加载完成后会后台批量预取当前页全部采购单的展开数据（`GET /api/buy-order/expand-detail/batch`），点击展开时优先读缓存秒开；预取失败或个别未命中时，展开仍回退单条 `GET /api/buy-order/:id/expand-detail`。
 - 展开表同时显示采购明细和额外费用；采购明细展示材料、数量、入库相关、价格字段、PO/PI、交货日期、客户订单号和备注。
 - 展开明细价格列中，不含税单价列显示为“单价”，不含税金额列显示为“金额”；含税列仍显示“单价（含税）”“金额（含税）”。
 - 入库相关按采购单号和物料批量聚合展示，兼容 `kcaa01` 材料编码和 `kcao02 = kcak02/systemcode` 两种匹配口径；退货只做红色历史提示，不在采购单里反写库存。

@@ -79,7 +79,10 @@
                 :label-class-name="col.isQty ? 'qty-col' : ''"
               >
                 <template #default="{ row }">
-                  <span>{{ formatReportCell(row, col) }}</span>
+                  <template v-if="col.key === 'remark' && row.isUnaudited">
+                    <span class="unaudited-mark">(未审)</span><span>{{ unauditedRemarkContent(row) }}</span>
+                  </template>
+                  <span v-else>{{ formatReportCell(row, col) }}</span>
                 </template>
               </el-table-column>
             </el-table>
@@ -117,6 +120,7 @@
               @focus="fetchWarehouses('')"
               placeholder="请选择仓库"
             >
+              <el-option label="全部仓库" :value="ALL_WAREHOUSE" />
               <el-option v-for="item in warehouseOptions" :key="item.code" :label="formatWarehouseLabel(item)" :value="item.code" />
             </el-select>
           </el-form-item>
@@ -127,19 +131,15 @@
             </el-select>
           </el-form-item>
           <el-form-item label="物料编码" prop="materialCode">
-            <el-select
+            <el-autocomplete
               v-model="form.materialCode"
-              filterable
-              remote
-              reserve-keyword
               clearable
-              :remote-method="fetchMaterials"
-              @focus="fetchMaterials('')"
-              @change="onMaterialChange"
+              :fetch-suggestions="queryMaterialSuggestions"
+              trigger-on-focus
+              @input="onMaterialCodeInput"
+              @select="onMaterialSelect"
               placeholder="输入物料编码搜索"
-            >
-              <el-option v-for="item in materialOptions" :key="item.code" :label="formatMaterialLabel(item)" :value="item.code" />
-            </el-select>
+            />
           </el-form-item>
           <el-form-item label="物料名称">
             <el-input v-model="form.materialName" readonly placeholder="选择物料后自动带出" />
@@ -209,7 +209,10 @@
         <tbody>
           <tr v-for="row in detailRows" :key="`print-${row.rowKey}`" :class="row.rowType ? `print-row-${row.rowType}` : ''">
             <td v-for="col in visibleColumns" :key="`print-${row.rowKey}-${col.key}`" :class="{ 'qty-col': col.isQty }">
-              {{ formatReportCell(row, col) }}
+              <template v-if="col.key === 'remark' && row.isUnaudited">
+                <span class="unaudited-mark">(未审)</span><span>{{ unauditedRemarkContent(row) }}</span>
+              </template>
+              <template v-else>{{ formatReportCell(row, col) }}</template>
             </td>
           </tr>
         </tbody>
@@ -230,6 +233,7 @@ defineOptions({ name: 'InventoryAnalysisFlowLedger' })
 
 const MENU_PATH = 'inventory/analysis/flow-ledger'
 const REPORT_TITLE = '材料流水账'
+const ALL_WAREHOUSE = '__ALL__'
 const COLUMN_SETTING_KEY = 'erp.materialFlowLedger.columnSetting.v1'
 const EXPORT_THIN_BORDER = {
   top: { style: 'thin', color: { argb: 'FF333333' } },
@@ -321,6 +325,14 @@ function todayText() {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
 }
 
+function threeMonthsAgoText() {
+  const today = new Date()
+  const target = new Date(today.getFullYear(), today.getMonth() - 3, 1)
+  const lastDay = new Date(today.getFullYear(), today.getMonth() - 2, 0).getDate()
+  target.setDate(Math.min(today.getDate(), lastDay))
+  return `${target.getFullYear()}-${pad2(target.getMonth() + 1)}-${pad2(target.getDate())}`
+}
+
 function formatNow() {
   const d = new Date()
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
@@ -405,6 +417,10 @@ function formatReportCell(row, col) {
   return value ?? ''
 }
 
+function unauditedRemarkContent(row) {
+  return String(row?.remark ?? '').replace(/^\(未审\)\s*/, '')
+}
+
 function tableRowClassName({ row }) {
   if (row.rowType === 'opening') return 'is-opening-row'
   if (row.rowType === 'purchaseInTransit') return 'is-transit-row'
@@ -440,15 +456,24 @@ function pickDefaultWarehouseCode() {
 }
 
 function currentWarehouseLabel() {
+  if (form.warehouseCode === ALL_WAREHOUSE) return '全部仓库'
   const hit = warehouseOptions.value.find((row) => String(row.code ?? '').trim() === String(form.warehouseCode ?? '').trim())
   return hit ? formatWarehouseLabel(hit) : form.warehouseCode || ''
 }
 
-function onMaterialChange(code) {
-  const hit = materialOptions.value.find((row) => String(row.code ?? '').trim() === String(code ?? '').trim())
-  form.materialName = hit?.name || ''
-  form.materialSpec = hit?.spec || ''
-  form.materialUnit = hit?.unit || ''
+function fillMaterialFields(item) {
+  form.materialName = item?.name || ''
+  form.materialSpec = item?.spec || ''
+  form.materialUnit = item?.unit || ''
+}
+
+function onMaterialCodeInput() {
+  fillMaterialFields(null)
+}
+
+function onMaterialSelect(item) {
+  form.materialCode = item?.value || item?.code || ''
+  fillMaterialFields(item)
 }
 
 async function loadPrintConfig() {
@@ -478,6 +503,11 @@ async function fetchMaterials(keyword = '') {
   } catch {
     materialOptions.value = []
   }
+}
+
+async function queryMaterialSuggestions(keyword, callback) {
+  await fetchMaterials(keyword)
+  callback(materialOptions.value.map((item) => ({ ...item, value: formatMaterialLabel(item) })))
 }
 
 async function fetchCategories(keyword = '') {
@@ -540,7 +570,7 @@ async function loadReport({ closeDialog = true } = {}) {
     reportContext.startDate = body.startDate || form.startDate
     reportContext.endDate = body.endDate || form.endDate
     reportContext.warehouseCode = body.warehouseCode || form.warehouseCode
-    reportContext.warehouseLabel = currentWarehouseLabel()
+    reportContext.warehouseLabel = body.allWarehouse ? '全部仓库' : currentWarehouseLabel()
     reportContext.materialCode = body.materialCode || form.materialCode
     reportContext.materialName = body.materialName || form.materialName
     reportContext.materialSpec = body.materialSpec || form.materialSpec
@@ -639,6 +669,10 @@ async function exportReportXlsx() {
   for (const row of detailRows.value) {
     const added = ws.addRow(columns.map((col) => formatReportCell(row, col)))
     styleExportRow(added, { bold: row.rowType === 'opening' || row.rowType === 'purchaseInTransit' })
+    const remarkIndex = columns.findIndex((col) => col.key === 'remark')
+    if (row.isUnaudited && remarkIndex >= 0) {
+      added.getCell(remarkIndex + 1).value = { richText: [{ text: '(未审)', font: { color: { argb: 'FFFF0000' }, bold: true } }, { text: ` ${unauditedRemarkContent(row)}` }] }
+    }
   }
   ws.columns.forEach((col, index) => {
     const reportCol = columns[index]
@@ -662,7 +696,7 @@ onBeforeUnmount(() => {
 onMounted(async () => {
   await Promise.all([loadPrintConfig(), fetchWarehouses(''), fetchMaterials(''), fetchCategories('')])
   const today = todayText()
-  form.startDate = today
+  form.startDate = threeMonthsAgoText()
   form.endDate = today
   form.warehouseCode = pickDefaultWarehouseCode()
   checkedColumnKeys.value = [...defaultColumnKeys]
@@ -794,6 +828,11 @@ onMounted(async () => {
 
 .legacy-report-table :deep(.is-transit-row td) {
   background: #fff8e8 !important;
+}
+
+.unaudited-mark {
+  color: #d90000;
+  font-weight: 700;
 }
 
 .column-setting-title {

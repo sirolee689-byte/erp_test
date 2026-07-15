@@ -15,14 +15,13 @@ const {
 } = __stockIoStatsForTest
 
 describe('进销存统计报表参数校验', () => {
-  test('开始日期、结束日期、仓库必填，第一期拒绝全部仓库', () => {
+  test('开始日期、结束日期、仓库必填，全部仓库可查询', () => {
     assert.equal(validateReportQuery(parseReportQuery({})), '统计开始日期不能为空')
     assert.equal(validateReportQuery(parseReportQuery({ startDate: '2026-07-01' })), '统计结束日期不能为空')
     assert.equal(validateReportQuery(parseReportQuery({ startDate: '2026-07-01', endDate: '2026-07-03' })), '仓库不能为空')
-    assert.equal(
-      validateReportQuery(parseReportQuery({ startDate: '2026-07-01', endDate: '2026-07-03', warehouseCode: ALL_WAREHOUSE })),
-      '第一期仅支持选择具体仓库',
-    )
+    const allWarehouseQuery = parseReportQuery({ startDate: '2026-07-01', endDate: '2026-07-03', warehouseCode: ALL_WAREHOUSE })
+    assert.equal(allWarehouseQuery.allWarehouse, true)
+    assert.equal(validateReportQuery(allWarehouseQuery), '')
     assert.equal(
       validateReportQuery(parseReportQuery({ startDate: '2026-07-01', endDate: '2026-07-03', warehouseCode: '001' })),
       '',
@@ -73,6 +72,12 @@ describe('进销存统计报表 SQL 口径', () => {
     assert.doesNotMatch(inWhere, /l\.\[pass\]/i)
     assert.match(outWhere, /h\.\[pass\][\s\S]*=\s*N'1'/i)
     assert.doesNotMatch(outWhere, /l\.\[pass\]/i)
+  })
+
+  test('全部仓库使用参数化开关取消入库、出库仓库条件', () => {
+    const q = parseReportQuery({ startDate: '2026-07-01', endDate: '2026-07-03', warehouseCode: ALL_WAREHOUSE })
+    assert.match(buildInboundBaseWhereSql(q), /@allWarehouse = 1/i)
+    assert.match(buildOutboundBaseWhereSql(q), /@allWarehouse = 1/i)
   })
 
   test('结束日期使用小于次日口径，不使用 <= 23:59:59', () => {

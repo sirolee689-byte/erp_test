@@ -123,7 +123,7 @@
           @expand-change="onExpandChange"
           @row-click="onListRowClick"
          @row-contextmenu="onErpListRowContextMenu">
-      <el-table-column type="expand">
+      <el-table-column type="expand" width="1">
         <template #default="{ row }">
           <div v-loading="row.expandedLoading" class="assist-expand-inner">
           <el-table

@@ -347,6 +347,26 @@ html[data-ui='comfortable'] {
   background-color: var(--el-table-row-hover-bg-color) !important;
 }
 
+/* 展开明细仍由 type=expand 插槽承担；箭头列视觉隐藏，统一靠点行开合（DIY：删本段即恢复箭头列） */
+.el-table th.table__expand-column.el-table__cell,
+.el-table td.table__expand-column.el-table__cell {
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  padding: 0 !important;
+  border-right: none !important;
+  border-left: none !important;
+  overflow: hidden;
+}
+.el-table .table__expand-column .cell {
+  display: none !important;
+  width: 0 !important;
+  padding: 0 !important;
+}
+.el-table .el-table__expand-icon {
+  display: none !important;
+}
+
 html[data-ui='comfortable'] .el-table--default .el-table__cell {
   padding: 12px 0;
 }

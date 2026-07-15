@@ -3,6 +3,7 @@ import { describe, test } from 'node:test'
 import { __materialFlowLedgerForTest } from './materialFlowLedgerHandlers.js'
 
 const {
+  ALL_WAREHOUSE,
   parseReportQuery,
   validateReportQuery,
   buildInboundBaseWhereSql,
@@ -44,6 +45,14 @@ describe('材料流水账参数校验', () => {
     assert.equal(q.materialCode, 'OA-10431/-')
     assert.equal(q.materialSystemcode, undefined)
   })
+
+  test('全部仓库保留物料必填，并通过参数化开关取消仓库限制', () => {
+    const q = parseReportQuery({ startDate: '2026-07-01', endDate: '2026-07-03', warehouseCode: ALL_WAREHOUSE, materialCode: 'OA-10431/-' })
+    assert.equal(q.allWarehouse, true)
+    assert.equal(validateReportQuery(q), '')
+    assert.match(buildInboundBaseWhereSql(q), /@allWarehouse = 1/i)
+    assert.match(buildOutboundBaseWhereSql(q), /@allWarehouse = 1/i)
+  })
 })
 
 describe('材料流水账 SQL 口径', () => {
@@ -55,18 +64,20 @@ describe('材料流水账 SQL 口径', () => {
     materialCategories: '001,002',
   })
 
-  test('入库侧按主表已审核、主从未删除、仓库、kcaa01 精确匹配', () => {
+  test('入库侧按主表已审和未审、主从未删除、仓库、kcaa01 精确匹配', () => {
     const sqlText = buildInboundBaseWhereSql(q)
     assert.match(sqlText, /h\.\[pass\]/i)
+    assert.match(sqlText, /IN \(N'0', N'1'\)/i)
     assert.doesNotMatch(sqlText, /l\.\[pass\]/i)
     assert.match(sqlText, /h\.\[kcan06\]/i)
     assert.match(sqlText, /l\.\[kcaa01\]/i)
     assert.doesNotMatch(sqlText, /systemcode/i)
   })
 
-  test('出库侧按主表已审核、主从未删除、仓库、kcaa01 精确匹配', () => {
+  test('出库侧按主表已审和未审、主从未删除、仓库、kcaa01 精确匹配', () => {
     const sqlText = buildOutboundBaseWhereSql(q)
     assert.match(sqlText, /h\.\[pass\]/i)
+    assert.match(sqlText, /IN \(N'0', N'1'\)/i)
     assert.doesNotMatch(sqlText, /l\.\[pass\]/i)
     assert.match(sqlText, /h\.\[kcap06\]/i)
     assert.match(sqlText, /l\.\[kcaa01\]/i)
@@ -145,6 +156,13 @@ describe('材料流水账展示映射', () => {
     ])
     assert.equal(rows[1].remark, '单号：C180116005，类别：外协领料，PO/PI：PI-2504，关联单号：0')
     assert.doesNotMatch(rows[1].remark, /备注/)
+  })
+
+  test('未审核流水显示未审标记并参与滚动结存', () => {
+    const rows = buildLedgerRows(0, [{ direction: 'out', quantity: 2, docNo: 'C26070915', flowType: '7', referenceText: '0', relatedNo: '0', auditStatus: '0', lineId: 1 }])
+    assert.equal(rows[1].balance, -2)
+    assert.equal(rows[1].isUnaudited, true)
+    assert.equal(rows[1].remark, '(未审) 单号：C26070915，类别：生产领料（计划外），PO/PI：0，关联单号：0')
   })
 
   test('采购在途行不带结存，避免改变实际库存余额', () => {

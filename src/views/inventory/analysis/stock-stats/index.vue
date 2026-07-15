@@ -103,6 +103,7 @@
               @focus="fetchWarehouses('')"
               placeholder="请选择仓库"
             >
+              <el-option label="全部仓库" :value="ALL_WAREHOUSE" />
               <el-option v-for="item in warehouseOptions" :key="item.code" :label="formatWarehouseLabel(item)" :value="item.code" />
             </el-select>
           </el-form-item>
@@ -126,18 +127,11 @@
             <el-input v-model="form.materialSpec" clearable />
           </el-form-item>
           <el-form-item label="物料类别">
-            <el-select
-              v-model="form.materialCategory"
-              filterable
-              remote
-              reserve-keyword
-              clearable
-              :remote-method="fetchCategories"
-              @focus="fetchCategories('')"
-              placeholder="请选择类别"
-            >
-              <el-option v-for="item in categoryOptions" :key="item.code" :label="formatCategoryLabel(item)" :value="item.code" />
-            </el-select>
+            <div class="category-condition-control">
+              <el-input :model-value="form.materialCategoryNames" readonly placeholder="未选择类别" />
+              <el-button type="primary" plain @click="openCategoryPicker">多选</el-button>
+              <el-button plain @click="resetCategorySelection">重选</el-button>
+            </div>
           </el-form-item>
           <el-form-item label="单位">
             <el-input v-model="form.unit" clearable />
@@ -178,6 +172,59 @@
       <template #footer>
         <el-button :disabled="loading" @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="loading" @click="submitQuery">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="categoryPickerVisible" title="选择材料分类" width="720px" append-to-body>
+      <div class="category-picker-tip">可选择一个或多个材料分类，确认后仅回填查询条件，不会直接执行统计。</div>
+      <div class="category-picker-search">
+        <el-input
+          v-model.trim="categoryKeyword"
+          clearable
+          placeholder="请输入分类编码或分类名称"
+          @keyup.enter="searchCategories"
+          @clear="searchCategories"
+        />
+        <el-button type="primary" @click="searchCategories">查询</el-button>
+      </div>
+      <el-table
+        :data="categoryOptions"
+        row-key="code"
+        border
+        stripe
+        max-height="460"
+      >
+        <el-table-column label="操作" width="100" align="center">
+          <template #default="{ row }">
+            <el-button
+              size="small"
+              :type="isCategorySelected(row) ? 'success' : 'primary'"
+              :plain="!isCategorySelected(row)"
+              class="category-select-button"
+              @click="toggleCategorySelection(row)"
+            >
+              {{ isCategorySelected(row) ? '已选择' : '选择' }}
+            </el-button>
+          </template>
+        </el-table-column>
+        <el-table-column prop="code" label="分类编码" min-width="180" />
+        <el-table-column prop="name" label="分类名称" min-width="300" show-overflow-tooltip />
+      </el-table>
+      <div class="category-picker-pagination">
+        <span>已选择 {{ categorySelectionDraft.length }} 项</span>
+        <el-pagination
+          v-model:current-page="categoryPage"
+          v-model:page-size="categoryPageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          :total="categoryTotal"
+          layout="total, sizes, prev, pager, next"
+          @size-change="onCategoryPageSizeChange"
+          @current-change="fetchCategories"
+        />
+      </div>
+      <template #footer>
+        <el-button @click="categoryPickerVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmCategorySelection">确认选择</el-button>
       </template>
     </el-dialog>
 
@@ -406,7 +453,8 @@ const form = reactive({
   materialName: '',
   materialNameEn: '',
   materialSpec: '',
-  materialCategory: '',
+  materialCategoryCodes: [],
+  materialCategoryNames: '',
   unit: '',
   colorCode: '',
   onlyMaterial: true,
@@ -418,9 +466,16 @@ const form = reactive({
 
 const warehouseOptions = ref([])
 const categoryOptions = ref([])
+const categoryPickerVisible = ref(false)
+const categorySelectionDraft = ref([])
+const categoryKeyword = ref('')
+const categoryPage = ref(1)
+const categoryPageSize = ref(10)
+const categoryTotal = ref(0)
 const colorOptions = ref([])
 const STOCK_STATS_COLUMN_SETTING_KEY = 'erp.stockStats.columnSetting.v1'
 const STOCK_STATS_EXPORT_TITLE = '库存统计表'
+const ALL_WAREHOUSE = '__ALL__'
 const STOCK_STATS_EXPORT_THIN_BORDER = {
   top: { style: 'thin', color: { argb: 'FF333333' } },
   left: { style: 'thin', color: { argb: 'FF333333' } },
@@ -646,6 +701,12 @@ function formatWarehouseLabel(item) {
   return `${String(item?.code ?? '').trim()} ${String(item?.name ?? '').trim()}`.trim()
 }
 
+function currentWarehouseLabel() {
+  if (form.warehouseCode === ALL_WAREHOUSE) return '全部仓库'
+  const hit = warehouseOptions.value.find((row) => String(row.code ?? '').trim() === String(form.warehouseCode ?? '').trim())
+  return hit ? formatWarehouseLabel(hit) : form.warehouseCode || ''
+}
+
 function pickDefaultWarehouseCode() {
   const rows = warehouseOptions.value
   const exact = rows.find((row) => {
@@ -659,10 +720,6 @@ function pickDefaultWarehouseCode() {
     return code.includes('货仓') || name.includes('货仓')
   })
   return exact?.code || fuzzy?.code || rows[0]?.code || ''
-}
-
-function formatCategoryLabel(item) {
-  return `${String(item?.code ?? '').trim()} ${String(item?.name ?? '').trim()}`.trim()
 }
 
 function formatColorLabel(item) {
@@ -707,13 +764,70 @@ async function queryMaterialCodeSuggestions(keyword, cb) {
   )
 }
 
-async function fetchCategories(keyword = '') {
+async function fetchCategories() {
   try {
-    const { data } = await axios.get('/api/stock-stats/category-options', { params: { keyword } })
+    const { data } = await axios.get('/api/stock-stats/category-options', {
+      params: {
+        keyword: categoryKeyword.value,
+        page: categoryPage.value,
+        pageSize: categoryPageSize.value,
+      },
+    })
     categoryOptions.value = Array.isArray(data?.data?.list) ? data.data.list : []
+    categoryTotal.value = Number(data?.data?.total ?? 0)
   } catch {
     categoryOptions.value = []
+    categoryTotal.value = 0
   }
+}
+
+async function openCategoryPicker() {
+  categoryKeyword.value = ''
+  categoryPage.value = 1
+  categorySelectionDraft.value = form.materialCategoryCodes.map((code, index) => ({
+    code: String(code ?? '').trim(),
+    name: String(form.materialCategoryNames.split(',')[index] ?? '').trim(),
+  })).filter((item) => item.code)
+  await fetchCategories()
+  categoryPickerVisible.value = true
+}
+
+function isCategorySelected(row) {
+  const code = String(row?.code ?? '').trim()
+  return categorySelectionDraft.value.some((item) => item.code === code)
+}
+
+function toggleCategorySelection(row) {
+  const code = String(row?.code ?? '').trim()
+  if (!code) return
+  const index = categorySelectionDraft.value.findIndex((item) => item.code === code)
+  if (index >= 0) {
+    categorySelectionDraft.value.splice(index, 1)
+    return
+  }
+  categorySelectionDraft.value.push({ code, name: String(row?.name ?? '').trim() })
+}
+
+function searchCategories() {
+  categoryPage.value = 1
+  fetchCategories()
+}
+
+function onCategoryPageSizeChange() {
+  categoryPage.value = 1
+  fetchCategories()
+}
+
+function confirmCategorySelection() {
+  form.materialCategoryCodes = categorySelectionDraft.value.map((item) => item.code)
+  form.materialCategoryNames = categorySelectionDraft.value.map((item) => item.name).filter(Boolean).join(',')
+  categoryPickerVisible.value = false
+}
+
+function resetCategorySelection() {
+  form.materialCategoryCodes = []
+  form.materialCategoryNames = ''
+  categorySelectionDraft.value = []
 }
 
 async function fetchColors(keyword = '') {
@@ -736,7 +850,7 @@ function openQueryDialog() {
 }
 
 function isCategoryBulkQuery() {
-  return String(form.materialCategory ?? '').trim() !== ''
+  return form.materialCategoryCodes.length > 0
 }
 
 function hasNarrowReportCondition() {
@@ -745,7 +859,7 @@ function hasNarrowReportCondition() {
     form.materialName,
     form.materialNameEn,
     form.materialSpec,
-    form.materialCategory,
+    ...form.materialCategoryCodes,
     form.unit,
     form.colorCode,
   ].some((v) => String(v ?? '').trim() !== '')
@@ -812,7 +926,7 @@ async function loadReport() {
       materialName: form.materialName,
       materialNameEn: form.materialNameEn,
       materialSpec: form.materialSpec,
-      materialCategory: form.materialCategory,
+      materialCategoryCodes: form.materialCategoryCodes.join(','),
       unit: form.unit,
       colorCode: form.colorCode,
       onlyMaterial: form.onlyMaterial ? '1' : '0',
@@ -830,10 +944,7 @@ async function loadReport() {
     await applyReportRowsInChunks(list)
     reportContext.cutoffDate = body.cutoffDate || form.cutoffDate
     reportContext.warehouseCode = body.warehouseCode || form.warehouseCode
-    reportContext.warehouseLabel =
-      list[0]?.warehouseName ||
-      warehouseOptions.value.find((row) => String(row.code ?? '').trim() === reportContext.warehouseCode)?.name ||
-      reportContext.warehouseCode
+    reportContext.warehouseLabel = body.allWarehouse ? '全部仓库' : currentWarehouseLabel()
     reportGeneratedAt.value = formatNow()
     reportCode.value = makeReportCode()
     ElMessage.success('统计完成')
@@ -870,7 +981,7 @@ onBeforeUnmount(() => {
 })
 
 onMounted(async () => {
-  await Promise.all([loadPrintConfig(), fetchWarehouses(''), fetchCategories(''), fetchColors('')])
+  await Promise.all([loadPrintConfig(), fetchWarehouses(''), fetchCategories(), fetchColors('')])
   loadColumnSetting()
   const today = new Date()
   const pad = (n) => String(n).padStart(2, '0')
@@ -919,6 +1030,40 @@ onMounted(async () => {
 .column-setting-actions {
   display: flex;
   justify-content: flex-end;
+}
+
+.category-condition-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  width: 100%;
+}
+
+.category-picker-tip {
+  margin-bottom: 10px;
+  color: #606266;
+  font-size: 13px;
+}
+
+.category-picker-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.category-select-button {
+  min-width: 68px;
+}
+
+.category-picker-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  color: #606266;
+  font-size: 13px;
 }
 
 .report-shell {

@@ -71,7 +71,7 @@
         @row-click="onListRowClick"
         @expand-change="onListExpandChange"
        @row-contextmenu="onErpListRowContextMenu">
-        <el-table-column type="expand" width="48">
+        <el-table-column type="expand" width="1">
           <template #default="{ row }">
             <div class="dispatch-row-detail" @click.stop>
               <el-table

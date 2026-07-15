@@ -601,8 +601,9 @@
           row-key="id"
           :empty-text="materialTraceLoading ? '加载中...' : (materialTraceEverQueried ? '暂无数据' : '请输入关键字后点「查询」')"
           @expand-change="onMaterialTraceExpandChange"
+          @row-click="onMaterialTraceRowClick"
         >
-          <el-table-column type="expand" width="46" fixed="left">
+          <el-table-column type="expand" width="1" fixed="left">
             <template #default="{ row }">
               <div v-loading="row._usageLoading" class="bom-trace-expand">
                 <el-alert v-if="row._usageError" :title="row._usageError" type="error" show-icon class="bom-trace-expand-alert" />
@@ -4516,6 +4517,18 @@ function onMaterialTraceExpandChange(row, expandedRows) {
   if (isExpanded) loadMaterialTraceUsage(row)
   // 用户手动收起任意一行后，按钮状态回落为「展开全部」
   if (!isExpanded) materialTraceAllExpanded.value = false
+}
+
+/** 点行展开/收起（箭头列已全局隐藏；排除操作钮与展开区内点击） */
+function onMaterialTraceRowClick(row, column, event) {
+  if (!row?.id || !materialTraceTableRef.value) return
+  const target = event?.target
+  if (target && typeof target.closest === 'function') {
+    if (target.closest('.el-button, button, a, input, textarea, select')) return
+    if (target.closest('.bom-trace-expand, .el-table__expand-icon')) return
+  }
+  if (column?.type === 'expand') return
+  materialTraceTableRef.value.toggleRowExpansion(row)
 }
 
 /** 一键展开/收起当前页所有明细行（展开会逐行触发懒加载 usage） */

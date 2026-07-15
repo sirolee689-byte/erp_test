@@ -144,7 +144,7 @@
           @expand-change="onExpandChange"
           @row-click="onListRowClick"
          @row-contextmenu="onErpListRowContextMenu">
-        <el-table-column type="expand" width="48">
+        <el-table-column type="expand" width="1">
           <template #default="{ row }">
             <div v-loading="row.expandedLoading" class="buy-expand-inner">
               <el-table

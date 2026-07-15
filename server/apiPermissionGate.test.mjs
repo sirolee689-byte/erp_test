@@ -180,6 +180,23 @@ describe('matchApiPermissionRule - 出库统计表', () => {
   })
 })
 
+describe('matchApiPermissionRule - 出入库统计表', () => {
+  test('出入库统计表接口走统计分析出入库统计表 view 权限', () => {
+    for (const path of [
+      '/api/stock-movement-stats/warehouse-options',
+      '/api/stock-movement-stats/material-options',
+      '/api/stock-movement-stats/category-options',
+      '/api/stock-movement-stats/report',
+      '/api/stock-movement-stats/print-header',
+    ]) {
+      assert.deepEqual(matchApiPermissionRule('GET', path, {}, {}), {
+        menuPath: 'inventory/analysis/stock-movement-stats',
+        action: 'view',
+      })
+    }
+  })
+})
+
 describe('matchApiPermissionRule — 入库统计表', () => {
   test('入库统计表接口走统计分析入库统计表 view 权限', () => {
     for (const path of [

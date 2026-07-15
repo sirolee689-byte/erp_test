@@ -102,8 +102,26 @@ function sourceMeta(type) {
   return null
 }
 
+/**
+ * 采购/外协选择窗口：无有效搜索条件时默认不查库（对齐生产入库空关键字闸）。
+ * - 采购（1）：必须有关键字
+ * - 外协（2）：有关键字或已选外协商均可查
+ */
+export function shouldReturnEmptySourceOrderPage({ inboundType, keyword, assistSupplierCode } = {}) {
+  const t = text(inboundType)
+  const kw = text(keyword)
+  const supplier = text(assistSupplierCode)
+  if (t === '1') return !kw
+  if (t === '2') return !kw && !supplier
+  return false
+}
+
 export function __stockInSourceMetaForTest(type) {
   return sourceMeta(type)
+}
+
+export function __shouldReturnEmptySourceOrderPageForTest(options = {}) {
+  return shouldReturnEmptySourceOrderPage(options)
 }
 
 export function __buildSourceOrderKeywordSqlForTest(inboundType, meta) {
@@ -1544,6 +1562,14 @@ export function registerStockInRoutes(app, deps) {
       const keyword = text(req.query?.keyword)
       const { page, pageSize, startRow, endRow } = sourceOrderPageParams(req.query ?? {})
       if (inboundType === '1') {
+        if (shouldReturnEmptySourceOrderPage({ inboundType, keyword })) {
+          res.json({
+            code: 200,
+            msg: 'success',
+            data: { page, pageSize, total: 0, list: [], hasMore: false, loadedUntilPage: page, loadedRows: 0 },
+          })
+          return
+        }
         const prefetchPages = Math.min(3, Math.max(1, Number.parseInt(req.query?.prefetchPages, 10) || 1))
         const requestedEndRow = startRow + pageSize * prefetchPages - 1
         const fetchEndRow = requestedEndRow + 1
@@ -1571,11 +1597,19 @@ export function registerStockInRoutes(app, deps) {
         return
       }
       if (inboundType === '2') {
+        const includeUnaudited = ['1', 'true', 'yes'].includes(text(req.query?.includeUnaudited).toLowerCase())
+        const supplierCode = text(req.query?.assistSupplierCode || req.query?.relatedPartyCode)
+        if (shouldReturnEmptySourceOrderPage({ inboundType, keyword, assistSupplierCode: supplierCode })) {
+          res.json({
+            code: 200,
+            msg: 'success',
+            data: { page, pageSize, total: 0, list: [], hasMore: false, loadedUntilPage: page, loadedRows: 0 },
+          })
+          return
+        }
         const prefetchPages = Math.min(3, Math.max(1, Number.parseInt(req.query?.prefetchPages, 10) || 1))
         const requestedEndRow = startRow + pageSize * prefetchPages - 1
         const fetchEndRow = requestedEndRow + 1
-        const includeUnaudited = ['1', 'true', 'yes'].includes(text(req.query?.includeUnaudited).toLowerCase())
-        const supplierCode = text(req.query?.assistSupplierCode || req.query?.relatedPartyCode)
         const keywordSql = buildAssistSourceDetailKeywordSql(keyword)
         const supplierFilterSql = supplierCode ? `AND ${nvarcharTextExpr('h', 'wxaj05', 200)} = @assistSupplierCode` : ''
         const listReq = pool.request()

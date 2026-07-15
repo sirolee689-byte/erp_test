@@ -887,6 +887,18 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (
     m === 'GET' &&
     [
+      '/api/stock-movement-stats/warehouse-options',
+      '/api/stock-movement-stats/material-options',
+      '/api/stock-movement-stats/category-options',
+      '/api/stock-movement-stats/report',
+      '/api/stock-movement-stats/print-header',
+    ].includes(path)
+  ) {
+    return { menuPath: 'inventory/analysis/stock-movement-stats', action: 'view' }
+  }
+  if (
+    m === 'GET' &&
+    [
       '/api/stock-io-stats/warehouse-options',
       '/api/stock-io-stats/material-options',
       '/api/stock-io-stats/category-options',

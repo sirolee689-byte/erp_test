@@ -57,6 +57,7 @@ function parseReportQuery(query = {}) {
     startDate: normalizeDate(query.startDate),
     endDate: normalizeDate(query.endDate),
     warehouseCode: text(query.warehouseCode),
+    allWarehouse: text(query.warehouseCode) === ALL_WAREHOUSE,
     materialCode: text(query.materialCode ?? query.materialSystemcode),
     materialName: text(query.materialName),
     materialSpec: text(query.materialSpec),
@@ -68,7 +69,6 @@ function validateReportQuery(q) {
   if (!q.startDate) return '统计开始日期不能为空'
   if (!q.endDate) return '统计结束日期不能为空'
   if (!q.warehouseCode) return '仓库不能为空'
-  if (q.warehouseCode === ALL_WAREHOUSE) return '第一期仅支持选择具体仓库'
   return ''
 }
 
@@ -82,6 +82,7 @@ function bindReportParams(req, q) {
   req.input('startDate', sql.DateTime, new Date(`${q.startDate}T00:00:00`))
   req.input('endDateExclusive', sql.DateTime, addOneDay(q.endDate))
   req.input('warehouseCode', sql.NVarChar(200), q.warehouseCode)
+  req.input('allWarehouse', sql.Bit, q.allWarehouse)
   if (q.materialCode) req.input('materialCode', sql.NVarChar(200), q.materialCode)
   if (q.materialName) req.input('materialName', sql.NVarChar(400), likePattern(q.materialName))
   if (q.materialSpec) req.input('materialSpec', sql.NVarChar(400), likePattern(q.materialSpec))
@@ -110,7 +111,7 @@ function buildInboundBaseWhereSql(q, { beforeStart = false } = {}) {
     "(ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')",
     "LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), h.[pass]), N''))) = N'1'",
     beforeStart ? 'h.[kcan02] < @startDate' : 'h.[kcan02] < @endDateExclusive',
-    `${nvarcharTextExpr('h', 'kcan06', 200)} = @warehouseCode`,
+    `(@allWarehouse = 1 OR ${nvarcharTextExpr('h', 'kcan06', 200)} = @warehouseCode)`,
     `${nvarcharTextExpr('l', 'kcaa01', 200)} <> N''`,
   ]
   if (q.materialCode) parts.push(`${nvarcharTextExpr('l', 'kcaa01', 200)} = @materialCode`)
@@ -131,7 +132,7 @@ function buildOutboundBaseWhereSql(q, { beforeStart = false } = {}) {
     "(ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')",
     "LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), h.[pass]), N''))) = N'1'",
     beforeStart ? 'h.[kcap02] < @startDate' : 'h.[kcap02] < @endDateExclusive',
-    `${nvarcharTextExpr('h', 'kcap06', 200)} = @warehouseCode`,
+    `(@allWarehouse = 1 OR ${nvarcharTextExpr('h', 'kcap06', 200)} = @warehouseCode)`,
     `${nvarcharTextExpr('l', 'kcaa01', 200)} <> N''`,
   ]
   if (q.materialCode) parts.push(`${nvarcharTextExpr('l', 'kcaa01', 200)} = @materialCode`)
@@ -557,6 +558,7 @@ export function registerStockIoStatsRoutes(app, { getPool }) {
           startDate: q.startDate,
           endDate: q.endDate,
           warehouseCode: q.warehouseCode,
+          allWarehouse: q.allWarehouse,
           materialCode: q.materialCode,
           materialName: q.materialName,
           materialSpec: q.materialSpec,

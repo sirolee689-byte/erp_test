@@ -334,6 +334,14 @@ function todayText() {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
 }
 
+function threeMonthsAgoText() {
+  const today = new Date()
+  const target = new Date(today.getFullYear(), today.getMonth() - 3, 1)
+  const lastDay = new Date(today.getFullYear(), today.getMonth() - 2, 0).getDate()
+  target.setDate(Math.min(today.getDate(), lastDay))
+  return `${target.getFullYear()}-${pad2(target.getMonth() + 1)}-${pad2(target.getDate())}`
+}
+
 function formatNow() {
   const d = new Date()
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
@@ -718,7 +726,7 @@ onBeforeUnmount(() => {
 onMounted(async () => {
   await Promise.all([loadPrintConfig(), fetchWarehouses(''), fetchCategories(''), fetchRelatedParties('')])
   const today = todayText()
-  form.startDate = today
+  form.startDate = threeMonthsAgoText()
   form.endDate = today
   form.warehouseCode = pickDefaultWarehouseCode()
   checkedColumnKeys.value = [...defaultColumnKeys.value]

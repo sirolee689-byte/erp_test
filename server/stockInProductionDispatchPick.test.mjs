@@ -170,6 +170,35 @@ describe('stockIn production-dispatch-pick-page SQL', () => {
     assert.deepEqual(result.list, [])
   })
 
+  it('生产退料空搜索不加载派工单列表', async () => {
+    let queryCount = 0
+    const pool = {
+      request() {
+        return {
+          input() { return this },
+          async query() {
+            queryCount += 1
+            if (queryCount === 1) return { recordset: [{ code: 'BZB', name: '包装部' }] }
+            throw new Error('空搜索不应继续查询派工单列表')
+          },
+        }
+      },
+    }
+
+    const result = await fetchStockInProductionDispatchPickPage(pool, {
+      workshopCode: 'BZB',
+      inboundType: '5',
+      keyword: '',
+      page: 1,
+      pageSize: 10,
+    })
+
+    assert.equal(queryCount, 1)
+    assert.equal(result.ok, true)
+    assert.equal(result.total, 0)
+    assert.deepEqual(result.list, [])
+  })
+
   it('列表 qual_lines + 头表分页再展开明细，按 addtime 倒序', () => {
     const listSql = buildProductionDispatchPickListSql(true)
     const orderSql = buildProductionDispatchPickHeaderOrderSql('h')

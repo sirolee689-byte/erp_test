@@ -1,6 +1,6 @@
 /**
  * 材料流水账 API。
- * 业务口径：单个物料在指定日期、仓库下的已审核入库/出库流水，后端逐行计算结存。
+ * 业务口径：单个物料在指定日期、仓库下的已审和未审入库/出库流水，后端逐行计算结存。
  */
 import { sql } from './db.js'
 import { safeDecimalExpr, nvarcharTextExpr } from './buyOrderSqlSafe.js'
@@ -16,6 +16,7 @@ const STOCK_OUT_LINE_FROM = 'dbo.[UB_ERP_Stocks_out_list]'
 const BUY_HEADER_FROM = 'dbo.[UB_ERP_Buy_order]'
 const BUY_LINE_FROM = 'dbo.[UB_ERP_Buy_order_list]'
 const MENU_PATH = 'inventory/analysis/flow-ledger'
+const ALL_WAREHOUSE = '__ALL__'
 
 function text(v) {
   return String(v ?? '').trim()
@@ -54,6 +55,7 @@ function parseReportQuery(query = {}) {
     startDate: normalizeDate(query.startDate),
     endDate: normalizeDate(query.endDate),
     warehouseCode: text(query.warehouseCode),
+    allWarehouse: text(query.warehouseCode) === ALL_WAREHOUSE,
     materialCode: text(query.materialCode),
     materialName: text(query.materialName),
     materialSpec: text(query.materialSpec),
@@ -77,6 +79,7 @@ function bindReportParams(req, q) {
   endDateExclusive.setDate(endDateExclusive.getDate() + 1)
   req.input('endDateExclusive', sql.DateTime, endDateExclusive)
   req.input('warehouseCode', sql.NVarChar(200), q.warehouseCode)
+  req.input('allWarehouse', sql.Bit, q.allWarehouse)
   req.input('materialCode', sql.NVarChar(200), q.materialCode)
   q.materialCategories.forEach((code, index) => req.input(`category${index}`, sql.NVarChar(200), code))
 }
@@ -91,8 +94,8 @@ function buildInboundBaseWhereSql(q, { beforeStart = false } = {}) {
   const parts = [
     `${nvarcharTextExpr('h', 'del', 20)} IN (N'', N'0')`,
     `${nvarcharTextExpr('l', 'del', 20)} IN (N'', N'0')`,
-    `${nvarcharTextExpr('h', 'pass', 20)} = N'1'`,
-    `${nvarcharTextExpr('h', 'kcan06', 200)} = @warehouseCode`,
+    `${nvarcharTextExpr('h', 'pass', 20)} IN (N'0', N'1')`,
+    `(@allWarehouse = 1 OR ${nvarcharTextExpr('h', 'kcan06', 200)} = @warehouseCode)`,
     `${nvarcharTextExpr('l', 'kcaa01', 200)} = @materialCode`,
     beforeStart ? 'h.[kcan02] < @startDate' : 'h.[kcan02] >= @startDate',
   ]
@@ -106,8 +109,8 @@ function buildOutboundBaseWhereSql(q, { beforeStart = false } = {}) {
   const parts = [
     `${nvarcharTextExpr('h', 'del', 20)} IN (N'', N'0')`,
     `${nvarcharTextExpr('l', 'del', 20)} IN (N'', N'0')`,
-    `${nvarcharTextExpr('h', 'pass', 20)} = N'1'`,
-    `${nvarcharTextExpr('h', 'kcap06', 200)} = @warehouseCode`,
+    `${nvarcharTextExpr('h', 'pass', 20)} IN (N'0', N'1')`,
+    `(@allWarehouse = 1 OR ${nvarcharTextExpr('h', 'kcap06', 200)} = @warehouseCode)`,
     `${nvarcharTextExpr('l', 'kcaa01', 200)} = @materialCode`,
     beforeStart ? 'h.[kcap02] < @startDate' : 'h.[kcap02] >= @startDate',
   ]
@@ -148,6 +151,7 @@ function buildFlowSelectSql(q) {
       COALESCE(l.[addtime], h.[addtime]) AS recordDate,
       ${nvarcharTextExpr('h', 'kcan01', 200)} AS docNo,
       ${nvarcharTextExpr('h', 'kcan03', 20)} AS flowType,
+      ${nvarcharTextExpr('h', 'pass', 20)} AS auditStatus,
       ${nvarcharTextExpr('h', 'kcan04', 200)} AS relatedNo,
       ${nvarcharTextExpr('l', 'Reference', 500)} AS referenceText,
       ${nvarcharTextExpr('h', 'remark', 1000)} AS headerRemark,
@@ -174,6 +178,7 @@ function buildFlowSelectSql(q) {
       COALESCE(l.[addtime], h.[addtime]) AS recordDate,
       ${nvarcharTextExpr('h', 'kcap01', 200)} AS docNo,
       ${nvarcharTextExpr('h', 'kcap03', 20)} AS flowType,
+      ${nvarcharTextExpr('h', 'pass', 20)} AS auditStatus,
       ${nvarcharTextExpr('h', 'kcap04', 200)} AS relatedNo,
       ${nvarcharTextExpr('h', 'kcap08', 500)} AS referenceText,
       LTRIM(RTRIM(COALESCE(
@@ -204,7 +209,7 @@ function buildFlowReportSql(q) {
       ${buildFlowSelectSql(q)}
     )
     SELECT
-      direction, docDate, recordDate, docNo, flowType, relatedNo, referenceText, headerRemark,
+      direction, docDate, recordDate, docNo, flowType, auditStatus, relatedNo, referenceText, headerRemark,
       quantity, materialCode, materialName, materialSpec, unit, materialCategory,
       warehouseCode, warehouseName, lineId
     FROM flow
@@ -300,7 +305,8 @@ function buildRemark(row) {
   const docNo = text(row.docNo)
   const ref = text(row.referenceText)
   const related = text(row.relatedNo)
-  return `单号：${docNo}，类别：${type}，PO/PI：${ref}，关联单号：${related}`
+  const prefix = text(row.auditStatus) === '0' ? '(未审) ' : ''
+  return `${prefix}单号：${docNo}，类别：${type}，PO/PI：${ref}，关联单号：${related}`
 }
 
 function serializeFlowRow(row, balance, seq) {
@@ -316,6 +322,8 @@ function serializeFlowRow(row, balance, seq) {
     outboundQty: dir === 'out' ? qty : null,
     balance,
     remark: buildRemark(row),
+    isUnaudited: text(row.auditStatus) === '0',
+    auditStatus: text(row.auditStatus),
     direction: dir,
     docNo: text(row.docNo),
     flowType: text(row.flowType),
@@ -525,6 +533,7 @@ export function registerMaterialFlowLedgerRoutes(app, { getPool }) {
           startDate: q.startDate,
           endDate: q.endDate,
           warehouseCode: q.warehouseCode,
+          allWarehouse: q.allWarehouse,
           materialCode: q.materialCode,
           materialName: q.materialName,
           materialSpec: q.materialSpec,
@@ -540,6 +549,7 @@ export function registerMaterialFlowLedgerRoutes(app, { getPool }) {
 
 export const __materialFlowLedgerForTest = {
   MENU_PATH,
+  ALL_WAREHOUSE,
   parseReportQuery,
   validateReportQuery,
   buildInboundBaseWhereSql,
