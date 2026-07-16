@@ -87,6 +87,14 @@ const salesOrderWindowRoute = {
   meta: { title: '销售订单窗口', permissionPath: '/supply-chain/daily/sales-order' },
 }
 
+/** 销售订单展开明细「查看」：全屏 PI-BOM 只读；权限挂销售订单（非 PI-BOM 菜单） */
+const salesOrderPiBomWindowRoute = {
+  path: '/supply-chain/daily/sales-order-pi-bom-window',
+  name: 'supply-chain-daily-sales-order-pi-bom-window',
+  component: () => import('@/views/inventory/basic/pi-bom-data/window.vue'),
+  meta: { title: '销售订单 PI-BOM 查看', permissionPath: '/supply-chain/daily/sales-order' },
+}
+
 const assistOrderBatchWindowRoute = {
   path: '/supply-chain/daily/outsourcing-order-batch-window',
   name: 'supply-chain-daily-outsourcing-order-batch-window',
@@ -274,6 +282,7 @@ const router = createRouter({
     bomDataWindowRoute,
     piBomDataWindowRoute,
     salesOrderWindowRoute,
+    salesOrderPiBomWindowRoute,
     assistOrderBatchWindowRoute,
     purchaseOrderBatchWindowRoute,
     purchaseOrderMaterialTraceWindowRoute,

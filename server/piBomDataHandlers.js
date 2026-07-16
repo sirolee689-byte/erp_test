@@ -21,10 +21,41 @@ const SALES_ORDER_LINE_FROM = 'dbo.[UB_ERP_Sales_order_list]'
 const PI_BOM_HEAD_FROM = 'dbo.[UB_ERP_Bom_Sales]'
 const PI_BOM_LIST_FROM = 'dbo.[UB_ERP_Bom_Sales_list]'
 const PI_COST_FROM = 'dbo.[UB_ERP_Bom_pi_cost]'
+const PI_BOM_WORKSHOP_FROM = 'dbo.[UB_ERP_Stocks_workshop]'
+const PI_BOM_SUPPLIER_FROM = 'dbo.[UB_ERP_System_supplier]'
+const PI_BOM_COLOR_FROM = 'dbo.[UB_ERP_Stocks_colorcode]'
 const PI_LIST_PKCAA01_EXPR = `LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[pkcaa01], N''))))`
 const PI_LIST_KCAA01_EXPR = `LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N''))))`
 const PI_LIST_DESCRIBE_EXPR = `LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[Describe], N''))))`
 const BOM000_KCAA01_EXPR = `LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.[kcaa01], N''))))`
+
+/** 与 BOM 查看详情一致：编码 + 名称展示 */
+function buildPiBomCodeNameDisplay(code, name) {
+  const c = String(code ?? '').trim()
+  const n = String(name ?? '').trim()
+  if (!c && !n) return ''
+  if (c && n) return `${c}, ${n}`
+  if (c) return `${c}, —`
+  return `—, ${n}`
+}
+
+function flagCheckedPiBom(v) {
+  const s = String(v ?? '').trim()
+  return s === '1' || s.toLowerCase() === 'y' || s === '是'
+}
+
+/** 报价币别展示：测试期固定码表；未知编码原样返回 */
+function mapPiBomKcaa34Display(raw) {
+  const code = String(raw ?? '').trim()
+  if (!code) return ''
+  const map = { '001': '001,人民币', '002': '002,美元', '003': '003,港元' }
+  return Object.prototype.hasOwnProperty.call(map, code) ? map[code] : code
+}
+
+function displayTextOrEmpty(v) {
+  if (v == null || v === '') return ''
+  return String(v).trim()
+}
 
 /** 批量替换：不覆盖树键、用量、搭配、行身份 */
 const PI_BOM_REPLACE_PRESERVE_LOWER = new Set([
@@ -276,39 +307,64 @@ function usageTotal(kcac04, kcac05, fallback) {
 
 function serializePiBomBasic(row) {
   if (!row) return null
+  const kcaa34Raw = displayTextOrEmpty(row.kcaa34)
+  const csRaw = displayTextOrEmpty(row.Customer_supply)
+  const customer_supply_checked =
+    csRaw === ''
+      ? false
+      : Number.isFinite(Number(csRaw))
+        ? Number(csRaw) === 1
+        : flagCheckedPiBom(row.Customer_supply)
+  const kcaa15 = displayTextOrEmpty(row.kcaa15)
+  const customerName = displayTextOrEmpty(row.Customer_Name)
   return {
     systemcode: toText(row.systemcode),
     piNo: toText(row.piNo),
     kcaa01: toText(row.kcaa01),
     kcaa02: toText(row.kcaa02),
     kcaa02_en: toText(row.kcaa02_en),
+    kpname: toText(row.kpname),
     kcaa03: toText(row.kcaa03),
     kcaa04: toText(row.kcaa04),
     kcaa05: toText(row.kcaa05),
+    categoryName: toText(row.categoryName),
     kcaa06: toText(row.kcaa06),
     kcaa09: toText(row.kcaa09),
     kcaa10: toText(row.kcaa10),
     kcaa11: toText(row.kcaa11),
+    colorName: toText(row.colorName),
     kcaa12: toText(row.kcaa12),
+    kcaa13: toText(row.kcaa13),
     kcaa14: toText(row.kcaa14),
-    kcaa15: toText(row.kcaa15),
+    kcaa15,
     kcaa25: toText(row.kcaa25),
-    kcaa26: toText(row.kcaa26),
-    kcaa27: toText(row.kcaa27),
+    kcaa26: displayTextOrEmpty(row.kcaa26),
+    kcaa27: displayTextOrEmpty(row.kcaa27),
     kcaa28: toText(row.kcaa28),
     kcaa29: toText(row.kcaa29),
-    kcaa30: toText(row.kcaa30),
-    kcaa31: toText(row.kcaa31),
-    kcaa32: toNumberOrNull(row.kcaa32),
-    kcaa33: toNumberOrNull(row.kcaa33),
-    kcaa34: toText(row.kcaa34),
+    kcaa30: displayTextOrEmpty(row.kcaa30),
+    kcaa31: displayTextOrEmpty(row.kcaa31),
+    kcaa32: displayTextOrEmpty(row.kcaa32),
+    kcaa33: displayTextOrEmpty(row.kcaa33),
+    kcaa34: kcaa34Raw,
+    kcaa34_display: mapPiBomKcaa34Display(kcaa34Raw),
     kcaa35: toText(row.kcaa35),
-    sale_price: toNumberOrNull(row.sale_price),
-    cost_price: toNumberOrNull(row.cost_price),
+    sale_price: displayTextOrEmpty(row.sale_price),
+    cost_price: displayTextOrEmpty(row.cost_price),
+    decimal: displayTextOrEmpty(row.bom_decimal ?? row.decimal),
     type: toText(row.type),
     location: toText(row.location),
     version: toText(row.version),
     remark: toText(row.remark),
+    sign: displayTextOrEmpty(row.sign),
+    Customer_Name: customerName,
+    Customer_supply: csRaw,
+    supplier_display: buildPiBomCodeNameDisplay(customerName, row.supplierName),
+    workshop_display: buildPiBomCodeNameDisplay(kcaa15, row.workshopName),
+    kcaa12_checked: flagCheckedPiBom(row.kcaa12),
+    kcaa13_checked: flagCheckedPiBom(row.kcaa13),
+    kcaa14_checked: flagCheckedPiBom(row.kcaa14),
+    customer_supply_checked,
     pass: toText(row.pass),
     addtime: row.addtime ?? null,
     edittime: row.edittime ?? null,
@@ -434,37 +490,59 @@ async function fetchPiBomDetailBasic(pool, piNo, productKcaa01) {
         LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(h.[kcaa01], N'')))) AS kcaa01,
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kcaa02], N'')))) AS kcaa02,
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kcaa02_en], N'')))) AS kcaa02_en,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kpname], N'')))) AS kpname,
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kcaa03], N'')))) AS kcaa03,
         LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[kcaa04], N'')))) AS kcaa04,
         LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[kcaa05], N'')))) AS kcaa05,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(cat.[name], N'')))) AS categoryName,
         LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(h.[kcaa06], N'')))) AS kcaa06,
         LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(h.[kcaa09], N'')))) AS kcaa09,
         LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(h.[kcaa10], N'')))) AS kcaa10,
         LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(h.[kcaa11], N'')))) AS kcaa11,
-        h.[kcaa12] AS kcaa12,
-        h.[kcaa14] AS kcaa14,
-        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(h.[kcaa15], N'')))) AS kcaa15,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(color.[name], N'')))) AS colorName,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), h.[kcaa12]), N''))) AS kcaa12,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), h.[kcaa13]), N''))) AS kcaa13,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), h.[kcaa14]), N''))) AS kcaa14,
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[kcaa15], N'')))) AS kcaa15,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(ws.[name], N'')))) AS workshopName,
         LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[kcaa25], N'')))) AS kcaa25,
-        h.[kcaa26] AS kcaa26,
-        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[kcaa27], N'')))) AS kcaa27,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(80), h.[kcaa26]), N''))) AS kcaa26,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), h.[kcaa27]), N''))) AS kcaa27,
         LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[kcaa28], N'')))) AS kcaa28,
         LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[kcaa29], N'')))) AS kcaa29,
-        h.[kcaa30] AS kcaa30,
-        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[kcaa31], N'')))) AS kcaa31,
-        h.[kcaa32] AS kcaa32,
-        h.[kcaa33] AS kcaa33,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(80), h.[kcaa30]), N''))) AS kcaa30,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), h.[kcaa31]), N''))) AS kcaa31,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(80), h.[kcaa32]), N''))) AS kcaa32,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(80), h.[kcaa33]), N''))) AS kcaa33,
         LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[kcaa34], N'')))) AS kcaa34,
         LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[kcaa35], N'')))) AS kcaa35,
-        h.[sale_price] AS sale_price,
-        h.[cost_price] AS cost_price,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(80), h.[sale_price]), N''))) AS sale_price,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(80), h.[cost_price]), N''))) AS cost_price,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(80), h.[decimal]), N''))) AS bom_decimal,
         LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[type], N'')))) AS type,
         LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(h.[location], N'')))) AS location,
         LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(h.[version], N'')))) AS version,
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[remark], N'')))) AS remark,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), h.[sign]), N''))) AS sign,
+        LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), h.[Customer_supply]), N''))) AS Customer_supply,
+        LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[Customer_Name], N'')))) AS Customer_Name,
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(sup.[s_name], N'')))) AS supplierName,
         LTRIM(RTRIM(ISNULL(h.[pass], N''))) AS pass,
         h.[addtime] AS addtime,
         h.[edittime] AS edittime
       FROM ${PI_BOM_HEAD_FROM} AS h
+      LEFT JOIN ${BOM_MATERIAL_FROM} AS cat
+        ON LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(200), h.[kcaa05]), N''))) =
+           LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(200), cat.[code]), N'')))
+      LEFT JOIN ${PI_BOM_COLOR_FROM} AS color
+        ON LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(200), h.[kcaa11]), N''))) =
+           LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(200), color.[code]), N'')))
+      LEFT JOIN ${PI_BOM_WORKSHOP_FROM} AS ws
+        ON LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(200), h.[kcaa15]), N''))) =
+           LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(200), ws.[code]), N'')))
+      LEFT JOIN ${PI_BOM_SUPPLIER_FROM} AS sup
+        ON LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(500), h.[Customer_Name]), N''))) =
+           LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(100), sup.[s_code]), N'')))
       WHERE LTRIM(RTRIM(ISNULL(h.[sid], N''))) = @pi
         AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(h.[kcaa01], N'')))) = @product
     `)

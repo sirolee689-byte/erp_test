@@ -92,4 +92,12 @@ describe('assistOrderListQuery', () => {
     assert.match(listSql, /UB_ERP_assist_order_list/i)
     assert.match(listSql, /UB_ERP_assist_order_money/i)
   })
+
+  test('list sql returns the saved currency-name snapshot for display', () => {
+    const { whereSql } = buildAssistOrderListWhereSql(parseAssistOrderListQuery({}))
+    const { sql: listSql } = buildAssistOrderListPagedSql({ whereSql })
+
+    assert.match(listSql, /h\.\[rmb\].*AS\s+currencyName/i)
+    assert.match(listSql, /h\.\[rmb\],/i)
+  })
 })

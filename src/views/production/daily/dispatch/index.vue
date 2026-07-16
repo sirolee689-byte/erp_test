@@ -111,13 +111,13 @@
             <ErpTableActions @click.stop>
               <template v-if="showRecycle">
                 <el-button v-permission="'delete'" type="primary" plain :loading="row.__op === 'restore'" @click="runAction(row, 'restore')">恢复</el-button>
-                <el-button v-if="row.pass !== '1'" v-permission="'delete'" type="danger" plain :loading="row.__op === 'hard'" @click="runAction(row, 'hard')">彻底删除</el-button>
+                <el-button v-if="row.pass !== '1' && $isErpSuperAdmin()" v-permission="'delete'" type="danger" plain :loading="row.__op === 'hard'" @click="runAction(row, 'hard')">彻底删除</el-button>
               </template>
               <template v-else>
                 <el-button type="info" plain @click="viewOrder(row)">查看</el-button>
                 <el-button v-if="showUnaudited && row.pass !== '1'" v-permission="'edit'" type="primary" plain @click="editOrder(row)">编辑</el-button>
                 <el-button v-if="showUnaudited && row.pass !== '1'" v-permission="'audit'" type="success" plain :loading="row.__op === 'audit'" @click="runAction(row, 'audit')">审核</el-button>
-                <el-button v-if="!showUnaudited && row.pass === '1'" v-permission="'audit'" type="warning" plain :loading="row.__op === 'unaudit'" @click="runAction(row, 'unaudit')">反审核</el-button>
+                <el-button v-if="!showUnaudited && row.pass === '1'" v-permission="'unaudit'" type="warning" plain :loading="row.__op === 'unaudit'" @click="runAction(row, 'unaudit')">反审核</el-button>
                 <el-button v-if="showUnaudited && row.pass !== '1'" v-permission="'delete'" type="danger" plain :loading="row.__op === 'delete'" @click="runAction(row, 'delete')">删除</el-button>
               </template>
             </ErpTableActions>

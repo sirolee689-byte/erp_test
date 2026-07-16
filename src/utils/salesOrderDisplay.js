@@ -2,6 +2,8 @@
  * 销售订单列表/详情展示辅助（纯函数，便于单测）
  */
 
+import { formatErpQtyDisplay } from '@/utils/erpNumberDisplay.js'
+
 /** @param {{ pass?: unknown }} row */
 export function passIsAudited(row) {
   return String(row?.pass ?? '').trim() === '1'
@@ -50,9 +52,7 @@ export function formatSalesOrderDate(v) {
 
 /** @param {unknown} v */
 export function formatOrderQty(v) {
-  const n = Number(v)
-  if (!Number.isFinite(n)) return '—'
-  return n
+  return formatErpQtyDisplay(v, '—')
 }
 
 /** @param {unknown} v */

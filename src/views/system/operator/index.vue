@@ -10,81 +10,63 @@
       <p class="page-desc">当前功能：{{ pageTitle }}</p>
 
       <!--
-        关键：顶部工具栏（参考你给的按钮栏图片）
-        小白版解释：
-        - 这里把常用操作做成“大方块按钮”，高度更高、内边距更大
-        - 按钮太多时允许自动换行（不会挤在一行里）
-        - “管理操作员 / 恢复操作员”是视图切换开关：
-          - 管理操作员：del=0（在册列表）
-          - 恢复操作员：del=1（回收站列表）
-        - 当前选中的视图按钮会有明显激活样式（加粗/边框更深）
+        顶部模式行：管理操作员（在册）/ 操作员添加
+        回收站改由下方筛选栏开关切换（对齐销售订单主页）
       -->
       <div class="operator-toolbar">
-        <!--
-          视图切换按钮（在职/回收站）
-          小白提示：
-          - “哪个方块被选中，哪个就变成橙色”，样式由 .btn-view.is-active 控制
-          - 你要改橙色，就去 style 里找 .btn-view.is-active 的 background-color
-        -->
         <el-button
           class="toolbar-btn btn-view"
-          :class="{ 'is-active': selectedStatus === 1 }"
-          @click="switchToStatus(1)"
+          :class="{ 'is-active': !showRecycle }"
+          @click="switchToManage"
         >
           <el-icon class="btn-icon"><Setting /></el-icon>
           管理操作员
         </el-button>
 
-        <!-- 操作员添加（新增） -->
         <el-button v-permission="'add'" class="toolbar-btn btn-action" @click="openCreateDialog">
           <el-icon class="btn-icon"><Plus /></el-icon>
           操作员添加
         </el-button>
-
-        <!-- 搜索操作员（触发查询；输入框也支持回车查询） -->
-        <!-- 恢复操作员（切换到回收站视图 Status=0） -->
-        <el-button
-          class="toolbar-btn btn-view"
-          :class="{ 'is-active': selectedStatus === 0 }"
-          @click="switchToStatus(0)"
-        >
-          <el-icon class="btn-icon"><RefreshLeft /></el-icon>
-          恢复操作员
-        </el-button>
-
-        <!-- 刷新列表 -->
-        <el-button class="toolbar-btn btn-action" :loading="loading" @click="loadUsers">
-          <el-icon class="btn-icon"><Refresh /></el-icon>
-          刷新列表
-        </el-button>
       </div>
 
       <!--
-        关键：标准搜索栏（位于表格上方的独立区域）
-        需求：
-        - 输入框提示语：“请输入工号或姓名”
-        - 支持回车触发查询
-        - 点击“查询”：带 keyword 重新请求后端，并把页码重置为 1
-        - 点击“重置”：清空输入框并刷新列表（也回到第一页）
+        筛选行对齐销售订单：关键字 → 查询 → 重置 → 竖线 → 回收站 →（非回收站）竖线 → 显示未审核
       -->
-      <div class="search-row">
-        <el-input
-          v-model="keyword"
-          placeholder="登录账号、员工编码或姓名（truename）"
-          clearable
-          style="max-width: 320px"
-          @keyup.enter="onSearch"
-        />
-        <div v-if="selectedStatus === 1" class="audit-switch">
-          <span class="switch-label">显示未审核</span>
-          <el-switch v-model="showUnAudited" @change="onSearch" />
+      <div class="op-toolbar">
+        <div class="op-filter-actions">
+          <el-input
+            v-model="keyword"
+            placeholder="登录账号、员工编码或姓名（truename）"
+            clearable
+            class="op-keyword-input"
+            @keyup.enter="onSearch"
+          />
+          <el-button class="erp-filter-action-btn" type="primary" @click="onSearch">查询</el-button>
+          <el-button class="erp-filter-action-btn" @click="onReset">重置</el-button>
+          <div class="erp-filter-divider" aria-hidden="true" />
+          <div class="audit-switch erp-filter-switch">
+            <span class="switch-label">回收站</span>
+            <el-switch v-model="showRecycle" @change="onRecycleChange" />
+          </div>
+          <template v-if="!showRecycle">
+            <div class="erp-filter-divider" aria-hidden="true" />
+            <div class="audit-switch erp-filter-switch">
+              <span class="switch-label">显示未审核</span>
+              <el-switch v-model="showUnAudited" @change="onSearch" />
+            </div>
+          </template>
         </div>
-        <el-button type="primary" @click="onSearch">查询</el-button>
-        <el-button @click="onReset">重置</el-button>
       </div>
 
       <el-alert
-        v-if="selectedStatus === 1 && showUnAudited"
+        v-if="showRecycle"
+        title="当前为回收站视图：仅显示已逻辑删除的操作员，可进行恢复。"
+        type="info"
+        show-icon
+        class="audit-alert"
+      />
+      <el-alert
+        v-else-if="showUnAudited"
         title="当前显示：未审核（pass=0）的操作员"
         type="warning"
         show-icon
@@ -159,12 +141,12 @@
             <el-table-column label="操作" :width="operatorActionsColWidth" fixed="right" class-name="erp-col-actions">
               <template #default="{ row }">
                 <ErpTableActions>
-                  <template v-if="Number(selectedStatus) === 1">
+                  <template v-if="!showRecycle">
                     <el-button v-permission="'view'" type="info" plain @click="openViewDialog(row)">查看</el-button>
                     <el-button v-permission="'edit'" type="primary" plain @click="openEditDialog(row)">编辑</el-button>
                     <el-button
                       v-if="showUnAudited && !passIsAudited(row)"
-                      v-permission="'edit'"
+                      v-permission="'audit'"
                       type="success"
                       plain
                       :loading="busyUserId === row.UserID"
@@ -174,7 +156,7 @@
                     </el-button>
                     <el-button
                       v-if="!showUnAudited && passIsAudited(row)"
-                      v-permission="'delete'"
+                      v-permission="'unaudit'"
                       type="warning"
                       plain
                       :loading="busyUserId === row.UserID"
@@ -268,6 +250,16 @@
           </el-select>
         </el-form-item>
 
+        <el-form-item v-if="$isErpSuperAdmin()" label="超级管理员">
+          <el-switch
+            v-model="createForm.is_admin"
+            :active-value="1"
+            :inactive-value="0"
+            active-text="是"
+            inactive-text="否"
+          />
+        </el-form-item>
+
         <el-form-item v-if="dialogMode === 'edit'" label="新密码" prop="Password">
           <el-input
             v-model="createForm.Password"
@@ -300,6 +292,9 @@
         <el-descriptions-item label="登录账号">{{ viewDetail.Usercode ?? viewDetail.UserCode ?? '—' }}</el-descriptions-item>
         <el-descriptions-item label="姓名（truename）">{{ viewDetail.truename ?? viewDetail.Truename ?? '—' }}</el-descriptions-item>
         <el-descriptions-item label="关联角色">{{ viewDetail.RoleName ?? '—' }}</el-descriptions-item>
+        <el-descriptions-item label="超级管理员">
+          {{ Number(viewDetail.IsAdmin ?? viewDetail.is_admin) === 1 ? '是' : '否' }}
+        </el-descriptions-item>
         <el-descriptions-item label="审核状态">
           <el-tag :type="Number(viewDetail.Pass) === 1 ? 'success' : 'danger'" size="small">
             {{ Number(viewDetail.Pass) === 1 ? '已审核' : '未审核' }}
@@ -321,8 +316,9 @@ import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
-import { Plus, Refresh, RefreshLeft, Setting } from '@element-plus/icons-vue'
+import { Plus, Setting } from '@element-plus/icons-vue'
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import { isErpSuperAdmin } from '@/utils/erpSuperAdmin'
 
 /** 页面标题（与左侧菜单一致） */
 const pageTitle = '操作员管理'
@@ -342,19 +338,17 @@ const loading = ref(false)
 const errorMessage = ref('')
 
 /**
- * 当前视图状态（双视图切换的核心变量）
- * 小白版解释：
- * - 这个变量会直接控制后端 SQL 的 WHERE Status = ?
- * - 1 = 在职操作员（启用）
- * - 0 = 恢复操作员（回收站/禁用）
+ * 回收站开关（承接原「恢复操作员」视图）
+ * - false：在册 del=0，请求 status=1
+ * - true：回收站 del=1，请求 status=0
  */
-const selectedStatus = ref(1)
+const showRecycle = ref(false)
 
-/** 在册列表：默认 pass=1；打开后查 pass=0（与颜色编码一致） */
+/** 在册列表：默认 pass=1；打开后查 pass=0（与颜色编码一致）；回收站时隐藏 */
 const showUnAudited = ref(false)
 
 const operatorActionsColWidth = computed(() => {
-  if (Number(selectedStatus.value) !== 1) return getErpTableActionsColMinWidth(2)
+  if (showRecycle.value) return getErpTableActionsColMinWidth(2)
   return getErpTableActionsColMinWidth(4)
 })
 
@@ -405,6 +399,7 @@ const createForm = ref({
   /** 姓名：对应库 UB_ERP_User.truename */
   Truename: '',
   Password: '',
+  is_admin: 0,
   // v1.0.7：外键 RoleID → UB_ERP_System_role
   RoleID: undefined,
 })
@@ -555,8 +550,9 @@ async function loadUsers() {
         page: page.value,
         pageSize: pageSize.value,
         keyword: String(keyword.value || '').trim() || undefined,
-        status: selectedStatus.value,
-        ...(selectedStatus.value === 1 ? { pass: showUnAudited.value ? '0' : '1' } : {}),
+        // 回收站开关 → 后端 status：1=在册 del=0，0=回收站 del=1
+        status: showRecycle.value ? 0 : 1,
+        ...(!showRecycle.value ? { pass: showUnAudited.value ? '0' : '1' } : {}),
       },
     })
     // 关键：取出后端 JSON 数据（axios 会把响应体放在 res.data）
@@ -617,6 +613,7 @@ function openCreateDialog() {
     UserName: '',
     Truename: '',
     Password: '',
+    is_admin: 0,
     RoleID: defaultRoleIdForCreate(),
   }
   // 关键：标记当前是“新增模式”（后续提交用 POST）
@@ -645,6 +642,7 @@ function openEditDialog(row) {
     UserName: row?.Usercode ?? row?.UserCode ?? row?.Username ?? row?.UserName ?? '',
     Truename: row?.truename ?? row?.Truename ?? '',
     Password: '',
+    is_admin: Number(row?.IsAdmin ?? row?.is_admin) === 1 ? 1 : 0,
     RoleID: row?.RoleID,
   }
 
@@ -684,6 +682,9 @@ async function submitCreateForm() {
         UserName: createForm.value.UserName,
         Truename: createForm.value.Truename,
         RoleID: createForm.value.RoleID,
+      }
+      if (isErpSuperAdmin()) {
+        payload.is_admin = createForm.value.is_admin
       }
       // 登录账号写入 UB_ERP_User.usercode（与 username 同步，后端校验全表唯一）
       const loginAccount = String(createForm.value.UserName ?? '').trim()
@@ -869,21 +870,18 @@ async function onSearch() {
 }
 
 /**
- * 点击“重置”清空搜索并刷新
- * 小白版解释：
- * - 把输入框清空
- * - 回到第 1 页
- * - 重新请求后端拿“完整列表”
+ * 点击“重置”清空搜索并刷新（对齐销售订单：同时关掉回收站/未审核）
  */
 async function onReset() {
   keyword.value = ''
+  showRecycle.value = false
   showUnAudited.value = false
   page.value = 1
   await loadUsers()
 }
 
 /**
- * 恢复用户（Status 从 0 改回 1）
+ * 恢复用户（回收站 del=1 → 在册 del=0）
  */
 async function resumeUser(row) {
   // 关键：拿到要恢复的 UserID
@@ -924,31 +922,26 @@ async function resumeUser(row) {
 }
 
 /**
- * 切换视图（双视图切换的统一入口）
- *
- * 小白版解释（最重要的一句）：
- * - 你点按钮时，我们把 selectedStatus 改成 1 或 0
- * - loadUsers 请求后端时会带上 status=selectedStatus
- * - 后端 SQL 里用 del=0（在册）或 del=1（回收站）
- * - 所以“一个变量 selectedStatus”就能控制后端查在册还是回收站
- *
- * @param {0|1} nextStatus
+ * 点「管理操作员」：退出回收站，回到在册列表
  */
-async function switchToStatus(nextStatus) {
-  // 关键：如果本来就在这个视图，就不重复刷新
-  if (selectedStatus.value === nextStatus) return
-
-  selectedStatus.value = nextStatus
-  keyword.value = ''
+async function switchToManage() {
+  if (!showRecycle.value) return
+  showRecycle.value = false
   showUnAudited.value = false
-
-  // 关键：切换视图时把分页重置为第一页
+  keyword.value = ''
   page.value = 1
-
-  // 关键：切换视图时每页条数回到 20（符合模块标准默认）
   pageSize.value = 20
+  await loadUsers()
+}
 
-  // 关键：重新加载列表
+/**
+ * 回收站开关变更（承接原「恢复操作员」按钮逻辑）
+ */
+async function onRecycleChange() {
+  page.value = 1
+  if (showRecycle.value) {
+    showUnAudited.value = false
+  }
   await loadUsers()
 }
 
@@ -985,12 +978,18 @@ onMounted(async () => {
 .error-alert {
   margin: 12px 0;
 }
-.search-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
+.op-toolbar {
   margin: 8px 0 12px;
+}
+.op-filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.op-keyword-input {
+  flex: 0 1 420px;
+  width: min(420px, 100%);
 }
 .audit-switch {
   display: inline-flex;
@@ -1005,14 +1004,13 @@ onMounted(async () => {
   margin-bottom: 12px;
 }
 .operator-toolbar {
-  /* 关键：flex + wrap，让按钮在一行放不下时自动换行（响应式） */
+  /* 业务：flex + wrap，按钮一行放不下时自动换行 */
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   margin: 10px 0 12px;
 }
 .toolbar-btn {
-  /* 关键：把按钮变成你图片里的“大方块按钮” */
   height: 45px;
   padding: 0 18px;
   border-radius: 8px;
@@ -1022,31 +1020,25 @@ onMounted(async () => {
   margin-right: 8px;
 }
 .btn-action {
-  /* 关键：其他按钮用浅蓝色背景（你可以在这里改颜色） */
-  /* 小白提示：如果你想更浅/更深，就把这个颜色改掉 */
   background-color: #d6ecff;
   border-color: #bcdfff;
   color: #1f5faa;
 }
 .btn-view {
-  /* 关键：视图切换按钮的“未选中”样式（默认浅蓝） */
   background-color: #d6ecff;
   border-color: #bcdfff;
   color: #1f5faa;
 }
 .toolbar-btn.is-active {
-  /* 关键：当前选中的视图按钮“激活样式” */
   border-width: 2px;
   box-shadow: 0 0 0 2px rgba(31, 95, 170, 0.12) inset;
   font-weight: 700;
 }
 .btn-view.is-active {
-  /* 关键：视图切换按钮“选中态”改成橙色（和你说的“管理操作员那个颜色”一致） */
-  /* 小白提示：要改橙色，就改 background-color / border-color */
+  /* 在册管理视图激活：橙色高亮 */
   background-color: #e67e22;
   border-color: #e67e22;
   color: #fff;
-  /* 关键：选中态边框更深，更明显 */
   box-shadow: 0 0 0 2px rgba(184, 95, 18, 0.14) inset;
 }
 </style>

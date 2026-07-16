@@ -174,6 +174,12 @@
 - **BOM** 仍保留自有子表/四模式逻辑；注册表对 `inventory/basic/bom-data` 设为 `skip`，由 `inv/bom/index.vue` 自管。
 - 新模块接入：主表加 `@row-contextmenu="onErpListRowContextMenu"` + `useErpListRowContextMenu()`；若有查看弹窗再加 `useErpDeepLinkOpen({ handlers: { view: ... } })`。
 
+## 主壳浏览器关页确认（2026-07）
+
+- **主壳**（带侧栏的 `ErpLayout` 标签）：关浏览器标签 / 刷新会出系统「离开此网站？」确认；顶栏模块标签 × /「关闭其它」「关闭全部」**不**拦。
+- **免确认**：独立窗（`*-window` 等无主壳路由）、以及经 `openInNewTab` / 深链（`erpNoCloseGuard` / `erpOpen` / `erpMode`）从主页打开的副标签。
+- 实现：`composables/useErpBrowserCloseGuard.js` + `utils/erpOpenInNewTab.js`；退出登录走 `runWithoutCloseGuard`。DIY：去掉 `ErpLayout` 里的 `useErpBrowserCloseGuard()` 即关闭。
+
 
 ## 扩展
 

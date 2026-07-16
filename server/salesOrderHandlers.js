@@ -29,7 +29,7 @@ import {
   softDeleteSalesOrder,
   unapproveSalesOrder,
 } from './salesOrderLifecycle.js'
-import { syncSalesOrderBomForLine } from './salesOrderSyncBomService.js'
+import { syncSalesOrderBomBatch, syncSalesOrderBomForLine } from './salesOrderSyncBomService.js'
 import { calculateSalesOrderMaterialBill } from './salesOrderCalculateService.js'
 import { addSalesOrderSpareUsage } from './salesOrderSpareUsageService.js'
 import { fetchSalesOrderMaterialBill } from './salesOrderMaterialBillService.js'
@@ -1255,6 +1255,69 @@ export function registerSalesOrderRoutes(app, deps) {
       console.error('POST /api/sales-order/:id/sync-bom 失败：', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? '同步失败')
       res.status(500).json({ code: 500, msg: `同步 BOM 失败：${detail}`, data: null })
+    }
+  })
+
+  /**
+   * POST /api/sales-order/:id/sync-bom-batch
+   * body: { kcaa01: string[] } — 服务端有限并发，遇错停后续
+   */
+  app.post('/api/sales-order/:id/sync-bom-batch', async (req, res) => {
+    try {
+      const parsed = parseSalesOrderId(req.params.id)
+      if (!parsed.ok) {
+        res.status(400).json({ code: 400, msg: parsed.msg, data: null })
+        return
+      }
+      const pool = await getPool()
+      const actor = await getSalesOrderActor(pool, req)
+      const ip = getClientIpFromReq(req)
+      const result = await syncSalesOrderBomBatch({
+        pool,
+        id: parsed.id,
+        kcaa01List: req.body?.kcaa01,
+        actor,
+        ip,
+      })
+      if (!result.batchDone) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      const failed = result.failed
+      const succeeded = Array.isArray(result.succeeded) ? result.succeeded : []
+      if (failed) {
+        res.json({
+          code: 200,
+          msg: `款【${failed.kcaa01}】同步失败：${failed.msg}`,
+          data: {
+            id: parsed.id,
+            piNo: result.piNo,
+            succeeded,
+            failed,
+            markUncalc: !!result.markUncalc,
+            total: result.total,
+            timing: result.timing ?? null,
+          },
+        })
+        return
+      }
+      res.json({
+        code: 200,
+        msg: `批量同步成功，共 ${succeeded.length} 款`,
+        data: {
+          id: parsed.id,
+          piNo: result.piNo,
+          succeeded,
+          failed: null,
+          markUncalc: !!result.markUncalc,
+          total: result.total,
+          timing: result.timing ?? null,
+        },
+      })
+    } catch (err) {
+      console.error('POST /api/sales-order/:id/sync-bom-batch 失败：', err)
+      const detail = String(err?.message ?? err?.originalError?.message ?? '同步失败')
+      res.status(500).json({ code: 500, msg: `批量同步 BOM 失败：${detail}`, data: null })
     }
   })
 

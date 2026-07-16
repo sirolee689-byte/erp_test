@@ -242,7 +242,7 @@
             <ErpTableActions class="buy-order-actions" @click.stop>
               <template v-if="recycled">
                 <el-button type="primary" plain @click.stop="lifecycle(row, 'restore')">恢复</el-button>
-                <el-button type="danger" plain @click.stop="lifecycle(row, 'hard')">彻底删除</el-button>
+                <el-button v-if="$isErpSuperAdmin()" type="danger" plain @click.stop="lifecycle(row, 'hard')">彻底删除</el-button>
               </template>
               <template v-else>
                 <el-button type="info" plain @click.stop="openDetail(row)">查看</el-button>
@@ -285,7 +285,7 @@
                 <template v-else>
                   <el-button
                     v-if="row.pass === '1'"
-                    v-permission="'audit'"
+                    v-permission="'unaudit'"
                     type="warning"
                     plain
                     @click.stop="askUnaudit(row)"

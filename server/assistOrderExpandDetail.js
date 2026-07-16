@@ -5,6 +5,10 @@ import { bindIntInList, bindNVarCharInList, groupRowsByKey, normalizeIntIds } fr
 const HEADER_FROM = `dbo.[${ASSIST_ORDER_HEADER_TABLE}]`
 const LINE_FROM = 'dbo.[UB_ERP_assist_order_list]'
 const MONEY_FROM = 'dbo.[UB_ERP_assist_order_money]'
+const STOCK_IN_FROM = 'dbo.[UB_ERP_Stocks_Storage]'
+const STOCK_IN_LINE_FROM = 'dbo.[UB_ERP_Stocks_Storage_list]'
+const STOCK_OUT_FROM = 'dbo.[UB_ERP_Stocks_out]'
+const STOCK_OUT_LINE_FROM = 'dbo.[UB_ERP_Stocks_out_list]'
 
 function text(v) {
   return String(v ?? '').trim()
@@ -39,6 +43,7 @@ function buildAssistLineSelectSql() {
       LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[kcaa09], N'')))) AS origin,
       LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[kcaa10], N'')))) AS kcaa10,
       LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(l.[kcaa11], N'')))) AS kcaa11,
+      LTRIM(RTRIM(CONVERT(nvarchar(1000), ISNULL(l.[Describe], N'')))) AS describe,
       l.[version],
       l.[Customer_supply] AS customerSupply,
       l.[wxak03],
@@ -52,6 +57,77 @@ function buildAssistLineSelectSql() {
       LTRIM(RTRIM(CONVERT(nvarchar(1000), ISNULL(l.[wxak06], N'')))) AS remark
     FROM ${LINE_FROM} AS l
   `
+}
+
+function warehouseKey(orderNo, materialCode) {
+  return `${text(orderNo)}\u0000${text(materialCode)}`
+}
+
+export function buildAssistOrderWarehouseInboundSql(orderNoInSql, materialCodeInSql) {
+  return `
+    SELECT
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcan04], N'')))) AS orderNo,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa01], N'')))) AS materialCode,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcan01], N'')))) AS documentNo,
+      h.[kcan02] AS documentDate,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kcan08], N'')))) AS deliveryNo,
+      LTRIM(RTRIM(CONVERT(nvarchar(1000), ISNULL(h.[remark], N'')))) AS remark,
+      SUM(ISNULL(l.[kcao03], 0)) AS quantity,
+      SUM(ISNULL(l.[kcao031], 0)) AS backupQuantity
+    FROM ${STOCK_IN_FROM} AS h
+    INNER JOIN ${STOCK_IN_LINE_FROM} AS l ON h.[kcan01] = l.[kcao01]
+    WHERE h.[pass] = 1
+      AND h.[del] = 0
+      AND h.[kcan03] = 2
+      AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcan04], N'')))) IN (${orderNoInSql})
+      AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa01], N'')))) IN (${materialCodeInSql})
+    GROUP BY h.[kcan04], l.[kcaa01], h.[kcan01], h.[kcan02], h.[kcan08], h.[remark]
+    ORDER BY h.[kcan04], l.[kcaa01], h.[kcan02], h.[kcan01]
+  `
+}
+
+export function buildAssistOrderWarehouseOutboundSql(orderNoInSql, materialCodeInSql) {
+  return `
+    SELECT
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcap04], N'')))) AS orderNo,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa01], N'')))) AS materialCode,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcap01], N'')))) AS documentNo,
+      h.[kcap02] AS documentDate,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kcap08], N'')))) AS paperNo,
+      LTRIM(RTRIM(CONVERT(nvarchar(1000), ISNULL(h.[remark], N'')))) AS remark,
+      SUM(ISNULL(l.[kcaq03], 0)) AS quantity
+    FROM ${STOCK_OUT_FROM} AS h
+    INNER JOIN ${STOCK_OUT_LINE_FROM} AS l ON h.[kcap01] = l.[kcaq01]
+    WHERE h.[pass] = 1
+      AND h.[del] = 0
+      AND h.[kcap03] = 2
+      AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcap04], N'')))) IN (${orderNoInSql})
+      AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa01], N'')))) IN (${materialCodeInSql})
+    GROUP BY h.[kcap04], l.[kcaa01], h.[kcap01], h.[kcap02], h.[kcap08], h.[remark]
+    ORDER BY h.[kcap04], l.[kcaa01], h.[kcap02], h.[kcap01]
+  `
+}
+
+export async function fetchAssistOrderWarehouseRecords(pool, { orderNos, materialCodes }) {
+  const orders = [...new Set((orderNos ?? []).map(text).filter(Boolean))]
+  const materials = [...new Set((materialCodes ?? []).map(text).filter(Boolean))]
+  const empty = { inboundByKey: new Map(), outboundByKey: new Map() }
+  if (!orders.length || !materials.length) return empty
+
+  const inboundReq = pool.request()
+  const inboundOrders = bindNVarCharInList(inboundReq, 'ino', orders, 200)
+  const inboundMaterials = bindNVarCharInList(inboundReq, 'imc', materials, 200)
+  const inboundResult = await inboundReq.query(buildAssistOrderWarehouseInboundSql(inboundOrders.inSql, inboundMaterials.inSql))
+
+  const outboundReq = pool.request()
+  const outboundOrders = bindNVarCharInList(outboundReq, 'ono', orders, 200)
+  const outboundMaterials = bindNVarCharInList(outboundReq, 'omc', materials, 200)
+  const outboundResult = await outboundReq.query(buildAssistOrderWarehouseOutboundSql(outboundOrders.inSql, outboundMaterials.inSql))
+
+  return {
+    inboundByKey: groupRowsByKey(inboundResult.recordset ?? [], (row) => warehouseKey(row.orderNo, row.materialCode)),
+    outboundByKey: groupRowsByKey(outboundResult.recordset ?? [], (row) => warehouseKey(row.orderNo, row.materialCode)),
+  }
 }
 
 function buildAssistFeeSelectSql() {
@@ -98,6 +174,12 @@ export async function fetchAssistOrderExpandDetailBatch(pool, rawIds) {
     ORDER BY LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[wxak01], N'')))), l.[id] ASC
   `)
 
+  const rawLines = lineR.recordset ?? []
+  const warehouseRecords = await fetchAssistOrderWarehouseRecords(pool, {
+    orderNos,
+    materialCodes: rawLines.map((row) => row.kcaa01),
+  })
+
   const feeReq = pool.request()
   const feeOrderIn = bindNVarCharInList(feeReq, 'fno', orderNos, 200)
   const feeR = await feeReq.query(`
@@ -107,14 +189,23 @@ export async function fetchAssistOrderExpandDetailBatch(pool, rawIds) {
     ORDER BY LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(m.[assist_code], N'')))), m.[id] ASC
   `)
 
-  const lineGroups = groupRowsByKey(lineR.recordset ?? [], (row) => row.orderNo)
+  const lineGroups = groupRowsByKey(rawLines, (row) => row.orderNo)
   const feeGroups = groupRowsByKey(feeR.recordset ?? [], (row) => row.orderNo)
 
   const data = {}
   for (const header of headers) {
     const orderNo = text(header.assistOrderNo)
     data[String(header.id)] = {
-      lines: (lineGroups.get(orderNo) ?? []).map(serializeRow),
+      lines: (lineGroups.get(orderNo) ?? []).map((line) => {
+        const key = warehouseKey(orderNo, line.kcaa01)
+        return {
+          ...serializeRow(line),
+          warehouse: {
+            inbound: (warehouseRecords.inboundByKey.get(key) ?? []).map(serializeRow),
+            outbound: (warehouseRecords.outboundByKey.get(key) ?? []).map(serializeRow),
+          },
+        }
+      }),
       fees: (feeGroups.get(orderNo) ?? []).map(serializeRow),
     }
   }

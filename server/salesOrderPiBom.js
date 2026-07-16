@@ -10,7 +10,7 @@ import {
 } from './bomUsageTreeBuild.js'
 import {
   getPiBomListCopyColumnMeta,
-  insertPiBomListRowFromBomPartsRow,
+  insertPiBomListRowsFromBomPartsRows,
   mergePiListPartRowWithBom000Override,
   prefetchBom000OverrideSnapshotsByKcaa01,
   prefetchBomPartsLayersForPiListCopy,
@@ -516,6 +516,36 @@ export async function fetchMasterBomHeadByKcaa01(db, kcaa01) {
 }
 
 /**
+ * 批量同步预读上下文：只共享不随款变化的规则、列元数据和各款主 BOM 头。
+ * 每款自己的树、删除和写入事务仍完全独立。
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {string[]} productKcaa01List
+ */
+export async function createPiBomBatchSyncContext(pool, productKcaa01List) {
+  const startedAt = Date.now()
+  const products = [...new Set((productKcaa01List ?? []).map(normKcaa01).filter(Boolean))]
+  const [copyMeta, flag5Prefixes, masterRows] = await Promise.all([
+    getPiBomListCopyColumnMeta(pool),
+    fetchTopLevelFinishedBomCodeFlag5Prefixes(pool),
+    Promise.all(products.map((code) => fetchMasterBomHeadByKcaa01(pool, code))),
+    assertTableColumns(pool, PI_BOM_HEAD_TABLE, PI_BOM_HEAD_BOM000_SNAPSHOT_COLUMNS),
+    assertTableColumns(pool, BOM_MASTER_TABLE, ['kcaa12', ...BOM000_EXTENDED_SNAPSHOT_COLUMNS]),
+  ])
+  const masterByKcaa01 = new Map()
+  for (let i = 0; i < products.length; i++) {
+    const master = masterRows[i]
+    if (master) masterByKcaa01.set(products[i], master)
+  }
+  return {
+    copyMeta,
+    flag5Prefixes,
+    masterByKcaa01,
+    schemaVerified: true,
+    timing: { sharedPrefetchMs: Date.now() - startedAt },
+  }
+}
+
+/**
  * @param {import('mssql').ConnectionPool | import('mssql').Transaction} db
  * @param {string} piNo
  */
@@ -576,7 +606,6 @@ export async function collectPiBomSubtreeParentCodes(tx, piNo, headSystemcode, p
 }
 
 /**
- * @param {import('mssql').Transaction} tx
  * @param {string} piNo
  * @param {string} productKcaa01
  */
@@ -586,21 +615,25 @@ export async function deletePiBomProduct(tx, piNo, productKcaa01) {
   const delList = new sql.Request(tx)
   delList.input('pi', sql.NVarChar(200), pi)
   delList.input('product', sql.NVarChar(300), product)
+  const listDeleteStartedAt = Date.now()
   await delList.query(`
     DELETE l
     FROM ${PI_BOM_LIST_FROM} AS l
     WHERE LTRIM(RTRIM(ISNULL(l.[sid], N''))) = @pi
       AND ${PI_LIST_PKCAA01_EXPR} = @product
   `)
+  const listDeleteMs = Date.now() - listDeleteStartedAt
 
   const delHead = new sql.Request(tx)
   delHead.input('pi', sql.NVarChar(200), pi)
   delHead.input('product', sql.NVarChar(300), product)
+  const headDeleteStartedAt = Date.now()
   await delHead.query(`
     DELETE FROM ${PI_BOM_HEAD_FROM}
     WHERE LTRIM(RTRIM(ISNULL([sid], N''))) = @pi
       AND LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL([kcaa01], N'')))) = @product
   `)
+  return { listDeleteMs, headDeleteMs: Date.now() - headDeleteStartedAt }
 }
 
 /**
@@ -609,11 +642,13 @@ export async function deletePiBomProduct(tx, piNo, productKcaa01) {
  * @param {string} piNo
  * @param {string} productKcaa01
  * @param {{ uname?: string | null, utruename?: string | null, uid?: string | null, ip?: string | null }} actor
+ * @param {{ copyMeta?: any, flag5Prefixes?: string[], masterByKcaa01?: Map<string, any>, schemaVerified?: boolean }} [syncContext]
  */
-export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, actor) {
+export async function preparePiBomFromMasterBom(pool, piNo, productKcaa01, actor, syncContext) {
+  const startedAt = Date.now()
   const pi = normKcaa01(piNo)
   const product = normKcaa01(productKcaa01)
-  const master = await fetchMasterBomHeadByKcaa01(pool, product)
+  const master = syncContext?.masterByKcaa01?.get(product) ?? await fetchMasterBomHeadByKcaa01(pool, product)
   if (!master?.systemcode) {
     const err = new Error(`货品 ${product} 未找到主 BOM 资料`)
     err.code = 'BOM_NOT_FOUND'
@@ -625,11 +660,14 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
     err.code = 'BOM_NOT_FOUND'
     throw err
   }
-  await assertTableColumns(tx, PI_BOM_HEAD_TABLE, PI_BOM_HEAD_BOM000_SNAPSHOT_COLUMNS)
-  await assertTableColumns(tx, BOM_MASTER_TABLE, ['kcaa12', ...BOM000_EXTENDED_SNAPSHOT_COLUMNS])
-  const copyMeta = await getPiBomListCopyColumnMeta(pool)
+  if (!syncContext?.schemaVerified) {
+    await assertTableColumns(pool, PI_BOM_HEAD_TABLE, PI_BOM_HEAD_BOM000_SNAPSHOT_COLUMNS)
+    await assertTableColumns(pool, BOM_MASTER_TABLE, ['kcaa12', ...BOM000_EXTENDED_SNAPSHOT_COLUMNS])
+  }
+  const copyMeta = syncContext?.copyMeta ?? await getPiBomListCopyColumnMeta(pool)
   // PI 头 systemcode/GUID 与 UB_ERP_Bom_000.GUID 同值，建树父键须与 UB_ERP_Bom_Sales 头一致
   const headSc = bomGuid
+  const treeReadStartedAt = Date.now()
   const layerCache = await prefetchBomPartsLayersForPiListCopy(pool, headSc, copyMeta)
   const stack = new Set([headSc])
   let tree
@@ -645,13 +683,91 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
     throw e
   }
 
-  const flag5Prefixes = await fetchTopLevelFinishedBomCodeFlag5Prefixes(pool)
+  const treeReadBuildMs = Date.now() - treeReadStartedAt
+  const flag5Prefixes = syncContext?.flag5Prefixes ?? await fetchTopLevelFinishedBomCodeFlag5Prefixes(pool)
   const virtualRootQtyByKcaa01 = collectPiBomVirtualRootQtyFromMasterTree(tree, flag5Prefixes)
   const virtualRootQtyInfo = serializePiBomVirtualRootQtyInfo(virtualRootQtyByKcaa01)
 
-  // PI BOM 头：GUID 与 systemcode 两列写入相同值（均取自 UB_ERP_Bom_000.GUID）
   const headGuidAndSystemcode = bomGuid
   const now = formatSalesOrderAuditTime()
+
+  /** @type {{ parentSc: string, node: any }[]} */
+  const flat = []
+  flattenPiBomPartRows(headSc, tree, flat, 1, product)
+
+  const kcaa01ForOverride = flat
+    .map(({ sourceRow }) => normKcaa01(sourceRow?.kcaa01))
+    .filter(Boolean)
+  const snapshotReadStartedAt = Date.now()
+  const bom000OverrideByKcaa01 = await prefetchBom000OverrideSnapshotsByKcaa01(pool, kcaa01ForOverride)
+  const snapshotReadMs = Date.now() - snapshotReadStartedAt
+  const topLevelParentKeys = collectTopLevelParentKeysFromPiBomTree(tree, flag5Prefixes)
+
+  /** @type {Map<number, string>} */
+  const expandKeyByPartsId = new Map()
+  /** @type {Set<string>} */
+  const usedExpandKeys = new Set([headSc])
+  /** @type {Set<string>} */
+  const insertDedupeKeys = new Set()
+
+  const rowsToInsert = []
+  for (const { parentSc, parentNode, sourceRow } of flat) {
+    const parentSourceRow =
+      parentNode?._sourceRow && typeof parentNode._sourceRow === 'object'
+        ? parentNode._sourceRow
+        : parentNode
+    const listParentSc = parentSourceRow
+      ? resolvePiListExpandKeyFromBomPartsRow(parentSourceRow, expandKeyByPartsId, usedExpandKeys)
+      : normalizeUsageTreeParentKey(parentSc)
+
+    if (shouldSkipPiBomListWriteByBomCodePrefix(sourceRow?.kcaa01)) {
+      continue
+    }
+
+    const rowExpandKey = resolvePiListExpandKeyFromBomPartsRow(sourceRow, expandKeyByPartsId, usedExpandKeys)
+    const dedupeKey = piBomListInsertDedupeKey(listParentSc, sourceRow, { topLevelParentKeys })
+    if (dedupeKey && insertDedupeKeys.has(dedupeKey)) {
+      continue
+    }
+    if (dedupeKey) insertDedupeKeys.add(dedupeKey)
+    const childCode = normKcaa01(sourceRow?.kcaa01)
+    const bom000Snap = childCode ? bom000OverrideByKcaa01.get(childCode) : undefined
+    const partRow = mergePiListPartRowWithBom000Override(
+      { ...sourceRow, systemcode: rowExpandKey },
+      bom000Snap,
+    )
+    rowsToInsert.push({
+      sid: pi,
+      parentSc: listParentSc,
+      topProductKcaa01: product,
+      partRow,
+      meta: copyMeta,
+      actor,
+      addtime: now,
+    })
+  }
+  return {
+    head: { pi, product, master, headGuidAndSystemcode, now, actor, virtualRootQtyInfo },
+    rowsToInsert,
+    timing: {
+      prepareMs: Date.now() - startedAt,
+      treeReadBuildMs,
+      snapshotReadMs,
+      flatRows: flat.length,
+      insertedRows: rowsToInsert.length,
+    },
+  }
+}
+
+/**
+ * 事务内只写已准备好的 BOM 头和明细，不再查询主 BOM 或展开树。
+ * @param {import('mssql').Transaction} tx
+ * @param {{ head: any, rowsToInsert: any[] }} prepared
+ */
+export async function writePreparedPiBomFromMasterBom(tx, prepared) {
+  const { head, rowsToInsert } = prepared
+  const { pi, product, master, headGuidAndSystemcode, now, actor, virtualRootQtyInfo } = head
+  const headWriteStartedAt = Date.now()
   const insHead = new sql.Request(tx)
   insHead.input('sid', sql.NVarChar(200), pi)
   insHead.input('kcaa01', sql.NVarChar(300), product)
@@ -707,59 +823,16 @@ export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, ac
       @uname, @utruename, @uid, @addtime, N'0', @headPass
     )
   `)
+  const headWriteMs = Date.now() - headWriteStartedAt
+  const listWriteStartedAt = Date.now()
+  await insertPiBomListRowsFromBomPartsRows(tx, rowsToInsert)
+  return { headWriteMs, listWriteMs: Date.now() - listWriteStartedAt }
+}
 
-  /** @type {{ parentSc: string, node: any }[]} */
-  const flat = []
-  flattenPiBomPartRows(headSc, tree, flat, 1, product)
-
-  const kcaa01ForOverride = flat
-    .map(({ sourceRow }) => normKcaa01(sourceRow?.kcaa01))
-    .filter(Boolean)
-  const bom000OverrideByKcaa01 = await prefetchBom000OverrideSnapshotsByKcaa01(pool, kcaa01ForOverride)
-  const topLevelParentKeys = collectTopLevelParentKeysFromPiBomTree(tree, flag5Prefixes)
-
-  /** @type {Map<number, string>} */
-  const expandKeyByPartsId = new Map()
-  /** @type {Set<string>} */
-  const usedExpandKeys = new Set([headSc])
-  /** @type {Set<string>} */
-  const insertDedupeKeys = new Set()
-
-  for (const { parentSc, parentNode, sourceRow } of flat) {
-    const parentSourceRow =
-      parentNode?._sourceRow && typeof parentNode._sourceRow === 'object'
-        ? parentNode._sourceRow
-        : parentNode
-    const listParentSc = parentSourceRow
-      ? resolvePiListExpandKeyFromBomPartsRow(parentSourceRow, expandKeyByPartsId, usedExpandKeys)
-      : normalizeUsageTreeParentKey(parentSc)
-
-    if (shouldSkipPiBomListWriteByBomCodePrefix(sourceRow?.kcaa01)) {
-      continue
-    }
-
-    const rowExpandKey = resolvePiListExpandKeyFromBomPartsRow(sourceRow, expandKeyByPartsId, usedExpandKeys)
-    const dedupeKey = piBomListInsertDedupeKey(listParentSc, sourceRow, { topLevelParentKeys })
-    if (dedupeKey && insertDedupeKeys.has(dedupeKey)) {
-      continue
-    }
-    if (dedupeKey) insertDedupeKeys.add(dedupeKey)
-    const childCode = normKcaa01(sourceRow?.kcaa01)
-    const bom000Snap = childCode ? bom000OverrideByKcaa01.get(childCode) : undefined
-    const partRow = mergePiListPartRowWithBom000Override(
-      { ...sourceRow, systemcode: rowExpandKey },
-      bom000Snap,
-    )
-    await insertPiBomListRowFromBomPartsRow(tx, {
-      sid: pi,
-      parentSc: listParentSc,
-      topProductKcaa01: product,
-      partRow,
-      meta: copyMeta,
-      actor,
-      addtime: now,
-    })
-  }
+export async function createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, actor, syncContext) {
+  const prepared = await preparePiBomFromMasterBom(pool, piNo, productKcaa01, actor, syncContext)
+  const writeTiming = await writePreparedPiBomFromMasterBom(tx, prepared)
+  return { timing: { ...prepared.timing, ...writeTiming } }
 }
 
 /**
@@ -787,7 +860,8 @@ export async function applyPiBomAlignPlan(tx, pool, piNo, toDelete, toCreate, ac
  * @param {string} productKcaa01
  * @param {{ uname?: string | null, utruename?: string | null, uid?: string | null, ip?: string | null }} actor
  */
-export async function replacePiBomFromMasterBom(pool, tx, piNo, productKcaa01, actor) {
-  await deletePiBomProduct(tx, piNo, productKcaa01)
-  await createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, actor)
+export async function replacePiBomFromMasterBom(pool, tx, piNo, productKcaa01, actor, syncContext) {
+  const deleteTiming = await deletePiBomProduct(tx, piNo, productKcaa01)
+  const created = await createPiBomFromMasterBom(pool, tx, piNo, productKcaa01, actor, syncContext)
+  return { timing: { ...created.timing, ...deleteTiming } }
 }

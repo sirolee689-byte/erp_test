@@ -42,7 +42,8 @@
 | POST | `/api/sales-order/:id/soft-delete` | delete | 软删（未审） |
 | POST | `/api/sales-order/:id/restore` | edit | 回收站恢复 |
 | POST | `/api/sales-order/:id/hard-delete` | delete | 彻底删除（回收站且未审） |
-| POST | `/api/sales-order/:id/sync-bom` | edit | body `{ kcaa01 }`；主 BOM → 该款 PI BOM |
+| POST | `/api/sales-order/:id/sync-bom` | edit | body `{ kcaa01 }`；主 BOM → 该款 PI BOM（单款） |
+| POST | `/api/sales-order/:id/sync-bom-batch` | edit | body `{ kcaa01: string[] }`；三路并发准备主 BOM 树，逐款短事务串行写入；批量预读主 BOM 头/规则/列元数据，同款明细按安全批次写入；返回准备、删除、写入和提交耗时；遇错停后续；只覆盖点选款 |
 | POST | `/api/sales-order/:id/calculate` | edit | 一键运算；已审核/未审核在册订单均可执行；可选 `{ syncedKcaa01: string[] }` 部分重算 |
 | GET | `/api/sales-order/:id/material-bill` | view | 物料单（未运算 409）；前端主入口在生产管理 → 统计分析 → 物料单 |
 | GET | `/api/sales-order/:id/pi-bom?kcaa01=` | view | 无 `kcaa01`：款列表；有：树 + flat |
@@ -57,7 +58,7 @@
 1. **列表** `GET /list` → **详情** `GET /:id`
 2. **新建/保存** `POST` 或 `PUT`：事务内写主表、明细整批替换（**明细可为空**，仅主表 PI/客户/币别等）、**按款** PI BOM 删/建（禁止整 PI 先删后插）
 3. **PI BOM 维护** `GET/PUT /:id/pi-bom`：改用量/损耗/备注（不从主 BOM 拉）
-4. **同步 BOM**：明细行点「同步 BOM」标记为「已选择」，再点「批量同步 BOM」（编辑明细在「增行」旁；查看明细在表上方）；仍逐款调用 `POST /:id/sync-bom`，**只覆盖点选编码**的 PI BOM，标 `is_pur=0`，**当下不删** `pi_cost`
+4. **同步 BOM**：明细行点「同步 BOM」标记为「已选择」，再点「批量同步 BOM」（编辑明细在「批量添加」旁）；一次调用 `POST /:id/sync-bom-batch`（三路并发准备主 BOM 树；准备完成后逐款短事务串行删除并写入，避免读树期间长期占用 PI BOM 写锁；批量开始时预读主 BOM 头、分类规则、列元数据；同款 `UB_ERP_Bom_Sales_list` 明细按 SQL Server 参数上限分批写入；主表 `is_pur=0` 只改一次；死锁自动退避重试；遇错停后续；已启动的款允许跑完），**只覆盖点选编码**的 PI BOM，**当下不删** `pi_cost`；接口返回总耗时和逐款准备、删除、写入、提交耗时，单款接口 `POST /:id/sync-bom` 仍保留
 5. **同步后再保存**：`PUT` body 带 `syncedKcaa01`（本会话已同步款）→ 删除该 PI **全部** `UB_ERP_Bom_pi_cost`，主表用量清空并回到未运算；保存成功后前端清空本会话同步标记，下次一键运算为整单重算
 6. **一键运算** `POST /:id/calculate` → **物料单** `GET /:id/material-bill`；查看入口在生产管理 → 统计分析 → 物料单
 7. **增加散件单用量** `POST /:id/add-spare-usage`（订单含散件时列表显示；**纯散件单**可独立操作；**混单**须先一键运算整款）
@@ -84,7 +85,7 @@
 - 展示字段 **`calcStatus`**：`已运算` / `未运算`；列表页先查当前页主表，再按当前页 PI 批量读取 `UB_ERP_Bom_pi_cost.isok=1` 回填状态，避免分页 SQL 对大表逐行 `EXISTS`。
 - 下列操作后标 **未运算**（`is_pur='0'` 或等价）：
   - 保存时变更明细 **货品编码集合** 或 **订货数量**：同时删除该 PI 在 `UB_ERP_Bom_pi_cost` 中的旧运算结果；不清 `UB_ERP_Bom_pi_consumption`
-  - **同步 BOM**（按行，只覆盖点选编码的 PI BOM，标 `is_pur=0`，**不立刻删** pi_cost）
+  - **同步 BOM**（按行勾选后「批量同步 BOM」走 `sync-bom-batch`：并发 3 写各款 PI BOM，主表 `is_pur` 结束后改一次；死锁退避重试；**不立刻删** pi_cost）
   - **同步后再保存**：body 带非空 `syncedKcaa01` 时，删除该 PI **全部** `UB_ERP_Bom_pi_cost`，用量清空并显示未运算
   - **保存 PI BOM**（PUT pi-bom）
 - **一键运算** 只读 **PI BOM**（`UB_ERP_Bom_Sales_list`），写入 `UB_ERP_Bom_pi_*`，**不乘订货数量**；**无 BOM 层数上限**（与主 BOM 用量树一致；循环引用仍失败）；隐藏前缀与 BOM 资料内置列表一致（`server/bomCostHidePrefixes.js`）；下游订料时 **用量 × 订货数量**
@@ -112,7 +113,7 @@
 | Tab | 能力 |
 |-----|------|
 | 主表 | PI 号（新建可填）、销售客户、币别、日期、小数点配置、运算状态；布局左对齐分行（参考派工单） |
-| 明细 | 选材、合并同码数量、编辑数量/单价、自动显示金额、同步 BOM、跳转 PI BOM；选材带入 `kcaa06` 客款号、`remark` 备注、`kcaa10` 组别、`kcaa09` 工厂款号、`version` 版本；数量和单价为纯输入框数字录入；备注为 `UB_ERP_Bom_000.remark` 快照只读展示，不作为输入框；列顺序固定为：序号、操作、编码、数量、单价、金额、客款号、备注、用料名称(中文)、组别、工厂款号、版本 |
+| 明细 | 工具栏对齐采购订单：`删除选定明细` / `删除全部明细` / `批量添加`（原「增行」），其后保留 `批量同步 BOM`；「选择」列橙钮标记待删行（`_lineMarked` 不入库），删行仅内存、点保存才落库；选材合并同码、编辑数量/单价、同步 BOM；维护用量走顶部 **PI BOM** 页签（明细行不再放「PI BOM」按钮）；选材带入 `kcaa06` 客款号、`remark` 备注、`kcaa10` 组别、`kcaa09` 工厂款号、`version` 版本；数量和单价为纯输入框；备注只读快照；列顺序：选择、序号、操作（仅编辑已保存单显示「同步 BOM」）、编码、数量、单价、金额、客款号、备注、用料名称(中文)、组别、工厂款号、版本；只读数量/单价/金额去尾 0（`formatErpQty/Price/MoneyDisplay`） |
 | PI BOM | 按款树表编辑用量/损耗/备注 |
 
 > 物料单不再放在销售订单详情/编辑 Tab 内展示。销售订单仍负责「一键运算」，但入口只在销售订单列表操作列；运算后的明细/汇总统一到生产管理 → 统计分析 → 物料单查看。
@@ -122,7 +123,7 @@
 - 页面顶部为 **管理销售订单 / 销售订单添加** 双模式；默认进入管理列表。
 - 管理列表工具栏不再放「新增销售订单」按钮，新增入口统一使用顶部 **销售订单添加**。
 - **销售订单添加** 在当前页面整页显示新增表单，不再使用新增弹窗，也不新开浏览器页（不使用 `target="_blank"`）。
-- 行内 **编辑** 进入与新增同一套整页表单；**查看**（2026-07）同样复用该整页表单（主表 / 明细 / PI BOM 三页签），全程只读；无保存、增行、同步 BOM、删行；明细行「PI BOM」与 PI BOM 页签仍可浏览用量树。
+- 行内 **编辑** 进入与新增同一套整页表单；**查看**（2026-07）同样复用该整页表单（主表 / 明细 / PI BOM 三页签），全程只读；无保存、批量添加、同步 BOM、删除明细；明细无行内「PI BOM」按钮，用量树在 **PI BOM** 页签浏览。
 - **标题行操作钮（2026-07）**：对齐采购订单添加——「取消 / 保存」或查看态「返回列表」放在「新增/编辑/查看销售订单」标题行右侧，不再使用底栏。DIY：`index.vue` 搜 `.so-edit-panel__actions`。
 - 新增表单初始化时，PI 号默认填 `PI-`，小数位数默认 `6`；编辑/查看打开时强制拉取完整详情回填主表与明细（PI 号只读展示真实值）；展开行预取明细时不再把「空主表」写入详情缓存，避免编辑读到空表单。
 - **主表布局（2026-07）**：参考派工单左对齐分行；行序为 PI 号 → 销售日期+交货日期 → 销售客户 → PO 号+币别+小数点配置 → 备注。输入框三档宽度：基准约 250px（PI/日期/PO/币别）、宽约 500px（销售客户/备注）、窄约 83px（小数点配置）。DIY：`index.vue` 搜 `--so-field-width`。
@@ -137,6 +138,8 @@
 
 ## 列表交互
 
+- **操作列 / 状态列对齐 BOM（2026-07）**：操作钮复用 BOM 紧凑尺寸变量（`--erp-bom-list-action-*`，类名 `so-order-actions`）；「状态 / 结案 / 运算状态」为方框徽章（已审/已运算/未结案=绿，未审/未运算=红，已结案=蓝）；列数据字号走 `--erp-table-data-size`。DIY：全局样式见 `src/styles/element-override.scss` 搜 `so-order-actions`；徽章色见 `index.vue` 搜 `so-status-badge`。
+
 ### 转向物料查询
 
 - 顶部模式栏在“销售订单添加”右侧提供“转向物料查询”；只要具备销售订单 `view` 权限即可进入。页面为当前页只读模式，首次进入不自动查询。
@@ -148,6 +151,8 @@
 
 - 列表默认每页 **10 条**；后端 `/api/sales-order/list` 也以 10 条作为缺省页大小。列表查询先完成主表分页，再只对当前页订单批量补运算状态、散件/按钮状态，避免打开页面时为大量历史订单提前计算操作状态。
 - **UI 对齐 BOM 资料（2026-07）**：顶部「管理销售订单 / 销售订单添加」模式按钮、筛选区「查询 / 重置 / 刷新」字号与主列表列数据一致（`--erp-table-data-size` + `--erp-font-weight-body`）；主列表用 `ErpTableViewportHScroll` 视口底横滚（**仅主表**表内横条隐藏；展开行内嵌套明细表保留自身横滚条）；展开/收起后会 `doLayout` + `refreshErpTableViewportHScroll`；标题行操作钮、明细工具条与行操作钮走 `.so-unified-btn-font`；主表表单字段字号与列数据对齐。**主列表双分页**（头+底、`pagination-row`、左对齐，头部分页在 skeleton 外）对齐 BOM 资料。DIY：`index.vue` 搜 `.so-mode-btn`、`.so-filter-action-btn`、`.so-unified-btn-font`、`pagination-row--top`；全局变量 `element-override.scss` 搜 `--erp-table-data-size`。
+- **筛选栏顺序（2026-07）**：单行 `关键词 → 查询 → 重置 → | → 回收站 → | → 显示未审核`（开回收站时隐藏未审核段）；竖线对齐 BOM。DIY：`index.vue` 搜 `so-filter-divider`。
+- **数值去尾 0（2026-07）**：展开明细与编辑/查看只读列——数量最多 3 位、单价最多 4 位、金额最多 2 位，去掉末尾无意义 0（如 `0.00000` → `0`）；不改落库。实现：`formatOrderQty` / `formatPrice` / `formatMoney`（`erpNumberDisplay`）。
 - 顶部只保留一个关键词搜索框，同时匹配 PI 号、系统单号、客户名称；日期范围仍独立筛选。
 - 列表列调整：新增 `PO号` 列，移除 `系统单号` 列（系统单号仍保留在详情接口中）。
 - 列表列顺序（主列）调整为：操作、状态、结案、运算状态、销售单号、销售日期、交货日期、PO号、销售数据、币别、客户、备注（展开列保留在末尾）。
@@ -159,7 +164,7 @@
 - “回收站”和“显示未审核”互斥；进入回收站后不再传审核状态，只查已逻辑删除数据。
 - 主表操作列固定在第一列，按钮风格与 BOM 资料列表保持一致，便于先处理操作再横向查看业务字段。
 - 主表参考外协报价支持**点行展开**明细（左边展开箭头列已全局隐藏）；点击操作列按钮不触发展开。**列表加载后**后台批量预取当前页展开明细（`GET /api/sales-order/expand-lines/batch`），点击展开优先读缓存秒开；预取失败时仍回退单条 `GET /api/sales-order/:id`。
-- 展开明细只读展示，列顺序固定为：序号、操作、客款号、编码、名称、规格、组别、单位、数量、用量、单价、金额、备注；操作列仅放“查看”占位按钮，后续再接真实功能；“用量”按该行 `PI号 + kcaa01` 汇总 `UB_ERP_Bom_pi_cost.kcac04/kcac06`，显示为 `成本：SUM(kcac04),SUM(kcac06)`，未运算或无结果显示 `-`。
+- 展开明细只读展示，列顺序固定为：序号、操作、客款号、编码、名称、规格、组别、单位、数量、用量、单价、金额、备注；操作列「查看」按钮样式与主表「查看」一致（`ErpTableActions` + `type="info" plain`），以浏览器原生新标签打开全屏 PI-BOM 只读页（无侧栏）：`/supply-chain/daily/sales-order-pi-bom-window?mode=view&orderId=…&kcaa01=…&piNo=…`（权限挂销售订单 view；标题 `查看 PI-BOM  {PI号}  {编码}`；内容与 PI-BOM 资料「查看」一致：基础资料用 BOM 同款表单只读 / 配件 / 树形 / 成本用量）。缺订单 ID 或编码时不跳转并提示。「用量」按该行 `PI号 + kcaa01` 汇总 `UB_ERP_Bom_pi_cost.kcac04/kcac06`，显示为 `成本：SUM(kcac04),SUM(kcac06)`，未运算或无结果显示 `-`。
 
 ## 测试与验收
 

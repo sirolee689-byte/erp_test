@@ -18,6 +18,7 @@ import bcrypt from 'bcrypt'
 import * as XLSX from 'xlsx'
 import { createApiPermissionGate } from './apiPermissionGate.js'
 import { serializePermissionsForStore } from './permissions.js'
+import { migrateRolePermissionsToUnaudit } from './rolePermissionUnauditMigration.js'
 import {
   getRequestIp,
 } from './operationAuditMiddleware.js'
@@ -12118,7 +12119,17 @@ process.on('SIGINT', async () => {
 })
 
 const port = process.env.PORT ? Number(process.env.PORT) : 3001
-app.listen(port, () => {
+async function startServer() {
+  try {
+    const migration = await migrateRolePermissionsToUnaudit(await getPool())
+    console.log(`[角色权限] 反审权限迁移完成：扫描 ${migration.scanned} 个角色，更新 ${migration.updated} 个角色`)
+  } catch (error) {
+    console.error('[角色权限] 反审权限迁移失败，API 未启动：', error)
+    process.exitCode = 1
+    return
+  }
+
+  app.listen(port, () => {
   const bootAt = new Date().toISOString()
   console.log(`API 服务已启动：http://localhost:${port}`)
   console.log(`User-Add-AuditStandard-v1.1.9 ${bootAt}`)
@@ -12206,4 +12217,7 @@ app.listen(port, () => {
   console.log(
     `PaperPattern-ErpCheck-Material ${bootAt} POST /api/paper-pattern/check-material；GET /api/paper-pattern/import/parse-tree；POST /api/paper-pattern/material-bom-fields；POST /api/paper-pattern/import/commit-bom000；POST /api/paper-pattern/import/delete-bom-tree`,
   )
-})
+  })
+}
+
+void startServer()

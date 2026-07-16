@@ -4,7 +4,11 @@
  */
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { matchApiPermissionRule } from './apiPermissionGate.js'
+import {
+  isRecyclePermanentDeleteRequest,
+  isSuperAdminIdentityChangeRequest,
+  matchApiPermissionRule,
+} from './apiPermissionGate.js'
 
 function ruleKey(rule) {
   if (!rule) return null
@@ -13,6 +17,55 @@ function ruleKey(rule) {
   }
   return `${rule.menuPath}:${rule.action}`
 }
+
+describe('超级管理员物理删除门禁', () => {
+  test('所有既有物理删除路径都会被全局门禁识别', () => {
+    for (const [method, path] of [
+      ['DELETE', '/api/inventory/bom/systemcode/SC-001/permanent'],
+      ['DELETE', '/api/stock-in/1/hard'],
+      ['DELETE', '/api/dorm/delete-checkin'],
+      ['POST', '/api/sales-order/1/hard-delete'],
+    ]) {
+      assert.equal(isRecyclePermanentDeleteRequest(method, path), true)
+    }
+  })
+
+  test('普通删除接口不会被误判为物理删除', () => {
+    assert.equal(isRecyclePermanentDeleteRequest('DELETE', '/api/stock-in/1'), false)
+    assert.equal(isRecyclePermanentDeleteRequest('POST', '/api/sales-order/1/audit'), false)
+  })
+
+  test('只有操作员新增和编辑携带超级管理员字段时进入身份变更门禁', () => {
+    assert.equal(isSuperAdminIdentityChangeRequest('POST', '/api/users', { is_admin: 1 }), true)
+    assert.equal(isSuperAdminIdentityChangeRequest('PUT', '/api/users', { IsAdmin: 0 }), true)
+    assert.equal(isSuperAdminIdentityChangeRequest('PUT', '/api/users', { RoleID: 1 }), false)
+    assert.equal(isSuperAdminIdentityChangeRequest('PUT', '/api/roles', { is_admin: 1 }), false)
+  })
+})
+
+describe('审核与反审权限拆分', () => {
+  test('同一入库单的审核和反审返回不同权限动作', () => {
+    assert.deepEqual(
+      matchApiPermissionRule('POST', '/api/stock-in/1/audit', {}, {}),
+      { menuPath: 'inventory/daily/stock-in', action: 'audit' },
+    )
+    assert.deepEqual(
+      matchApiPermissionRule('POST', '/api/stock-in/1/unaudit', {}, {}),
+      { menuPath: 'inventory/daily/stock-in', action: 'unaudit' },
+    )
+  })
+
+  test('反审别名与销售订单反审均要求 unaudit', () => {
+    assert.deepEqual(
+      matchApiPermissionRule('PUT', '/api/dorm/un-audit', {}, {}),
+      { menuPath: 'hr/dormitory/lodging-records', action: 'unaudit' },
+    )
+    assert.deepEqual(
+      matchApiPermissionRule('POST', '/api/sales-order/1/unapprove', {}, {}),
+      { menuPath: 'supply-chain/daily/sales-order', action: 'unaudit' },
+    )
+  })
+})
 
 describe('matchApiPermissionRule — BOM 资料', () => {
   test('POST /api/bom/usage-calc → inv/bom 或 bom-data 的 edit', () => {

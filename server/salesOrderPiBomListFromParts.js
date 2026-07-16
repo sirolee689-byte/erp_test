@@ -55,6 +55,9 @@ export const PI_BOM_LIST_BOM000_OVERRIDE_COLS = [
 ]
 
 const BOM000_OVERRIDE_BATCH_SIZE = 40
+/** SQL Server 单条命令参数上限为 2100，留出余量避免批量写入越界。 */
+const PI_BOM_LIST_INSERT_MAX_PARAMETERS = 2000
+const PI_BOM_LIST_INSERT_FIXED_PARAMETERS = 7
 
 const BOM000_KCAA01_EXPR = `LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.[kcaa01], N''))))`
 
@@ -349,16 +352,30 @@ function bindPiListCopyValue(raw, dataType) {
  * }} opts
  */
 export async function insertPiBomListRowFromBomPartsRow(tx, opts) {
-  const { sid, parentSc, topProductKcaa01, partRow, meta, actor, addtime } = opts
-  const ins = new sql.Request(tx)
-  ins.input('sid', sql.NVarChar(200), sid)
-  ins.input('kcac01', sql.NVarChar(500), parentSc)
-  ins.input('pkcaa01', sql.NVarChar(300), normKcaa01(topProductKcaa01))
-  ins.input('uname', sql.NVarChar(100), String(actor.uname ?? ''))
-  ins.input('utruename', sql.NVarChar(100), String(actor.utruename ?? ''))
-  ins.input('uid', sql.NVarChar(50), String(actor.uid ?? ''))
-  ins.input('addtime', sql.NVarChar(50), addtime)
+  await insertPiBomListRowsFromBomPartsRows(tx, [opts])
+}
 
+/**
+ * 保持单行写入的字段、类型和默认值，只把同款明细合并为安全批次，减少数据库往返。
+ * @param {import('mssql').Transaction} tx
+ * @param {{
+ *   sid: string,
+ *   parentSc: string,
+ *   partRow: Record<string, unknown>,
+ *   meta: { copyCols: { targetCol: string, sourceCol: string, dataType: string }[] },
+ *   topProductKcaa01: string,
+ *   actor: { uid?: string | null, uname?: string | null, utruename?: string | null },
+ *   addtime: string,
+ * }[]} rows
+ */
+export async function insertPiBomListRowsFromBomPartsRows(tx, rows) {
+  const list = Array.isArray(rows) ? rows.filter(Boolean) : []
+  if (!list.length) return
+
+  const meta = list[0].meta
+  const copyCols = meta?.copyCols ?? []
+  const parametersPerRow = PI_BOM_LIST_INSERT_FIXED_PARAMETERS + copyCols.length
+  const batchSize = Math.max(1, Math.floor(PI_BOM_LIST_INSERT_MAX_PARAMETERS / parametersPerRow))
   const cols = [
     '[sid]',
     '[kcac01]',
@@ -368,40 +385,55 @@ export async function insertPiBomListRowFromBomPartsRow(tx, opts) {
     '[uid]',
     '[addtime]',
     '[del]',
-  ]
-  const vals = [
-    '@sid',
-    '@kcac01',
-    '@pkcaa01',
-    '@uname',
-    '@utruename',
-    '@uid',
-    '@addtime',
-    `N'0'`,
+    ...copyCols.map(({ targetCol }) => `[${targetCol.replace(/]/g, '')}]`),
   ]
 
-  for (let i = 0; i < meta.copyCols.length; i++) {
-    const { targetCol, dataType } = meta.copyCols[i]
-    const key = targetCol
-    const raw = partRow[key] ?? partRow[key.toLowerCase()] ?? partRow[targetCol]
-    const pname = `c${i}`
-    const val = bindPiListCopyValue(raw, dataType)
-    const dt = String(dataType ?? '').toLowerCase()
-    if (NUMERIC_SQL_TYPES.has(dt)) {
-      if (dt === 'int' || dt === 'bigint' || dt === 'smallint' || dt === 'tinyint') {
-        ins.input(pname, sql.Int, val)
-      } else {
-        ins.input(pname, sql.Decimal(18, 6), val)
+  for (let offset = 0; offset < list.length; offset += batchSize) {
+    const batch = list.slice(offset, offset + batchSize)
+    const ins = new sql.Request(tx)
+    const valueRows = batch.map((row, rowIndex) => {
+      const prefix = `r${rowIndex}_`
+      ins.input(`${prefix}sid`, sql.NVarChar(200), row.sid)
+      ins.input(`${prefix}kcac01`, sql.NVarChar(500), row.parentSc)
+      ins.input(`${prefix}pkcaa01`, sql.NVarChar(300), normKcaa01(row.topProductKcaa01))
+      ins.input(`${prefix}uname`, sql.NVarChar(100), String(row.actor.uname ?? ''))
+      ins.input(`${prefix}utruename`, sql.NVarChar(100), String(row.actor.utruename ?? ''))
+      ins.input(`${prefix}uid`, sql.NVarChar(50), String(row.actor.uid ?? ''))
+      ins.input(`${prefix}addtime`, sql.NVarChar(50), row.addtime)
+
+      const vals = [
+        `@${prefix}sid`,
+        `@${prefix}kcac01`,
+        `@${prefix}pkcaa01`,
+        `@${prefix}uname`,
+        `@${prefix}utruename`,
+        `@${prefix}uid`,
+        `@${prefix}addtime`,
+        `N'0'`,
+      ]
+      for (let i = 0; i < copyCols.length; i++) {
+        const { targetCol, dataType } = copyCols[i]
+        const raw = row.partRow[targetCol] ?? row.partRow[targetCol.toLowerCase()]
+        const pname = `${prefix}c${i}`
+        const val = bindPiListCopyValue(raw, dataType)
+        const dt = String(dataType ?? '').toLowerCase()
+        if (NUMERIC_SQL_TYPES.has(dt)) {
+          if (dt === 'int' || dt === 'bigint' || dt === 'smallint' || dt === 'tinyint') {
+            ins.input(pname, sql.Int, val)
+          } else {
+            ins.input(pname, sql.Decimal(18, 6), val)
+          }
+        } else {
+          ins.input(pname, sql.NVarChar(sql.MAX), val)
+        }
+        vals.push(`@${pname}`)
       }
-    } else {
-      ins.input(pname, sql.NVarChar(sql.MAX), val)
-    }
-    cols.push(`[${targetCol.replace(/]/g, '')}]`)
-    vals.push(`@${pname}`)
-  }
+      return `(${vals.join(', ')})`
+    })
 
-  await ins.query(`
-    INSERT INTO ${PI_BOM_LIST_FROM} (${cols.join(', ')})
-    VALUES (${vals.join(', ')})
-  `)
+    await ins.query(`
+      INSERT INTO ${PI_BOM_LIST_FROM} (${cols.join(', ')})
+      VALUES ${valueRows.join(',\n        ')}
+    `)
+  }
 }

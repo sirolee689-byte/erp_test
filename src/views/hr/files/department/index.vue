@@ -165,7 +165,7 @@
                   </el-button>
                   <el-button
                     v-if="!showUnAudited && rowIsAudited(row)"
-                    v-permission="'audit'"
+                    v-permission="'unaudit'"
                     type="warning"
                     plain
                     @click="doUnaudit(row)"

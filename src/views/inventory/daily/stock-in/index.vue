@@ -168,7 +168,7 @@
           <template #default="{ row }">
             <ErpTableActions class="stock-actions" @click.stop>
               <el-button type="info" plain @click="viewReceipt(row)">查看</el-button>
-              <el-button v-if="!showRecycle && canUnaudit(row)" v-permission="'audit'" type="warning" plain :loading="row.__op === 'unaudit'" @click="runAction(row, 'unaudit')">反审</el-button>
+              <el-button v-if="!showRecycle && canUnaudit(row)" v-permission="'unaudit'" type="warning" plain :loading="row.__op === 'unaudit'" @click="runAction(row, 'unaudit')">反审</el-button>
               <el-button
                 v-if="hasPrintPermission"
                 :type="isPrintSelected(row) ? 'primary' : 'default'"
@@ -187,7 +187,7 @@
               </template>
               <template v-else>
                 <el-button v-if="row.pass !== '1'" v-permission="'delete'" type="primary" plain :loading="row.__op === 'restore'" @click="runAction(row, 'restore')">恢复</el-button>
-                <el-button v-if="row.pass !== '1'" v-permission="'delete'" type="danger" plain :loading="row.__op === 'hard'" @click="runAction(row, 'hard')">彻底删除</el-button>
+                <el-button v-if="row.pass !== '1' && isErpSuperAdmin()" v-permission="'delete'" type="danger" plain :loading="row.__op === 'hard'" @click="runAction(row, 'hard')">彻底删除</el-button>
               </template>
             </ErpTableActions>
           </template>
@@ -677,6 +677,7 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
+import { isErpSuperAdmin } from '@/utils/erpSuperAdmin'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
 import { getErpTableActionsColWidthByLabels } from '@/utils/erpTableActionsLayout'
 import { getStoredUiDensity, UI_DENSITY_COMFORTABLE } from '@/utils/uiDensity'
@@ -2452,7 +2453,8 @@ function getStockInRowActionLabels(row) {
 
   if (showRecycle.value) {
     if (row.pass !== '1' && hasPageAction(permissionModel.value, MENU_PATH, 'delete')) {
-      actionLabels.push('恢复', '彻底删除')
+      actionLabels.push('恢复')
+      if (isErpSuperAdmin()) actionLabels.push('彻底删除')
     }
     return actionLabels
   }

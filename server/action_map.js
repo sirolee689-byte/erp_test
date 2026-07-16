@@ -441,6 +441,17 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   },
   {
     method: 'POST',
+    path: /^\/api\/sales-order\/\d+\/sync-bom-batch$/,
+    action: '批量同步销售订单 BOM',
+    targetTable: 'UB_ERP_Bom_Sales',
+    detail: (body) => {
+      const arr = Array.isArray(body?.kcaa01) ? body.kcaa01 : []
+      const n = arr.map((x) => String(x ?? '').trim()).filter(Boolean).length
+      return n > 0 ? `批量 ${n} 款` : ''
+    },
+  },
+  {
+    method: 'POST',
     path: /^\/api\/sales-order\/\d+\/calculate$/,
     action: '一键运算销售订单物料单',
     targetTable: 'UB_ERP_Bom_pi_cost',

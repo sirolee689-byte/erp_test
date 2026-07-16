@@ -8,9 +8,6 @@
       <template #header>
         <span class="page-title">{{ pageTitle }}</span>
       </template>
-      <p class="page-desc">
-        数据表 <code>UB_ERP_System_supplier</code>；默认每页 20 条；已审核行不可删除，需先反审。
-      </p>
 
       <div class="search-row">
         <el-input
@@ -211,6 +208,7 @@
                       恢复
                     </el-button>
                     <el-button
+                      v-if="$isErpSuperAdmin()"
                       v-permission="'delete'"
                       type="danger"
                       plain
@@ -243,7 +241,7 @@
                     </el-button>
                     <el-button
                       v-if="!showUnAudited && passIsAudited(row)"
-                      v-permission="'audit'"
+                      v-permission="'unaudit'"
                       type="warning"
                       plain
                       :loading="row.__opLoading === 'unaudit'"

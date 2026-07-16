@@ -8,12 +8,17 @@
   >
     <div class="bom-section-title">系统</div>
     <el-row :gutter="12" class="bom-edit-row-system">
-      <el-col :xs="24" :sm="15">
+      <el-col v-if="piNoText" :xs="24" :sm="8">
+        <el-form-item label="PI号">
+          <el-input :model-value="dVal(piNoText)" readonly placeholder="—" />
+        </el-form-item>
+      </el-col>
+      <el-col :xs="24" :sm="piNoText ? 10 : 15">
         <el-form-item label="系统编码">
           <el-input :model-value="dVal(basic.systemcode)" readonly placeholder="—" />
         </el-form-item>
       </el-col>
-      <el-col :xs="24" :sm="9">
+      <el-col :xs="24" :sm="piNoText ? 6 : 9">
         <el-form-item label="客供">
           <div class="bom-edit-checkbox-cell">
             <el-checkbox :model-value="basic.customer_supply_checked" disabled>是</el-checkbox>
@@ -216,11 +221,19 @@
 import { computed, toRef } from 'vue'
 
 const props = defineProps({
-  /** UB_ERP_Bom_000 主档只读对象（可与主详情、子窗共用） */
+  /** UB_ERP_Bom_000 / PI-BOM 主档只读对象（可与主详情、子窗共用） */
   basic: { type: Object, default: null },
+  /** PI-BOM 查看时传入；有值则系统区显示 PI号 */
+  piNo: { type: String, default: '' },
 })
 
 const basic = toRef(props, 'basic')
+
+const piNoText = computed(() => {
+  const fromProp = String(props.piNo ?? '').trim()
+  if (fromProp) return fromProp
+  return String(basic.value?.piNo ?? '').trim()
+})
 
 function dVal(v) {
   const s = String(v ?? '').trim()

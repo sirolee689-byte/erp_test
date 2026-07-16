@@ -4,10 +4,6 @@
       <template #header>
         <span class="page-title">{{ pageTitle }}</span>
       </template>
-      <p class="page-desc">
-        数据表 <code>UB_ERP_System_settlement_method</code>；默认每页 20 条；已审核行不可编辑/删除，需先反审。
-      </p>
-
       <div class="search-row">
         <el-input
           v-model="keyword"
@@ -100,6 +96,7 @@
                       恢复
                     </el-button>
                     <el-button
+                      v-if="$isErpSuperAdmin()"
                       v-permission="'delete'"
                       type="danger"
                       plain
@@ -123,6 +120,7 @@
                     </el-button>
                     <el-button
                       v-if="showUnAudited && !passIsAudited(row)"
+                      v-permission="'audit'"
                       type="success"
                       plain
                       :loading="busyId === row.id"
@@ -132,6 +130,7 @@
                     </el-button>
                     <el-button
                       v-if="!showUnAudited && passIsAudited(row)"
+                      v-permission="'unaudit'"
                       type="warning"
                       plain
                       :loading="busyId === row.id"

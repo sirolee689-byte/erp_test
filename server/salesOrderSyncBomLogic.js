@@ -13,6 +13,28 @@ export function parseSyncBomKcaa01(kcaa01) {
 }
 
 /**
+ * 批量同步：去空、去重（保留首次出现顺序）
+ * @param {unknown} input
+ * @returns {{ ok: true, list: string[] } | { ok: false, msg: string }}
+ */
+export function parseSyncBomKcaa01List(input) {
+  if (!Array.isArray(input)) return { ok: false, msg: '请指定要同步的货品编码列表' }
+  /** @type {string[]} */
+  const list = []
+  const seen = new Set()
+  for (const raw of input) {
+    const code = normKcaa01(raw)
+    if (!code) continue
+    const key = code.toLocaleLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    list.push(code)
+  }
+  if (!list.length) return { ok: false, msg: '请指定要同步的货品编码' }
+  return { ok: true, list }
+}
+
+/**
  * @param {{ pass?: string, del?: string }} header
  */
 export function validateSyncBomOrderState(header) {

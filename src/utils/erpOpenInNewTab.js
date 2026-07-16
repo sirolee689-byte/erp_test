@@ -1,5 +1,8 @@
 import { ElMessage } from 'element-plus'
 
+/** 新标签 URL 信使：进入主壳后写入 session 并清掉，避免副标签挂关页守卫 */
+export const ERP_NO_CLOSE_GUARD_PARAM = 'erpNoCloseGuard'
+
 /**
  * 构建本站绝对 URL（保留 origin，可带查询参数）
  * @param {string} pathname 以 / 开头的路径
@@ -18,12 +21,31 @@ export function buildAppUrl(pathname, searchParams = {}) {
 }
 
 /**
- * 在新标签页打开 URL；被浏览器拦截时弹中文提示
+ * 同站 URL/路径补上 erpNoCloseGuard=1（跨站原样返回）
+ * @param {string} urlOrPath
+ */
+export function ensureErpNoCloseGuardUrl(urlOrPath) {
+  const raw = String(urlOrPath ?? '').trim()
+  if (!raw) return raw
+  let url
+  try {
+    url = new URL(raw, window.location.origin)
+  } catch {
+    return raw
+  }
+  if (url.origin !== window.location.origin) return raw
+  url.searchParams.set(ERP_NO_CLOSE_GUARD_PARAM, '1')
+  return url.toString()
+}
+
+/**
+ * 在新标签页打开 URL；被浏览器拦截时弹中文提示。
+ * 同站链接自动带 erpNoCloseGuard，副标签不拦关页。
  * @param {string} url
  * @returns {Window | null}
  */
 export function openInNewTab(url) {
-  const target = String(url ?? '').trim()
+  const target = ensureErpNoCloseGuardUrl(String(url ?? '').trim())
   if (!target) return null
   const win = window.open(target, '_blank', 'noopener')
   if (!win) {
@@ -41,7 +63,7 @@ export function openInNewTab(url) {
  * @param {string | number} [recordId]
  */
 export function buildErpDeepLinkUrl(pathname, erpOpen, recordId) {
-  const params = { erpOpen }
+  const params = { erpOpen, [ERP_NO_CLOSE_GUARD_PARAM]: '1' }
   if (recordId != null && String(recordId).trim() !== '') {
     params.erpRecordId = String(recordId)
   }
@@ -54,5 +76,5 @@ export function buildErpDeepLinkUrl(pathname, erpOpen, recordId) {
  * @param {string} erpMode
  */
 export function buildErpModeLinkUrl(pathname, erpMode) {
-  return buildAppUrl(pathname, { erpMode })
+  return buildAppUrl(pathname, { erpMode, [ERP_NO_CLOSE_GUARD_PARAM]: '1' })
 }

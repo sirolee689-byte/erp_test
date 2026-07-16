@@ -138,6 +138,20 @@
   color: var(--erp-detail-label-color);
 }
 
+/* BOM / PI-BOM 只读基础资料：工作方式勾选横排（独立窗也可用） */
+.erp-detail-form .bom-detail-check-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+}
+
+.erp-detail-form .bom-edit-checkbox-cell {
+  min-height: var(--erp-detail-input-height, 32px);
+  display: flex;
+  align-items: center;
+}
+
 /* ---------- Tab：浅蓝灰底栏，激活深蓝+下划线，未激活中灰蓝 ---------- */
 .erp-detail-form-context .el-tabs__header {
   background-color: var(--erp-detail-tab-bar-bg);

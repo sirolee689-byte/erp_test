@@ -4,7 +4,24 @@
  */
 import { getPool } from './db.js'
 import { parseRolePermissions, roleAllowsAction } from './permissions.js'
-import { fetchSysUserPermissionSource } from './sysUsersDb.js'
+import { fetchSysUserPermissionSource, resolveSysUserIsAdminByUserId } from './sysUsersDb.js'
+
+/**
+ * 所有回收站物理删除入口都必须由超级管理员执行。
+ * 兼容项目中既有的 /permanent、/hard 和销售订单 POST /hard-delete 三种命名。
+ */
+export function isRecyclePermanentDeleteRequest(method, path) {
+  const m = String(method || '').toUpperCase()
+  const p = String(path || '').replace(/\/+$/, '')
+  return (m === 'DELETE' && (/\/(?:permanent|hard)$/.test(p) || p === '/api/dorm/delete-checkin')) ||
+    (m === 'POST' && /\/hard-delete$/.test(p))
+}
+
+export function isSuperAdminIdentityChangeRequest(method, path, body) {
+  const m = String(method || '').toUpperCase()
+  if (!['POST', 'PUT'].includes(m) || String(path || '') !== '/api/users') return false
+  return ['is_admin', 'isAdmin', 'IsAdmin'].some((key) => Object.prototype.hasOwnProperty.call(body ?? {}, key))
+}
 
 /**
  * @param {import('mssql').ConnectionPool} pool
@@ -49,14 +66,17 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'system/operator', action: 'add' }
   }
   if (m === 'PUT' && path === '/api/users') {
-    if (body && (body.op === 'unpass' || body.op === 'soft_delete' || body.op === 'disable')) {
+    if (body && (body.op === 'soft_delete' || body.op === 'disable')) {
       return { menuPath: 'system/operator', action: 'delete' }
     }
     if (body && body.op === 'audit') {
-      return { menuPath: 'system/operator', action: 'edit' }
+      return { menuPath: 'system/operator', action: 'audit' }
+    }
+    if (body && body.op === 'unpass') {
+      return { menuPath: 'system/operator', action: 'unaudit' }
     }
     if (body && Number(body.Status) === 0) {
-      return { menuPath: 'system/operator', action: 'delete' }
+      return { menuPath: 'system/operator', action: 'unaudit' }
     }
     return { menuPath: 'system/operator', action: 'edit' }
   }
@@ -146,7 +166,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'hr/files/department', action: 'audit' }
   }
   if (m === 'PUT' && path === '/api/hr/departments/unaudit') {
-    return { menuPath: 'hr/files/department', action: 'audit' }
+    return { menuPath: 'hr/files/department', action: 'unaudit' }
   }
   if (m === 'PUT' && path === '/api/hr/departments') {
     return { menuPath: 'hr/files/department', action: 'edit' }
@@ -182,7 +202,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'hr/files/employee-files', action: 'audit' }
   }
   if (m === 'PUT' && path === '/api/hr/staff/unaudit') {
-    return { menuPath: 'hr/files/employee-files', action: 'audit' }
+    return { menuPath: 'hr/files/employee-files', action: 'unaudit' }
   }
   if (m === 'PUT' && path === '/api/hr/staff') {
     return { menuPath: 'hr/files/employee-files', action: 'edit' }
@@ -211,7 +231,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'hr/dormitory/room-management', action: 'audit' }
   }
   if (m === 'PUT' && path === '/api/hr/dormitory/rooms/unaudit') {
-    return { menuPath: 'hr/dormitory/room-management', action: 'audit' }
+    return { menuPath: 'hr/dormitory/room-management', action: 'unaudit' }
   }
   if (m === 'POST' && path === '/api/hr/dormitory/check-in') {
     return { menuPath: 'hr/dormitory/lodging-records', action: 'add' }
@@ -271,7 +291,7 @@ export function matchApiPermissionRule(method, path, body, params) {
   }
   /* 入住单反审核（独立路径，权限与 lodging-in/audit 一致） */
   if (m === 'PUT' && path === '/api/dorm/un-audit') {
-    return { menuPath: 'hr/dormitory/lodging-records', action: 'audit' }
+    return { menuPath: 'hr/dormitory/lodging-records', action: 'unaudit' }
   }
   /* 未审核入住申请物理删除（与审核/反审核同级敏感操作） */
   if (m === 'DELETE' && path === '/api/dorm/delete-checkin') {
@@ -404,8 +424,8 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'PUT' && path === '/api/inventory/bom/unaudit') {
     return {
       anyOf: [
-        { menuPath: 'inv/bom', action: 'audit' },
-        { menuPath: 'inventory/basic/bom-data', action: 'audit' },
+        { menuPath: 'inv/bom', action: 'unaudit' },
+        { menuPath: 'inventory/basic/bom-data', action: 'unaudit' },
       ],
     }
   }
@@ -489,7 +509,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'supply-chain/basic/suppliers', action: 'audit' }
   }
   if (m === 'PUT' && path === '/api/supply-chain/suppliers/unaudit') {
-    return { menuPath: 'supply-chain/basic/suppliers', action: 'audit' }
+    return { menuPath: 'supply-chain/basic/suppliers', action: 'unaudit' }
   }
   if (m === 'PUT' && path === '/api/supply-chain/suppliers/restore') {
     return { menuPath: 'supply-chain/basic/suppliers', action: 'edit' }
@@ -519,7 +539,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'supply-chain/basic/customers', action: 'audit' }
   }
   if (m === 'PUT' && path === '/api/supply-chain/customers/unaudit') {
-    return { menuPath: 'supply-chain/basic/customers', action: 'audit' }
+    return { menuPath: 'supply-chain/basic/customers', action: 'unaudit' }
   }
   if (m === 'PUT' && path === '/api/supply-chain/customers/restore') {
     return { menuPath: 'supply-chain/basic/customers', action: 'edit' }
@@ -549,7 +569,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'supply-chain/basic/payment-methods', action: 'audit' }
   }
   if (m === 'PUT' && path === '/api/supply-chain/settlement-methods/unaudit') {
-    return { menuPath: 'supply-chain/basic/payment-methods', action: 'audit' }
+    return { menuPath: 'supply-chain/basic/payment-methods', action: 'unaudit' }
   }
   if (m === 'PUT' && path === '/api/supply-chain/settlement-methods/restore') {
     return { menuPath: 'supply-chain/basic/payment-methods', action: 'edit' }
@@ -645,8 +665,11 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'PUT' && /^\/api\/assist-order\/\d+$/.test(path)) {
     return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'edit' }
   }
-  if (m === 'POST' && /^\/api\/assist-order\/\d+\/(?:audit|unaudit|close|unclose)$/.test(path)) {
+  if (m === 'POST' && /^\/api\/assist-order\/\d+\/(?:audit|close|unclose)$/.test(path)) {
     return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'audit' }
+  }
+  if (m === 'POST' && /^\/api\/assist-order\/\d+\/unaudit$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'unaudit' }
   }
   if (m === 'POST' && /^\/api\/assist-order\/\d+\/restore$/.test(path)) {
     return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'delete' }
@@ -690,8 +713,11 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'PUT' && /^\/api\/buy-order\/\d+$/.test(path)) {
     return { menuPath: 'supply-chain/daily/purchase-order', action: 'edit' }
   }
-  if (m === 'POST' && /^\/api\/buy-order\/\d+\/(?:audit|unaudit)$/.test(path)) {
+  if (m === 'POST' && /^\/api\/buy-order\/\d+\/audit$/.test(path)) {
     return { menuPath: 'supply-chain/daily/purchase-order', action: 'audit' }
+  }
+  if (m === 'POST' && /^\/api\/buy-order\/\d+\/unaudit$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/purchase-order', action: 'unaudit' }
   }
   if (m === 'POST' && /^\/api\/buy-order\/\d+\/(?:close|unclose)$/.test(path)) {
     return { menuPath: 'supply-chain/daily/purchase-order', action: 'close' }
@@ -729,8 +755,11 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'PUT' && /^\/api\/dispatch-order\/\d+$/.test(path)) {
     return { menuPath: 'production/daily/dispatch', action: 'edit' }
   }
-  if (m === 'POST' && /^\/api\/dispatch-order\/\d+\/(?:audit|unaudit)$/.test(path)) {
+  if (m === 'POST' && /^\/api\/dispatch-order\/\d+\/audit$/.test(path)) {
     return { menuPath: 'production/daily/dispatch', action: 'audit' }
+  }
+  if (m === 'POST' && /^\/api\/dispatch-order\/\d+\/unaudit$/.test(path)) {
+    return { menuPath: 'production/daily/dispatch', action: 'unaudit' }
   }
   if (m === 'POST' && /^\/api\/dispatch-order\/\d+\/restore$/.test(path)) {
     return { menuPath: 'production/daily/dispatch', action: 'delete' }
@@ -781,8 +810,11 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'PUT' && /^\/api\/stock-in\/\d+$/.test(path)) {
     return { menuPath: 'inventory/daily/stock-in', action: 'edit' }
   }
-  if (m === 'POST' && /^\/api\/stock-in\/\d+\/(?:audit|unaudit)$/.test(path)) {
+  if (m === 'POST' && /^\/api\/stock-in\/\d+\/audit$/.test(path)) {
     return { menuPath: 'inventory/daily/stock-in', action: 'audit' }
+  }
+  if (m === 'POST' && /^\/api\/stock-in\/\d+\/unaudit$/.test(path)) {
+    return { menuPath: 'inventory/daily/stock-in', action: 'unaudit' }
   }
   if (m === 'POST' && /^\/api\/stock-in\/\d+\/review$/.test(path)) {
     return { menuPath: 'inventory/daily/stock-in', action: 'review' }
@@ -957,8 +989,11 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'PUT' && /^\/api\/stock-out\/\d+$/.test(path)) {
     return { menuPath: 'inventory/daily/stock-out', action: 'edit' }
   }
-  if (m === 'POST' && /^\/api\/stock-out\/\d+\/(?:audit|unaudit)$/.test(path)) {
+  if (m === 'POST' && /^\/api\/stock-out\/\d+\/audit$/.test(path)) {
     return { menuPath: 'inventory/daily/stock-out', action: 'audit' }
+  }
+  if (m === 'POST' && /^\/api\/stock-out\/\d+\/unaudit$/.test(path)) {
+    return { menuPath: 'inventory/daily/stock-out', action: 'unaudit' }
   }
   if (m === 'POST' && /^\/api\/stock-out\/\d+\/restore$/.test(path)) {
     return { menuPath: 'inventory/daily/stock-out', action: 'delete' }
@@ -976,7 +1011,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'supply-chain/daily/sales-order', action: 'audit' }
   }
   if (m === 'POST' && /^\/api\/sales-order\/\d+\/unapprove$/.test(path)) {
-    return { menuPath: 'supply-chain/daily/sales-order', action: 'audit' }
+    return { menuPath: 'supply-chain/daily/sales-order', action: 'unaudit' }
   }
   if (m === 'POST' && /^\/api\/sales-order\/\d+\/soft-delete$/.test(path)) {
     return { menuPath: 'supply-chain/daily/sales-order', action: 'delete' }
@@ -988,6 +1023,9 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'supply-chain/daily/sales-order', action: 'delete' }
   }
   if (m === 'POST' && /^\/api\/sales-order\/\d+\/sync-bom$/.test(path)) {
+    return { menuPath: 'supply-chain/daily/sales-order', action: 'edit' }
+  }
+  if (m === 'POST' && /^\/api\/sales-order\/\d+\/sync-bom-batch$/.test(path)) {
     return { menuPath: 'supply-chain/daily/sales-order', action: 'edit' }
   }
   if (m === 'POST' && /^\/api\/sales-order\/\d+\/calculate$/.test(path)) {
@@ -1069,7 +1107,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'supply-chain/daily/purchase-quote', action: 'audit' }
   }
   if (m === 'PUT' && path === '/api/supply-chain/purchase-quotations/unaudit') {
-    return { menuPath: 'supply-chain/daily/purchase-quote', action: 'audit' }
+    return { menuPath: 'supply-chain/daily/purchase-quote', action: 'unaudit' }
   }
   if (m === 'PUT' && path === '/api/supply-chain/purchase-quotations/restore') {
     return { menuPath: 'supply-chain/daily/purchase-quote', action: 'edit' }
@@ -1123,7 +1161,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'audit' }
   }
   if (m === 'PUT' && path === '/api/supply-chain/outsourcing-quotations/unaudit') {
-    return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'audit' }
+    return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'unaudit' }
   }
   if (m === 'PUT' && path === '/api/supply-chain/outsourcing-quotations/restore') {
     return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'edit' }
@@ -1156,7 +1194,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'inventory/basic/color-code', action: 'audit' }
   }
   if (m === 'PUT' && path === '/api/inventory/color-code/unaudit') {
-    return { menuPath: 'inventory/basic/color-code', action: 'audit' }
+    return { menuPath: 'inventory/basic/color-code', action: 'unaudit' }
   }
   if (m === 'PUT' && path === '/api/inventory/color-code/restore') {
     return { menuPath: 'inventory/basic/color-code', action: 'edit' }
@@ -1187,7 +1225,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'inventory/basic/units', action: 'audit' }
   }
   if (m === 'PUT' && path === '/api/inventory/units/unaudit') {
-    return { menuPath: 'inventory/basic/units', action: 'audit' }
+    return { menuPath: 'inventory/basic/units', action: 'unaudit' }
   }
   if (m === 'PUT' && path === '/api/inventory/units/restore') {
     return { menuPath: 'inventory/basic/units', action: 'edit' }
@@ -1211,7 +1249,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'inventory/basic/unit-conversion', action: 'audit' }
   }
   if (m === 'PUT' && path === '/api/inventory/unit-conversion/unaudit') {
-    return { menuPath: 'inventory/basic/unit-conversion', action: 'audit' }
+    return { menuPath: 'inventory/basic/unit-conversion', action: 'unaudit' }
   }
   if (m === 'PUT' && path === '/api/inventory/unit-conversion/restore') {
     return { menuPath: 'inventory/basic/unit-conversion', action: 'edit' }
@@ -1274,7 +1312,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'inventory/basic/material-category', action: 'audit' }
   }
   if (m === 'PUT' && path === '/api/inventory/material-category/unaudit') {
-    return { menuPath: 'inventory/basic/material-category', action: 'audit' }
+    return { menuPath: 'inventory/basic/material-category', action: 'unaudit' }
   }
   if (m === 'PUT' && path === '/api/inventory/material-category/restore') {
     return { menuPath: 'inventory/basic/material-category', action: 'edit' }
@@ -1304,7 +1342,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'inventory/basic/workshop-dept', action: 'audit' }
   }
   if (m === 'PUT' && path === '/api/inventory/workshop-dept/unaudit') {
-    return { menuPath: 'inventory/basic/workshop-dept', action: 'audit' }
+    return { menuPath: 'inventory/basic/workshop-dept', action: 'unaudit' }
   }
   if (m === 'PUT' && path === '/api/inventory/workshop-dept/restore') {
     return { menuPath: 'inventory/basic/workshop-dept', action: 'edit' }
@@ -1403,6 +1441,25 @@ export function createApiPermissionGate(deps) {
 
     // 供业务 INSERT（UID/uname）与 writeLog 等统一读取当前登录用户（与 Bearer 解析结果一致）
     req.user = user
+
+    // 物理删除不允许只依赖角色 delete 权限，必须按当前用户主键实时读取 is_admin。
+    if (isRecyclePermanentDeleteRequest(req.method, p) || isSuperAdminIdentityChangeRequest(req.method, p, req.body)) {
+      try {
+        const pool = await getPool()
+        const isAdmin = await resolveSysUserIsAdminByUserId(pool, user.userId)
+        if (!isAdmin) {
+          const msg = isRecyclePermanentDeleteRequest(req.method, p)
+            ? '只有超级管理员可以彻底删除回收站记录'
+            : '只有超级管理员可以修改超级管理员身份'
+          res.status(403).json({ code: 403, msg, data: null })
+          return
+        }
+      } catch (e) {
+        console.error('超级管理员门禁校验异常：', e)
+        res.status(500).json({ code: 500, msg: '超级管理员权限校验失败', data: null })
+        return
+      }
+    }
 
     const rule = matchApiPermissionRule(req.method, p, req.body, req.params)
     if (!rule) {

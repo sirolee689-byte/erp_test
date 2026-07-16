@@ -9,6 +9,7 @@ import {
   getSysUsersColumnMaxLen,
   getSysUsersAuditUidQb,
   getSysUsersEntityPkQb,
+  resolveSysUserIsAdminByUserId,
   resolveSysUsersPasswordForStorage,
 } from './sysUsersDb.js'
 import { mapSqlServerWriteError } from './sqlServerWriteErrors.js'
@@ -73,10 +74,13 @@ export async function fetchOperatorRowContext(pool, meta, userId) {
   }
 }
 
-function buildOperatorSelectCols(meta, qPk, qUsercode, qUsername, qPass, qRoleId, qTruename) {
+function buildOperatorSelectCols(meta, qPk, qUsercode, qUsername, qPass, qRoleId, qTruename, qIsAdmin) {
   const roleNameExpr = qRoleId ? `CAST(ISNULL(r.RoleName, N'') AS NVARCHAR(100))` : `CAST(N'' AS NVARCHAR(100))`
   const roleIdExpr = qRoleId ? `u.${qRoleId}` : `CAST(NULL AS INT)`
   const passExpr = passAsIntExpr(qPass)
+  const isAdminExpr = qIsAdmin
+    ? `CASE WHEN LTRIM(RTRIM(CAST(ISNULL(u.${qIsAdmin}, N'') AS NVARCHAR(20)))) = N'1' THEN 1 ELSE 0 END`
+    : `CAST(0 AS INT)`
   return `
     u.${qPk} AS UserID,
     u.${qUsercode} AS Usercode,
@@ -84,7 +88,8 @@ function buildOperatorSelectCols(meta, qPk, qUsercode, qUsername, qPass, qRoleId
     ${truenameSelectExpr(qTruename)},
     ${roleNameExpr} AS RoleName,
     ${roleIdExpr} AS RoleID,
-    CAST(${passExpr} AS INT) AS Pass
+    CAST(${passExpr} AS INT) AS Pass,
+    CAST(${isAdminExpr} AS INT) AS IsAdmin
   `
 }
 
@@ -115,6 +120,7 @@ export async function queryOperatorUsersPage(pool, meta, opts) {
   const qPass = meta.qb('pass')
   const qRoleId = meta.qb('roleid')
   const qTruename = meta.qb('truename')
+  const qIsAdmin = meta.qb('is_admin')
   if (!qPk || !qUsercode || !qUsername || !qDel || !qPass) {
     throw new Error('operatorUsersV2: 缺少必要列（UserID 或 uid 主键 / usercode / username / del / pass）')
   }
@@ -138,7 +144,7 @@ export async function queryOperatorUsersPage(pool, meta, opts) {
 
   const whereSql = `WHERE ${delPart}${passSql}${kwSql}`
   const fromJoin = buildOperatorFromJoin(meta, qRoleId)
-  const selCols = buildOperatorSelectCols(meta, qPk, qUsercode, qUsername, qPass, qRoleId, qTruename)
+  const selCols = buildOperatorSelectCols(meta, qPk, qUsercode, qUsername, qPass, qRoleId, qTruename, qIsAdmin)
   const orderExpr = `u.${qPk} DESC`
 
   const totalReq = pool.request()
@@ -160,7 +166,7 @@ export async function queryOperatorUsersPage(pool, meta, opts) {
   if (hasKeyword) listReq.input('key', sql.NVarChar(120), likeKey)
 
   const result = await listReq.query(`
-    SELECT UserID, Usercode, Username, truename, RoleName, RoleID, Pass
+    SELECT UserID, Usercode, Username, truename, RoleName, RoleID, Pass, IsAdmin
     FROM (
       SELECT
         ${selCols},
@@ -186,10 +192,11 @@ export async function getOperatorUserDetail(pool, meta, userId) {
   const qPass = meta.qb('pass')
   const qRoleId = meta.qb('roleid')
   const qTruename = meta.qb('truename')
+  const qIsAdmin = meta.qb('is_admin')
   if (!qPk || !qUsercode || !qUsername || !qDel || !qPass) return null
 
   const fromJoin = buildOperatorFromJoin(meta, qRoleId)
-  const selCols = buildOperatorSelectCols(meta, qPk, qUsercode, qUsername, qPass, qRoleId, qTruename)
+  const selCols = buildOperatorSelectCols(meta, qPk, qUsercode, qUsername, qPass, qRoleId, qTruename, qIsAdmin)
 
   const r = await pool.request().input('id', sql.Int, userId).query(`
     SELECT TOP (1) ${selCols}
@@ -213,6 +220,51 @@ async function assertWritableRoleIdLocal(pool, roleIdRaw) {
 
 function bareIdent(qbCol) {
   return String(qbCol ?? '').trim()
+}
+
+export function hasIsAdminInput(body) {
+  return ['is_admin', 'isAdmin', 'IsAdmin'].some((key) => Object.prototype.hasOwnProperty.call(body ?? {}, key))
+}
+
+export function parseIsAdminInput(body) {
+  const raw = body?.is_admin ?? body?.isAdmin ?? body?.IsAdmin
+  return Number(raw) === 1 || raw === true || raw === 'true' ? 1 : 0
+}
+
+/** 超级管理员身份只能由已是超级管理员的操作员变更，且实时读库避免旧令牌越权。 */
+async function assertCurrentActorCanManageSuperAdmin(pool, req, meta) {
+  if (!meta.qb('is_admin')) return { ok: false, msg: '当前用户表未配置 is_admin，无法维护超级管理员' }
+  const actorId = Number(req?.user?.userId)
+  if (!Number.isFinite(actorId) || actorId <= 0 || !(await resolveSysUserIsAdminByUserId(pool, actorId))) {
+    return { ok: false, msg: '只有超级管理员可以修改超级管理员身份' }
+  }
+  return { ok: true }
+}
+
+/** 不允许把最后一名超级管理员降级或移入回收站，避免系统失去管理入口。 */
+async function assertNotLastSuperAdmin(pool, meta, userId) {
+  const qPk = getSysUsersEntityPkQb(meta)
+  const qIsAdmin = meta.qb('is_admin')
+  const qDel = meta.qb('del')
+  if (!qPk || !qIsAdmin) return { ok: true }
+  const activeClause = qDel
+    ? ` AND (LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'' OR LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'0')`
+    : ''
+  const r = await pool.request().input('id', sql.Int, userId).query(`
+    SELECT
+      SUM(CASE WHEN LTRIM(RTRIM(CAST(ISNULL(u.${qIsAdmin}, N'') AS NVARCHAR(20)))) = N'1'${activeClause} THEN 1 ELSE 0 END) AS adminTotal,
+      MAX(CASE WHEN u.${qPk} = @id AND LTRIM(RTRIM(CAST(ISNULL(u.${qIsAdmin}, N'') AS NVARCHAR(20)))) = N'1'${activeClause} THEN 1 ELSE 0 END) AS targetIsAdmin
+    FROM dbo.[UB_ERP_User] AS u
+  `)
+  const row = r.recordset?.[0] ?? {}
+  if (isLastSuperAdmin(row)) {
+    return { ok: false, msg: '不能降级或删除最后一名超级管理员' }
+  }
+  return { ok: true }
+}
+
+export function isLastSuperAdmin(row) {
+  return Number(row?.targetIsAdmin) === 1 && Number(row?.adminTotal) <= 1
 }
 
 /** 登录账号冲突提示（全表 usercode 唯一） */
@@ -268,6 +320,7 @@ export async function insertOperatorUserLegacy(pool, meta, req, body, hashPasswo
   const qRoleId = meta.qb('roleid')
   const qTruename = meta.qb('truename')
   const qFirstLogin = meta.qb('is_first_login')
+  const qIsAdmin = meta.qb('is_admin')
   if (!qPk || !qUsercode || !qUsername || !qPwd || !qDel || !qPass) {
     return { error: { status: 500, json: { code: 500, msg: '表结构缺少主键(UserID/uid)/usercode/username/password/del/pass', data: null } } }
   }
@@ -293,6 +346,13 @@ export async function insertOperatorUserLegacy(pool, meta, req, body, hashPasswo
     roleIdVal = roleCheck.roleId
   }
 
+  const isAdminRequested = hasIsAdminInput(body)
+  const isAdminValue = isAdminRequested ? parseIsAdminInput(body) : 0
+  if (isAdminRequested) {
+    const canManage = await assertCurrentActorCanManageSuperAdmin(pool, req, meta)
+    if (!canManage.ok) return { error: { status: 403, json: { code: 403, msg: canManage.msg, data: null } } }
+  }
+
   const tri = getActorAuditTripletFromReq(req)
   const pwdResolved = await resolveSysUsersPasswordForStorage('123', meta, hashPassword, pool)
   if (pwdResolved.error) {
@@ -315,6 +375,10 @@ export async function insertOperatorUserLegacy(pool, meta, req, body, hashPasswo
   if (qRoleId) {
     insertColList.push(bareIdent(qRoleId))
     insertValList.push('@roleId')
+  }
+  if (qIsAdmin) {
+    insertColList.push(bareIdent(qIsAdmin))
+    insertValList.push('@isAdmin')
   }
   if (meta.set.has('addtime')) {
     insertColList.push(bareIdent(meta.qb('addtime')))
@@ -347,6 +411,7 @@ export async function insertOperatorUserLegacy(pool, meta, req, body, hashPasswo
     if (qTruename) ins.input('truename', sql.NVarChar(100), truenameRaw)
     if (qFirstLogin) ins.input('isFirstLogin', sql.Int, 1)
     if (qRoleId) ins.input('roleId', sql.Int, roleIdVal)
+    if (qIsAdmin) ins.input('isAdmin', sql.Int, isAdminValue)
     if (meta.set.has('addtime')) ins.input('addtime', sql.NVarChar(50), now)
     if (qAuditUid && tri.uidInt != null) ins.input('actorUid', sql.Int, tri.uidInt)
     if (meta.set.has('uname') && tri.uname) ins.input('actorUname', sql.NVarChar(80), tri.uname)
@@ -387,6 +452,7 @@ export async function putOperatorUser(pool, meta, req, body, hashPassword) {
   const qPass = meta.qb('pass')
   const qRoleId = meta.qb('roleid')
   const qTruename = meta.qb('truename')
+  const qIsAdmin = meta.qb('is_admin')
   if (!qPk || !qUsercode || !qUsername || !qDel || !qPass) {
     return { error: { status: 500, json: { code: 500, msg: '表结构不完整', data: null } } }
   }
@@ -465,6 +531,8 @@ export async function putOperatorUser(pool, meta, req, body, hashPassword) {
   }
 
   if (op === 'disable' || op === 'soft_delete') {
+    const lastAdminCheck = await assertNotLastSuperAdmin(pool, meta, userId)
+    if (!lastAdminCheck.ok) return { error: { status: 400, json: { code: 400, msg: lastAdminCheck.msg, data: null } } }
     const tri = getActorAuditTripletFromReq(req)
     const now = nowAuditString()
     const sets = [`u.${qDel} = N'1'`]
@@ -515,10 +583,21 @@ export async function putOperatorUser(pool, meta, req, body, hashPassword) {
   const tri = getActorAuditTripletFromReq(req)
   const now = nowAuditString()
   const shouldUpdatePassword = !!(qPwd && String(password).trim())
+  const isAdminRequested = hasIsAdminInput(body)
+  const isAdminValue = isAdminRequested ? parseIsAdminInput(body) : null
+  if (isAdminRequested) {
+    const canManage = await assertCurrentActorCanManageSuperAdmin(pool, req, meta)
+    if (!canManage.ok) return { error: { status: 403, json: { code: 403, msg: canManage.msg, data: null } } }
+    if (isAdminValue === 0) {
+      const lastAdminCheck = await assertNotLastSuperAdmin(pool, meta, userId)
+      if (!lastAdminCheck.ok) return { error: { status: 400, json: { code: 400, msg: lastAdminCheck.msg, data: null } } }
+    }
+  }
 
   const sets2 = [`u.${qUsercode} = @usercode`, `u.${qUsername} = @username`]
   if (qTruename) sets2.push(`u.${qTruename} = @truename`)
   if (qRoleId) sets2.push(`u.${qRoleId} = @roleId`)
+  if (qIsAdmin && isAdminRequested) sets2.push(`u.${qIsAdmin} = @isAdmin`)
   if (shouldUpdatePassword) sets2.push(`u.${qPwd} = @pwd`)
   if (meta.set.has('edittime')) sets2.push(`u.${meta.qb('edittime')} = @now`)
   if (qAuditUid && tri.uidInt != null) sets2.push(`u.${qAuditUid} = @actorUid`)
@@ -531,6 +610,7 @@ export async function putOperatorUser(pool, meta, req, body, hashPassword) {
   upd.input('username', sql.NVarChar(80), username)
   if (qTruename) upd.input('truename', sql.NVarChar(100), truenameIn)
   if (qRoleId) upd.input('roleId', sql.Int, roleIdVal)
+  if (qIsAdmin && isAdminRequested) upd.input('isAdmin', sql.Int, isAdminValue)
   if (shouldUpdatePassword) {
     const pwdResolved = await resolveSysUsersPasswordForStorage(password, meta, hashPassword, pool)
     if (pwdResolved.error) {

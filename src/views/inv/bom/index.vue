@@ -217,6 +217,7 @@
                       恢复
                     </el-button>
                     <el-button
+                      v-if="$isErpSuperAdmin()"
                       v-permission="'delete'"
                       type="danger"
                       plain
@@ -306,7 +307,7 @@
                     </el-button>
                     <el-button
                       v-if="!showUnAudited && rowIsAudited(row)"
-                      v-permission="'audit'"
+                      v-permission="'unaudit'"
                       type="warning"
                       plain
                       :loading="busySystemcode === row.systemcode"

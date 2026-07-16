@@ -17,6 +17,7 @@ import { erpListHScrollDirective } from './directives/erpListHScroll'
 import ErpTableViewportHScroll from './components/erp/ErpTableViewportHScroll.vue'
 import ErpTableActions from './components/erp/ErpTableActions.vue'
 import { getPermissionModelFromStorage, hasPageAction } from './utils/menuPermission'
+import { isErpSuperAdmin } from './utils/erpSuperAdmin'
 
 /**
  * 所有 axios 请求自动附带登录 token，供后端 API 权限闸门识别用户身份
@@ -101,5 +102,8 @@ app.config.globalProperties.$can = function permissionCan(action, menuPath) {
       .replace(/\/+$/, '')
   return hasPageAction(model, path, String(action).toLowerCase())
 }
+
+/** 回收站物理删除按钮的统一显示条件；后端仍会实时复核 is_admin。 */
+app.config.globalProperties.$isErpSuperAdmin = isErpSuperAdmin
 
 app.mount('#app')

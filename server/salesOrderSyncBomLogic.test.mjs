@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import {
   parseSyncBomKcaa01,
+  parseSyncBomKcaa01List,
   validateSyncBomLineOnOrder,
   validateSyncBomOrderState,
 } from './salesOrderSyncBomLogic.js'
@@ -10,6 +11,14 @@ describe('salesOrderSyncBomLogic', () => {
   test('parseSyncBomKcaa01 空编码失败', () => {
     assert.equal(parseSyncBomKcaa01('  ').ok, false)
     assert.equal(parseSyncBomKcaa01(' ABC ').ok, true)
+  })
+
+  test('parseSyncBomKcaa01List 去空去重保序', () => {
+    assert.equal(parseSyncBomKcaa01List(null).ok, false)
+    assert.equal(parseSyncBomKcaa01List([]).ok, false)
+    const r = parseSyncBomKcaa01List([' A ', 'B', 'a', '', 'C'])
+    assert.equal(r.ok, true)
+    assert.deepEqual(r.list, ['A', 'B', 'C'])
   })
 
   test('validateSyncBomOrderState 已审/回收站', () => {

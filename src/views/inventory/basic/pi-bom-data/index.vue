@@ -74,8 +74,28 @@
               >
                 <template #default="{ row }">
                   <ErpTableActions>
-                    <el-button type="info" plain @click="openPiBomViewer(row)">查看</el-button>
-                    <el-button type="primary" plain @click="openPiBomEditor(row)">编辑</el-button>
+                    <el-button
+                      tag="a"
+                      type="info"
+                      plain
+                      :href="buildPiBomStandaloneHref('view', row)"
+                      target="_blank"
+                      rel="noopener"
+                      @click="guardPiBomStandaloneLink($event, 'view', row)"
+                    >
+                      查看
+                    </el-button>
+                    <el-button
+                      tag="a"
+                      type="primary"
+                      plain
+                      :href="buildPiBomStandaloneHref('edit', row)"
+                      target="_blank"
+                      rel="noopener"
+                      @click="guardPiBomStandaloneLink($event, 'edit', row)"
+                    >
+                      编辑
+                    </el-button>
                   </ErpTableActions>
                 </template>
               </el-table-column>
@@ -122,327 +142,19 @@
       </el-skeleton>
       </template>
     </el-card>
-
-    <el-dialog
-      v-model="viewerVisible"
-      :title="viewerTitle"
-      width="94vw"
-      top="4vh"
-      destroy-on-close
-      class="pi-bom-view-dialog"
-      @closed="resetViewer"
-    >
-      <el-alert v-if="viewerError" :title="viewerError" type="error" show-icon class="error-alert" />
-      <el-skeleton :loading="viewerLoading" animated :rows="10">
-        <template #default>
-          <el-tabs v-model="viewerActiveTab" class="pi-bom-detail-tabs">
-            <el-tab-pane label="基础资料" name="basic">
-              <el-form
-                v-if="viewerBasic"
-                class="erp-detail-form pi-bom-basic-form"
-                label-position="right"
-                label-width="112px"
-                size="default"
-              >
-                <div class="pi-bom-section-title">系统</div>
-                <el-row :gutter="12">
-                  <el-col :xs="24" :sm="8">
-                    <el-form-item label="PI号">
-                      <el-input :model-value="dVal(viewerBasic.piNo)" readonly />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="16">
-                    <el-form-item label="系统编码">
-                      <el-input :model-value="dVal(viewerBasic.systemcode)" readonly />
-                    </el-form-item>
-                  </el-col>
-                </el-row>
-
-                <div class="pi-bom-section-title">基本资料</div>
-                <el-row :gutter="12">
-                  <el-col :xs="24" :sm="8">
-                    <el-form-item label="编码">
-                      <el-input :model-value="dVal(viewerBasic.kcaa01)" readonly />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="16">
-                    <el-form-item label="名称">
-                      <el-input :model-value="dVal(viewerBasic.kcaa02)" readonly />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="英文名称">
-                      <el-input :model-value="dVal(viewerBasic.kcaa02_en)" readonly />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="规格">
-                      <el-input :model-value="dVal(viewerBasic.kcaa03)" readonly />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="分类">
-                      <el-input :model-value="dVal(viewerBasic.kcaa05)" readonly />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="颜色">
-                      <el-input :model-value="dVal(viewerBasic.kcaa11)" readonly />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="客户款号">
-                      <el-input :model-value="dVal(viewerBasic.kcaa06)" readonly />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="工厂款号">
-                      <el-input :model-value="dVal(viewerBasic.kcaa09)" readonly />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="组别">
-                      <el-input :model-value="dVal(viewerBasic.kcaa10)" readonly />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="产地">
-                      <el-input :model-value="dVal(viewerBasic.location)" readonly />
-                    </el-form-item>
-                  </el-col>
-                </el-row>
-
-                <div class="pi-bom-section-title">单位与损耗</div>
-                <el-row :gutter="12">
-                  <el-col :xs="24" :sm="8">
-                    <el-form-item label="使用单位">
-                      <el-input :model-value="dVal(viewerBasic.kcaa04)" readonly />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="8">
-                    <el-form-item label="采购单位">
-                      <el-input :model-value="dVal(viewerBasic.kcaa25)" readonly />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="8">
-                    <el-form-item label="转换率">
-                      <el-input :model-value="dVal(viewerBasic.kcaa26)" readonly />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="报价损耗">
-                      <el-input :model-value="formatNullableNumber(viewerBasic.kcaa32)" readonly />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="物料损耗">
-                      <el-input :model-value="formatNullableNumber(viewerBasic.kcaa33)" readonly />
-                    </el-form-item>
-                  </el-col>
-                </el-row>
-
-                <div class="pi-bom-section-title">价格与其它</div>
-                <el-row :gutter="12">
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="BOM价格">
-                      <el-input :model-value="formatNullableNumber(viewerBasic.sale_price)" readonly />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="采购价格">
-                      <el-input :model-value="formatNullableNumber(viewerBasic.cost_price)" readonly />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="币别(报价)">
-                      <el-input :model-value="dVal(viewerBasic.kcaa34)" readonly />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :xs="24" :sm="12">
-                    <el-form-item label="币别(采购)">
-                      <el-input :model-value="dVal(viewerBasic.kcaa35)" readonly />
-                    </el-form-item>
-                  </el-col>
-                  <el-col :span="24">
-                    <el-form-item label="备注">
-                      <el-input :model-value="dVal(viewerBasic.remark)" type="textarea" :rows="3" readonly />
-                    </el-form-item>
-                  </el-col>
-                </el-row>
-              </el-form>
-              <el-empty v-else description="暂无PI-BOM基础资料" />
-            </el-tab-pane>
-
-            <el-tab-pane label="配件明细" name="parts" lazy>
-              <div class="pi-bom-tab-toolbar pi-bom-parts-toolbar">
-                <el-button v-if="partsParentStack.length > 1" :disabled="partsLoading" @click="backPiBomPartLevel">
-                  返回上级
-                </el-button>
-                <span class="pi-bom-parts-path">{{ partsPathText }}</span>
-              </div>
-              <el-alert v-if="partsError" :title="partsError" type="error" show-icon class="pi-bom-parts-alert" />
-              <ErpTableViewportHScroll>
-                <el-table
-                  ref="piBomPartsTableRef"
-                  :data="viewerParts"
-                  v-loading="viewerLoading || partsLoading"
-                  border
-                  stripe
-                  :row-key="partRowKey"
-                  class="erp-list-table pi-bom-detail-table"
-                  max-height="calc(84vh - 260px)"
-                  :empty-text="viewerLoading || partsLoading ? '加载中...' : '暂无配件明细'"
-                >
-                  <el-table-column type="index" label="序号" width="58" align="center" fixed="left" />
-                  <el-table-column label="操作" width="96" align="center" fixed="left">
-                    <template #default="{ row }">
-                      <ErpTableActions>
-                        <el-button type="primary" plain size="small" :disabled="!canOpenPiBomPartChild(row)" @click="openPiBomPartChild(row)">
-                          查看
-                        </el-button>
-                      </ErpTableActions>
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="编码" min-width="200" fixed="left" show-overflow-tooltip>
-                    <template #default="{ row }">
-                      <span class="pi-bom-parts-code" :style="piBomPartsCodeCellStyle(row)">
-                        {{ dVal(row.kcaa01) }}
-                      </span>
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="名称" prop="kcaa02" min-width="180" show-overflow-tooltip />
-                  <el-table-column label="规格" prop="kcaa03" min-width="150" show-overflow-tooltip />
-                  <el-table-column label="颜色" prop="kcaa11" width="90" show-overflow-tooltip />
-                  <el-table-column label="单位" prop="kcaa04" width="80" align="center" show-overflow-tooltip />
-                  <el-table-column label="单位用量" width="112" align="right">
-                    <template #default="{ row }">{{ formatNumber(row.kcac04) }}</template>
-                  </el-table-column>
-                  <el-table-column label="损耗率(%)" width="108" align="right">
-                    <template #default="{ row }">{{ formatLossPct(row.kcac05) }}</template>
-                  </el-table-column>
-                  <el-table-column label="用量合计(kcac06)" width="124" align="right">
-                    <template #default="{ row }">{{ formatNumber(row.kcac06) }}</template>
-                  </el-table-column>
-                  <el-table-column label="单价" width="112" align="right">
-                    <template #default="{ row }">{{ formatMoney(row.cost_price) }}</template>
-                  </el-table-column>
-                  <el-table-column label="成本合计" width="110" align="right">
-                    <template #default="{ row }">{{ formatMoney(partCostSum(row)) }}</template>
-                  </el-table-column>
-                  <el-table-column label="备注" prop="Describe" min-width="180" show-overflow-tooltip />
-                </el-table>
-              </ErpTableViewportHScroll>
-            </el-tab-pane>
-
-            <el-tab-pane label="PI_BOM树形" name="tree" lazy>
-              <div class="pi-bom-tab-toolbar">
-                <el-button :disabled="!viewerTree.length" @click="expandAllPiBomTree">展开全部</el-button>
-                <el-button :disabled="!viewerTree.length" @click="collapseAllPiBomTree">关闭全部</el-button>
-              </div>
-              <ErpTableViewportHScroll>
-                <el-table
-                  ref="piBomTreeTableRef"
-                  :data="viewerTree"
-                  border
-                  stripe
-                  row-key="id"
-                  :tree-props="{ children: 'children' }"
-                  default-expand-all
-                  class="erp-list-table pi-bom-tree-table"
-                  max-height="calc(84vh - 300px)"
-                  :empty-text="viewerLoading ? '加载中...' : '暂无PI-BOM树形数据'"
-                >
-                  <el-table-column label="编码" prop="kcaa01" min-width="220" fixed="left" show-overflow-tooltip />
-                  <el-table-column label="名称" prop="kcaa02" min-width="180" show-overflow-tooltip />
-                  <el-table-column label="规格" prop="kcaa03" min-width="150" show-overflow-tooltip />
-                  <el-table-column label="单位" prop="kcaa04" width="80" align="center" show-overflow-tooltip />
-                  <el-table-column label="用量" width="110" align="right">
-                    <template #default="{ row }">{{ formatNumber(row.kcac04) }}</template>
-                  </el-table-column>
-                  <el-table-column label="损耗" width="100" align="right">
-                    <template #default="{ row }">{{ formatNumber(row.kcac05) }}</template>
-                  </el-table-column>
-                  <el-table-column label="合计" width="110" align="right">
-                    <template #default="{ row }">{{ formatNumber(row.kcac06) }}</template>
-                  </el-table-column>
-                  <el-table-column label="备注" prop="Describe" min-width="160" show-overflow-tooltip />
-                  <el-table-column label="Seq" prop="Seq" width="72" align="center" />
-                  <el-table-column label="层级" prop="level" width="72" align="center" />
-                </el-table>
-              </ErpTableViewportHScroll>
-            </el-tab-pane>
-
-            <el-tab-pane label="成本BOM用量表" name="cost" lazy>
-              <div class="pi-bom-cost-header">{{ costUsageHeaderText }}</div>
-              <ErpTableViewportHScroll>
-                <el-table
-                  ref="piBomCostTableRef"
-                  :data="costUsageRows"
-                  border
-                  stripe
-                  show-summary
-                  :summary-method="costUsageSummaryMethod"
-                  row-key="__rowKey"
-                  class="erp-list-table pi-bom-cost-table"
-                  max-height="calc(84vh - 300px)"
-                  :empty-text="viewerLoading ? '加载中...' : '暂无成本BOM用量，可能尚未运算'"
-                >
-                  <el-table-column label="编码" prop="kcaa01" min-width="200" fixed="left" show-overflow-tooltip />
-                  <el-table-column label="名称" prop="kcaa02" min-width="170" show-overflow-tooltip />
-                  <el-table-column label="规格" prop="kcaa03" min-width="150" show-overflow-tooltip />
-                  <el-table-column label="单位" prop="kcaa04" width="80" align="center" show-overflow-tooltip />
-                  <el-table-column label="备注" prop="Describe" min-width="140" show-overflow-tooltip />
-                  <el-table-column label="用量" prop="yl" width="112" align="right">
-                    <template #default="{ row }">{{ formatNumber(row.yl) }}</template>
-                  </el-table-column>
-                  <el-table-column label="损耗" prop="loss_rate" width="100" align="right">
-                    <template #default="{ row }">{{ formatNumber(row.loss_rate) }}</template>
-                  </el-table-column>
-                  <el-table-column label="合计" prop="total_qty" width="112" align="right">
-                    <template #default="{ row }">{{ formatNumber(row.total_qty) }}</template>
-                  </el-table-column>
-                </el-table>
-              </ErpTableViewportHScroll>
-            </el-tab-pane>
-          </el-tabs>
-        </template>
-      </el-skeleton>
-    </el-dialog>
-
-    <el-dialog
-      v-model="editVisible"
-      :title="editTitle"
-      width="94vw"
-      top="4vh"
-      destroy-on-close
-      :close-on-click-modal="false"
-      class="pi-bom-edit-dialog erp-detail-form-context"
-      @closed="resetEditor"
-    >
-      <PiBomEditorPanel
-        v-if="editVisible && editRow"
-        :order-id="Number(editRow.orderId)"
-        :product-kcaa01="String(editRow.kcaa01 ?? '').trim()"
-        window-mode="edit"
-        @saved-basic="onEditorSaved"
-        @saved-parts="onEditorSaved"
-      />
-    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
-import { computed, nextTick, ref, watch } from 'vue'
+import { ref } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import ErpTableActions from '@/components/erp/ErpTableActions.vue'
 import ErpTableViewportHScroll from '@/components/erp/ErpTableViewportHScroll.vue'
 import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout.js'
-import { aggregateBomCostUsageFlatForDisplay } from '@/utils/bomCostUsageAggregate.js'
-import PiBomEditorPanel from './PiBomEditorPanel.vue'
 import PiBomMaterialReplacePanel from './PiBomMaterialReplacePanel.vue'
 
 defineOptions({ name: 'inventory-basic-pi-bom-data' })
@@ -456,75 +168,7 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 const keyword = ref('')
-
-const viewerVisible = ref(false)
-const viewerLoading = ref(false)
-const viewerError = ref('')
-const viewerRow = ref(null)
-const viewerActiveTab = ref('basic')
-const viewerBasic = ref(null)
-const viewerParts = ref([])
-const viewerTree = ref([])
-const viewerCostRows = ref([])
-const costUsageRows = ref([])
-const piBomPartsTableRef = ref(null)
-const piBomTreeTableRef = ref(null)
-const piBomCostTableRef = ref(null)
-const piBomTreeAutoExpanded = ref(false)
-const partsLoading = ref(false)
-const partsError = ref('')
-const partsParentStack = ref([])
-
-const editVisible = ref(false)
-const editRow = ref(null)
 const listActionsColWidth = getErpTableActionsColMinWidth(2, { compact: true })
-
-const viewerTitle = computed(() => {
-  const row = viewerRow.value
-  const pi = String(row?.piNo ?? '').trim()
-  const code = String(row?.kcaa01 ?? '').trim()
-  return pi || code ? `查看 PI-BOM：${pi} / ${code}` : '查看 PI-BOM'
-})
-
-const editTitle = computed(() => {
-  const row = editRow.value
-  const pi = String(row?.piNo ?? '').trim()
-  const code = String(row?.kcaa01 ?? '').trim()
-  return pi || code ? `编辑 PI-BOM：${pi} / ${code}` : '编辑 PI-BOM'
-})
-
-const costUsageHeaderText = computed(() => {
-  const b = viewerBasic.value
-  const code = dVal(b?.kcaa01)
-  const name = dVal(b?.kcaa02)
-  const styleNo = dVal(b?.kcaa06)
-  return `《成本BOM用量表》编码【${code}】,名称【${name}】,客户款号【${styleNo}】`
-})
-
-const partsPathText = computed(() => {
-  const stack = partsParentStack.value ?? []
-  if (!stack.length) return ''
-  return stack.map((item) => String(item?.title ?? '').trim()).filter(Boolean).join(' / ')
-})
-
-function recomputePiBomCostUsageRows() {
-  const raw = viewerCostRows.value.map((row, idx) => ({
-    kcaa01: String(row?.kcaa01 ?? '').trim(),
-    kcaa02: row?.kcaa02 != null ? String(row.kcaa02) : '',
-    kcaa03: row?.kcaa03 != null ? String(row.kcaa03) : '',
-    kcaa04: row?.kcaa04 != null ? String(row.kcaa04) : '',
-    Describe: row?.Describe != null ? String(row.Describe) : '',
-    yl: Number(row?.kcac04 ?? row?.yl ?? 0),
-    loss_rate: Number(row?.kcac05 ?? row?.loss_rate ?? 0),
-    total_qty: Number(row?.kcac06 ?? row?.total_qty ?? 0),
-    px: row?.px,
-    _flatIndex: idx,
-  }))
-  costUsageRows.value = aggregateBomCostUsageFlatForDisplay(raw, []).map((row, idx) => ({
-    ...row,
-    __rowKey: `pi-cost-${idx}`,
-  }))
-}
 
 function isAudited(row) {
   return String(row?.pass ?? '').trim() === '1'
@@ -532,11 +176,6 @@ function isAudited(row) {
 
 function isCalculated(row) {
   return String(row?.calcStatus ?? '').trim() === '已运算'
-}
-
-function dVal(v) {
-  const s = String(v ?? '').trim()
-  return s || '-'
 }
 
 function formatDateTime(v) {
@@ -552,224 +191,27 @@ function formatDateTime(v) {
   return `${y}-${mo}-${da} ${h}:${mi}`
 }
 
-function formatNumber(v) {
-  const n = Number(v)
-  if (!Number.isFinite(n)) return '-'
-  return n.toFixed(4).replace(/\.?0+$/, '')
+/** 列表「查看/编辑」：无侧栏全屏独立页（与销售订单展开明细查看同套路） */
+function buildPiBomStandaloneHref(mode, row) {
+  const orderId = Number(row?.orderId)
+  const code = String(row?.kcaa01 ?? '').trim()
+  if (!Number.isFinite(orderId) || orderId <= 0 || !code) return ''
+  const url = new URL('/inventory/basic/pi-bom-data-window', window.location.origin)
+  url.searchParams.set('mode', mode === 'edit' ? 'edit' : 'view')
+  url.searchParams.set('orderId', String(orderId))
+  url.searchParams.set('kcaa01', code)
+  const piNo = String(row?.piNo ?? '').trim()
+  if (piNo) url.searchParams.set('piNo', piNo)
+  return `${url.pathname}${url.search}`
 }
 
-function formatMoney(v) {
-  const n = Number(v)
-  if (!Number.isFinite(n)) return '-'
-  return n.toFixed(4).replace(/\.?0+$/, '')
-}
-
-function formatLossPct(v) {
-  const n = Number(v)
-  if (!Number.isFinite(n)) return '-'
-  return (n * 100).toFixed(2).replace(/\.?0+$/, '')
-}
-
-function formatNullableNumber(v) {
-  if (v === null || v === undefined || v === '') return '-'
-  return formatNumber(v)
-}
-
-function partCostSum(row) {
-  const qty = Number(row?.kcac06)
-  const price = Number(row?.cost_price)
-  if (!Number.isFinite(qty) || !Number.isFinite(price)) return 0
-  return qty * price
-}
-
-function piBomPartsCodeCellStyle(row) {
-  const level = Number(row?.level ?? 1)
-  const depth = Number.isFinite(level) && level > 1 ? Math.min(level - 1, 10) : 0
-  return { paddingLeft: `${depth * 18}px` }
-}
-
-function bomRound6(v) {
-  const n = Number(v)
-  if (!Number.isFinite(n)) return 0
-  return Math.round(n * 1000000) / 1000000
-}
-
-function partUsageSum(row) {
-  const qty = Number(row?.kcac04 ?? 0)
-  const loss = Number(row?.kcac05 ?? 0)
-  return (Number.isFinite(qty) ? qty : 0) * (1 + (Number.isFinite(loss) ? loss : 0))
-}
-
-function syncPartKcac06(row) {
-  if (!row) return
-  row.kcac06 = bomRound6(partUsageSum(row))
-}
-
-function genLocalKey() {
-  return `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
-}
-
-function partRowKey(row) {
-  const id = Number(row?.id)
-  return Number.isFinite(id) && id > 0 ? `id-${id}` : row?._localKey || genLocalKey()
-}
-
-function resetViewerPartsState() {
-  partsError.value = ''
-}
-
-function canOpenPiBomPartChild(row) {
-  return Number(row?.id) > 0 && !!String(row?.systemcode ?? row?.kcac02 ?? '').trim()
-}
-
-function currentPartsParentSystemcode() {
-  const stack = partsParentStack.value ?? []
-  return String(stack[stack.length - 1]?.parentSystemcode ?? '').trim()
-}
-
-function rootPartsParentFromBasic() {
-  const basic = viewerBasic.value
-  const parentSystemcode = String(basic?.systemcode ?? '').trim()
-  const code = String(basic?.kcaa01 ?? viewerRow.value?.kcaa01 ?? '').trim()
-  return {
-    title: code || '成品',
-    parentSystemcode,
-  }
-}
-
-function prepareViewerParts(list) {
-  return (Array.isArray(list) ? list : []).map((row, idx) => {
-    const item = {
-      ...row,
-      _localKey: row?._localKey || genLocalKey(),
-    }
-    if (item.Seq == null || item.Seq === '') item.Seq = idx + 1
-    syncPartKcac06(item)
-    return item
-  })
-}
-
-function replaceViewerParts(list) {
-  viewerParts.value = prepareViewerParts(list)
-  resetViewerPartsState()
-  schedulePiBomTableLayout(piBomPartsTableRef)
-}
-
-async function loadPiBomPartsForParent(parentSystemcode) {
-  const orderId = Number(viewerRow.value?.orderId)
-  const code = String(viewerRow.value?.kcaa01 ?? '').trim()
-  const parent = String(parentSystemcode ?? '').trim()
-  if (!Number.isFinite(orderId) || orderId <= 0 || !code || !parent) {
-    partsError.value = '缺少订单ID、编码或父级systemcode，无法加载配件明细'
-    viewerParts.value = []
-    return
-  }
-  partsLoading.value = true
-  partsError.value = ''
-  try {
-    const res = await axios.get('/api/inventory/pi-bom-data/parts', {
-      params: { orderId, kcaa01: code, parentSystemcode: parent },
-    })
-    const body = res.data
-    if (body?.code !== 200) {
-      partsError.value = body?.msg || '加载配件明细失败'
-      viewerParts.value = []
-      return
-    }
-    replaceViewerParts(body?.data?.parts ?? [])
-  } catch (e) {
-    partsError.value = String(e?.response?.data?.msg ?? e?.message ?? '加载配件明细失败')
-    viewerParts.value = []
-  } finally {
-    partsLoading.value = false
-  }
-}
-
-async function openPiBomPartChild(row) {
-  if (!canOpenPiBomPartChild(row)) return
-  const parentSystemcode = String(row?.systemcode ?? row?.kcac02 ?? '').trim()
-  const title = String(row?.kcaa01 ?? '').trim() || '下级'
-  partsParentStack.value = [...partsParentStack.value, { title, parentSystemcode }]
-  await loadPiBomPartsForParent(parentSystemcode)
-}
-
-async function backPiBomPartLevel() {
-  if ((partsParentStack.value ?? []).length <= 1) return
-  const nextStack = partsParentStack.value.slice(0, -1)
-  const parentSystemcode = String(nextStack[nextStack.length - 1]?.parentSystemcode ?? '').trim()
-  partsParentStack.value = nextStack
-  await loadPiBomPartsForParent(parentSystemcode)
-}
-
-function walkTreeRows(rows, cb) {
-  for (const row of rows ?? []) {
-    cb(row)
-    if (Array.isArray(row.children) && row.children.length) walkTreeRows(row.children, cb)
-  }
-}
-
-function expandAllPiBomTree() {
-  nextTick(() => {
-    const t = piBomTreeTableRef.value
-    if (!t) return
-    walkTreeRows(viewerTree.value, (row) => {
-      if (row.children?.length) t.toggleRowExpansion(row, true)
-    })
-  })
-}
-
-function collapseAllPiBomTree() {
-  nextTick(() => {
-    const t = piBomTreeTableRef.value
-    if (!t) return
-    walkTreeRows(viewerTree.value, (row) => {
-      if (row.children?.length) t.toggleRowExpansion(row, false)
-    })
-  })
-}
-
-function schedulePiBomTableLayout(tableRef) {
-  nextTick(() => {
-    const layout = () => tableRef.value?.doLayout?.()
-    layout()
-    if (typeof window !== 'undefined') {
-      window.requestAnimationFrame?.(layout)
-      window.setTimeout(layout, 80)
-    }
-  })
-}
-
-function scheduleActiveViewerTabLayout(tab = viewerActiveTab.value) {
-  if (!viewerVisible.value || viewerLoading.value) return
-  if (tab === 'parts') schedulePiBomTableLayout(piBomPartsTableRef)
-  if (tab === 'tree') schedulePiBomTableLayout(piBomTreeTableRef)
-  if (tab === 'cost') schedulePiBomTableLayout(piBomCostTableRef)
-}
-
-watch(
-  () => [viewerVisible.value, viewerActiveTab.value, viewerLoading.value],
-  ([vis, tab, loadingNow]) => {
-    if (!vis || loadingNow) return
-    scheduleActiveViewerTabLayout(tab)
-    if (tab === 'tree' && !piBomTreeAutoExpanded.value) {
-      piBomTreeAutoExpanded.value = true
-      expandAllPiBomTree()
-    }
-  },
-)
-
-function costUsageSummaryMethod({ columns, data }) {
-  return columns.map((col, idx) => {
-    if (idx === 0) return '合计'
-    const prop = col.property
-    if (prop === 'yl') {
-      return formatNumber(data.reduce((sum, row) => sum + (Number(row.yl) || 0), 0))
-    }
-    if (prop === 'total_qty') {
-      return formatNumber(data.reduce((sum, row) => sum + (Number(row.total_qty) || 0), 0))
-    }
-    return ''
-  })
+function guardPiBomStandaloneLink(ev, mode, row) {
+  const href = buildPiBomStandaloneHref(mode, row)
+  if (href) return
+  ev?.preventDefault?.()
+  ElMessage.warning(
+    mode === 'edit' ? '缺少订单ID或编码，无法编辑PI-BOM' : '缺少订单ID或编码，无法查看PI-BOM',
+  )
 }
 
 async function loadData() {
@@ -823,83 +265,6 @@ function onPageSizeChange(ps) {
   loadData()
 }
 
-async function openPiBomViewer(row) {
-  const orderId = Number(row?.orderId)
-  const code = String(row?.kcaa01 ?? '').trim()
-  if (!Number.isFinite(orderId) || orderId <= 0 || !code) {
-    ElMessage.warning('缺少订单ID或编码，无法查看PI-BOM')
-    return
-  }
-  viewerRow.value = row
-  viewerVisible.value = true
-  viewerActiveTab.value = 'basic'
-  viewerLoading.value = true
-  viewerError.value = ''
-  viewerBasic.value = null
-  viewerParts.value = []
-  viewerTree.value = []
-  viewerCostRows.value = []
-  costUsageRows.value = []
-  partsParentStack.value = []
-  resetViewerPartsState()
-  piBomTreeAutoExpanded.value = false
-  try {
-    const res = await axios.get('/api/inventory/pi-bom-data/detail', {
-      params: { orderId, kcaa01: code },
-    })
-    const body = res.data
-    if (body?.code !== 200) {
-      viewerError.value = body?.msg || '加载PI-BOM详情失败'
-      return
-    }
-    const data = body.data ?? {}
-    viewerBasic.value = data.basic ?? null
-    const rootParent = rootPartsParentFromBasic()
-    partsParentStack.value = rootParent.parentSystemcode ? [rootParent] : []
-    replaceViewerParts(Array.isArray(data.parts) ? data.parts : [])
-    viewerTree.value = Array.isArray(data.tree) ? data.tree : []
-    viewerCostRows.value = Array.isArray(data.costRows) ? data.costRows : []
-    recomputePiBomCostUsageRows()
-  } catch (e) {
-    viewerError.value = String(e?.response?.data?.msg ?? e?.message ?? '加载PI-BOM详情失败')
-  } finally {
-    viewerLoading.value = false
-  }
-}
-
-function resetViewer() {
-  viewerActiveTab.value = 'basic'
-  viewerError.value = ''
-  viewerBasic.value = null
-  viewerParts.value = []
-  viewerTree.value = []
-  viewerCostRows.value = []
-  costUsageRows.value = []
-  partsParentStack.value = []
-  resetViewerPartsState()
-  piBomTreeAutoExpanded.value = false
-}
-
-function openPiBomEditor(row) {
-  const orderId = Number(row?.orderId)
-  const code = String(row?.kcaa01 ?? '').trim()
-  if (!Number.isFinite(orderId) || orderId <= 0 || !code) {
-    ElMessage.warning('缺少订单ID或编码，无法编辑PI-BOM')
-    return
-  }
-  editRow.value = row
-  editVisible.value = true
-}
-
-function resetEditor() {
-  editRow.value = null
-}
-
-async function onEditorSaved() {
-  if (editRow.value) editRow.value.calcStatus = '未运算'
-  await loadData()
-}
-
 async function onMaterialReplaced() {
   if (pageMode.value === 'list') await loadData()
 }
@@ -942,64 +307,5 @@ loadData()
 
 .error-alert {
   margin-bottom: 12px;
-}
-
-.pi-bom-detail-tabs {
-  min-height: 420px;
-}
-
-.pi-bom-basic-form {
-  max-height: calc(84vh - 230px);
-  overflow: auto;
-  padding-right: 8px;
-}
-
-.pi-bom-section-title {
-  margin: 12px 0 10px;
-  padding-left: 8px;
-  border-left: 3px solid var(--el-color-primary);
-  font-weight: 600;
-  color: var(--el-text-color-primary);
-}
-
-.pi-bom-tab-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.pi-bom-parts-toolbar {
-  row-gap: 8px;
-}
-
-.pi-bom-parts-path {
-  color: var(--el-text-color-regular);
-  line-height: 32px;
-}
-
-.pi-bom-parts-alert {
-  margin-bottom: 10px;
-}
-
-.pi-bom-parts-num {
-  width: 100%;
-}
-
-.pi-bom-detail-table,
-.pi-bom-tree-table,
-.pi-bom-cost-table {
-  width: 100%;
-}
-
-.pi-bom-parts-code {
-  display: inline-block;
-}
-
-.pi-bom-cost-header {
-  margin-bottom: 10px;
-  font-weight: 600;
-  color: var(--el-text-color-primary);
 }
 </style>

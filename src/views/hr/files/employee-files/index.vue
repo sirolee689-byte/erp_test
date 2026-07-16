@@ -186,7 +186,7 @@
                     审核
                   </el-button>
                   <el-button
-                    v-permission="'audit'"
+                    v-permission="'unaudit'"
                     type="warning"
                     plain
                     v-if="!showDeleted && !showUnAudited && rowIsAudited(row)"

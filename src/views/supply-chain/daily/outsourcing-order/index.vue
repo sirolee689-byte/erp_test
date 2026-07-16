@@ -138,19 +138,51 @@
             <el-table-column label="序号" width="70">
               <template #default="{ $index }">{{ $index + 1 }}</template>
             </el-table-column>
-            <el-table-column label="款号" prop="product" min-width="120" show-overflow-tooltip />
+            <el-table-column label="操作" width="76" align="center">
+              <template #default="{ row: line }">
+                <el-button v-if="line._rowType !== 'fee'" size="small" type="primary" plain @click.stop="openExpandedLineBom(line)">查看</el-button>
+              </template>
+            </el-table-column>
+            <el-table-column label="仓库相关" min-width="258">
+              <template #default="{ row: line }">
+                <div v-if="line._rowType !== 'fee'" class="assist-warehouse-cell">
+                  <div class="assist-warehouse-cell__summary">
+                    <span v-if="!(line.warehouse?.inbound || []).length">未入库</span>
+                    <span v-for="item in line.warehouse?.inbound || []" :key="`in-${item.documentNo}`">入库单号：{{ item.documentNo }}，已入库数：{{ formatWarehouseQty(item.quantity) }}</span>
+                  </div>
+                  <el-button v-if="(line.warehouse?.inbound || []).length" link type="primary" size="small" @click.stop="toggleWarehouseDetail(line, 'inbound')">显示详情</el-button>
+                  <div class="assist-warehouse-cell__summary">
+                    <span v-if="!(line.warehouse?.outbound || []).length">未出库</span>
+                    <span v-for="item in line.warehouse?.outbound || []" :key="`out-${item.documentNo}`">出库单号：{{ item.documentNo }}，已出库数：{{ formatWarehouseQty(item.quantity) }}</span>
+                  </div>
+                  <el-button v-if="(line.warehouse?.outbound || []).length" link type="primary" size="small" @click.stop="toggleWarehouseDetail(line, 'outbound')">显示详情</el-button>
+                  <div v-if="line._warehouseDetail" class="assist-warehouse-cell__details">
+                    <template v-for="item in line.warehouse?.[line._warehouseDetail] || []" :key="`${line._warehouseDetail}-detail-${item.documentNo}`">
+                      <div>{{ line._warehouseDetail === 'inbound' ? '入库时间' : '出库时间' }}：{{ formatDate(item.documentDate) }}</div>
+                      <div>{{ line._warehouseDetail === 'inbound' ? '送货单号' : '纸质单号' }}：{{ line._warehouseDetail === 'inbound' ? formatCell(item.deliveryNo) : formatCell(item.paperNo) }}</div>
+                      <div>备注：{{ formatCell(item.remark) }}</div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </el-table-column>
             <el-table-column label="物料编码" prop="kcaa01" min-width="150" show-overflow-tooltip />
-            <el-table-column label="名称" prop="kcaa02" min-width="160" show-overflow-tooltip />
+            <el-table-column label="材料名称" prop="kcaa02" min-width="160" show-overflow-tooltip />
+            <el-table-column label="规格" prop="kcaa03" min-width="130" show-overflow-tooltip />
+            <el-table-column label="颜色" prop="kcaa11" min-width="110" show-overflow-tooltip />
+            <el-table-column label="单位" prop="kcaa04" width="80" show-overflow-tooltip />
             <el-table-column label="数量" prop="wxak03" width="90" align="right" />
-            <el-table-column label="不含税单价" prop="wxak04" width="110" align="right" />
-            <el-table-column label="含税单价" prop="wxak041" width="110" align="right" />
-            <el-table-column label="不含税金额" prop="wxak05" width="110" align="right" />
-            <el-table-column label="含税金额" prop="wxak051" width="110" align="right" />
+            <el-table-column label="单价" prop="wxak04" width="110" align="right" />
+            <el-table-column label="单价（含税）" prop="wxak041" width="110" align="right" />
+            <el-table-column label="金额" prop="wxak05" width="110" align="right" />
+            <el-table-column label="金额（含税）" prop="wxak051" width="110" align="right" />
             <el-table-column label="税点" prop="tax" width="90" align="right" />
+            <el-table-column label="PO/PI" prop="piNo" min-width="120" show-overflow-tooltip />
+            <el-table-column label="款号" prop="product" min-width="120" show-overflow-tooltip />
+            <el-table-column label="外协内容" prop="describe" min-width="150" show-overflow-tooltip />
             <el-table-column label="交货日期" width="110">
               <template #default="{ row: line }">{{ formatDate(line.deliveryDate) }}</template>
             </el-table-column>
-            <el-table-column label="参考单号" prop="referenceNo" min-width="120" show-overflow-tooltip />
             <el-table-column label="备注" prop="remark" min-width="160" show-overflow-tooltip />
           </el-table>
           <el-empty v-else-if="!row.expandedLoading" description="暂无明细" />
@@ -169,7 +201,7 @@
           <ErpTableActions class="assist-order-actions" @click.stop>
             <template v-if="filters.recycled">
               <el-button type="primary" plain @click.stop="runLifecycle(row, 'restore')">恢复</el-button>
-              <el-button type="danger" plain @click.stop="runLifecycle(row, 'hard-delete')">彻底删除</el-button>
+              <el-button v-if="$isErpSuperAdmin()" type="danger" plain @click.stop="runLifecycle(row, 'hard-delete')">彻底删除</el-button>
             </template>
             <template v-else>
               <el-button type="info" plain @click.stop="openView(row)">查看</el-button>
@@ -184,6 +216,7 @@
                 </el-button>
                 <el-button
                   type="success"
+                  v-permission="'audit'"
                   plain
                   :disabled="!canAudit(row)"
                   @click.stop="runLifecycle(row, 'audit')"
@@ -202,6 +235,7 @@
               <template v-else>
                 <el-button
                   v-if="canUnaudit(row)"
+                  v-permission="'unaudit'"
                   type="warning"
                   plain
                   @click.stop="runLifecycle(row, 'unaudit')"
@@ -235,18 +269,24 @@
           </ErpTableActions>
         </template>
       </el-table-column>
-      <el-table-column label="结案" width="88">
+      <el-table-column label="外协订单号" prop="assistOrderNo" min-width="150" show-overflow-tooltip>
         <template #default="{ row }">
-          <el-tag v-if="isClosed(row)" type="success" size="small">已结案</el-tag>
-          <el-tag v-else type="info" size="small">未结案</el-tag>
+          <span class="code-text">{{ formatCell(row.assistOrderNo) }}</span>
         </template>
       </el-table-column>
       <el-table-column label="外协类型" width="108">
         <template #default="{ row }">{{ assistTypeText(row.assistType) }}</template>
       </el-table-column>
-      <el-table-column label="外协订单号" prop="assistOrderNo" min-width="150" show-overflow-tooltip>
+      <el-table-column label="审核" width="88">
         <template #default="{ row }">
-          <span class="code-text">{{ formatCell(row.assistOrderNo) }}</span>
+          <el-tag v-if="isAudited(row)" type="success" size="small">已审核</el-tag>
+          <el-tag v-else type="warning" size="small">未审核</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="结案" width="88">
+        <template #default="{ row }">
+          <el-tag v-if="isClosed(row)" type="success" size="small">已结案</el-tag>
+          <el-tag v-else type="info" size="small">未结案</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="外协日期" width="116">
@@ -266,16 +306,12 @@
         </template>
       </el-table-column>
       <el-table-column label="关联单号" prop="referenceNo" min-width="140" show-overflow-tooltip />
-      <el-table-column label="币别" prop="currencyCode" width="92" show-overflow-tooltip />
+      <el-table-column label="币别" prop="currencyName" width="92" show-overflow-tooltip>
+        <template #default="{ row }">{{ formatCell(row.currencyName || row.currencyCode) }}</template>
+      </el-table-column>
       <el-table-column label="外协商" prop="supplierName" min-width="220" show-overflow-tooltip />
       <el-table-column label="备注" prop="remark" min-width="180" show-overflow-tooltip />
       <el-table-column label="打印注释" prop="notes" min-width="180" show-overflow-tooltip />
-      <el-table-column label="审核" width="88">
-        <template #default="{ row }">
-          <el-tag v-if="isAudited(row)" type="success" size="small">已审核</el-tag>
-          <el-tag v-else type="warning" size="small">未审核</el-tag>
-        </template>
-      </el-table-column>
         </el-table>
         </ErpTableViewportHScroll>
 
@@ -742,6 +778,26 @@ function formatSubtotalUnitPrice(n) {
   const num = Number(n)
   if (!Number.isFinite(num)) return '-'
   return num.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+}
+
+function formatWarehouseQty(n) {
+  const num = Number(n)
+  if (!Number.isFinite(num)) return '0'
+  return Number.isInteger(num) ? String(num) : num.toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 4 })
+}
+
+function toggleWarehouseDetail(line, type) {
+  line._warehouseDetail = line._warehouseDetail === type ? '' : type
+}
+
+function openExpandedLineBom(row) {
+  const materialCode = String(row?.kcaa01 ?? '').trim()
+  if (!materialCode) {
+    ElMessage.warning('当前明细缺少物料编码，无法查看 BOM 资料')
+    return
+  }
+  const opened = window.open(`/inventory/basic/bom-data-window?mode=detail&code=${encodeURIComponent(materialCode)}`, '_blank')
+  if (!opened) ElMessage.error('无法打开新窗口，请检查浏览器是否拦截弹窗')
 }
 
 function expandSummaryMethod(expandedLines, { columns }) {
@@ -1712,6 +1768,29 @@ onUnmounted(() => {
 
 .assist-expand-lines-table :deep(.el-table__footer td.el-table__cell:nth-child(4) .cell) {
   text-align: left;
+}
+
+.assist-warehouse-cell {
+  display: grid;
+  gap: 4px;
+  min-width: 230px;
+  line-height: 1.45;
+}
+
+.assist-warehouse-cell__summary {
+  display: grid;
+  gap: 2px;
+  color: var(--el-text-color-regular);
+}
+
+.assist-warehouse-cell__details {
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--el-border-color-lighter);
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
 }
 
 .assist-page-subtotal {

@@ -460,8 +460,9 @@ html[data-ui='comfortable'] .erp-module-page .erp-list-table .el-table__body td.
   );
 }
 
-/* BOM 主列表：固定 4 列 Grid，第一行 编辑/复制/查看/一键*，第二行 删除/审核|反审（见 index.vue 按钮顺序） */
-.erp-module-page .erp-list-table .bom-list-actions.erp-table-actions--grid {
+/* BOM / 销售订单主列表：固定 4 列 Grid，复用 --erp-bom-list-action-*（销售见 so-order-actions） */
+.erp-module-page .erp-list-table .bom-list-actions.erp-table-actions--grid,
+.erp-module-page .erp-list-table .so-order-actions.erp-table-actions--grid {
   --erp-table-actions-cols: 4 !important;
   column-gap: var(--erp-bom-list-action-col-gap);
   row-gap: var(--erp-bom-list-action-row-gap);
@@ -471,7 +472,8 @@ html[data-ui='comfortable'] .erp-module-page .erp-list-table .el-table__body td.
   );
 }
 
-.erp-module-page .erp-list-table .bom-list-actions.erp-table-actions .el-button {
+.erp-module-page .erp-list-table .bom-list-actions.erp-table-actions .el-button,
+.erp-module-page .erp-list-table .so-order-actions.erp-table-actions .el-button {
   font-size: var(--erp-bom-list-action-btn-font-size) !important;
   min-height: var(--erp-bom-list-action-btn-min-height) !important;
   height: auto !important;
@@ -480,7 +482,8 @@ html[data-ui='comfortable'] .erp-module-page .erp-list-table .el-table__body td.
   border-radius: var(--el-border-radius-small, 4px) !important;
 }
 
-.erp-module-page .erp-list-table .bom-list-actions.erp-table-actions .el-button > span {
+.erp-module-page .erp-list-table .bom-list-actions.erp-table-actions .el-button > span,
+.erp-module-page .erp-list-table .so-order-actions.erp-table-actions .el-button > span {
   line-height: var(--erp-bom-list-action-btn-line-height) !important;
 }
 
@@ -722,7 +725,8 @@ html[data-ui='comfortable'] .erp-module-page .erp-list-table .erp-table-actions 
   line-height: 1.25 !important;
 }
 
-html[data-ui='comfortable'] .erp-module-page .erp-list-table .bom-list-actions.erp-table-actions .el-button {
+html[data-ui='comfortable'] .erp-module-page .erp-list-table .bom-list-actions.erp-table-actions .el-button,
+html[data-ui='comfortable'] .erp-module-page .erp-list-table .so-order-actions.erp-table-actions .el-button {
   font-size: var(--erp-bom-list-action-btn-font-size) !important;
   min-height: var(--erp-bom-list-action-btn-min-height) !important;
   height: auto !important;
@@ -730,7 +734,8 @@ html[data-ui='comfortable'] .erp-module-page .erp-list-table .bom-list-actions.e
   line-height: var(--erp-bom-list-action-btn-line-height) !important;
 }
 
-html[data-ui='comfortable'] .erp-module-page .erp-list-table .bom-list-actions.erp-table-actions .el-button > span {
+html[data-ui='comfortable'] .erp-module-page .erp-list-table .bom-list-actions.erp-table-actions .el-button > span,
+html[data-ui='comfortable'] .erp-module-page .erp-list-table .so-order-actions.erp-table-actions .el-button > span {
   line-height: var(--erp-bom-list-action-btn-line-height) !important;
 }
 

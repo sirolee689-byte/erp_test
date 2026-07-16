@@ -83,6 +83,7 @@
         <template #default="{ row }">
           <ErpTableActions v-if="String(row?.pass ?? '').trim() === '0'">
             <el-button
+              v-if="$isErpSuperAdmin()"
               v-permission="'audit'"
               type="success"
               plain
@@ -103,7 +104,7 @@
           </ErpTableActions>
           <ErpTableActions v-else-if="String(row?.pass ?? '').trim() === '1'">
             <el-button
-              v-permission="'audit'"
+              v-permission="'unaudit'"
               type="warning"
               plain
               data-testid="btn-un-audit"

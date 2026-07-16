@@ -189,6 +189,8 @@
             show-checkbox
             :props="{ label: 'label', children: 'children' }"
             default-expand-all
+            :check-on-click-node="false"
+            :check-on-click-leaf="false"
             @check="onPermTreeCheck"
             @node-click="onPermNodeClick"
           />
@@ -217,6 +219,7 @@
               <el-checkbox label="edit">编辑</el-checkbox>
               <el-checkbox label="delete">删除</el-checkbox>
               <el-checkbox label="audit">审核</el-checkbox>
+              <el-checkbox label="unaudit">反审</el-checkbox>
               <el-checkbox label="review">复核</el-checkbox>
               <el-checkbox label="unreview">反复核</el-checkbox>
               <el-checkbox label="price">单价</el-checkbox>
@@ -482,7 +485,7 @@ function onPermFullAccessChange() {
 }
 
 /** 左侧树勾选变化：同步「已授权 path」集合，新勾选的 path 默认 all */
-function onPermTreeCheck() {
+function onPermTreeCheck(data) {
   if (permFullAccess.value) return
   nextTick(() => {
     const paths = new Set(collectCheckedPermPaths())
@@ -493,10 +496,17 @@ function onPermTreeCheck() {
     }
     for (const path of paths) {
       if (!(path in permActionsByPath)) {
-        permActionsByPath[path] = ['all']
+        // 新勾选菜单只给查看，其他操作必须由右侧明确勾选。
+        permActionsByPath[path] = ['view']
       }
     }
-    if (permSelectedPath.value && !paths.has(permSelectedPath.value)) {
+    const checkedPath = String(data?.path ?? '').trim()
+    if (checkedPath && paths.has(checkedPath)) {
+      if (permSelectedPath.value && permSelectedPath.value !== checkedPath) {
+        flushSelectedPathToStore()
+      }
+      permSelectedPath.value = checkedPath
+    } else if (permSelectedPath.value && !paths.has(permSelectedPath.value)) {
       permSelectedPath.value = ''
     }
     hydrateSelectedPathActionsUi()

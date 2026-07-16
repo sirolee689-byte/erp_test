@@ -10,7 +10,7 @@
 - 回收站：查询参数 **`recycled=1`**，仅 **`del=1`** 的记录；前端「回收站」开关打开时启用；支持同一套关键字搜索。
 - 审核 / 反审：`PUT /api/inventory/color-code/audit`、`PUT /api/inventory/color-code/unaudit`，body `{ code }`；更新 **`pass`** 并写 **`edittime`**（业务表审计字段，见 `CONTEXT.md` 第三节）。
 - 逻辑删除 / 恢复：`DELETE /api/inventory/color-code/:code` 将 **`del` 置为 `1`** 并写入 **`deltime`**；`PUT /api/inventory/color-code/restore` body `{ code }` 将 **`del` 置为 `0`** 并写入 **`edittime`**。**已审核（`pass=1`）不可软删**。
-- 回收站彻底删除：`DELETE /api/inventory/color-code/:code/permanent`，**仅当 `del=1`** 时物理删除该行。
+- 回收站彻底删除：`DELETE /api/inventory/color-code/:code/permanent`，**仅当 `del=1` 且当前用户 `UB_ERP_User.is_admin=1`** 时物理删除该行。
 - 表格列：录入时间、颜色编码（加粗）、名称(中文)、审核状态、操作列（未审视图含「编辑」）。
 
 ## 数据库说明

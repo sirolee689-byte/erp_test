@@ -154,6 +154,7 @@ import {
 import { useTagsViewStore } from '@/store/modules/tagsView'
 import { useUiDensity } from '@/composables/useUiDensity'
 import { useUiTheme } from '@/composables/useUiTheme'
+import { runWithoutCloseGuard, useErpBrowserCloseGuard } from '@/composables/useErpBrowserCloseGuard'
 import ErpAppMain from './ErpAppMain.vue'
 import ErpSidebar from './ErpSidebar.vue'
 import ErpListRowContextMenu from '@/components/erp/ErpListRowContextMenu.vue'
@@ -165,6 +166,9 @@ import { ArrowDown, Edit, Expand, Fold, SwitchButton, UserFilled } from '@elemen
 
 const route = useRoute()
 const router = useRouter()
+
+/** 主壳浏览器关页确认；右键/深链副标签与独立窗不拦 */
+useErpBrowserCloseGuard()
 
 const erpGlobalContextMenuRef = ref(null)
 provide(ERP_CONTEXT_MENU_KEY, {
@@ -366,11 +370,11 @@ function clearAuthStorage() {
  * 执行退出登录（供“菜单退出”和“改密成功强制退出”复用）
  */
 async function doLogout() {
-  // 关键：清理缓存（把 token 和用户信息删掉）
-  clearAuthStorage()
-
-  // 关键：强制跳转到登录页，不给留在后台的机会
-  await router.push('/login')
+  // 主动退出：关掉关页守卫，避免叠浏览器「离开此网站」
+  await runWithoutCloseGuard(async () => {
+    clearAuthStorage()
+    await router.push('/login')
+  })
 }
 
 /**

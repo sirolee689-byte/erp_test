@@ -107,6 +107,7 @@
                   <template v-if="showRecycle">
                     <el-button type="primary" plain :loading="busyId === row.id" @click="onRestore(row)">恢复</el-button>
                     <el-button
+                      v-if="$isErpSuperAdmin()"
                       v-permission="'delete'"
                       type="danger"
                       plain
@@ -119,6 +120,7 @@
                   <template v-else>
                     <el-button
                       v-if="showUnAudited && !passIsAudited(row)"
+                      v-permission="'audit'"
                       type="success"
                       plain
                       :loading="busyId === row.id"
@@ -128,6 +130,7 @@
                     </el-button>
                     <el-button
                       v-if="!showUnAudited && passIsAudited(row)"
+                      v-permission="'unaudit'"
                       type="warning"
                       plain
                       :loading="busyId === row.id"
