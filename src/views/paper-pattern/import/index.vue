@@ -917,7 +917,7 @@ async function loadMaterialBomFieldsForPreview() {
       ElMessage.warning(`材料主档字段：${m}`)
     } else if (codeList.length > 0 && Object.keys(rawByKey).length === 0) {
       ElMessage.warning(
-        'UB_ERP_Bom_000 未命中任何 ERP 编码（材料单位/损耗为空）。请在后端控制台查看 [paper-pattern-material-bom-fields] 库命中= 与请求示例编码是否一致。',
+        '未读取到可用的材料主档单位。请核对 ERP 编码是否存在，以及 UB_ERP_Bom_000 的材料单位是否已维护。',
       )
     }
 

@@ -15,7 +15,7 @@ import {
 } from './bomCostEnrichFromBom000.js'
 import {
   aggregateBomConsumptionFromFlat,
-  flattenBomPartsCostUsageFlatForBomCost,
+  flattenBomPartsCostUsageFlatForLegacyBomCost,
 } from './bomUsageFlatten.js'
 import { normKcaa01 } from './salesOrderSaveLogic.js'
 import { formatSalesOrderAuditTime } from './salesOrderPiBom.js'
@@ -248,7 +248,7 @@ async function rebuildPiConsumptionFromAllCost(pool, tx, piNo) {
 
 /**
  * 平铺用量 → UB_ERP_Bom_cost / pi_cost 落库 payload（与 POST /api/bom/usage-calc 一致，平铺不合并）
- * @param {any[]} flatForCost flattenBomPartsCostUsageFlatForBomCost 结果
+ * @param {any[]} flatForCost BOM 旧运算平铺结果
  * @param {string} productKcaa01 成品 pq，用于跳过树根行
  */
 export function buildPiCostInsertPayloadFromFlatUsage(flatForCost, productKcaa01) {
@@ -265,7 +265,7 @@ export function buildPiCostInsertPayloadFromFlatUsage(flatForCost, productKcaa01
  * @param {string} productKcaa01
  */
 export function buildPiCostInsertPayloadFromUsageTree(tree, productKcaa01) {
-  const flat = flattenBomPartsCostUsageFlatForBomCost(tree, null, [])
+  const flat = flattenBomPartsCostUsageFlatForLegacyBomCost(tree, null, [])
   return buildPiCostInsertPayloadFromFlatUsage(flat, productKcaa01)
 }
 
@@ -277,7 +277,7 @@ export function buildPiCostInsertPayloadFromUsageTree(tree, productKcaa01) {
  * @param {{ uidInt: number | null, uname: string | null, utruename: string | null }} actor
  */
 async function buildPiCostRowsFromTree(pool, tree, productKcaa01, actor, orderQty) {
-  const flatForPiCost = flattenBomPartsCostUsageFlatForBomCost(tree, null, [])
+  const flatForPiCost = flattenBomPartsCostUsageFlatForLegacyBomCost(tree, null, [])
   const topLevelPrefixes = await fetchTopLevelFinishedBomCodeFlag5Prefixes(pool)
   const hierarchyMeta = collectPiCostHierarchyMetaFromTree(tree, topLevelPrefixes)
   const payload = buildPiCostInsertPayloadFromFlatUsage(flatForPiCost, productKcaa01)

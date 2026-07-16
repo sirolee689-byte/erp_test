@@ -304,7 +304,7 @@
 | **主 BOM** | `UB_ERP_Bom_000` + `UB_ERP_Bom_parts`；库存标准 BOM 资料 | PI 销售 BOM |
 | **销售 BOM（PI BOM）** | `UB_ERP_Bom_Sales`（**一行成品 BOM 头**）+ `UB_ERP_Bom_Sales_list`（**该头下全部子编码/配件**，关联方式同 `UB_ERP_Bom_parts`）；**本 PI 可改**，与主 BOM 独立 | 主 BOM、物料单结果表 |
 | **同步 BOM** | 销售明细 Tab「操作」**手动**触发：将**指定明细行**对应成品从 **主 BOM** 拉到本 PI 的 `UB_ERP_Bom_Sales*`；**不点则维持 PI 内原样** | 保存、一键运算 |
-| **一键运算** | 在 **PI 销售 BOM**（`UB_ERP_Bom_Sales_list`）上做与 BOM 资料 **成本运算用量表** 同类运算（同隐藏前缀、同平铺乘算规则）；结果写入 `UB_ERP_Bom_pi_cost` / `UB_ERP_Bom_pi_consumption`；**不乘订货数量**；list 无 BAG/TAG/RMP 父行时从 **虚拟根父键** 展开三棵子树 | 保存、同步 BOM |
+| **一键运算** | 在 **PI 销售 BOM**（`UB_ERP_Bom_Sales_list`）上做 BOM 资料**一键运算（旧）**口径：同隐藏前缀，且 `CUT-` 中间层参与路径逐层乘算；结果写入 `UB_ERP_Bom_pi_cost` / `UB_ERP_Bom_pi_consumption`；**不乘订货数量**；list 无 BAG/TAG/RMP 父行时从 **虚拟根父键** 展开三棵子树 | 保存、同步 BOM |
 | **物料单（运算结果）** | 仅 **一键运算之后** 写入 `UB_ERP_Bom_pi_cost` / `UB_ERP_Bom_pi_consumption`；**仓库、采购、出入库等全系统订料口径** | 销售 BOM 配件表 |
 | **订货数量** | 仅存订单明细；**不参与** 运算写入；备料展示 **用量 × 订货数量**（按款） | 结构用量 |
 | **运算状态** | 主表概念：**已运算** / **未运算**（列名实现探测，如 `isok`）；**未运算** 时物料单无效，**禁止** 下游引用 | 审核 pass |
@@ -404,8 +404,8 @@
 
 **散件判定**：`UB_ERP_Bom_code` 全部 `copen=1` 且 `flag5` 非空为排除前缀；明细编码不命中任一排除前缀 → 散件行；订单含散件 → `hasSpareParts=true`，显示散件按钮。**纯散件单**（`isPureSpareOrder`）只显示散件按钮、不显示一键运算；**混单**须先一键运算整款（整款 `pi_cost` 就绪后 `canAddSpareUsage=true`）再补散件。实现：`server/salesOrderSpareParts.js` / `server/salesOrderSpareUsageService.js`。
 
-**物料单**：`pi_cost` 同 BOM **成本运算用量表**（数据源为 **PI BOM list**，隐藏前缀与 BOM 资料一致）；`pi_consumption` = **`pi_cost` 按子件编码 + `Describe`（搭配）** 合并。**运算不写订货数量**；展示/订料时 **× 该款订货数量**。
-**pi_cost 落库规则**：与 BOM 资料 **用量运算 → UB_ERP_Bom_cost** 同链路（`flattenBomPartsCostUsageFlatForBomCost` + 隐藏前缀 + 跳过成品根行，**平铺不合并**）；**不再**按 `UB_ERP_Bom_Sales_list.id` 二次去重。隐藏前缀里普通 `RP-` 材料必须写入，仅 `RP-PQ` 结构行不写入。PI BOM 须先 **同步 BOM**（按旧系统口径重建 list：查到几条写几条，过滤 `UB_ERP_Bom_code.flag5 + '-'` 结构行但保留 `CUT-` 和 `RP-`，其中 `RP-PQ` 仍过滤），否则脏数据会导致 `pi_cost` 行数与 `UB_ERP_Bom_cost` 不一致。实现：`server/salesOrderCalculateService.js`。
+**物料单**：`pi_cost` 按 BOM **一键运算（旧）**口径（数据源为 **PI BOM list**，隐藏前缀与 BOM 资料一致，`CUT-` 中间层参与路径逐层乘算）；`pi_consumption` = **`pi_cost` 按子件编码 + `Describe`（搭配）** 合并。**运算不写订货数量**；展示/订料时 **× 该款订货数量**。
+**pi_cost 落库规则**：销售订单一键运算使用 BOM 资料**一键运算（旧）**的 `flattenBomPartsCostUsageFlatForLegacyBomCost`：`CUT-` 中间层参与路径逐层乘算；其余隐藏前缀、跳过成品根行、**平铺不合并**规则不变。**不再**按 `UB_ERP_Bom_Sales_list.id` 二次去重。隐藏前缀里普通 `RP-` 材料必须写入，仅 `RP-PQ` 结构行不写入。PI BOM 须先 **同步 BOM**（按旧系统口径重建 list：查到几条写几条，过滤 `UB_ERP_Bom_code.flag5 + '-'` 结构行但保留 `CUT-` 和 `RP-`，其中 `RP-PQ` 仍过滤），否则脏数据会导致 `pi_cost` 行数与 BOM 旧运算结果不一致。实现：`server/salesOrderCalculateService.js`。
 **pi_cost 专用字段**（不改用量行数）：`top_kcaa01/02` = PI BOM **第一层**（成品头直下）且命中 **UB_ERP_Bom_code** `flag5`（排除 id=3 OUT、id=12 CUT）的节点作为子树锚点，其下全部子件（含裁片下 `RP-*` 等材料）**继承**该锚点；**深层**命中 `flag5` 不新建锚点（避免 `RP-0030/-` 误写自身）。**散件单**（直接 BOM、非整款 BAG/TAG 子树）第一层即散件本身时，`top_kcaa01` 可为自身。`t_kcaa01/02` = 直接父编码/名称（父即锚点时留空）；`t_kcaa03~11/14/15/25~27` = 直接父行 `UB_ERP_Bom_Sales_list` 同名 `kcaa*`（树父节点复制，与 pi_cost 自身 `kcaa*` 子件字段分开）；`temp` = 该款销售明细 `UB_ERP_Sales_order_list.xsak03`（同 `pq` 下各行相同）；`isok=1`、`pass='1'`、`kcac07=0`、`kcac08=kcac06+kcac07`、`kcaa07/08=0`。`UB_ERP_Bom_cost.top_kcaa01` 仍为直接父，**勿混用**。
 **入口与审核**：销售订单 **一键运算** 与 **增加散件单用量** 只放在销售订单列表第一列「操作」中；查看弹窗与编辑页不再放运算入口。已审核与未审核订单都可以执行；回收站订单不可操作。
 **PX 规则**：销售订单一键运算写 `UB_ERP_Bom_pi_cost.px`，规则照 BOM 资料：子件 `kcaa01` 精确匹配 `UB_ERP_Bom_000.kcaa01` 取 `kcaa05`，再匹配 `UB_ERP_Stocks_material.code`（旧表名 `Bom_material`）取 `px`；找不到则 `px` 留空。

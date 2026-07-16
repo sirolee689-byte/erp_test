@@ -305,19 +305,6 @@
                       审核
                     </el-button>
                     <el-button
-                      v-if="showUnAudited && !rowIsAudited(row) && row.isNeedCalc && isSuperAdmin"
-                      v-permission="'edit'"
-                      type="warning"
-                      plain
-                      :loading="busyLegacyUsageCalcSystemcode === row.systemcode"
-                      :disabled="
-                        !String(row.systemcode ?? '').trim() || row.usageCalcStatus === 'none'
-                      "
-                      @click="onOneClickLegacyUsageCalc(row)"
-                    >
-                      一键运算(旧)
-                    </el-button>
-                    <el-button
                       v-if="!showUnAudited && rowIsAudited(row)"
                       v-permission="'audit'"
                       type="warning"
@@ -1695,23 +1682,6 @@ const showUnAudited = ref(false)
 /** 回收站视图（与「显示未审核」互斥） */
 const showRecycle = ref(false)
 
-/** 超级管理员专用旧运算入口：显示层兼容旧登录缓存，后端仍会实时读库拦截。 */
-const isSuperAdmin = computed(() => {
-  try {
-    const raw = localStorage.getItem('erp_user')
-    if (!raw) return false
-    const user = JSON.parse(raw)
-    return (
-      Number(user?.is_admin) === 1
-      || Number(user?.IsAdmin) === 1
-      || user?.isAdmin === true
-      || user?.IsAdmin === true
-    )
-  } catch {
-    return false
-  }
-})
-
 /** 主列表操作列：BOM 专用 4 列按钮布局，按实际最长按钮估宽，避免左侧大片留白 */
 const BOM_LIST_ACTIONS_COL_WIDTH_RECYCLE = 236
 const BOM_LIST_ACTIONS_COL_WIDTH_NORMAL = 252
@@ -1753,8 +1723,6 @@ const batchUsageCalcPendingCount = computed(() => batchUsageCalcPendingRows.valu
 const busyPropagateSystemcode = ref('')
 /** 列表行正在「一键运算」 */
 const busyUsageCalcSystemcode = ref('')
-/** 列表行正在「一键运算(旧)」 */
-const busyLegacyUsageCalcSystemcode = ref('')
 /** 列表行正在「复制到新增」加载 */
 const busyCopySystemcode = ref('')
 
@@ -2429,7 +2397,7 @@ async function postBomUsageCalcApi(systemcode, hidePrefixes) {
 }
 
 /** @param {string} systemcode @param {string[]} hidePrefixes */
-async function postBomLegacyUsageCalcApi(systemcode, hidePrefixes) {
+async function postBomListUsageCalcApi(systemcode, hidePrefixes) {
   const res = await axios.post('/api/bom/usage-calc-legacy', { systemcode, hidePrefixes })
   return res.data
 }
@@ -4852,7 +4820,10 @@ async function onPropagateMaster(row) {
   }
 }
 
-/** 列表「一键运算」：等同详情 BOM用量表运算；已运算则确认后重新运算；成功后打开详情并切到成本 BOM 用量表 */
+/**
+ * 列表「一键运算」：采用 CUT 中间层倍率参与下层乘算的旧口径。
+ * 详情页、批量运算仍走普通口径，不能改到这里。
+ */
 async function onOneClickUsageCalc(row) {
   const sc = String(row?.systemcode ?? '').trim()
   const code = String(row?.code ?? row?.kcaa01 ?? '').trim()
@@ -4873,8 +4844,8 @@ async function onOneClickUsageCalc(row) {
   try {
     await ElMessageBox.confirm(
       isRecalc
-        ? `【物料编码 ${code}】已有运算结果，将删除旧 UB_ERP_Bom_cost 数据后重新运算并覆盖。是否继续？`
-        : `将对【物料编码 ${code}】按配件明细递归运算并写入 UB_ERP_Bom_cost（隐藏前缀与当前页配置一致）。是否继续？`,
+        ? `【物料编码 ${code}】已有运算结果，将按配件明细递归重新运算并覆盖。CUT- 中间层数量会参与下层逐层乘算，是否继续？`
+        : `将对【物料编码 ${code}】按配件明细递归运算并写入 UB_ERP_Bom_cost。CUT- 中间层数量会参与下层逐层乘算，是否继续？`,
       isRecalc ? '确认重新运算' : '确认运算',
       {
         type: 'warning',
@@ -4890,7 +4861,7 @@ async function onOneClickUsageCalc(row) {
   bomUsageTreeError.value = ''
   try {
     const hidePrefixes = normalizeBomCostHidePrefixes(BOM_COST_BUILTIN_HIDE_PREFIXES)
-    const body = await postBomUsageCalcApi(sc, hidePrefixes)
+    const body = await postBomListUsageCalcApi(sc, hidePrefixes)
     if (!body?.success) {
       const msg = String(body?.msg ?? 'UB_ERP_Bom_cost写入失败')
       ElMessage.error(msg)
@@ -4910,65 +4881,6 @@ async function onOneClickUsageCalc(row) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '运算失败'))
   } finally {
     busyUsageCalcSystemcode.value = ''
-    bomUsageTreeLoading.value = false
-  }
-}
-
-/** 列表「一键运算(旧)」：仅超级管理员可用；CUT- 中间层数量按旧口径参与下层递归乘算。 */
-async function onOneClickLegacyUsageCalc(row) {
-  const sc = String(row?.systemcode ?? '').trim()
-  const code = String(row?.code ?? row?.kcaa01 ?? '').trim()
-  const status = String(row?.usageCalcStatus ?? 'none')
-  if (!sc) {
-    ElMessage.warning('缺少 systemcode，无法运算')
-    return
-  }
-  if (!code) {
-    ElMessage.warning('当前行无物料编码，无法运算')
-    return
-  }
-  if (status === 'none') {
-    ElMessage.warning('该款不需运算')
-    return
-  }
-  try {
-    await ElMessageBox.confirm(
-      `将按旧口径重写【物料编码 ${code}】的 UB_ERP_Bom_cost：CUT- 中间层数量会参与下层逐层乘算。现有成本结果将被覆盖，是否继续？`,
-      '确认一键运算(旧)',
-      {
-        type: 'warning',
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-      },
-    )
-  } catch {
-    return
-  }
-
-  busyLegacyUsageCalcSystemcode.value = sc
-  bomUsageTreeLoading.value = true
-  bomUsageTreeError.value = ''
-  try {
-    const hidePrefixes = normalizeBomCostHidePrefixes(BOM_COST_BUILTIN_HIDE_PREFIXES)
-    const body = await postBomLegacyUsageCalcApi(sc, hidePrefixes)
-    if (!body?.success) {
-      ElMessage.error(String(body?.msg ?? 'UB_ERP_Bom_cost写入失败'))
-      return
-    }
-    await loadDetailDialog(row)
-    if (detailError.value || !bomBasic.value) {
-      await loadData()
-      return
-    }
-    applyBomUsageCalcResult(body, sc)
-    detailActiveTab.value = 'costBomUsage'
-    const total = Number(body.total ?? 0)
-    ElMessage.success(`旧口径运算完成；UB_ERP_Bom_cost ${Number.isFinite(total) ? total : 0} 条`)
-    await loadData()
-  } catch (e) {
-    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '旧口径运算失败'))
-  } finally {
-    busyLegacyUsageCalcSystemcode.value = ''
     bomUsageTreeLoading.value = false
   }
 }

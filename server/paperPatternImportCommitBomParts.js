@@ -100,11 +100,16 @@ export function parsePaperPatternQty(raw) {
 }
 
 /**
- * CUT 下子件 UB_ERP_Bom_parts.kcac04：取 CUT 列表「单位用量」（非 CUT 预览行的数量，亦非物料表用量）
+ * CUT 下 Material 子件 UB_ERP_Bom_parts.kcac04 = 单位用量 ÷ 数量（六位四舍五入）
+ * 数量缺失或 ≤0 时除数按 1，避免除零。
  * @param {unknown} unitConsumptionRaw CUT 行 unitConsumption
+ * @param {unknown} [quantityRaw] CUT 行 quantity
  */
-export function cutChildKcac04FromUnitConsumption(unitConsumptionRaw) {
-  return bomPartRound6(parsePaperPatternQty(unitConsumptionRaw))
+export function cutChildKcac04FromUnitConsumption(unitConsumptionRaw, quantityRaw) {
+  const unit = parsePaperPatternQty(unitConsumptionRaw)
+  const qty = parsePaperPatternQty(quantityRaw)
+  const divisor = qty > 0 ? qty : 1
+  return bomPartRound6(unit / divisor)
 }
 
 /**
@@ -401,7 +406,7 @@ export async function writePaperPatternBomPartsInTx(tx, pool, p) {
       const key = erpCodeLookupKey(code)
       const row = key ? bomMap.get(key) : null
       const loss = resolveMaterialWastageFraction(m.wastageFraction, row?.kcaa33)
-      const kcac04Child = cutChildKcac04FromUnitConsumption(c.unitConsumption)
+      const kcac04Child = cutChildKcac04FromUnitConsumption(c.unitConsumption, c.quantity)
       const remark = String(m.remark ?? '').trim()
       const describeMat = resolveCutDescribeForBomParts(cutSeq, c.matching, cutMatchingByMajor)
       const globalSeq = key ? materialGlobalSeqMap.get(key) : null

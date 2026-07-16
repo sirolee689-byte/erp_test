@@ -9,7 +9,7 @@ import {
   resolveActorAuditTripletFromReq,
 } from '../businessAuditFields.js'
 import { writeLog } from '../operationLogWriter.js'
-import { getSysUsersColumnsMeta, resolveSysUserIsAdminByUserId } from '../sysUsersDb.js'
+import { getSysUsersColumnsMeta } from '../sysUsersDb.js'
 import {
   BOM_CONSUMPTION_FROM,
   BOM_COST_FROM,
@@ -2303,18 +2303,6 @@ async function runBomUsageCalcForHead(pool, head, hidePrefixes, actor, legacyCut
   }
 }
 
-/** 旧一键运算只允许超级管理员，必须实时读库而非相信前端隐藏。 */
-async function assertLegacyBomUsageCalcAdmin(pool, req) {
-  const actor = await resolveActorAuditTripletFromReq(pool, req)
-  const uid = actor.uidInt ?? req?.user?.userId ?? req?.user?.UserID
-  if (!(await resolveSysUserIsAdminByUserId(pool, uid))) {
-    const err = new Error('仅超级管理员可使用一键运算(旧)')
-    err.status = 403
-    throw err
-  }
-  return actor
-}
-
 /**
  * 配件明细保存后，只清当前 BOM 的成本用量缓存。
  * 已审核 BOM 不允许编辑，所以这里不额外反审，也不递归影响上级 BOM。
@@ -2508,7 +2496,7 @@ app.post('/api/bom/usage-calc', async (req, res) => {
 })
 
 /**
- * 旧系统兼容运算：仅 CUT- 中间层倍率与普通一键运算不同，仍覆盖当前 pq + sid 的成本缓存。
+ * BOM 主列表一键运算：CUT- 中间层倍率参与下层逐层乘算，仍覆盖当前 pq + sid 的成本缓存。
  * POST /api/bom/usage-calc-legacy
  */
 app.post('/api/bom/usage-calc-legacy', async (req, res) => {
@@ -2522,7 +2510,7 @@ app.post('/api/bom/usage-calc-legacy', async (req, res) => {
       Array.isArray(req.body?.hidePrefixes) ? req.body.hidePrefixes : [],
     )
     const pool = await getPool()
-    const actor = await assertLegacyBomUsageCalcAdmin(pool, req)
+    const actor = getActorAuditTripletFromReq(req)
     const head = await fetchBomUsageHeadBySystemcode(pool, systemcode)
     if (!head) {
       res.status(404).json({ success: false, msg: '未找到对应主档或主档缺少 systemcode', total: 0 })
@@ -2539,10 +2527,6 @@ app.post('/api/bom/usage-calc-legacy', async (req, res) => {
       bomCost: calc.bomCost,
     })
   } catch (err) {
-    if (Number(err?.status) === 403) {
-      res.status(403).json({ success: false, msg: String(err.message), total: 0 })
-      return
-    }
     if (err?.code === 'BOM_CYCLE') {
       res.status(409).json({ success: false, msg: String(err.message ?? '检测到BOM循环引用'), total: 0 })
       return

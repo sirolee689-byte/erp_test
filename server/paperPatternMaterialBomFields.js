@@ -2,8 +2,8 @@
  * 纸格导入：按 ERP 编码批量读取 UB_ERP_Bom_000 主档字段（只读，不写库）
  * kcaa04、kcaa33、kcaa02_en、location、cost_price（采购价）、sale_price（BOM价）、remark
  * 匹配：全码（含 /）精确 kcaa01；基码则 kcaa01 = 基码 OR kcaa01 LIKE「基码/%」
- * 取 id 最大且 kcaa04、kcaa33 同时有效的一条。
- * 注意：本接口为「预览补全」，不按 del 过滤；正式导入 UB_ERP_Bom_parts 补全复用 fetchKcaa04Kcaa33ByKcaa01In。
+ * 预览取 id 最大且 kcaa04 有效的一条，kcaa33 可为空；正式导入仍只取 kcaa04、kcaa33 同时有效的记录。
+ * 注意：本接口不按 del 过滤；正式导入 UB_ERP_Bom_parts 补全复用 fetchKcaa04Kcaa33ByKcaa01In。
  */
 import sql from 'mssql'
 import { getPool } from './db.js'
@@ -55,6 +55,11 @@ export function rowQualifiesMaterialBomFields(kcaa04, kcaa33) {
   return Number.isFinite(Number(kcaa33))
 }
 
+/** Material 预览仅需主档单位，损耗为空时交由页面填写实际值。 */
+export function rowQualifiesMaterialBomPreviewFields(kcaa04) {
+  return !!String(kcaa04 ?? '').trim()
+}
+
 /**
  * 请求编码 → UB_ERP_Bom_000 查询模式（参数侧已归一化，列侧用 b.kcaa01 直比以走索引）
  * @param {unknown} baseDisplay
@@ -88,10 +93,13 @@ export function materialBomRowMatchesRequest(kcaa01FromDb, requestDisplay) {
 /**
  * @param {Record<string, unknown>} r
  */
-function mapBom000RowToMaterialFields(r) {
+function mapBom000RowToMaterialFields(r, { requireWastage = true } = {}) {
   const kcaa04 = String(r.kcaa04 ?? '').trim()
   const kcaa33 = parseBom000FloatOrNull(r.kcaa33f)
-  if (!rowQualifiesMaterialBomFields(kcaa04, kcaa33)) return null
+  const qualifies = requireWastage
+    ? rowQualifiesMaterialBomFields(kcaa04, kcaa33)
+    : rowQualifiesMaterialBomPreviewFields(kcaa04)
+  if (!qualifies) return null
   return {
     kcaa04,
     kcaa33,
@@ -108,7 +116,7 @@ function mapBom000RowToMaterialFields(r) {
  * @param {import('mssql').ConnectionPool | import('mssql').Transaction} poolOrTx
  * @param {string[]} chunk 归一化编码
  */
-async function fetchMaterialBomFieldCandidatesForChunk(poolOrTx, chunk) {
+async function fetchMaterialBomFieldCandidatesForChunk(poolOrTx, chunk, { requireWastage = true } = {}) {
   const exactSet = new Set()
   const likeSet = new Set()
   for (const code of chunk) {
@@ -139,12 +147,15 @@ async function fetchMaterialBomFieldCandidatesForChunk(poolOrTx, chunk) {
     idx += 1
   }
 
+  const requiredFieldSql = [
+    "LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.kcaa04, N'')))) <> N''",
+    requireWastage ? `${KCAA33F_SQL} IS NOT NULL` : '',
+  ].filter(Boolean).join('\n        AND ')
   const rs = await rq.query(`
       SELECT ${MATERIAL_BOM_FIELDS_SELECT}
       FROM ${INV_BOM_MASTER_FROM} AS b
       WHERE (${orParts.join(' OR ')})
-        AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.kcaa04, N'')))) <> N''
-        AND ${KCAA33F_SQL} IS NOT NULL
+        AND ${requiredFieldSql}
       ORDER BY b.id DESC
     `)
   return rs.recordset ?? []
@@ -163,7 +174,7 @@ async function fetchMaterialBomFieldCandidatesForChunk(poolOrTx, chunk) {
  *   remark: string,
  * }>>} key = erpCodeLookupKey(请求编码)
  */
-export async function fetchKcaa04Kcaa33ByKcaa01In(poolOrTx, erpDisplays) {
+async function fetchMaterialBomFieldsByKcaa01In(poolOrTx, erpDisplays, { requireWastage = true } = {}) {
   /** @type {Map<string, {
    *   kcaa04: string,
    *   kcaa33: number | null,
@@ -180,7 +191,7 @@ export async function fetchKcaa04Kcaa33ByKcaa01In(poolOrTx, erpDisplays) {
   const t0 = Date.now()
   for (let i = 0; i < uniq.length; i += MATERIAL_BOM_FIELDS_BATCH_SIZE) {
     const chunk = uniq.slice(i, i + MATERIAL_BOM_FIELDS_BATCH_SIZE)
-    const candidates = await fetchMaterialBomFieldCandidatesForChunk(poolOrTx, chunk)
+    const candidates = await fetchMaterialBomFieldCandidatesForChunk(poolOrTx, chunk, { requireWastage })
     for (const reqCode of chunk) {
       const lk = erpCodeLookupKey(reqCode)
       if (!lk || out.has(lk)) continue
@@ -195,7 +206,7 @@ export async function fetchKcaa04Kcaa33ByKcaa01In(poolOrTx, erpDisplays) {
         bestRow = r
       }
       if (!bestRow) continue
-      const mapped = mapBom000RowToMaterialFields(bestRow)
+      const mapped = mapBom000RowToMaterialFields(bestRow, { requireWastage })
       if (mapped) out.set(lk, mapped)
     }
   }
@@ -212,6 +223,16 @@ export async function fetchKcaa04Kcaa33ByKcaa01In(poolOrTx, erpDisplays) {
     )
   }
   return out
+}
+
+/** 正式导入补全：仅使用单位、损耗都有效的主档记录。 */
+export async function fetchKcaa04Kcaa33ByKcaa01In(poolOrTx, erpDisplays) {
+  return fetchMaterialBomFieldsByKcaa01In(poolOrTx, erpDisplays, { requireWastage: true })
+}
+
+/** 解析效果预览：单位有效即可回填，损耗为空时不误报为编码不存在。 */
+export async function fetchMaterialBomPreviewFieldsByKcaa01In(poolOrTx, erpDisplays) {
+  return fetchMaterialBomFieldsByKcaa01In(poolOrTx, erpDisplays, { requireWastage: false })
 }
 
 /**
@@ -250,7 +271,7 @@ export async function handlePostPaperPatternMaterialBomFields(req, res) {
     )
 
     const pool = await getPool()
-    const map = await fetchKcaa04Kcaa33ByKcaa01In(pool, displaysForDb)
+    const map = await fetchMaterialBomPreviewFieldsByKcaa01In(pool, displaysForDb)
     const byKey = {}
     const debugItems = []
     for (const [k, v] of map.entries()) {

@@ -64,10 +64,14 @@ test('parsePaperPatternQty', () => {
   assert.equal(parsePaperPatternQty(''), 0)
 })
 
-test('cutChildKcac04FromUnitConsumption 取 CUT 单位用量', () => {
-  assert.equal(cutChildKcac04FromUnitConsumption('0.12'), 0.12)
-  assert.equal(cutChildKcac04FromUnitConsumption('1.23456789'), 1.234568)
-  assert.equal(cutChildKcac04FromUnitConsumption(''), 0)
+test('cutChildKcac04FromUnitConsumption 单位用量÷数量', () => {
+  assert.equal(cutChildKcac04FromUnitConsumption('2.245677', '2'), 1.122839)
+  assert.equal(cutChildKcac04FromUnitConsumption('0.12', '1'), 0.12)
+  assert.equal(cutChildKcac04FromUnitConsumption('1.23456789', '1'), 1.234568)
+  // 数量缺失/≤0：除数按 1
+  assert.equal(cutChildKcac04FromUnitConsumption('0.12', ''), 0.12)
+  assert.equal(cutChildKcac04FromUnitConsumption('0.12', '0'), 0.12)
+  assert.equal(cutChildKcac04FromUnitConsumption('', '2'), 0)
 })
 
 test('parseAccessoryWastageFraction', () => {
