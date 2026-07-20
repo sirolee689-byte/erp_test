@@ -1,5 +1,5 @@
 /**
- * 操作员管理（旧版 UB_ERP_User + del/pass）：姓名取本表 truename；JOIN dbo.[UB_ERP_System_role]；编辑/反审/软删与规则 16 日志
+ * 操作员管理（旧版 UB_ERP_User + del/pass）：姓名取本表 truename；JOIN dbo.[NEW_UB_ERP_System_role]；编辑/反审/软删与规则 16 日志
  */
 import { sql } from './db.js'
 import { getActorAuditTripletFromReq } from './businessAuditFields.js'
@@ -97,11 +97,11 @@ function buildOperatorFromJoin(meta, qRoleId) {
   return qRoleId
     ? `
     FROM dbo.[UB_ERP_User] AS u
-    LEFT JOIN dbo.[UB_ERP_System_role] AS r ON u.${qRoleId} = r.RoleID
+    LEFT JOIN dbo.[NEW_UB_ERP_System_role] AS r ON u.${qRoleId} = r.RoleID
   `
     : `
     FROM dbo.[UB_ERP_User] AS u
-    LEFT JOIN dbo.[UB_ERP_System_role] AS r ON 1=0
+    LEFT JOIN dbo.[NEW_UB_ERP_System_role] AS r ON 1=0
   `
 }
 
@@ -212,7 +212,7 @@ async function assertWritableRoleIdLocal(pool, roleIdRaw) {
     return { ok: false, msg: 'RoleID 不合法（必须是正整数）' }
   }
   const chk = await pool.request().input('RoleID', sql.Int, roleId).query(`
-    SELECT TOP (1) RoleID FROM dbo.[UB_ERP_System_role] WHERE RoleID = @RoleID AND Status = 1
+    SELECT TOP (1) RoleID FROM dbo.[NEW_UB_ERP_System_role] WHERE RoleID = @RoleID AND Status = 1
   `)
   if (!chk.recordset?.[0]) return { ok: false, msg: '角色不存在或已禁用' }
   return { ok: true, roleId }

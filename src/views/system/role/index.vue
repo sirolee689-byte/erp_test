@@ -247,8 +247,12 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 import { Plus, Refresh, RefreshLeft, Setting } from '@element-plus/icons-vue'
 import menuDump from '../../../../erp_structure_dump.json'
-import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
+import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
 const { onErpListRowContextMenu } = useErpListRowContextMenu()
+
+const menuPath = 'system/role'
+const model = getPermissionModelFromStorage()
 
 /** 页面标题（与左侧菜单「角色管理」一致） */
 const pageTitle = '角色管理'
@@ -262,10 +266,21 @@ const errorMessage = ref('')
 /** 双视图：1=启用列表，0=回收站 */
 const selectedStatus = ref(1)
 
-const roleActionsColWidth = computed(() => {
-  if (Number(selectedStatus.value) === 1) return getErpTableActionsColMinWidth(3)
-  return getErpTableActionsColMinWidth(2)
-})
+const roleActionsColWidth = computed(() => getErpTableActionsColWidthByRows(roleList.value, getRoleRowActionLabels))
+
+/** 角色列表操作列按钮：与模板 v-if / v-permission 保持一致，用于估算列宽 */
+function getRoleRowActionLabels() {
+  const labels = []
+  if (Number(selectedStatus.value) === 1) {
+    if (hasPageAction(model, menuPath, 'edit')) labels.push('编辑')
+    if (hasPageAction(model, menuPath, 'audit')) labels.push('分配权限')
+    if (hasPageAction(model, menuPath, 'delete')) labels.push('禁用')
+  } else {
+    if (hasPageAction(model, menuPath, 'edit')) labels.push('恢复')
+    if (hasPageAction(model, menuPath, 'delete')) labels.push('删除')
+  }
+  return labels
+}
 
 /** 搜索关键字（模糊匹配角色名、描述） */
 const keyword = ref('')
@@ -286,7 +301,7 @@ const dialogTitle = computed(() => (dialogMode.value === 'edit' ? '编辑角色'
 
 /** 表单引用，用于 validate */
 const formRef = ref(null)
-/** 弹窗表单字段（与 UB_ERP_System_role 列对应） */
+/** 弹窗表单字段（与 NEW_UB_ERP_System_role 列对应） */
 const form = ref({
   RoleID: undefined,
   RoleName: '',
@@ -624,7 +639,7 @@ function collectCheckedPermPaths() {
 }
 
 /**
- * 从后端拉取 UB_ERP_System_role 分页数据
+ * 从后端拉取 NEW_UB_ERP_System_role 分页数据
  * 请求：GET /api/roles?page=&pageSize=&pass=&keyword=
  */
 async function loadRoles() {

@@ -3,11 +3,11 @@
 ### 1. 业务逻辑（白话版）
 - **这个功能是干嘛的？**：管理系统的“操作员账号”，可列表、查看、新增、编辑；**禁用**表示**反审核**（把 `pass` 写成 0）；**软删除**表示逻辑删除（把 `del` 写成 1 并记 `deltime`）；回收站里可**恢复**（`del` 回到 0）。
 - **谁会用？**：一般是管理员或人事/IT 人员（看你们公司权限怎么分）。
-- **旧版库（`uid+usercode+username` 且带 `del+pass`）**：列表「姓名」来自 **`UB_ERP_User.truename`**（不再关联 `UB_ERP_Hr_staff`）；角色名来自 **`UB_ERP_System_role.RoleName`**；默认只查 **`del=0`**；`status=0` 表示回收站 **`del=1`**。
+- **旧版库（`uid+usercode+username` 且带 `del+pass`）**：列表「姓名」来自 **`UB_ERP_User.truename`**（不再关联 `UB_ERP_Hr_staff`）；角色名来自 **`NEW_UB_ERP_System_role.RoleName`**；默认只查 **`del=0`**；`status=0` 表示回收站 **`del=1`**。
 
 ### 2. 数据库关联
 - **主表**：`UB_ERP_User`
-- **角色**：`UB_ERP_System_role`（`UB_ERP_User.RoleID` → `RoleName`）
+- **角色**：`NEW_UB_ERP_System_role`（`UB_ERP_User.RoleID` → `RoleName`）
 - **关键字段（旧版+v1.1.9）**
   - **`UserID`**：业务主键（列表 `row-key`、编辑/禁用/软删请求体均用此字段；表格不展示该列）。
   - **`uid`**：审计/人事关联列；与 `UserID` 并存时由后端写入**当前操作者**，不作行定位主键。

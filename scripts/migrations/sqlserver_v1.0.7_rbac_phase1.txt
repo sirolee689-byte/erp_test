@@ -7,9 +7,9 @@
   2) SSMS：连接到与 .env 中 DB_DATABASE 相同的数据库，打开本文件整段执行（可重复执行，尽量幂等）。
 
   脚本内容：
-  - 创建角色表 UB_ERP_System_role，并预设 Admin / Onduty / Viewer
+  - 创建角色表 NEW_UB_ERP_System_role，并预设 Admin / Onduty / Viewer
   - 为 UB_ERP_User 增加 RoleID，建立外键；历史用户默认绑定 Viewer
-  - 为 UB_ERP_System_role 增加 Permissions（NVARCHAR(MAX)，按钮级权限 JSON）
+  - 为 NEW_UB_ERP_System_role 增加 Permissions（NVARCHAR(MAX)，按钮级权限 JSON）
 
   扩展名为 .txt 是因为仓库 .gitignore 忽略了 *.sql，复制到 SSMS 后可按需改后缀执行
 */
@@ -17,28 +17,28 @@
 SET NOCOUNT ON;
 
 /* 1) 角色表 */
-IF OBJECT_ID(N'dbo.UB_ERP_System_role', N'U') IS NULL
+IF OBJECT_ID(N'dbo.NEW_UB_ERP_System_role', N'U') IS NULL
 BEGIN
-  CREATE TABLE dbo.UB_ERP_System_role (
+  CREATE TABLE dbo.NEW_UB_ERP_System_role (
     RoleID INT IDENTITY(1, 1) NOT NULL,
     RoleName NVARCHAR(50) NOT NULL,
     Description NVARCHAR(200) NULL,
-    Status INT NOT NULL CONSTRAINT DF_UB_ERP_System_role_Status DEFAULT (1),
+    Status INT NOT NULL CONSTRAINT DF_NEW_UB_ERP_System_role_Status DEFAULT (1),
     Permissions NVARCHAR(MAX) NULL,
-    CONSTRAINT PK_UB_ERP_System_role PRIMARY KEY (RoleID),
-    CONSTRAINT UQ_UB_ERP_System_role_RoleName UNIQUE (RoleName)
+    CONSTRAINT PK_NEW_UB_ERP_System_role PRIMARY KEY (RoleID),
+    CONSTRAINT UQ_NEW_UB_ERP_System_role_RoleName UNIQUE (RoleName)
   );
 END;
 
 /* 2) 预设角色 */
-IF NOT EXISTS (SELECT 1 FROM dbo.UB_ERP_System_role WHERE RoleName = N'Admin')
-  INSERT INTO dbo.UB_ERP_System_role (RoleName, Description, Status) VALUES (N'Admin', N'系统管理员', 1);
+IF NOT EXISTS (SELECT 1 FROM dbo.NEW_UB_ERP_System_role WHERE RoleName = N'Admin')
+  INSERT INTO dbo.NEW_UB_ERP_System_role (RoleName, Description, Status) VALUES (N'Admin', N'系统管理员', 1);
 
-IF NOT EXISTS (SELECT 1 FROM dbo.UB_ERP_System_role WHERE RoleName = N'Onduty')
-  INSERT INTO dbo.UB_ERP_System_role (RoleName, Description, Status) VALUES (N'Onduty', N'值班人员', 1);
+IF NOT EXISTS (SELECT 1 FROM dbo.NEW_UB_ERP_System_role WHERE RoleName = N'Onduty')
+  INSERT INTO dbo.NEW_UB_ERP_System_role (RoleName, Description, Status) VALUES (N'Onduty', N'值班人员', 1);
 
-IF NOT EXISTS (SELECT 1 FROM dbo.UB_ERP_System_role WHERE RoleName = N'Viewer')
-  INSERT INTO dbo.UB_ERP_System_role (RoleName, Description, Status) VALUES (N'Viewer', N'仅查看', 1);
+IF NOT EXISTS (SELECT 1 FROM dbo.NEW_UB_ERP_System_role WHERE RoleName = N'Viewer')
+  INSERT INTO dbo.NEW_UB_ERP_System_role (RoleName, Description, Status) VALUES (N'Viewer', N'仅查看', 1);
 
 /* 3) 用户表增加 RoleID */
 IF COL_LENGTH('dbo.UB_ERP_User', 'RoleID') IS NULL
@@ -51,7 +51,7 @@ UPDATE u
 SET u.RoleID = r.RoleID
 FROM dbo.UB_ERP_User AS u
 CROSS APPLY (
-  SELECT TOP (1) RoleID FROM dbo.UB_ERP_System_role WHERE RoleName = N'Viewer'
+  SELECT TOP (1) RoleID FROM dbo.NEW_UB_ERP_System_role WHERE RoleName = N'Viewer'
 ) AS r
 WHERE u.RoleID IS NULL;
 
@@ -59,13 +59,13 @@ WHERE u.RoleID IS NULL;
 IF NOT EXISTS (
   SELECT 1
   FROM sys.foreign_keys
-  WHERE name = N'FK_UB_ERP_User_UB_ERP_System_role_RoleID'
+  WHERE name = N'FK_UB_ERP_User_NEW_UB_ERP_System_role_RoleID'
     AND parent_object_id = OBJECT_ID(N'dbo.UB_ERP_User')
 )
 BEGIN
   ALTER TABLE dbo.UB_ERP_User
-  ADD CONSTRAINT FK_UB_ERP_User_UB_ERP_System_role_RoleID
-  FOREIGN KEY (RoleID) REFERENCES dbo.UB_ERP_System_role (RoleID);
+  ADD CONSTRAINT FK_UB_ERP_User_NEW_UB_ERP_System_role_RoleID
+  FOREIGN KEY (RoleID) REFERENCES dbo.NEW_UB_ERP_System_role (RoleID);
 END;
 
 /* 6) 非空约束（在数据已填充后） */
@@ -81,11 +81,11 @@ BEGIN
   ALTER TABLE dbo.UB_ERP_User ALTER COLUMN RoleID INT NOT NULL;
 END;
 
-/* 7) UB_ERP_System_role.Permissions：存角色菜单与按钮级权限 JSON（与 server/permissions.js 一致） */
-IF COL_LENGTH('dbo.UB_ERP_System_role', 'Permissions') IS NULL
+/* 7) NEW_UB_ERP_System_role.Permissions：存角色菜单与按钮级权限 JSON（与 server/permissions.js 一致） */
+IF COL_LENGTH('dbo.NEW_UB_ERP_System_role', 'Permissions') IS NULL
 BEGIN
-  ALTER TABLE dbo.UB_ERP_System_role ADD Permissions NVARCHAR(MAX) NULL;
+  ALTER TABLE dbo.NEW_UB_ERP_System_role ADD Permissions NVARCHAR(MAX) NULL;
   /* NULL 表示未配置；前后端解析时按「不限制全部菜单/操作」处理 */
 END;
 
-PRINT N'v1.0.7 RBAC 第一阶段：UB_ERP_System_role（含 Permissions）/ UB_ERP_User.RoleID 已就绪。';
+PRINT N'v1.0.7 RBAC 第一阶段：NEW_UB_ERP_System_role（含 Permissions）/ UB_ERP_User.RoleID 已就绪。';

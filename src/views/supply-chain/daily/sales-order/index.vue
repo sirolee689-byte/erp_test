@@ -786,6 +786,9 @@ import {
 } from '@/utils/erpNumberDisplay'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
 import ErpTableViewportHScroll from '@/components/erp/ErpTableViewportHScroll.vue'
+import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
+import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
+import { isErpSuperAdmin } from '@/utils/erpSuperAdmin'
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -807,6 +810,8 @@ defineOptions({ name: 'supply-chain-daily-sales-order' })
 const { onErpListRowContextMenu } = useErpListRowContextMenu()
 const { onErpModeBtnContextMenu } = useErpModeBtnContextMenu()
 const route = useRoute()
+const SO_MENU_PATH = 'supply-chain/daily/sales-order'
+const soPermissionModel = getPermissionModelFromStorage()
 const SALES_ORDER_WINDOW_REFRESH_KEY = 'erp:sales-order:list-refresh'
 const DEFAULT_CREATE_CUSTOMER_CODE = '7001'
 const DEFAULT_CREATE_CUSTOMER_NAME = 'PQD'
@@ -849,15 +854,36 @@ function getActionBarColWidth(buttonCount, options = {}) {
   const extra = Number(options.extraPx ?? 0)
   return Math.ceil(count * buttonWidth + Math.max(0, count - 1) * ACTION_BAR_GAP + ACTION_BAR_CELL_PAD_X + extra)
 }
-/** 主列表操作列：对齐 BOM 4 列紧凑钮，按视图估宽（含「增加散件单用量」等长文案） */
-const SO_LIST_ACTIONS_COL_WIDTH_RECYCLE = 236
-const SO_LIST_ACTIONS_COL_WIDTH_NORMAL = 280
-const SO_LIST_ACTIONS_COL_WIDTH_UNAUDITED = 300
-const salesOrderActionsColWidth = computed(() => {
-  if (showRecycle.value) return SO_LIST_ACTIONS_COL_WIDTH_RECYCLE
-  if (showUnAudited.value) return SO_LIST_ACTIONS_COL_WIDTH_UNAUDITED
-  return SO_LIST_ACTIONS_COL_WIDTH_NORMAL
-})
+
+/** 主列表操作列：按当前页实际可见按钮文案估宽（含权限），对齐采购订单 */
+const salesOrderActionsColWidth = computed(() =>
+  getErpTableActionsColWidthByRows(tableList.value, getSalesOrderRowActionLabels),
+)
+
+function getSalesOrderRowActionLabels(row) {
+  if (showRecycle.value) {
+    return [
+      hasPageAction(soPermissionModel, SO_MENU_PATH, 'edit') ? '恢复' : false,
+      isErpSuperAdmin() && hasPageAction(soPermissionModel, SO_MENU_PATH, 'delete') ? '彻底删除' : false,
+    ]
+  }
+  const labels = ['查看']
+  if (!row?.isPureSpareOrder && hasPageAction(soPermissionModel, SO_MENU_PATH, 'edit')) {
+    labels.push('一键运算')
+  }
+  if (row?.hasSpareParts && hasPageAction(soPermissionModel, SO_MENU_PATH, 'edit')) {
+    labels.push('增加散件单用量')
+  }
+  if (showUnAudited.value) {
+    if (!passIsAudited(row) && hasPageAction(soPermissionModel, SO_MENU_PATH, 'edit')) labels.push('编辑')
+    if (!passIsAudited(row) && hasPageAction(soPermissionModel, SO_MENU_PATH, 'audit')) labels.push('审核')
+    if (hasPageAction(soPermissionModel, SO_MENU_PATH, 'delete')) labels.push('删除')
+  } else if (passIsAudited(row) && hasPageAction(soPermissionModel, SO_MENU_PATH, 'unaudit')) {
+    labels.push('反审')
+  }
+  return labels
+}
+
 watch(salesOrderActionsColWidth, async () => {
   await nextTick()
   mainTableRef.value?.doLayout?.()

@@ -656,12 +656,11 @@ onBeforeUnmount(() => {
   background: #fff;
 }
 
+/* 抬头与采购订单情况表一致：上 LOGO、下地址/电话，整块居中（勿改回左右并排） */
 .report-header {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  min-height: 78px;
   text-align: center;
 }
 
@@ -671,16 +670,24 @@ onBeforeUnmount(() => {
   justify-content: center;
 }
 
+/* DIY：LOGO 最大宽/高，建议宽 200~320、高 40~64，与采购订单情况表同口径 */
 .logo {
-  max-width: 80px;
-  max-height: 52px;
+  max-width: var(--erp-history-price-logo-max-width, 260px);
+  max-height: var(--erp-history-price-logo-max-height, 48px);
   object-fit: contain;
+}
+
+.head-info {
+  width: 100%;
+  font-size: 14px;
+  line-height: 1.3;
+  text-align: center;
+  color: #000;
 }
 
 .head-info-html :deep(*) {
   margin-top: 0;
   margin-bottom: 0;
-  line-height: 1.15;
 }
 
 .head-info-placeholder {

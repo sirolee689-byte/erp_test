@@ -679,7 +679,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
 import { isErpSuperAdmin } from '@/utils/erpSuperAdmin'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
-import { getErpTableActionsColWidthByLabels } from '@/utils/erpTableActionsLayout'
+import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
 import { getStoredUiDensity, UI_DENSITY_COMFORTABLE } from '@/utils/uiDensity'
 import { createExpandPrefetch } from '@/utils/erpExpandPrefetch.js'
 import StockInMaterialTracePanel from './material-trace-panel.vue'
@@ -729,8 +729,9 @@ const showUnreviewed = ref(false)
 const showRecycle = ref(false)
 
 const stockInActionsColWidth = computed(() => {
-  const widths = list.value.map((row) => getStockInRowActionsWidth(row))
-  return Math.max(56, ...widths)
+  return getErpTableActionsColWidthByRows(list.value, getStockInRowActionLabels, {
+    comfortable: getStoredUiDensity() === UI_DENSITY_COMFORTABLE,
+  })
 })
 
 const listTableRef = ref(null)
@@ -2465,12 +2466,6 @@ function getStockInRowActionLabels(row) {
   if (canAudit(row) && hasPageAction(permissionModel.value, MENU_PATH, 'audit')) actionLabels.push('审核')
   if (canDelete(row) && hasPageAction(permissionModel.value, MENU_PATH, 'delete')) actionLabels.push('删除')
   return actionLabels
-}
-
-function getStockInRowActionsWidth(row) {
-  return getErpTableActionsColWidthByLabels(getStockInRowActionLabels(row), {
-    comfortable: getStoredUiDensity() === UI_DENSITY_COMFORTABLE,
-  })
 }
 
 async function fetchFilterRelatedParties(keyword = '') {

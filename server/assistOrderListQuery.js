@@ -167,6 +167,12 @@ export function buildAssistOrderListPagedSql(opts) {
           LTRIM(RTRIM(ISNULL(h.[closed], N''))) AS closed,
           LTRIM(RTRIM(ISNULL(h.[del], N''))) AS del,
           LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[systemcode], N'')))) AS systemCode,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(h.[addtime], N'')))) AS addtime,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(h.[edittime], N'')))) AS edittime,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(h.[uname], N'')))) AS uname,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(h.[utruename], N'')))) AS utruename,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(h.[upname], N'')))) AS upname,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(h.[uptruename], N'')))) AS uptruename,
           ISNULL(lineAgg.[itemCount], 0) AS itemCount,
           ISNULL(lineAgg.[totalQty], 0) AS totalQty,
           ISNULL(lineAgg.[taxIncludedTotal], 0) AS taxIncludedTotal,
@@ -193,6 +199,12 @@ export function buildAssistOrderListPagedSql(opts) {
             h.[closed],
             h.[del],
             h.[systemcode],
+            h.[addtime],
+            h.[edittime],
+            h.[uname],
+            h.[utruename],
+            h.[upname],
+            h.[uptruename],
             ROW_NUMBER() OVER (ORDER BY ${orderBy}) AS rn
           FROM ${HEADER_FROM} AS h
           WHERE 1 = 1

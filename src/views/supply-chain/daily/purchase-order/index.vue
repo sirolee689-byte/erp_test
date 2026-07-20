@@ -758,9 +758,10 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ErpTableViewportHScroll from '@/components/erp/ErpTableViewportHScroll.vue'
-import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
 import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
+import { isErpSuperAdmin } from '@/utils/erpSuperAdmin'
 import BuyOrderMaterialTracePanel from './material-trace-window.vue'
 import {
   BUY_BATCH_MSG_ACCEPTED,
@@ -839,10 +840,26 @@ const taxIncludedPricePrecision = computed(() => (model.mode === 'full' ? 4 : 2)
 const currentPageAuditableRows = computed(() => rows.value.filter((row) => String(row?.pass ?? '') !== '1' && !recycled.value && showUnaudited.value))
 
 const buyOrderActionsColWidth = computed(() => {
-  if (recycled.value) return getErpTableActionsColMinWidth(2)
-  if (showUnaudited.value) return getErpTableActionsColMinWidth(2)
-  return getErpTableActionsColMinWidth(2)
+  return getErpTableActionsColWidthByRows(rows.value, getBuyOrderRowActionLabels)
 })
+
+function getBuyOrderRowActionLabels(row) {
+  if (recycled.value) return [
+    '恢复',
+    isErpSuperAdmin() ? '彻底删除' : false,
+  ]
+
+  const labels = ['查看']
+  if (showUnaudited.value) {
+    if (hasPageAction(model, menuPath, 'edit')) labels.push('编辑')
+    if (String(row?.pass ?? '') !== '1' && hasPageAction(model, menuPath, 'audit')) labels.push('审核')
+    if (hasPageAction(model, menuPath, 'delete')) labels.push('删除')
+  } else if (String(row?.pass ?? '') === '1' && hasPageAction(model, menuPath, 'unaudit')) {
+    labels.push('反审')
+  }
+  labels.push(isPrintSelected(row) ? '已选择' : '打印选择')
+  return labels
+}
 
 watch([rows, loading, recycled, showUnaudited], async () => {
   if (loading.value) return

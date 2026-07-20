@@ -13,7 +13,7 @@
 
 - 后端：`server/index.js` → `GET /api/dorm/electric-report-data`、`GET /api/dorm/electric-allocation-report`。
 - 权限：`apiPermissionGate.js` 绑定菜单路径 `hr/dormitory/electric-report` 的 `view`。
-- 角色需在 `UB_ERP_System_role.Permissions` 中为该路径分配 `view`（或 `*` / `all`），否则菜单与接口会被拦截。
+- 角色需在 `NEW_UB_ERP_System_role.Permissions` 中为该路径分配 `view`（或 `*` / `all`），否则菜单与接口会被拦截。
 
 ## 已知限制 / 后续
 

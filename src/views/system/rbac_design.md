@@ -4,7 +4,7 @@
 
 ## 1. 表结构
 
-### 1.1 `UB_ERP_System_role`（角色）
+### 1.1 `NEW_UB_ERP_System_role`（角色）
 
 | 列名 | 类型 | 说明 |
 |------|------|------|
@@ -22,9 +22,9 @@
 
 | 列名 | 类型 | 说明 |
 |------|------|------|
-| `RoleID` | `INT NOT NULL` | 外键 → `UB_ERP_System_role.RoleID` |
+| `RoleID` | `INT NOT NULL` | 外键 → `NEW_UB_ERP_System_role.RoleID` |
 
-约束名：`FK_UB_ERP_User_UB_ERP_System_role_RoleID`。
+约束名：`FK_UB_ERP_User_NEW_UB_ERP_System_role_RoleID`。
 
 ## 2. 预设角色数据
 
@@ -38,13 +38,13 @@
 
 ## 3. 与应用的对应关系
 
-- **列表**：`GET /api/users` 通过 `LEFT JOIN dbo.[UB_ERP_System_role]` 返回 `RoleName`（及 `RoleID`）。
+- **列表**：`GET /api/users` 通过 `LEFT JOIN dbo.[NEW_UB_ERP_System_role]` 返回 `RoleName`（及 `RoleID`）。
 - **操作员弹窗角色下拉**：`GET /api/roles?page=1&pageSize=500&status=1`，取分页结果中的 `list`（仅启用角色）。
 - **登录**：`POST /api/login` 在 `data.user` 中返回 `RoleID`、`RoleName`；前端写入 `localStorage` 的 `erp_user`，供路由守卫以外的**前端权限判断**使用（第二阶段可在此字段上扩展菜单显隐等）。
 
 ## 4. 角色管理模块（页面：`src/views/system/role/index.vue`）
 
-面向 `UB_ERP_System_role` 的完整维护能力，与操作员页的交互范式一致（启用/回收站双视图、先禁用再删除）。
+面向 `NEW_UB_ERP_System_role` 的完整维护能力，与操作员页的交互范式一致（启用/回收站双视图、先禁用再删除）。
 
 | 接口 | 方法 | 说明 |
 |------|------|------|

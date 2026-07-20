@@ -102,6 +102,19 @@
 | 入库数量聚合 | `UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list` | 仅统计采购入库 `kcan03=1`，且主/明细都要求 `pass=1`、`del=0`；按 `kcan04=kcak01` + `kcaa01` 汇总入库数量 |
 | 编辑数量锁定 | `UB_ERP_Buy_order_list` + `UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list` | 采购单反审后可编辑；保存前按采购单号 `kcan04=kcak01`、采购入库类型 `kcan03=1`、主从 `del=0` 检查入库引用。命中入库的采购明细不允许修改或删除采购数量，前端也禁用该行数量输入框 |
 | 接口 | — | `GET /api/buy-order/material-trace/bom-codes`（分类）；`GET /api/buy-order/material-trace/list`（分页 `page/pageSize`，默认 10） |
+
+## 外协订单 · 转向物料查询（search_wl 口径）
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|----------|--------|-----------------|
+| 分类下拉来源 | `UB_ERP_Bom_code` | `copen=1`；按 `px,id` 排序；展示 `flag1`；前缀优先取 `flag5`，空值时按分类名兼容映射（成品→`PQ-`、主袋→`BAG-`、裁片→`CUT-`、拉牌/吊牌→`TAG-`、肩带→`STRAP-`） |
+| 转向查询主数据 | `UB_ERP_assist_order_list` | 仅查明细 `pass=1` 且 `del=0`；关键字模糊匹配单号/数量单价金额/税点/PI/备注/`kcaa01~35` 及扩展物料字段 |
+| 外协头补充信息 | `UB_ERP_assist_order` | `wxaj01=wxak01` 回填外协类型、时间、外协商、含税、币别、交货日期、主表备注；返回 `headerId` 供查看 |
+| 管理列表操作记录 | `UB_ERP_assist_order` | `GET /api/assist-order/list` 主表末列；添加=`addtime`+`utruename`（空回退 `uname`），修改=`edittime`+`uptruename`（空回退 `upname`）；展示文案「添加时间:…,操作者：… / 修改时间:…,操作者：…」 |
+| 入库数量聚合 | `UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list` | 外协入库 `kcan03=2`；主/明细 `del=0`、主表 `pass=1`；按 `kcan04=外协单号` + `kcaa01` 汇总 `kcao03` |
+| 出库数量聚合 | `UB_ERP_Stocks_out` + `UB_ERP_Stocks_out_list` | 外协领料出库 `kcap03=2`；主/明细 `del=0`、主表 `pass=1`；按 `kcap04=外协单号` + `kcaa01` 汇总 `kcaq03` |
+| 接口 | — | `GET /api/assist-order/material-trace/bom-codes`（分类）；`GET /api/assist-order/material-trace/list`（分页 `page/pageSize`，默认 10；`all=1` 查询全部） |
+
 ## 出库单 · 库存出库与来源回写
 
 | 业务功能 | 物理表 | 关键字段 / 说明 |
@@ -133,6 +146,14 @@
 | 接口 | — | `GET /api/stock-out/other-batch-lines`；`POST /api/stock-out/other-batch-prices`；独立页 `/inventory/daily/stock-out-other-batch-window` |
 | 采购退货新接口 | — | `GET /api/stock-out/purchase-return-source-page`；`GET /api/stock-out/purchase-return-batch-lines`；独立页 `/inventory/daily/stock-out-purchase-return-batch-window` |
 | 出库单 · 生产领料（补数）类型 `8` | `UB_ERP_Stocks_out` + `UB_ERP_Dispatch_order`（选派工，选填）+ 复用生产领料批量或其他出库批量 | **强制** `kcap05` 生产车间、`kcap06` 仓库、`in_tax`；`kcap04` 派工单**选填**；有关联派工时 `kcap08←PI`、前端 `systemcode_id←UB_ERP_Dispatch_order.systemcode`，批量走 `production-issue-batch-lines`；无派工时 `kcap08←纸质单号`，批量走 `other-batch-lines`/`other-batch-prices`；**审核不回写** `scak04/scak05`。 |
+
+## 系统管理 · 角色与权限
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|----------|--------|-----------------|
+| 角色管理 | `NEW_UB_ERP_System_role` | `GET/POST/PUT/DELETE /api/roles` 统一读取和维护新系统角色表；列表按 `pass`、`del` 与 `Status` 切换启用/回收站视图，角色名称、说明及 `Permissions` 均以此表为准。旧表 `UB_ERP_System_role` 可与本表同时保留，但角色模块不会再读取或写入旧表。 |
+| 操作员、登录与权限 | `UB_ERP_User` + `NEW_UB_ERP_System_role` | `UB_ERP_User.RoleID` 按 `RoleID` 关联新角色表，登录返回 `RoleName` 与 `Permissions`；路由、菜单、按钮和接口权限统一使用 `NEW_UB_ERP_System_role.Permissions`。新表须具备当前角色模块使用的 `RoleID/RoleName/Description/pass/del/Status/Permissions` 等字段，且 `RoleID` 与用户表的关联数据一致。 |
+| 操作审计与数据库配置 | `NEW_UB_ERP_System_role` | 角色新增、修改、删除、恢复、权限保存的操作日志目标表更新为新表；系统数据库配置的“系统角色权限表”登记新表名。`Sys_Roles` 是独立兼容表，本模块不使用。 |
 
 ## 系统内核 · 系统EMAIL发送配置
 
@@ -308,3 +329,25 @@
 | 业务功能 | 物理表 | 关键字段 / 说明 |
 |---|---|---|
 | 类别多选筛选 | `UB_ERP_Stocks_material` + `UB_ERP_Stocks_Storage_list` | `GET /api/stock-stats/category-options` 返回已审核、未删除分类，按 `px/code` 排序，支持按分类编码或分类名称模糊搜索，并用 SQL Server 2008 R2 兼容的 `ROW_NUMBER()` 分页（默认每页 10 条）。`GET /api/stock-stats/report` 将多分类编码参数化写入会话临时表 `#selectedCategory`，入库侧按 `l.kcaa05` 精确匹配任意已选分类；不按 BOM `kcaa05` 或类别名称模糊筛选。 |
+
+## 供应链 · 供应商资料
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|----------|--------|-----------------|
+| 供应商管理列表 | `UB_ERP_System_supplier` | `GET /api/supply-chain/suppliers/list`；在册 `del=0/空/NULL`，默认 `pass=1`，可切 `pass=0`；回收站 `del=1`；分页 `ROW_NUMBER()`；排序 `s_code DESC, id ASC`；列表字段含 `s_code/pass/s_name/s_sname/s_sh/s_lb/s_tel/s_fax/s_lxr/s_mobile/s_payfor/s_jh/s_wx_jh/s_bj/intime/sl/kplx/kplxx/kplxxx/s_info` 等；前端默认每页 100 条 |
+| 供应商建议编码 | `UB_ERP_System_supplier` | `GET /api/supply-chain/suppliers/suggest-code`；只认 `s_code` 形如 `CN-` + 纯数字（含回收站）；取最大后缀 +1 返回如 `CN-1255`；无号段时 `CN-1` |
+| 供应商新增/编辑 | `UB_ERP_System_supplier` | `POST/PUT /api/supply-chain/suppliers`；写入含 `intime`（初始时间，空则新增兜底当天）、`s_bj`（报价时效性天数）、`s_fax` 及主档字段；新增默认 `pass=0`/`del=0`；编辑仅未审在册；前端当前页表单（非弹窗） |
+
+## 已弃用表
+
+| 原用途 | 物理表 | 当前状态 |
+|----------|--------|----------|
+| 外协订单用户打印偏好 | `UB_ERP_User_print_setup` | 外协订单打印已改为与采购订单一致：每页行数仅影响当前打印页，代码不再读取或写入该表；既有数据可保留，待旧系统和历史查询均不再依赖后再自行弃用或清理。 |
+
+## 供应链 · 销售客户
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|----------|--------|-----------------|
+| 销售客户管理列表 | `UB_ERP_System_sales_customer` | `GET /api/supply-chain/customers/list`；在册 `del=0/空/NULL`，默认 `pass=1`，可切 `pass=0`；回收站 `del=1`；分页 `ROW_NUMBER()`；列表字段含 `s_code/pass/s_name/s_sh/s_lb/s_address/s_lxr/s_tel/s_mobile/s_fax/s_payfor/lxr/s_business/s_info/intime` 等 |
+| 销售客户详情 | `UB_ERP_System_sales_customer` | `GET /api/supply-chain/customers/:id`；不区分 pass/del；含 `intime`/`s_sh`/`s_fax` 等主档字段 |
+| 销售客户新增/编辑 | `UB_ERP_System_sales_customer` | `POST/PUT /api/supply-chain/customers`；写入含 `intime`（初始时间，空则新增兜底当天）、`s_sh`（税号）、`s_fax`（传真）及主档字段；新增默认 `pass=0`/`del=0`；编辑仅未审在册；前端当前页表单（非弹窗） |

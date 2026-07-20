@@ -9,8 +9,11 @@
 - 主路径：`/supply-chain/daily/outsourcing-order`
 
 - 顶部 **管理外协订单 / 外协订单添加** 模式条；编辑、添加与**查看**共用整页表单 `AssistOrderEditForm.vue`（基础资料 / 明细 / 额外费用）。
+- **基础资料按钮（2026-07）**：「外协类型」「是否含税」与采购订单同款 `el-button`（高 40 / 宽 106 / 字 16）；是否含税为「是/否」按钮，不再用下拉。
+- **币别默认（2026-07）**：点「外协订单添加」时币别下拉默认「人民币」（编码 `001`），可手动改；编辑/查看仍带出原单币别。
 
 - **查看**（2026-07）：列表点「查看」进入与编辑相同的三页签全屏表单，全程只读；顶栏标题「查看外协订单」+「返回列表」；无「立即提交」「重置」及明细删行/批量添加/费用增行；明细行「查看」仍打开 PI-BOM 新页；价格列仍受 `price` 权限控制。
+- **主列表操作列宽（2026-07）**：按当前页实际可见按钮 + 权限估宽（`getErpTableActionsColWidthByRows`）；仅查看权限时不再按 5 钮预留空白。
 
 
 
@@ -92,13 +95,14 @@
 - **外协订单数据列**（每单）：列表接口 `GET /api/assist-order/list` 实时聚合，非主表存储字段。
   - 总项数 / 总数量 / 含税·不含税·税点总价：明细表 `UB_ERP_assist_order_list`，`del=0`
   - 额外费用：费用表 `UB_ERP_assist_order_money`，`del=0`
-- **展开子表「小计：」**（每单）：点「+」展开后，明细+费用表底部一行；`el-table` `show-summary`；「小计：」在名称列，数量/单价/金额列对齐汇总。
-- **页底「小计：」**（当前页）：在主表与底部分页之间，汇总本页所有订单；口径与展开子表一致，**含展开区接在明细后的额外费用行**。
-  - 数量：`SUM(明细 wxak03)`
-  - 金额：`SUM(明细 wxak05)`（费用行展开区不含税金额为空，不计入）
-  - 金额（含税）：`SUM(明细 wxak051) + SUM(费用 money)`
-  - 单价 / 单价（含税）：金额 ÷ 数量（数量>0 时，否则显示 `-`）
-- 计算逻辑：`src/utils/assistOrderPageSubtotal.js`；展示与样式：`index.vue` → `.assist-page-subtotal`
+- **展开子表「小计：」**（每单）：点「+」展开后，明细+费用表底部一行；`el-table` `show-summary`；「小计：」在名称列，数量/单价/金额列对齐汇总；与页底「本页统计」文案无关。
+- **页底「本页统计」**（当前页）：在主表与底部分页之间，汇总本页所有订单；文案形如 `本页统计,含税总金额:… 元 ,  不含税总金额:… 元,  一共税额:… 元`。
+  - 含税总金额：`SUM(含税总价 taxIncludedTotal) + SUM(额外费用 extraFeeTotal)`（与原页底「金额（含税）」口径一致）
+  - 不含税总金额：`SUM(taxExcludedTotal)`
+  - 一共税额：含税总金额 − 不含税总金额
+  - 金额展示：千分位，去掉末尾无意义的 0（如 `1,860`）
+- **操作记录列**（主表末列）：两行文案 `添加时间:YYYY-MM-DD,操作者：…` / `修改时间:YYYY-MM-DD,操作者：…`（只显示日期）；字段来自 `UB_ERP_assist_order` 的 `addtime`+`utruename`（空回退 `uname`）、`edittime`+`uptruename`（空回退 `upname`）；字号与主表其它列（如外协商）一致。
+- 计算逻辑：`src/utils/assistOrderPageSubtotal.js`；展示与样式：`index.vue` → `.assist-page-subtotal` / `.assist-op-record`
 
 ## 列宽调整（DIY）
 
@@ -254,3 +258,23 @@ Element Plus 约定：固定列（操作、序号）用 `width`；数据列优�
 - 筛选区第一行：外协商、外协类型、已选择数量、打印外协订单（采购格式）、打印外协订单（外协格式）（无「条件项目」、无「刷新」）。
 - 筛选区第二行（对齐采购订单）：查询内容 → 查询 → 重置 → 竖线间隔符 → 回收站 →（非回收站时）竖线 → 显示未审核。
 - 关键字为全字段模糊搜索（等同旧系统「全部字段」）；间隔符复用全局 `erp-filter-divider`。
+
+## 打印外协订单（两种格式）
+
+- 入口：列表勾选「打印选择」后，点筛选区「打印外协订单（采购格式）」或「打印外协订单（外协格式）」，新窗口打开 `outsourcing-order-print`（`p_sum` + `wxgs`）。
+- **两种格式共用同一套采购观感**（灰蓝底、居中抬头、「点击此处打印」、备注与合计同排、合约条款中文序号、无格线签字区、无二维码）。合约条款与签名区共用同一外框左右边线（避免两段各自描边出现细微缺口）。
+- **采购格式**（`wxgs=1`）：表格含「外协内容」列（后端 `showDescribeColumn=true`）。
+- **外协格式**（`wxgs=0`）：同观感，无「外协内容」列。
+- 数据接口不变：`GET /api/assist-order/print-data`；前端 `print.vue` 单模板，仅按 `showDescribeColumn` 显隐列。
+
+## 转向物料查询
+
+- 顶部模式栏在「外协订单添加」右侧提供「转向物料查询」；具备外协订单 `view` 权限即可进入。
+- **页内切换**（`pageMode=material-trace`），不新开窗口；进页**默认不加载任何数据**，须点「立即查询」或「查询全部」。
+- 数据主来源 `UB_ERP_assist_order_list`，仅 `del=0` 且 `pass=1`；JOIN `UB_ERP_assist_order` 带出主单信息。
+- 分类下拉：`UB_ERP_Bom_code`（`copen=1`，按 `px`），展示 `flag1`；过滤按 `flag5` 前缀匹配明细 `kcaa01`（空则名称兼容映射，如成品→`PQ-`、主袋→`BAG-`、肩带→`STRAP-`）。
+- 入库数量：外协入库 `kcan03=2` 已审未删，按外协单号+物料编码汇总；出库数量：外协领料出库 `kcap03=2` 同口径。
+- 「查看」打开所属外协订单只读页（按主表 `headerId`）。
+- 列显示用 localStorage（`erp.assistOrderMaterialTrace.columnSetting.v1`）；内网库无 `UB_ERP_assist_order_view`，不做按用户动态列配置。
+- 分页默认 10，档位 `10/25/50/100/200/300/500`；支持「打印本页」。
+- 接口：`GET /api/assist-order/material-trace/bom-codes`、`GET /api/assist-order/material-trace/list`。

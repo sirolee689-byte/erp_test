@@ -253,7 +253,9 @@ import { ref, computed } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
-import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
+import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
+import { isErpSuperAdmin } from '@/utils/erpSuperAdmin'
 const { onErpListRowContextMenu } = useErpListRowContextMenu()
 const pageTitle = '颜色编码'
 
@@ -269,11 +271,27 @@ const showRecycle = ref(false)
 /** 当前正在请求后端的行主键（用于按钮 loading） */
 const busyCode = ref('')
 
-const actionsColWidth = computed(() => {
-  if (showRecycle.value) return getErpTableActionsColMinWidth(2)
-  if (showUnAudited.value) return getErpTableActionsColMinWidth(3)
-  return getErpTableActionsColMinWidth(1)
-})
+const colorCodePermissionModel = getPermissionModelFromStorage()
+const COLOR_CODE_MENU_PATH = 'inventory/basic/color-code'
+const actionsColWidth = computed(() => getErpTableActionsColWidthByRows(tableList.value, getColorCodeRowActionLabels, {
+  fallbackLabels: [],
+}))
+
+function getColorCodeRowActionLabels(row) {
+  if (showRecycle.value) return [
+    '恢复',
+    isErpSuperAdmin() && hasPageAction(colorCodePermissionModel, COLOR_CODE_MENU_PATH, 'delete') ? '彻底删除' : false,
+  ]
+  const labels = []
+  if (showUnAudited.value) {
+    if (hasPageAction(colorCodePermissionModel, COLOR_CODE_MENU_PATH, 'edit')) labels.push('编辑')
+    if (!passIsAudited(row) && hasPageAction(colorCodePermissionModel, COLOR_CODE_MENU_PATH, 'audit')) labels.push('审核')
+    labels.push('删除')
+  } else if (passIsAudited(row) && hasPageAction(colorCodePermissionModel, COLOR_CODE_MENU_PATH, 'unaudit')) {
+    labels.push('反审')
+  }
+  return labels
+}
 
 const createVisible = ref(false)
 const createSubmitting = ref(false)

@@ -1,28 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { buildAssistOrderPrintDocument, normalizePrintSetup, readAndSaveAssistOrderPrintSetup } from './assistOrderPrintData.js'
-
-function createPrintSetupPool(existing = null) {
-  const calls = []
-  return {
-    calls,
-    request() {
-      const inputs = {}
-      const req = {
-        input(name, _type, value) {
-          inputs[name] = value
-          return req
-        },
-        async query(sqlText) {
-          calls.push({ sqlText, inputs: { ...inputs } })
-          if (/SELECT TOP 1 \[id\], \[print_s\]/i.test(sqlText)) return { recordset: existing ? [existing] : [] }
-          return { recordset: [] }
-        },
-      }
-      return req
-    },
-  }
-}
+import { buildAssistOrderPrintDocument, normalizePrintSetup } from './assistOrderPrintData.js'
 
 describe('assist order print data', () => {
   test('builds paged wxgs=0 documents with fee rows and tax-included totals', () => {
@@ -85,21 +63,8 @@ describe('assist order print data', () => {
     assert.equal(doc.totals.amount, '12.00')
   })
 
-  test('creates or updates the per-user print setup with the selected p_sum', async () => {
-    const firstPool = createPrintSetupPool()
-    const setup = await readAndSaveAssistOrderPrintSetup(firstPool, { uidInt: 42, uname: 'u01', utruename: '张三' }, {
-      pSum: 'WX26060901,WX26060902',
-      rowsPerPage: 8,
-    })
-    assert.equal(setup.rowsPerPage, 8)
-    assert.match(firstPool.calls[1].sqlText, /INSERT INTO\s+dbo\.\[UB_ERP_User_print_setup\]/i)
-    assert.equal(firstPool.calls[1].inputs.uid, '42')
-    assert.equal(firstPool.calls[1].inputs.printCode, 'WX26060901,WX26060902')
-
-    const existingPool = createPrintSetupPool({ id: 9, rowsPerPage: 12 })
-    await readAndSaveAssistOrderPrintSetup(existingPool, { uidInt: 42 }, { pSum: 'WX26060903', rowsPerPage: 15 })
-    assert.match(existingPool.calls[1].sqlText, /UPDATE\s+dbo\.\[UB_ERP_User_print_setup\]/i)
-    assert.equal(existingPool.calls[1].inputs.id, 9)
-    assert.equal(existingPool.calls[1].inputs.printS, 15)
+  test('uses the external-order defaults when the current print page has no setup', () => {
+    assert.deepEqual(normalizePrintSetup({}), { rowsPerPage: 12, priceDecimals: 2 })
+    assert.deepEqual(normalizePrintSetup({ rowsPerPage: 8, priceDecimals: 4 }), { rowsPerPage: 8, priceDecimals: 4 })
   })
 })

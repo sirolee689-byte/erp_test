@@ -139,6 +139,7 @@
 ## 列表交互
 
 - **操作列 / 状态列对齐 BOM（2026-07）**：操作钮复用 BOM 紧凑尺寸变量（`--erp-bom-list-action-*`，类名 `so-order-actions`）；「状态 / 结案 / 运算状态」为方框徽章（已审/已运算/未结案=绿，未审/未运算=红，已结案=蓝）；列数据字号走 `--erp-table-data-size`。DIY：全局样式见 `src/styles/element-override.scss` 搜 `so-order-actions`；徽章色见 `index.vue` 搜 `so-status-badge`。
+- **主列表操作列宽（2026-07）**：按当前页每行实际可见按钮文案 + 权限实时估宽（`getErpTableActionsColWidthByRows` / `getSalesOrderRowActionLabels`）；仅「查看」权限时不再预留大片空白。展开明细/编辑行内操作列仍用窄固定宽。
 
 ### 转向物料查询
 

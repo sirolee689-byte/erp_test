@@ -325,10 +325,15 @@ import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, onMounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
 import { createExpandPrefetch } from '@/utils/erpExpandPrefetch.js'
+import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
+import { isErpSuperAdmin } from '@/utils/erpSuperAdmin'
 
 defineOptions({ name: 'production-daily-dispatch' })
+
+const menuPath = 'production/daily/dispatch'
+const model = getPermissionModelFromStorage()
 
 const { onErpListRowContextMenu } = useErpListRowContextMenu()
 const pageMode = ref('list')
@@ -339,10 +344,24 @@ const showUnaudited = ref(false)
 const showRecycle = ref(false)
 
 const dispatchActionsColWidth = computed(() => {
-  if (showRecycle.value) return getErpTableActionsColMinWidth(2)
-  if (showUnaudited.value) return getErpTableActionsColMinWidth(4)
-  return getErpTableActionsColMinWidth(2)
+  return getErpTableActionsColWidthByRows(list.value, getDispatchRowActionLabels)
 })
+
+/** 派工单主列表操作列按钮：与模板 v-if / v-permission 保持一致，用于估算列宽 */
+function getDispatchRowActionLabels(row) {
+  if (showRecycle.value) {
+    if (!hasPageAction(model, menuPath, 'delete')) return []
+    return ['恢复', row.pass !== '1' && isErpSuperAdmin() ? '彻底删除' : false]
+  }
+  const labels = ['查看']
+  if (showUnaudited.value && row.pass !== '1') {
+    if (hasPageAction(model, menuPath, 'edit')) labels.push('编辑')
+    if (hasPageAction(model, menuPath, 'audit')) labels.push('审核')
+    if (hasPageAction(model, menuPath, 'delete')) labels.push('删除')
+  }
+  if (!showUnaudited.value && row.pass === '1' && hasPageAction(model, menuPath, 'unaudit')) labels.push('反审核')
+  return labels
+}
 
 const filters = reactive({ keyword: '', dispatchType: '' })
 const pager = reactive({ page: 1, pageSize: 20, total: 0 })

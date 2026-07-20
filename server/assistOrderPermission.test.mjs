@@ -35,6 +35,14 @@ describe('assist order permission rules', () => {
       menuPath: 'supply-chain/daily/outsourcing-order',
       action: 'view',
     })
+    assert.deepEqual(matchApiPermissionRule('GET', '/api/assist-order/material-trace/bom-codes', {}, {}), {
+      menuPath: 'supply-chain/daily/outsourcing-order',
+      action: 'view',
+    })
+    assert.deepEqual(matchApiPermissionRule('GET', '/api/assist-order/material-trace/list', {}, {}), {
+      menuPath: 'supply-chain/daily/outsourcing-order',
+      action: 'view',
+    })
     assert.deepEqual(matchApiPermissionRule('GET', '/api/assist-order/fee-options', {}, {}), {
       menuPath: 'supply-chain/daily/outsourcing-order',
       action: 'view',

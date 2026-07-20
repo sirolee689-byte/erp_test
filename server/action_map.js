@@ -154,6 +154,14 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   { method: 'GET', path: '/api/assist-order/suggest-doc-no', action: '获取外协订单建议单号', targetTable: 'UB_ERP_assist_order' },
   { method: 'GET', path: '/api/assist-order/check-doc-no', action: '检测外协订单单号是否可用', targetTable: 'UB_ERP_assist_order' },
   { method: 'GET', path: '/api/assist-order/batch-add-tree', action: '查询外协订单批量选材', targetTable: 'UB_ERP_assist_order' },
+  { method: 'GET', path: '/api/assist-order/material-trace/bom-codes', action: '查询外协转向物料分类', targetTable: 'UB_ERP_Bom_code' },
+  {
+    method: 'GET',
+    path: '/api/assist-order/material-trace/list',
+    action: '查询外协转向物料列表',
+    targetTable:
+      'UB_ERP_assist_order_list,UB_ERP_assist_order,UB_ERP_Stocks_Storage,UB_ERP_Stocks_Storage_list,UB_ERP_Stocks_out,UB_ERP_Stocks_out_list',
+  },
   { method: 'GET', path: '/api/assist-order/print-data', action: '打印外协订单', targetTable: 'UB_ERP_assist_order' },
   { method: 'GET', path: '/api/assist-order/expand-detail/batch', action: '批量查询外协订单展开明细', targetTable: 'UB_ERP_assist_order_list' },
   { method: 'GET', path: /^\/api\/assist-order\/\d+$/, action: '查看外协订单', targetTable: 'UB_ERP_assist_order' },
@@ -241,11 +249,11 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   { method: 'PUT', path: '/api/hr/departments', action: '修改部门', targetTable: 'UB_ERP_Hr_department' },
   { method: 'DELETE', path: /^\/api\/hr\/departments\/.+/, action: '删除部门', targetTable: 'UB_ERP_Hr_department' },
 
-  { method: 'PUT', path: '/api/roles/permissions', action: '保存角色权限', targetTable: 'UB_ERP_System_role' },
-  { method: 'PUT', path: '/api/roles/resume', action: '恢复角色', targetTable: 'UB_ERP_System_role' },
-  { method: 'POST', path: '/api/roles', action: '新增角色', targetTable: 'UB_ERP_System_role' },
-  { method: 'PUT', path: '/api/roles', action: '修改角色', targetTable: 'UB_ERP_System_role' },
-  { method: 'DELETE', path: /^\/api\/roles\/\d+$/, action: '删除角色', targetTable: 'UB_ERP_System_role' },
+  { method: 'PUT', path: '/api/roles/permissions', action: '保存角色权限', targetTable: 'NEW_UB_ERP_System_role' },
+  { method: 'PUT', path: '/api/roles/resume', action: '恢复角色', targetTable: 'NEW_UB_ERP_System_role' },
+  { method: 'POST', path: '/api/roles', action: '新增角色', targetTable: 'NEW_UB_ERP_System_role' },
+  { method: 'PUT', path: '/api/roles', action: '修改角色', targetTable: 'NEW_UB_ERP_System_role' },
+  { method: 'DELETE', path: /^\/api\/roles\/\d+$/, action: '删除角色', targetTable: 'NEW_UB_ERP_System_role' },
 
   { method: 'GET', path: /^\/api\/users\/\d+$/, action: '查看操作员', targetTable: 'UB_ERP_User' },
   { method: 'PUT', path: '/api/users/resume', action: '恢复操作员', targetTable: 'UB_ERP_User' },

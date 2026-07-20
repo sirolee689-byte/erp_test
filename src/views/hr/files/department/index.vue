@@ -240,8 +240,12 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 import { Plus, Refresh } from '@element-plus/icons-vue'
-import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
+import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
 const { onErpListRowContextMenu } = useErpListRowContextMenu()
+
+const menuPath = 'hr/files/department'
+const model = getPermissionModelFromStorage()
 
 /** 页面标题 */
 const pageTitle = '部门资料'
@@ -261,10 +265,20 @@ const currentDeptRow = ref(null)
 /** 是否显示未审核（pass='0'） */
 const showUnAudited = ref(false)
 
-const deptActionsColWidth = computed(() => {
-  if (showUnAudited.value) return getErpTableActionsColMinWidth(3)
-  return getErpTableActionsColMinWidth(1)
-})
+const deptActionsColWidth = computed(() => getErpTableActionsColWidthByRows(tableList.value, getDeptRowActionLabels, { fallbackLabels: ['反审'] }))
+
+/** 部门资料主列表操作列按钮：与模板 v-if / v-permission 保持一致，用于估算列宽 */
+function getDeptRowActionLabels(row) {
+  const labels = []
+  if (showUnAudited.value) {
+    if (hasPageAction(model, menuPath, 'edit')) labels.push('编辑')
+    if (hasPageAction(model, menuPath, 'delete')) labels.push('删除')
+    if (!rowIsAudited(row) && hasPageAction(model, menuPath, 'audit')) labels.push('审核')
+  } else if (rowIsAudited(row) && hasPageAction(model, menuPath, 'unaudit')) {
+    labels.push('反审')
+  }
+  return labels
+}
 
 /** 树形显示：部门为父、岗位为子（默认开启） */
 const treeMode = ref(true)

@@ -210,10 +210,24 @@ import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ElectricManage from './ElectricManage.vue'
-import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
+import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
 const { onErpListRowContextMenu } = useErpListRowContextMenu()
 
-const roomListActionsColWidth = getErpTableActionsColMinWidth(4, { compact: true })
+const menuPath = 'hr/dormitory/lodging-records'
+const model = getPermissionModelFromStorage()
+
+const roomListActionsColWidth = computed(() => getErpTableActionsColWidthByRows(overviewList.value, getRoomListRowActionLabels, { compact: true }))
+
+/** 房间列表主表操作列按钮：与模板 v-permission 保持一致，用于估算列宽 */
+function getRoomListRowActionLabels() {
+  const labels = []
+  if (hasPageAction(model, menuPath, 'add')) labels.push('增加入住')
+  if (hasPageAction(model, menuPath, 'view')) labels.push('入住管理')
+  if (hasPageAction(model, menuPath, 'view')) labels.push('电费管理')
+  if (hasPageAction(model, menuPath, 'audit')) labels.push('删除电费')
+  return labels
+}
 
 const emit = defineEmits(['dorm-data-changed'])
 

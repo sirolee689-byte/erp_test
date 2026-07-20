@@ -18,6 +18,14 @@
       >
         外协订单添加
       </el-button>
+      <el-button
+        :type="pageMode === 'material-trace' ? 'primary' : 'default'"
+        plain
+        @click="switchMaterialTrace"
+        @contextmenu.prevent="onErpModeBtnContextMenu('material-trace', $event)"
+      >
+        转向物料查询
+      </el-button>
     </div>
 
     <div v-show="pageMode === 'manage'" class="assist-manage-panel">
@@ -312,31 +320,19 @@
       <el-table-column label="外协商" prop="supplierName" min-width="220" show-overflow-tooltip />
       <el-table-column label="备注" prop="remark" min-width="180" show-overflow-tooltip />
       <el-table-column label="打印注释" prop="notes" min-width="180" show-overflow-tooltip />
+      <el-table-column label="操作记录" min-width="280" class-name="assist-op-record-col">
+        <template #default="{ row }">
+          <div class="assist-op-record">
+            <div>{{ formatAssistOpRecordLine('添加', row.addtime, row.utruename || row.uname) }}</div>
+            <div>{{ formatAssistOpRecordLine('修改', row.edittime, row.uptruename || row.upname) }}</div>
+          </div>
+        </template>
+      </el-table-column>
         </el-table>
         </ErpTableViewportHScroll>
 
         <div v-if="tableList.length" class="assist-page-subtotal">
-          <span class="assist-page-subtotal__label">小计：</span>
-          <span class="assist-page-subtotal__cell assist-page-subtotal__cell--qty">
-            <span class="assist-page-subtotal__head">数量</span>
-            <span class="assist-page-subtotal__val">{{ formatSubtotalQty(pageSubtotal.quantity) }}</span>
-          </span>
-          <span class="assist-page-subtotal__cell">
-            <span class="assist-page-subtotal__head">单价</span>
-            <span class="assist-page-subtotal__val">{{ formatSubtotalUnitPrice(pageSubtotal.unitPriceEx) }}</span>
-          </span>
-          <span class="assist-page-subtotal__cell">
-            <span class="assist-page-subtotal__head">单价（含税）</span>
-            <span class="assist-page-subtotal__val">{{ formatSubtotalUnitPrice(pageSubtotal.unitPriceInc) }}</span>
-          </span>
-          <span class="assist-page-subtotal__cell">
-            <span class="assist-page-subtotal__head">金额</span>
-            <span class="assist-page-subtotal__val">{{ formatMoney(pageSubtotal.amountEx) }}</span>
-          </span>
-          <span class="assist-page-subtotal__cell">
-            <span class="assist-page-subtotal__head">金额（含税）</span>
-            <span class="assist-page-subtotal__val">{{ formatMoney(pageSubtotal.amountInc) }}</span>
-          </span>
+          本页统计,含税总金额:{{ formatPageStatMoney(pageSubtotal.amountInc) }} 元 ,&nbsp;&nbsp;不含税总金额:{{ formatPageStatMoney(pageSubtotal.amountEx) }} 元,&nbsp;&nbsp;一共税额:{{ formatPageStatMoney(pageTaxAmount) }} 元
         </div>
 
         <div class="pagination-row pagination-row--bottom">
@@ -353,6 +349,10 @@
         </div>
       </template>
     </el-skeleton>
+    </div>
+
+    <div v-if="pageMode === 'material-trace'" class="assist-material-trace-panel">
+      <AssistOrderMaterialTracePanel @open-view="onMaterialTraceOpenView" />
     </div>
 
     <div
@@ -413,13 +413,16 @@ import {
   recalcAssistOrderLineFromTaxExcluded,
   recalcAssistOrderLineFromTaxIncluded,
 } from '@/utils/assistOrderAmount'
-import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
 import {
   calcAssistOrderExpandSubtotal,
   calcAssistOrderPageSubtotal,
 } from '@/utils/assistOrderPageSubtotal'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
+import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
+import { isErpSuperAdmin } from '@/utils/erpSuperAdmin'
 import AssistOrderEditForm from './AssistOrderEditForm.vue'
+import AssistOrderMaterialTracePanel from './material-trace-panel.vue'
 import { createExpandPrefetch } from '@/utils/erpExpandPrefetch.js'
 import {
   ASSIST_BATCH_MSG_ACCEPTED,
@@ -435,6 +438,9 @@ import {
 } from '@/utils/assistOrderBatchAdd'
 
 defineOptions({ name: 'supply-chain-daily-outsourcing-order' })
+
+const menuPath = 'supply-chain/daily/outsourcing-order'
+const model = getPermissionModelFromStorage()
 
 const { onErpListRowContextMenu } = useErpListRowContextMenu()
 const { onErpModeBtnContextMenu } = useErpModeBtnContextMenu()
@@ -471,13 +477,39 @@ const filters = reactive({
 const editForm = reactive(defaultEditForm())
 
 const assistOrderActionsColWidth = computed(() => {
-  if (filters.recycled) return getErpTableActionsColMinWidth(2)
-  return getErpTableActionsColMinWidth(5)
+  return getErpTableActionsColWidthByRows(tableList.value, getAssistOrderRowActionLabels)
 })
+
+/** 外协订单主列表操作列按钮：与模板 v-if / v-permission 保持一致，用于估算列宽 */
+function getAssistOrderRowActionLabels(row) {
+  if (filters.recycled) return ['恢复', isErpSuperAdmin() ? '彻底删除' : false]
+
+  const labels = ['查看']
+  if (!isAudited(row)) {
+    // 编辑/删除按钮模板未加 v-permission，始终渲染（仅按 canEdit/canDelete 置灰）
+    labels.push('编辑')
+    if (hasPageAction(model, menuPath, 'audit')) labels.push('审核')
+    labels.push('删除')
+  } else {
+    if (canUnaudit(row) && hasPageAction(model, menuPath, 'unaudit')) labels.push('反审')
+    if (canClose(row)) labels.push('结案')
+    if (canUnclose(row)) labels.push('反结案')
+  }
+  if (hasPageAction(model, menuPath, 'print')) labels.push(isPrintSelected(row) ? '已选择' : '打印选择')
+  return labels
+}
 
 const printSelectedCount = computed(() => printSelectedOrderNos.value.length)
 
 const pageSubtotal = computed(() => calcAssistOrderPageSubtotal(tableList.value))
+/** 本页税额 = 含税总金额 − 不含税总金额（含税口径含额外费用） */
+const pageTaxAmount = computed(() => {
+  const inc = Number(pageSubtotal.value?.amountInc)
+  const ex = Number(pageSubtotal.value?.amountEx)
+  const a = Number.isFinite(inc) ? inc : 0
+  const b = Number.isFinite(ex) ? ex : 0
+  return Math.round((a - b) * 100) / 100
+})
 
 const isFormPanel = computed(() => pageMode.value === 'create' || pageMode.value === 'edit' || pageMode.value === 'view')
 const isReadonlyForm = computed(() => pageMode.value === 'view')
@@ -580,7 +612,8 @@ function defaultEditForm() {
     referenceOrderId: null,
     supplierCode: '',
     taxIncluded: '1',
-    currencyCode: '',
+    // 新增默认人民币（编码 001，与外协报价/采购报价一致）；下拉仍可改
+    currencyCode: '001',
     deliveryDate: '',
     remark: '',
     notes: DEFAULT_PRINT_NOTES,
@@ -602,6 +635,18 @@ function activeEditFormRef() {
 function formatCell(value) {
   const s = String(value ?? '').trim()
   return s || '-'
+}
+
+/** 主表操作记录一行：日期 YYYY-MM-DD + 真实姓名（空则登录名）；空值仍出模板不填内容 */
+function formatAssistOpRecordLine(kind, time, operator) {
+  const raw = String(time ?? '').trim()
+  let t = ''
+  if (raw) {
+    const formatted = formatDate(raw)
+    t = formatted === '-' ? '' : formatted
+  }
+  const op = String(operator ?? '').trim()
+  return `${kind}时间:${t},操作者：${op}`
 }
 
 function formatDate(value) {
@@ -764,6 +809,14 @@ function formatMoney(n) {
   const num = Number(n)
   if (!Number.isFinite(num)) return '0.00'
   return num.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+/** 页底本页统计金额：千分位，末尾 0 去掉（如 1860 → 1,860） */
+function formatPageStatMoney(n) {
+  const num = Number(n)
+  if (!Number.isFinite(num)) return '0'
+  const rounded = Math.round(num * 100) / 100
+  return rounded.toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
 }
 
 function formatSubtotalQty(n) {
@@ -973,6 +1026,16 @@ function switchToManage() {
   pageMode.value = 'manage'
   viewId.value = null
   editId.value = null
+}
+
+function switchMaterialTrace() {
+  pageMode.value = 'material-trace'
+  viewId.value = null
+  editId.value = null
+}
+
+async function onMaterialTraceOpenView(payload) {
+  await openView({ id: Number(payload?.id) })
 }
 
 async function switchToCreate() {
@@ -1446,6 +1509,7 @@ useErpDeepLinkOpen({
     create: async () => {
       await switchToCreate()
     },
+    'material-trace': async () => switchMaterialTrace(),
   },
 })
 
@@ -1614,6 +1678,11 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   margin-bottom: 4px;
+}
+
+.assist-material-trace-panel {
+  padding: 0;
+  background: var(--erp-surface, #fff);
 }
 
 .assist-create-panel {
@@ -1794,43 +1863,12 @@ onUnmounted(() => {
 }
 
 .assist-page-subtotal {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 12px 20px;
   margin: 8px 0 4px;
   padding: 10px 12px;
   border: 1px solid var(--el-border-color-lighter);
   background: var(--el-fill-color-light);
   font-size: 13px;
-  line-height: 1.4;
-}
-
-.assist-page-subtotal__label {
-  flex: 0 0 auto;
-  font-weight: 600;
-  color: var(--el-text-color-primary);
-  padding-bottom: 2px;
-}
-
-.assist-page-subtotal__cell {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: flex-end;
-  min-width: 88px;
-}
-
-.assist-page-subtotal__cell--qty {
-  min-width: 72px;
-}
-
-.assist-page-subtotal__head {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  margin-bottom: 2px;
-}
-
-.assist-page-subtotal__val {
+  line-height: 1.5;
   font-variant-numeric: tabular-nums;
   color: var(--el-text-color-primary);
 }
@@ -1846,6 +1884,11 @@ onUnmounted(() => {
 .assist-order-data__line {
   white-space: normal;
   word-break: break-all;
+}
+
+/* 字号/颜色跟主表其它列（如外协商）一致，不单独缩小 */
+.assist-op-record {
+  line-height: 1.45;
 }
 
 .assist-material-toolbar {

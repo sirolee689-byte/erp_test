@@ -529,8 +529,12 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 import { Plus, Refresh, Upload } from '@element-plus/icons-vue'
-import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
+import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
 const { onErpListRowContextMenu } = useErpListRowContextMenu()
+
+const menuPath = 'hr/files/employee-files'
+const model = getPermissionModelFromStorage()
 
 /** 页面标题（与左侧菜单一致） */
 const pageTitle = '员工档案资料'
@@ -552,11 +556,25 @@ const pageSize = ref(20)
 /** 是否显示未审核（pass='0'） */
 const showUnAudited = ref(false)
 
-const staffActionsColWidth = computed(() => {
-  if (showDeleted.value) return getErpTableActionsColMinWidth(2)
-  if (showUnAudited.value) return getErpTableActionsColMinWidth(4)
-  return getErpTableActionsColMinWidth(2)
-})
+const staffActionsColWidth = computed(() => getErpTableActionsColWidthByRows(tableList.value, getStaffRowActionLabels))
+
+/** 员工档案主列表操作列按钮：与模板 v-if / v-permission 保持一致，用于估算列宽 */
+function getStaffRowActionLabels(row) {
+  const labels = ['查看']
+  if (showDeleted.value) {
+    if (hasPageAction(model, menuPath, 'edit')) labels.push('恢复')
+    return labels
+  }
+  if (showUnAudited.value) {
+    if (hasPageAction(model, menuPath, 'edit')) labels.push('编辑')
+    if (hasPageAction(model, menuPath, 'delete')) labels.push('删除')
+    if (!rowIsAudited(row) && hasPageAction(model, menuPath, 'audit')) labels.push('审核')
+    return labels
+  }
+  if (hasPageAction(model, menuPath, 'edit')) labels.push('办理离职')
+  if (rowIsAudited(row) && hasPageAction(model, menuPath, 'unaudit')) labels.push('反审')
+  return labels
+}
 
 /** v1.1.2：是否显示已删除（del='1'） */
 const showDeleted = ref(false)

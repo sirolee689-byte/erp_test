@@ -15,6 +15,10 @@ import { applyAssistOrderLifecycleAction } from './assistOrderLifecycle.js'
 import { fetchAssistOrderPrintDocuments } from './assistOrderPrintData.js'
 import { fetchAssistOrderBatchAddTree } from './assistOrderBatchAdd.js'
 import { fetchAssistOrderExpandDetail, fetchAssistOrderExpandDetailBatch } from './assistOrderExpandDetail.js'
+import {
+  fetchAssistOrderMaterialTrace,
+  fetchAssistOrderTraceBomCodes,
+} from './assistOrderMaterialTrace.js'
 import { resolveActorAuditTripletFromReq } from './businessAuditFields.js'
 
 const HEADER_FROM = `dbo.[${ASSIST_ORDER_HEADER_TABLE}]`
@@ -293,6 +297,30 @@ export function registerAssistOrderRoutes(app, deps) {
     }
   })
 
+  app.get('/api/assist-order/material-trace/bom-codes', async (_req, res) => {
+    try {
+      const list = await fetchAssistOrderTraceBomCodes(await getPool())
+      res.json({ code: 200, msg: 'success', data: { list } })
+    } catch (err) {
+      const detail = String(err?.message ?? err?.originalError?.message ?? err)
+      res.status(500).json({ code: 500, msg: `读取外协转向物料分类失败：${detail}`, data: null })
+    }
+  })
+
+  app.get('/api/assist-order/material-trace/list', async (req, res) => {
+    try {
+      const result = await fetchAssistOrderMaterialTrace(await getPool(), req.query ?? {})
+      if (!result.ok) {
+        res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
+        return
+      }
+      res.json({ code: 200, msg: 'success', data: result })
+    } catch (err) {
+      const detail = String(err?.message ?? err?.originalError?.message ?? err)
+      res.status(500).json({ code: 500, msg: `读取外协转向物料失败：${detail}`, data: null })
+    }
+  })
+
   app.get('/api/assist-order/material-options', async (req, res) => {
     try {
       const pool = await getPool()
@@ -503,7 +531,7 @@ export function registerAssistOrderRoutes(app, deps) {
     } catch (err) {
       console.error('GET /api/assist-order/print-data failed:', err)
       const detail = String(err?.message ?? err?.originalError?.message ?? 'database query failed')
-      res.status(500).json({ code: 500, msg: `璇诲彇澶栧崗璁㈠崟鎵撳嵃鏁版嵁澶辫触锛?{detail}`, data: null })
+      res.status(500).json({ code: 500, msg: `读取外协订单打印数据失败：${detail}`, data: null })
     }
   })
 

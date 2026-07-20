@@ -148,13 +148,13 @@
 <script setup>
 import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import ErpTableActions from '@/components/erp/ErpTableActions.vue'
 import ErpTableViewportHScroll from '@/components/erp/ErpTableViewportHScroll.vue'
-import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout.js'
+import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout.js'
 import PiBomMaterialReplacePanel from './PiBomMaterialReplacePanel.vue'
 
 defineOptions({ name: 'inventory-basic-pi-bom-data' })
@@ -168,7 +168,14 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 const keyword = ref('')
-const listActionsColWidth = getErpTableActionsColMinWidth(2, { compact: true })
+/** 操作列按钮：查看/编辑均无按钮级权限限制（模板无 v-permission），文案恒定 */
+const listActionsColWidth = computed(() => getErpTableActionsColWidthByRows(tableList.value, getPiBomDataRowActionLabels, {
+  fallbackLabels: ['查看', '编辑'],
+}))
+
+function getPiBomDataRowActionLabels() {
+  return ['查看', '编辑']
+}
 
 function isAudited(row) {
   return String(row?.pass ?? '').trim() === '1'

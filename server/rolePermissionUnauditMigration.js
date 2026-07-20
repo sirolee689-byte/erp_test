@@ -45,7 +45,7 @@ export async function migrateRolePermissionsToUnaudit(pool) {
   try {
     const rows = await new sql.Request(tx).query(`
       SELECT RoleID, Permissions
-      FROM dbo.[UB_ERP_System_role]
+      FROM dbo.[NEW_UB_ERP_System_role]
       WHERE Permissions IS NOT NULL
     `)
     let updated = 0
@@ -55,7 +55,7 @@ export async function migrateRolePermissionsToUnaudit(pool) {
       await new sql.Request(tx)
         .input('roleId', sql.Int, Number(row.RoleID))
         .input('permissions', sql.NVarChar(sql.MAX), result.json)
-        .query(`UPDATE dbo.[UB_ERP_System_role] SET Permissions = @permissions WHERE RoleID = @roleId`)
+        .query(`UPDATE dbo.[NEW_UB_ERP_System_role] SET Permissions = @permissions WHERE RoleID = @roleId`)
       updated += 1
     }
     await tx.commit()

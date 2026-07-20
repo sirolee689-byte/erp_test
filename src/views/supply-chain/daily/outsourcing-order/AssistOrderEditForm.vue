@@ -39,18 +39,16 @@
           </div>
           <div class="assist-form-row assist-form-row--2">
             <el-form-item label="外协类型" prop="assistType">
-              <div class="assist-type-btns" role="radiogroup" aria-label="外协类型">
-                <button
+              <div class="assist-basic-buttons" role="radiogroup" aria-label="外协类型">
+                <el-button
                   v-for="opt in assistTypeOptions"
                   :key="opt.value"
-                  type="button"
-                  class="assist-type-btn"
-                  :class="{ 'is-active': model.assistType === opt.value }"
+                  :type="model.assistType === opt.value ? 'primary' : ''"
                   :disabled="readonly"
-                  @click="!readonly && (model.assistType = opt.value)"
+                  @click="chooseAssistType(opt.value)"
                 >
                   {{ opt.label }}
-                </button>
+                </el-button>
               </div>
             </el-form-item>
             <el-form-item label="关联单号" prop="referenceNo">
@@ -90,10 +88,22 @@
           </div>
           <div class="assist-form-row assist-form-row--3">
             <el-form-item label="是否含税" prop="taxIncluded">
-              <el-select v-model="model.taxIncluded" :disabled="readonly">
-                <el-option label="含税" value="1" />
-                <el-option label="不含税" value="2" />
-              </el-select>
+              <div class="assist-basic-buttons" role="radiogroup" aria-label="是否含税">
+                <el-button
+                  :type="model.taxIncluded === '1' ? 'primary' : ''"
+                  :disabled="readonly"
+                  @click="chooseTaxIncluded('1')"
+                >
+                  是
+                </el-button>
+                <el-button
+                  :type="model.taxIncluded === '2' ? 'primary' : ''"
+                  :disabled="readonly"
+                  @click="chooseTaxIncluded('2')"
+                >
+                  否
+                </el-button>
+              </div>
             </el-form-item>
             <el-form-item label="币别" prop="currencyCode">
               <el-select v-model="model.currencyCode" filterable placeholder="请选择币别" :disabled="readonly">
@@ -556,6 +566,18 @@ const assistTypeOptions = [
   { label: '其他外协', value: '0' },
 ]
 
+/** 与采购订单「采购类型」一致：点按钮切换；关联单号清理由下方 watch 处理 */
+function chooseAssistType(value) {
+  if (props.readonly) return
+  props.model.assistType = value
+}
+
+/** 与采购订单「是否含税」一致：是=1 / 否=2 */
+function chooseTaxIncluded(value) {
+  if (props.readonly) return
+  props.model.taxIncluded = value
+}
+
 const isOrderAssistType = computed(() => {
   const t = String(props.model.assistType ?? '')
   return t === '1' || t === '2'
@@ -743,33 +765,25 @@ defineExpose({
   width: var(--assist-textarea-width);
 }
 
-.assist-type-btns {
-  display: flex;
-  gap: 8px;
+/* DIY：外协类型/是否含税按钮 — 对齐采购订单 buy-basic-buttons（高 40、宽 106、字 16） */
+.assist-basic-buttons {
+  --assist-basic-button-width: 106px;
+  --assist-basic-button-height: 40px;
+  --assist-basic-button-font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
-.assist-type-btn {
-  /* DIY：外协类型按钮尺寸与颜色 */
-  --assist-type-btn-min-height: 36px;
-  --assist-type-btn-min-width: 96px;
-  --assist-type-btn-active-bg: #ff7800;
-  min-height: var(--assist-type-btn-min-height);
-  min-width: var(--assist-type-btn-min-width);
-  padding: 0 14px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 4px;
-  background: var(--erp-surface, #fff);
-  color: var(--el-text-color-primary);
-  font-size: inherit;
-  line-height: 1.4;
-  cursor: pointer;
-}
-
-.assist-type-btn.is-active {
-  background: var(--assist-type-btn-active-bg);
-  border-color: var(--assist-type-btn-active-bg);
-  color: #fff;
+.assist-basic-buttons :deep(.el-button) {
+  width: var(--assist-basic-button-width);
+  min-width: var(--assist-basic-button-width);
+  height: var(--assist-basic-button-height);
+  margin-left: 0;
+  padding-left: 0;
+  padding-right: 0;
+  font-size: var(--assist-basic-button-font-size);
 }
 
 .assist-edit-form :deep(.el-tabs) {

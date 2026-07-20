@@ -774,7 +774,9 @@ import axios from 'axios'
 import MaterialSelector from './MaterialSelector.vue'
 import ErpTableViewportHScroll from '@/components/erp/ErpTableViewportHScroll.vue'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
-import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
+import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
+import { isErpSuperAdmin } from '@/utils/erpSuperAdmin'
 import { createExpandPrefetch } from '@/utils/erpExpandPrefetch.js'
 import { formatErpTrimDecimal } from '@/utils/erpNumberDisplay'
 import ExcelJS from 'exceljs'
@@ -798,13 +800,26 @@ const keyword = ref('')
 const showRecycle = ref(false)
 const showUnAudited = ref(false)
 
-const quoteActionsColWidth = computed(() => {
-  if (showRecycle.value) return getErpTableActionsColMinWidth(2)
-  if (showUnAudited.value) return getErpTableActionsColMinWidth(2)
-  return getErpTableActionsColMinWidth(2)
-})
-
 const tableList = ref([])
+const quotePermissionModel = getPermissionModelFromStorage()
+const QUOTE_MENU_PATH = 'supply-chain/daily/purchase-quote'
+const quoteActionsColWidth = computed(() => getErpTableActionsColWidthByRows(tableList.value, getQuoteRowActionLabels))
+
+function getQuoteRowActionLabels(row) {
+  if (showRecycle.value) return [
+    hasPageAction(quotePermissionModel, QUOTE_MENU_PATH, 'edit') ? '恢复' : false,
+    isErpSuperAdmin() && hasPageAction(quotePermissionModel, QUOTE_MENU_PATH, 'delete') ? '彻底删除' : false,
+  ]
+  const labels = ['查看']
+  if (showUnAudited.value && !passIsAudited(row)) {
+    if (hasPageAction(quotePermissionModel, QUOTE_MENU_PATH, 'edit')) labels.push('编辑')
+    if (hasPageAction(quotePermissionModel, QUOTE_MENU_PATH, 'audit')) labels.push('审核')
+  }
+  if (!showUnAudited.value && passIsAudited(row) && hasPageAction(quotePermissionModel, QUOTE_MENU_PATH, 'unaudit')) labels.push('反审')
+  if (showUnAudited.value && hasPageAction(quotePermissionModel, QUOTE_MENU_PATH, 'delete')) labels.push('删除')
+  return labels
+}
+
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)

@@ -53,4 +53,28 @@ describe('assist order print route', () => {
     assert.equal(printCalls[0].actor.trueName, 'Zhang San')
     assert.deepEqual(printCalls[0].setup, { rowsPerPage: '12', priceDecimals: '4', wxgs: '1' })
   })
+
+  test('returns a readable print-data error with the underlying cause', async () => {
+    const routes = {}
+    const app = {
+      get(path, handler) {
+        routes[`GET ${path}`] = handler
+      },
+      post() {},
+      put() {},
+      delete() {},
+    }
+    const printService = {
+      async fetchAssistOrderPrintDocuments() {
+        throw new Error('打印数据查询异常')
+      },
+    }
+
+    registerAssistOrderRoutes(app, { getPool: async () => ({ marker: 'pool' }), printService })
+    const res = createMockRes()
+    await routes['GET /api/assist-order/print-data']({ query: { p_sum: 'WX26060901' } }, res)
+
+    assert.equal(res.statusCode, 500)
+    assert.equal(res.body.msg, '读取外协订单打印数据失败：打印数据查询异常')
+  })
 })

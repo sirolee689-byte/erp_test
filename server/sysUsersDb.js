@@ -337,7 +337,7 @@ export async function fetchSysUserPermissionSource(pool, userId) {
           ${isAdminExpr} AS is_admin,
           CAST(r.Permissions AS NVARCHAR(MAX)) AS Permissions
         FROM dbo.[UB_ERP_User] AS u
-        LEFT JOIN dbo.[UB_ERP_System_role] AS r ON r.RoleID = u.${qRoleId}
+        LEFT JOIN dbo.[NEW_UB_ERP_System_role] AS r ON r.RoleID = u.${qRoleId}
         WHERE u.${qPk} = @UserID
         ${delActiveSql}
       `)
@@ -364,7 +364,7 @@ export async function fetchSysUserPermissionSource(pool, userId) {
   const r = await req.query(`
     SELECT TOP (1) r.Permissions AS Permissions
     FROM dbo.[UB_ERP_User] AS u
-    INNER JOIN dbo.[UB_ERP_System_role] AS r ON r.RoleID = u.RoleID
+    INNER JOIN dbo.[NEW_UB_ERP_System_role] AS r ON r.RoleID = u.RoleID
     WHERE u.UserID = @UserID AND u.Status = 1 AND r.Status = 1
     ${delActiveErp}
   `)

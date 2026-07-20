@@ -22,7 +22,8 @@ export const ERP_TABLE_ACTIONS_BTN_WIDTH_DEFAULT = 88
 export const ERP_TABLE_ACTIONS_COL_GAP_COMPACT = 2
 export const ERP_TABLE_ACTIONS_COL_GAP_DEFAULT = 4
 /** 单元格左右 padding 余量（与 .cell 内边距对齐） */
-export const ERP_TABLE_ACTIONS_CELL_PAD_X = 20
+/** 操作列单元格：左侧约 10px + 右侧最多 5px 的空间（合计默认 15）。 */
+export const ERP_TABLE_ACTIONS_CELL_PAD_X = 15
 
 /**
  * 操作列建议宽度（px）：按可见按钮数与 Grid 列数估宽，避免固定 400 右侧留白。
@@ -45,7 +46,8 @@ export function getErpTableActionsColMinWidth(buttonCount, options = {}) {
  * 只依赖传入数据，不读取或监听 DOM，避免表格列宽与组件渲染互相触发更新。
  *
  * @param {Array<string | null | undefined | false>} actionLabels 当前会显示的按钮文案
- * @param {{ comfortable?: boolean, cellPadPx?: number, colGapPx?: number, extraPx?: number }} [options]
+ * @param {{ comfortable?: boolean, cellPadPx?: number, colGapPx?: number, extraPx?: number, singleRow?: boolean }} [options]
+ *   singleRow=true 时按「全部按钮同一行」估宽（不按两行 Grid 折列），配合 CSS flex-nowrap 使用。
  */
 export function getErpTableActionsColWidthByLabels(actionLabels, options = {}) {
   const labels = (Array.isArray(actionLabels) ? actionLabels : [])
@@ -55,10 +57,13 @@ export function getErpTableActionsColWidthByLabels(actionLabels, options = {}) {
   const fontSize = comfortable ? 13 : 11
   const buttonPad = 18
   const minButtonWidth = comfortable ? 44 : 40
-  const cellPad = Number(options.cellPadPx ?? 10)
+  // 与 .erp-col-actions .cell 的左右留白合计对齐；宽度只多留约 5px 量级，避免大片空白。
+  const cellPad = Number(options.cellPadPx ?? ERP_TABLE_ACTIONS_CELL_PAD_X)
   const colGap = Number(options.colGapPx ?? 4)
   const extra = Number(options.extraPx) || 0
-  const cols = getErpTableActionsColCount(labels.length)
+  const cols = options.singleRow === true
+    ? Math.max(1, labels.length)
+    : getErpTableActionsColCount(labels.length)
   const columnWidths = Array.from({ length: cols }, () => 0)
 
   labels.forEach((label, index) => {
@@ -73,5 +78,20 @@ export function getErpTableActionsColWidthByLabels(actionLabels, options = {}) {
       + Math.max(0, cols - 1) * colGap
       + Math.max(0, cellPad)
       + extra,
+  )
+}
+
+/**
+ * 当前页操作列宽度：每行按实际可见按钮估宽，取最大组合。
+ * 空列表仍保留一个「查看」按钮的最小宽度，避免列表加载瞬间列宽跳动。
+ */
+export function getErpTableActionsColWidthByRows(rows, getLabels, options = {}) {
+  const list = Array.isArray(rows) ? rows : []
+  const resolveLabels = typeof getLabels === 'function' ? getLabels : () => []
+  const widths = list.map((row) => getErpTableActionsColWidthByLabels(resolveLabels(row), options))
+  const fallbackLabels = options.fallbackLabels ?? ['查看']
+  return Math.max(
+    getErpTableActionsColWidthByLabels(fallbackLabels, options),
+    ...widths,
   )
 }

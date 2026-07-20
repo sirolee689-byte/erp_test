@@ -135,13 +135,31 @@
 <script setup>
 import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
-import { ref, watch, onMounted } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
+import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
+import { isErpSuperAdmin } from '@/utils/erpSuperAdmin'
 const { onErpListRowContextMenu } = useErpListRowContextMenu()
 
-const auditListActionsColWidth = getErpTableActionsColMinWidth(2)
+const menuPath = 'hr/dormitory/lodging-records'
+const model = getPermissionModelFromStorage()
+
+const auditListActionsColWidth = computed(() => getErpTableActionsColWidthByRows(tableList.value, getAuditListRowActionLabels))
+
+/** 待审核入住申请操作列按钮：与模板 v-if / v-permission 保持一致，用于估算列宽 */
+function getAuditListRowActionLabels(row) {
+  const pass = String(row?.pass ?? '').trim()
+  if (pass === '0') {
+    const labels = []
+    if (isErpSuperAdmin() && hasPageAction(model, menuPath, 'audit')) labels.push('通过审核')
+    if (hasPageAction(model, menuPath, 'audit')) labels.push('删除')
+    return labels
+  }
+  if (pass === '1' && hasPageAction(model, menuPath, 'unaudit')) return ['反审核']
+  return []
+}
 
 const emit = defineEmits(['dorm-data-changed'])
 

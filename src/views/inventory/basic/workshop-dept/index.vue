@@ -197,7 +197,9 @@ import { ref, computed } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
-import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
+import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
+import { isErpSuperAdmin } from '@/utils/erpSuperAdmin'
 const { onErpListRowContextMenu } = useErpListRowContextMenu()
 
 /** 页面标题（与左侧菜单一致） */
@@ -216,11 +218,27 @@ const showUnAudited = ref(false)
 
 const busyId = ref(0)
 
-const actionsColWidth = computed(() => {
-  if (showRecycle.value) return getErpTableActionsColMinWidth(2)
-  if (showUnAudited.value) return getErpTableActionsColMinWidth(2)
-  return getErpTableActionsColMinWidth(1)
-})
+const workshopDeptPermissionModel = getPermissionModelFromStorage()
+const WORKSHOP_DEPT_MENU_PATH = 'inventory/basic/workshop-dept'
+const actionsColWidth = computed(() => getErpTableActionsColWidthByRows(tableList.value, getWorkshopDeptRowActionLabels, {
+  fallbackLabels: [],
+}))
+
+/** 操作列按钮文案：需与模板 v-if / v-permission 条件保持一致 */
+function getWorkshopDeptRowActionLabels(row) {
+  if (showRecycle.value) return [
+    '恢复',
+    isErpSuperAdmin() && hasPageAction(workshopDeptPermissionModel, WORKSHOP_DEPT_MENU_PATH, 'delete') ? '彻底删除' : false,
+  ]
+  const labels = []
+  if (showUnAudited.value) {
+    if (!passIsAudited(row) && hasPageAction(workshopDeptPermissionModel, WORKSHOP_DEPT_MENU_PATH, 'audit')) labels.push('审核')
+    labels.push('删除')
+  } else if (passIsAudited(row) && hasPageAction(workshopDeptPermissionModel, WORKSHOP_DEPT_MENU_PATH, 'unaudit')) {
+    labels.push('反审')
+  }
+  return labels
+}
 
 const createVisible = ref(false)
 const createSubmitting = ref(false)

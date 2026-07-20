@@ -27,28 +27,31 @@
         <span class="page-title">{{ pageTitle }}</span>
       </template>
 
-      <div class="search-row">
-        <el-input
-          v-model="keyword"
-          placeholder="关键词（匹配主表文本字段）"
-          clearable
-          style="max-width: 360px"
-          @keyup.enter="onSearch"
-        />
-        <div class="audit-switch">
-          <span class="switch-label">回收站</span>
-          <el-switch v-model="showRecycle" @change="onRecycleChange" />
+      <!-- 抬头筛选：对齐采购报价（关键词 → 查询/重置 → 竖线间隔 → 开关） -->
+      <div class="pq-filter-bar erp-filter-bar">
+        <div class="pq-filter-row erp-filter-row">
+          <el-input
+            v-model="keyword"
+            clearable
+            class="pq-filter-keyword"
+            placeholder="关键词（匹配主表文本字段）"
+            @keyup.enter="onSearch"
+          />
+          <el-button type="primary" size="small" @click="onSearch">查询</el-button>
+          <el-button size="small" @click="onReset">重置</el-button>
+          <div class="pq-filter-divider erp-filter-divider" aria-hidden="true" />
+          <div class="pq-filter-switch erp-filter-switch">
+            <span class="switch-label">回收站</span>
+            <el-switch v-model="showRecycle" @change="onRecycleChange" />
+          </div>
+          <template v-if="!showRecycle">
+            <div class="pq-filter-divider erp-filter-divider" aria-hidden="true" />
+            <div class="pq-filter-switch erp-filter-switch">
+              <span class="switch-label">显示未审核</span>
+              <el-switch v-model="showUnAudited" @change="onSearch" />
+            </div>
+          </template>
         </div>
-        <div v-if="!showRecycle" class="audit-switch">
-          <span class="switch-label">显示未审核</span>
-          <el-switch v-model="showUnAudited" @change="onSearch" />
-        </div>
-        <el-button type="primary" @click="onSearch">查询</el-button>
-        <el-button @click="onReset">重置</el-button>
-        <el-button class="btn-view" :loading="loading" @click="loadData">
-          <el-icon class="btn-icon"><Refresh /></el-icon>
-          刷新
-        </el-button>
       </div>
 
       <el-alert v-if="errorMessage" :title="errorMessage" type="error" show-icon class="error-alert" />
@@ -84,7 +87,7 @@
         <template #default>
           <el-table
             ref="pqMainTableRef"
-            class="pq-main-table"
+            class="pq-main-table erp-list-table"
             :data="tableList"
             row-key="id"
             border
@@ -147,6 +150,92 @@
               </template>
             </el-table-column>
 
+            <!-- 主列表列序：操作 → 状态 → 单号 → 日期 → 外协报价数据 → 有效期 → 币别 → 供应商 → 备注（不加关联单号） -->
+            <el-table-column
+              label="操作"
+              :width="quoteActionsColWidth"
+              fixed="left"
+              align="left"
+              header-align="center"
+              class-name="erp-col-actions"
+            >
+              <template #default="{ row }">
+                <ErpTableActions class="pq-quote-actions" @click.stop>
+                  <template v-if="showRecycle">
+                    <el-button
+                      v-permission="'edit'"
+                      type="primary"
+                      plain
+                      :loading="row.__opLoading === 'restore'"
+                      @click.stop="restoreRow(row)"
+                    >
+                      恢复
+                    </el-button>
+                    <el-button
+                      v-if="$isErpSuperAdmin()"
+                      v-permission="'delete'"
+                      type="danger"
+                      plain
+                      :loading="row.__opLoading === 'permanent'"
+                      @click.stop="permanentDeleteRow(row)"
+                    >
+                      彻底删除
+                    </el-button>
+                  </template>
+                  <template v-else>
+                    <el-button type="info" plain @click.stop="openView(row)">查看</el-button>
+                    <el-button
+                      v-if="showUnAudited && !passIsAudited(row)"
+                      v-permission="'edit'"
+                      type="primary"
+                      plain
+                      @click.stop="openEdit(row)"
+                    >
+                      编辑
+                    </el-button>
+                    <el-button
+                      v-if="showUnAudited && !passIsAudited(row)"
+                      v-permission="'audit'"
+                      type="success"
+                      plain
+                      :loading="row.__opLoading === 'audit'"
+                      @click.stop="auditRow(row)"
+                    >
+                      审核
+                    </el-button>
+                    <el-button
+                      v-if="!showUnAudited && passIsAudited(row)"
+                      v-permission="'unaudit'"
+                      type="warning"
+                      plain
+                      :loading="row.__opLoading === 'unaudit'"
+                      @click.stop="unauditRow(row)"
+                    >
+                      反审
+                    </el-button>
+                    <el-button
+                      v-if="showUnAudited"
+                      v-permission="'delete'"
+                      type="danger"
+                      plain
+                      :disabled="passIsAudited(row)"
+                      :loading="row.__opLoading === 'delete'"
+                      @click.stop="softDeleteRow(row)"
+                    >
+                      删除
+                    </el-button>
+                  </template>
+                </ErpTableActions>
+              </template>
+            </el-table-column>
+
+            <el-table-column label="状态" width="88">
+              <template #default="{ row }">
+                <el-tag v-if="passIsAudited(row)" type="success" size="small">已审</el-tag>
+                <el-tag v-else type="warning" size="small">未审</el-tag>
+              </template>
+            </el-table-column>
+
             <el-table-column label="外协报价单号" prop="wxaa01" min-width="132" show-overflow-tooltip>
               <template #default="{ row }">
                 <span class="code-bold">{{ displayQuotationNo(row) }}</span>
@@ -157,7 +246,7 @@
               <template #default="{ row }">{{ quoteDateDisplay(row) }}</template>
             </el-table-column>
 
-            <el-table-column label="报价汇总" min-width="340" show-overflow-tooltip>
+            <el-table-column label="外协报价数据" min-width="340" show-overflow-tooltip>
               <template #default="{ row }">{{ quoteSummaryRow(row) }}</template>
             </el-table-column>
 
@@ -170,84 +259,6 @@
             <el-table-column label="供应商/外协商" prop="kehu" min-width="160" show-overflow-tooltip />
 
             <el-table-column label="备注" prop="remark" min-width="140" show-overflow-tooltip />
-
-            <el-table-column label="审核" width="88">
-              <template #default="{ row }">
-                <el-tag v-if="passIsAudited(row)" type="success" size="small">已审</el-tag>
-                <el-tag v-else type="warning" size="small">未审</el-tag>
-              </template>
-            </el-table-column>
-
-            <el-table-column label="操作" :width="quoteActionsColWidth" fixed="right" class-name="erp-col-actions">
-              <template #default="{ row }">
-                <ErpTableActions>
-                  <template v-if="showRecycle">
-                    <el-button
-                      v-permission="'edit'"
-                      type="primary"
-                      plain
-                      :loading="row.__opLoading === 'restore'"
-                      @click="restoreRow(row)"
-                    >
-                      恢复
-                    </el-button>
-                    <el-button
-                      v-if="$isErpSuperAdmin()"
-                      v-permission="'delete'"
-                      type="danger"
-                      plain
-                      :loading="row.__opLoading === 'permanent'"
-                      @click="permanentDeleteRow(row)"
-                    >
-                      彻底删除
-                    </el-button>
-                  </template>
-                  <template v-else>
-                    <el-button type="info" plain @click="openView(row)">查看</el-button>
-                    <el-button
-                      v-if="showUnAudited && !passIsAudited(row)"
-                      v-permission="'edit'"
-                      type="primary"
-                      plain
-                      @click="openEdit(row)"
-                    >
-                      编辑
-                    </el-button>
-                    <el-button
-                      v-if="showUnAudited && !passIsAudited(row)"
-                      v-permission="'audit'"
-                      type="success"
-                      plain
-                      :loading="row.__opLoading === 'audit'"
-                      @click="auditRow(row)"
-                    >
-                      审核
-                    </el-button>
-                    <el-button
-                      v-if="!showUnAudited && passIsAudited(row)"
-                      v-permission="'unaudit'"
-                      type="warning"
-                      plain
-                      :loading="row.__opLoading === 'unaudit'"
-                      @click="unauditRow(row)"
-                    >
-                      反审
-                    </el-button>
-                    <el-button
-                      v-if="showUnAudited"
-                      v-permission="'delete'"
-                      type="danger"
-                      plain
-                      :disabled="passIsAudited(row)"
-                      :loading="row.__opLoading === 'delete'"
-                      @click="softDeleteRow(row)"
-                    >
-                      删除
-                    </el-button>
-                  </template>
-                </ErpTableActions>
-              </template>
-            </el-table-column>
           </el-table>
 
           <div class="pagination-row pagination-row--bottom">
@@ -638,17 +649,20 @@
 <script setup>
 import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
 import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
-import { computed, reactive, ref, watch } from 'vue'
+import { getStoredUiDensity } from '@/utils/uiDensity'
 
 // 与 router 生成的 route.name 一致，供布局 keep-alive 按组件名缓存
 defineOptions({ name: 'supply-chain-daily-outsourcing-quote' })
 const { onErpListRowContextMenu } = useErpListRowContextMenu()
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { DocumentCopy, Refresh, Search } from '@element-plus/icons-vue'
+import { DocumentCopy, Search } from '@element-plus/icons-vue'
 import axios from 'axios'
 import MaterialSelector from '../purchase-quote/MaterialSelector.vue'
-import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
+import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
+import { isErpSuperAdmin } from '@/utils/erpSuperAdmin'
 import { createExpandPrefetch } from '@/utils/erpExpandPrefetch.js'
 
 const pageTitle = '外协报价'
@@ -664,19 +678,48 @@ const keyword = ref('')
 const showRecycle = ref(false)
 const showUnAudited = ref(false)
 
-const quoteActionsColWidth = computed(() => {
-  if (showRecycle.value) return getErpTableActionsColMinWidth(2)
-  if (showUnAudited.value) return getErpTableActionsColMinWidth(4)
-  return getErpTableActionsColMinWidth(2)
-})
-
 const tableList = ref([])
+const quotePermissionModel = getPermissionModelFromStorage()
+const QUOTE_MENU_PATH = 'supply-chain/daily/outsourcing-quote'
+/** 操作列宽：全部按钮同一行估宽（singleRow）；左右合计留白约 10px */
+const quoteActionsColWidth = computed(() =>
+  getErpTableActionsColWidthByRows(tableList.value, getQuoteRowActionLabels, {
+    comfortable: getStoredUiDensity() === 'comfortable',
+    singleRow: true,
+    cellPadPx: 10,
+    // 按钮实际略宽于纯文字估宽，略加几个 px 保证不换行，仍控制在约 5px 留白量级
+    extraPx: 4,
+  }),
+)
+
+function getQuoteRowActionLabels(row) {
+  if (showRecycle.value) return [
+    hasPageAction(quotePermissionModel, QUOTE_MENU_PATH, 'edit') ? '恢复' : false,
+    isErpSuperAdmin() && hasPageAction(quotePermissionModel, QUOTE_MENU_PATH, 'delete') ? '彻底删除' : false,
+  ]
+  const labels = ['查看']
+  if (showUnAudited.value && !passIsAudited(row)) {
+    if (hasPageAction(quotePermissionModel, QUOTE_MENU_PATH, 'edit')) labels.push('编辑')
+    if (hasPageAction(quotePermissionModel, QUOTE_MENU_PATH, 'audit')) labels.push('审核')
+  }
+  if (!showUnAudited.value && passIsAudited(row) && hasPageAction(quotePermissionModel, QUOTE_MENU_PATH, 'unaudit')) labels.push('反审')
+  if (showUnAudited.value && hasPageAction(quotePermissionModel, QUOTE_MENU_PATH, 'delete')) labels.push('删除')
+  return labels
+}
+
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 
 /** 主表：用于点击整行展开/收起明细 */
 const pqMainTableRef = ref(null)
+
+/** 操作列宽变化后重算表格布局，避免固定列裁切按钮 */
+watch([tableList, loading, showRecycle, showUnAudited, quoteActionsColWidth], async () => {
+  if (loading.value) return
+  await nextTick()
+  pqMainTableRef.value?.doLayout?.()
+})
 
 const viewVisible = ref(false)
 const viewLoading = ref(false)
@@ -1718,28 +1761,48 @@ loadData()
 .page-desc code {
   font-size: 12px;
 }
-.search-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
+.pq-filter-bar {
   margin-bottom: 12px;
 }
-.audit-switch {
+.pq-filter-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  overflow-x: auto;
+}
+/* DIY：关键词框宽度，改下面四个数字保持一致即可 */
+.pq-filter-keyword {
+  flex: 0 0 420px;
+  width: 420px;
+  min-width: 420px;
+  max-width: 420px;
+}
+/* 间隔符：高度/左右间距可用全局 --erp-filter-divider-* */
+.pq-filter-divider {
+  width: 1px;
+  height: var(--erp-filter-divider-height, 22px);
+  margin: 0 var(--erp-filter-divider-gap, 20px);
+  background: var(--el-border-color);
+  flex-shrink: 0;
+}
+.pq-filter-switch {
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: 6px;
+  white-space: nowrap;
 }
 .switch-label {
   font-size: 13px;
   color: var(--el-text-color-regular);
+  white-space: nowrap;
 }
 .error-alert,
 .audit-alert {
   margin-bottom: 12px;
-}
-.btn-view .btn-icon {
-  margin-right: 4px;
 }
 .code-bold {
   font-weight: 600;
@@ -1747,6 +1810,25 @@ loadData()
 
 .pq-main-table :deep(.el-table__body-wrapper .el-table__body tr) {
   cursor: pointer;
+}
+/* 外协报价操作列：强制同一行（不换行）；列宽由 quoteActionsColWidth + singleRow 估够 */
+.pq-quote-actions.erp-table-actions--grid {
+  display: flex !important;
+  flex-wrap: nowrap;
+  flex-direction: row;
+  justify-content: flex-start;
+  align-items: center;
+  column-gap: var(--erp-list-action-col-gap);
+  row-gap: 0;
+  max-height: none;
+  max-width: none;
+  overflow: visible;
+  white-space: nowrap;
+}
+.pq-main-table.erp-list-table :deep(td.erp-col-actions .cell) {
+  /* DIY：操作列左右留白，建议 ≤5px */
+  padding-left: 5px;
+  padding-right: 5px;
 }
 .expand-inner {
   padding: 8px 12px 12px;

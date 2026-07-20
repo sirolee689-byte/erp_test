@@ -430,6 +430,8 @@ html[data-ui='comfortable'] .erp-module-page .erp-list-table .el-table__body td.
   text-align: left;
   padding-top: 2px;
   padding-bottom: 2px;
+  /* 宽度计算按左 10px、右 5px 留白；权限较少时不留大片空白。 */
+  padding-right: 5px;
   line-height: 1;
 }
 

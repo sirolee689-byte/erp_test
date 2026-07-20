@@ -644,6 +644,12 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'GET' && path === '/api/assist-order/material-options') {
     return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'view' }
   }
+  if (
+    m === 'GET' &&
+    (path === '/api/assist-order/material-trace/bom-codes' || path === '/api/assist-order/material-trace/list')
+  ) {
+    return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'view' }
+  }
   if (m === 'GET' && path === '/api/assist-order/batch-add-tree') {
     return { menuPath: 'supply-chain/daily/outsourcing-order', action: 'view' }
   }

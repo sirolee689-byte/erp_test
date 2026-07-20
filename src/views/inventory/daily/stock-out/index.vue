@@ -876,7 +876,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
 import { isErpSuperAdmin } from '@/utils/erpSuperAdmin'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
-import { getErpTableActionsColWidthByLabels } from '@/utils/erpTableActionsLayout'
+import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
 import { getStoredUiDensity, UI_DENSITY_COMFORTABLE } from '@/utils/uiDensity'
 import {
   STOCK_OUT_BATCH_MSG_APPLY,
@@ -959,7 +959,11 @@ const formTab = ref('base')
 const showRecycle = ref(false)
 const showUnaudited = ref(false)
 
-const stockOutActionsColWidth = computed(() => Math.max(54, ...list.value.map((row) => getStockOutRowActionsWidth(row))))
+const stockOutActionsColWidth = computed(() => getErpTableActionsColWidthByRows(
+  list.value,
+  getStockOutRowActionLabels,
+  { comfortable: getStoredUiDensity() === UI_DENSITY_COMFORTABLE },
+))
 
 const printMode = ref('2')
 const printSelectedSystemcodes = ref(new Set())
@@ -1379,7 +1383,7 @@ function canDelete(row) {
   return row.pass !== '1' && row.del !== '1' && row.closed !== '1'
 }
 
-function getStockOutRowActionsWidth(row) {
+function getStockOutRowActionLabels(row) {
   const labels = ['查看']
   if (!showRecycle.value && canUnaudit(row) && hasPageAction(permissionModel.value, MENU_PATH, 'audit')) labels.push('反审')
   if (hasPrintPermission.value) labels.push('打印选择')
@@ -1393,9 +1397,7 @@ function getStockOutRowActionsWidth(row) {
     if (canAudit(row) && hasPageAction(permissionModel.value, MENU_PATH, 'audit')) labels.push('审核')
     if (canDelete(row) && hasPageAction(permissionModel.value, MENU_PATH, 'delete')) labels.push('删除')
   }
-  return getErpTableActionsColWidthByLabels(labels, {
-    comfortable: getStoredUiDensity() === UI_DENSITY_COMFORTABLE,
-  })
+  return labels
 }
 
 function isLocked(row) {

@@ -14,11 +14,9 @@
 
 | path | 页面 |
 |------|------|
-| `production/daily/reserve-order` | 预留单 |
-| `production/daily/process-code` | 工序编码 |
-| `production/daily/plan` | 生产计划 |
 | `production/daily/dispatch` | 派工单 |
-| `production/daily/work-hour-report` | 工时汇报（占位） |
+
+> 2026-07：已从菜单移除占位入口（预留单 / 工序编码 / 生产计划 / 工时汇报）。
 
 ### 统计分析（`production/analysis/*`）
 

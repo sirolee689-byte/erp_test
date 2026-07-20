@@ -162,6 +162,7 @@ export const ERP_MODE_BTN_URL_BUILDERS = {
   'supply-chain/daily/outsourcing-order': {
     manage: (pathname) => buildErpModeLinkUrl(pathname, 'manage'),
     create: (pathname) => buildErpModeLinkUrl(pathname, 'create'),
+    'material-trace': (pathname) => buildErpModeLinkUrl(pathname, 'material-trace'),
   },
   'supply-chain/daily/sales-order': {
     manage: (pathname) => buildErpModeLinkUrl(pathname, 'manage'),

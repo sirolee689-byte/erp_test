@@ -6,7 +6,6 @@ const LINE_FROM = 'dbo.[UB_ERP_assist_order_list]'
 const MONEY_FROM = 'dbo.[UB_ERP_assist_order_money]'
 const SUPPLIER_FROM = 'dbo.[UB_ERP_System_supplier]'
 const COLOR_FROM = 'dbo.[UB_ERP_Stocks_colorcode]'
-const PRINT_SETUP_FROM = 'dbo.[UB_ERP_User_print_setup]'
 
 export const ASSIST_ORDER_CONTRACT_TERMS = [
   '加工方必须按确认样板、工艺要求和订单资料生产。',
@@ -197,50 +196,6 @@ export function buildAssistOrderPrintDocument(order, rawSetup = {}) {
   }
 }
 
-function actorFields(actor = {}) {
-  return {
-    uid: text(actor.uidInt ?? actor.uid ?? actor.id ?? actor.userId),
-    uname: text(actor.uname ?? actor.username ?? actor.name),
-    truename: text(actor.utruename ?? actor.truename ?? actor.trueName ?? actor.name),
-  }
-}
-
-export async function readAndSaveAssistOrderPrintSetup(pool, actor = {}, { pSum = '', ...overrides } = {}) {
-  const audit = actorFields(actor)
-  if (!audit.uid) return normalizePrintSetup(overrides)
-  const read = await pool.request()
-    .input('uid', sql.NVarChar(100), audit.uid)
-    .query(`
-      SELECT TOP 1 [id], [print_s] AS rowsPerPage
-      FROM ${PRINT_SETUP_FROM}
-      WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL([uid], N'')))) = @uid
-        AND LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL([code], N'')))) = N'ub_erp_assist_order'
-      ORDER BY [id] DESC
-    `)
-  const saved = read.recordset?.[0] ?? null
-  const setup = normalizePrintSetup({ ...(saved ?? {}), ...overrides })
-  const write = pool.request()
-    .input('uid', sql.NVarChar(100), audit.uid)
-    .input('uname', sql.NVarChar(100), audit.uname)
-    .input('truename', sql.NVarChar(100), audit.truename)
-    .input('printS', sql.Int, setup.rowsPerPage)
-    .input('printCode', sql.NVarChar(sql.MAX), text(pSum))
-  if (saved?.id) {
-    write.input('id', sql.Int, Number(saved.id))
-    await write.query(`
-      UPDATE ${PRINT_SETUP_FROM}
-      SET [print_s] = @printS, [print_time] = GETDATE(), [print_code] = @printCode
-      WHERE [id] = @id
-    `)
-  } else {
-    await write.query(`
-      INSERT INTO ${PRINT_SETUP_FROM} ([uid], [uname], [truename], [addtime], [code], [print_s], [print_time], [print_code])
-      VALUES (@uid, @uname, @truename, CONVERT(nvarchar(30), GETDATE(), 120), N'ub_erp_assist_order', @printS, GETDATE(), @printCode)
-    `)
-  }
-  return setup
-}
-
 async function fetchPrintHeaderByOrderNo(pool, orderNo) {
   const result = await pool.request().input('orderNo', sql.NVarChar(200), orderNo).query(`
     SELECT TOP 1
@@ -287,7 +242,8 @@ export async function fetchAssistOrderPrintDocuments(pool, { pSum = '', ids = []
   }
   if (!orderNos.length) return { ok: false, status: 400, code: 'EMPTY_P_SUM', msg: '请选择需要打印的订单' }
 
-  const setup = await readAndSaveAssistOrderPrintSetup(pool, actor, { ...setupOverrides, pSum: orderNos.join(',') })
+  // 与采购订单一致：本次打印页的选择只参与本次排版，不保存为用户偏好。
+  const setup = normalizePrintSetup(setupOverrides)
   const printConfig = await fetchSystemPrintLogoConfig(pool)
   const docs = []
   for (let index = 0; index < orderNos.length; index += 1) {

@@ -202,8 +202,12 @@ import { ref, watch, computed } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh } from '@element-plus/icons-vue'
-import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
+import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
 const { onErpListRowContextMenu } = useErpListRowContextMenu()
+
+const menuPath = 'hr/dormitory/room-management'
+const model = getPermissionModelFromStorage()
 
 const pageTitle = '房间管理'
 
@@ -216,7 +220,16 @@ const pageSize = ref(20)
 const keyword = ref('')
 const showUnAudited = ref(false)
 
-const roomActionsColWidth = computed(() => getErpTableActionsColMinWidth(2))
+const roomActionsColWidth = computed(() => getErpTableActionsColWidthByRows(tableList.value, getRoomRowActionLabels))
+
+/** 房间管理主列表操作列按钮：与模板 v-if / v-permission 保持一致，用于估算列宽 */
+function getRoomRowActionLabels(row) {
+  const labels = []
+  if (hasPageAction(model, menuPath, 'view')) labels.push('查看')
+  if (showUnAudited.value && !rowIsAudited(row) && hasPageAction(model, menuPath, 'audit')) labels.push('审核')
+  if (!showUnAudited.value && rowIsAudited(row) && hasPageAction(model, menuPath, 'unaudit')) labels.push('反审')
+  return labels
+}
 
 /** 宿舍状态下拉 */
 const stateOptions = ['使用', '闲置']

@@ -203,7 +203,9 @@ import { ref, computed } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
-import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
+import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
+import { isErpSuperAdmin } from '@/utils/erpSuperAdmin'
 const { onErpListRowContextMenu } = useErpListRowContextMenu()
 const pageTitle = '使用单位'
 
@@ -219,12 +221,27 @@ const showRecycle = ref(false)
 /** 当前正在请求后端的行主键 id */
 const busyId = ref(null)
 
-/** 操作列宽度：按当前视图最多可见按钮数估算（与 BOM 资料一致） */
-const actionsColWidth = computed(() => {
-  if (showRecycle.value) return getErpTableActionsColMinWidth(2)
-  if (showUnAudited.value) return getErpTableActionsColMinWidth(2)
-  return getErpTableActionsColMinWidth(1)
-})
+const unitsPermissionModel = getPermissionModelFromStorage()
+const UNITS_MENU_PATH = 'inventory/basic/units'
+const actionsColWidth = computed(() => getErpTableActionsColWidthByRows(tableList.value, getUnitRowActionLabels, {
+  fallbackLabels: [],
+}))
+
+/** 操作列按钮文案：需与模板 v-if / v-permission 条件保持一致 */
+function getUnitRowActionLabels(row) {
+  if (showRecycle.value) return [
+    '恢复',
+    isErpSuperAdmin() && hasPageAction(unitsPermissionModel, UNITS_MENU_PATH, 'delete') ? '彻底删除' : false,
+  ]
+  const labels = []
+  if (showUnAudited.value) {
+    if (!passIsAudited(row) && hasPageAction(unitsPermissionModel, UNITS_MENU_PATH, 'audit')) labels.push('审核')
+    labels.push('删除')
+  } else if (passIsAudited(row) && hasPageAction(unitsPermissionModel, UNITS_MENU_PATH, 'unaudit')) {
+    labels.push('反审')
+  }
+  return labels
+}
 
 const createVisible = ref(false)
 const createSubmitting = ref(false)

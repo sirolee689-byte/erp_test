@@ -238,7 +238,7 @@
           <el-input v-model="createForm.Truename" placeholder="真实姓名（truename）" clearable />
         </el-form-item>
 
-        <!-- v1.0.7：角色（RoleID 写入 UB_ERP_User，对应 UB_ERP_System_role） -->
+        <!-- v1.0.7：角色（RoleID 写入 UB_ERP_User，对应 NEW_UB_ERP_System_role） -->
         <el-form-item label="角色" prop="RoleID">
           <el-select v-model="createForm.RoleID" placeholder="请选择角色" style="width: 100%" clearable>
             <el-option
@@ -317,11 +317,15 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 import { Plus, Setting } from '@element-plus/icons-vue'
-import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
 import { isErpSuperAdmin } from '@/utils/erpSuperAdmin'
+import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
 
 /** 页面标题（与左侧菜单一致） */
 const pageTitle = '操作员管理'
+
+const menuPath = 'system/operator'
+const model = getPermissionModelFromStorage()
 
 const { onErpListRowContextMenu } = useErpListRowContextMenu()
 
@@ -347,10 +351,22 @@ const showRecycle = ref(false)
 /** 在册列表：默认 pass=1；打开后查 pass=0（与颜色编码一致）；回收站时隐藏 */
 const showUnAudited = ref(false)
 
-const operatorActionsColWidth = computed(() => {
-  if (showRecycle.value) return getErpTableActionsColMinWidth(2)
-  return getErpTableActionsColMinWidth(4)
-})
+const operatorActionsColWidth = computed(() => getErpTableActionsColWidthByRows(users.value, getOperatorRowActionLabels))
+
+/** 操作员主列表操作列按钮：与模板 v-if / v-permission 保持一致，用于估算列宽 */
+function getOperatorRowActionLabels(row) {
+  const labels = []
+  if (hasPageAction(model, menuPath, 'view')) labels.push('查看')
+  if (showRecycle.value) {
+    if (hasPageAction(model, menuPath, 'edit')) labels.push('恢复')
+    return labels
+  }
+  if (hasPageAction(model, menuPath, 'edit')) labels.push('编辑')
+  if (showUnAudited.value && !passIsAudited(row) && hasPageAction(model, menuPath, 'audit')) labels.push('审核')
+  if (!showUnAudited.value && passIsAudited(row) && hasPageAction(model, menuPath, 'unaudit')) labels.push('反审')
+  if (hasPageAction(model, menuPath, 'delete')) labels.push('禁用')
+  return labels
+}
 
 /** 审核/反审/禁用请求中的 UserID */
 const busyUserId = ref(null)
@@ -400,7 +416,7 @@ const createForm = ref({
   Truename: '',
   Password: '',
   is_admin: 0,
-  // v1.0.7：外键 RoleID → UB_ERP_System_role
+  // v1.0.7：外键 RoleID → NEW_UB_ERP_System_role
   RoleID: undefined,
 })
 
@@ -508,7 +524,7 @@ function defaultRoleIdForCreate() {
 }
 
 /**
- * 加载角色列表（与 UB_ERP_System_role 同步）
+ * 加载角色列表（与 NEW_UB_ERP_System_role 同步）
  */
 async function loadRoles() {
   try {

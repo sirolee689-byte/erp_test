@@ -41,10 +41,12 @@ defineOptions({ name: 'ErpAppMain' })
  */
 .erp-app-main-root .erp-tags-wrap {
   position: sticky;
-  top: 0;
+  /* el-main 有 16px 内边距；冻结时向上抵消，页签才会贴住顶栏。 */
+  top: -16px;
   z-index: 30;
-  margin: -4px 0 12px;
-  padding: 8px 0 4px;
+  /* 冻结标签栏贴紧顶部工具栏，不保留上方空白。 */
+  margin: -16px 0 12px;
+  padding: 0;
   /* 悬顶页签背景跟随皮肤，避免滚动时露出旧冷灰 */
   background: var(--erp-app-bg, #f3f5f7);
 }

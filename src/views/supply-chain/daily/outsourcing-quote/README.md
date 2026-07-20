@@ -16,10 +16,17 @@
 - 币别：下拉三项（001 人民币 / 002 美元 / 003 港元）；保存 **`wxaa05`**=码、**`rmb`**=名称。
 - 物理表与外协订单「批量添加自动带单价」同源（`server/assistOrderBatchAdd.js` 读取同一对表）。
 
+## 管理列表
+
+- 列顺序：操作（左固定）→ 状态（已审/未审）→ 外协报价单号 → 外协报价日期 → 外协报价数据（原「报价汇总」文案）→ 有效期 → 币别 → 供应商/外协商 → 备注。
+- 操作列：主表带 `erp-list-table`；`pq-quote-actions` 强制同一行不换行；列宽 `singleRow` 估宽，左右留白约各 5px。
+- 不展示「关联单号」（主表 `pi` / `wxaa06` 现网多为空，本期不加列）。
+- 搜索抬头对齐采购报价：关键词 → 查询/重置 → 竖线间隔 → 回收站 / 显示未审核；无单独「刷新」按钮（点查询即重新拉列表）。
+
 ## 列表汇总
 
 - 总项数：在册明细行数
 - 含税总价 / 不含税总价 / 税点总价：对明细 `wxab05`、`wxab04` 按单号分组 `SUM`（多行时即为各金额之和，与「逐行累加」一致）
 - **列表展开**：列表加载后后台批量预取当前页展开明细（`GET /api/supply-chain/outsourcing-quotations/lines/batch`），点击展开优先读缓存秒开；预取失败时仍回退单条 `/:id/lines`。
 
-角色 `UB_ERP_System_role.Permissions` 中需包含本菜单 path 及 `view` / `add` / `edit` / `audit` / `delete` 动作，否则接口 403、按钮由 `v-permission` 隐藏。
+角色 `NEW_UB_ERP_System_role.Permissions` 中需包含本菜单 path 及 `view` / `add` / `edit` / `audit` / `delete` 动作，否则接口 403、按钮由 `v-permission` 隐藏。

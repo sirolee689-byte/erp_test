@@ -206,7 +206,7 @@ async function assertWritableRoleId(pool, roleIdRaw) {
   }
   const chk = await pool.request().input('RoleID', sql.Int, roleId).query(`
     SELECT TOP (1) RoleID
-    FROM dbo.[UB_ERP_System_role]
+    FROM dbo.[NEW_UB_ERP_System_role]
     WHERE RoleID = @RoleID AND Status = 1
   `)
   if (!chk.recordset?.[0]) {
@@ -360,7 +360,7 @@ app.get('/api/sys/logs', async (req, res) => {
 })
 
 /**
- * 角色分页列表（UB_ERP_System_role）
+ * 角色分页列表（NEW_UB_ERP_System_role）
  * v1.0.7：角色管理页 + 操作员下拉框共用本接口
  * - 查询参数：page、pageSize、pass（1=启用视图 / 0=回收站）、keyword（模糊匹配 RoleName、Description）
  *   - 兼容旧前端：仍接受 status 参数，并映射到 pass
@@ -400,7 +400,7 @@ app.get('/api/roles', async (req, res) => {
 
     const totalResult = await totalRequest.query(`
       SELECT COUNT(1) AS total
-      FROM dbo.[UB_ERP_System_role] AS r
+      FROM dbo.[NEW_UB_ERP_System_role] AS r
       ${whereSql}
     `)
     const total = Number(totalResult.recordset?.[0]?.total ?? 0)
@@ -423,7 +423,7 @@ app.get('/api/roles', async (req, res) => {
           r.pass,
           r.Status,
           r.Permissions
-        FROM dbo.[UB_ERP_System_role] AS r
+        FROM dbo.[NEW_UB_ERP_System_role] AS r
         ${whereSql}
         ORDER BY r.RoleID ASC
         OFFSET @offset ROWS
@@ -465,7 +465,7 @@ app.get('/api/roles', async (req, res) => {
             r.Status,
             r.Permissions,
             ROW_NUMBER() OVER (ORDER BY r.RoleID ASC) AS rn
-          FROM dbo.[UB_ERP_System_role] AS r
+          FROM dbo.[NEW_UB_ERP_System_role] AS r
           ${whereSql}
         ) t
         WHERE t.rn BETWEEN @startRow AND @endRow
@@ -481,7 +481,7 @@ app.get('/api/roles', async (req, res) => {
 })
 
 /**
- * 新增角色（写入 UB_ERP_System_role，默认启用）
+ * 新增角色（写入 NEW_UB_ERP_System_role，默认启用）
  */
 app.post('/api/roles', async (req, res) => {
   try {
@@ -515,7 +515,7 @@ app.post('/api/roles', async (req, res) => {
     let result
     try {
       result = await request.query(`
-        INSERT INTO dbo.[UB_ERP_System_role] (RoleName, Description, pass, Status, Permissions, uid, uname, utruename, addtime)
+        INSERT INTO dbo.[NEW_UB_ERP_System_role] (RoleName, Description, pass, Status, Permissions, uid, uname, utruename, addtime)
         OUTPUT
           INSERTED.RoleID,
           INSERTED.RoleName,
@@ -542,7 +542,7 @@ app.post('/api/roles', async (req, res) => {
         res.status(400).json({ code: 400, msg: '角色名称已存在，请勿重复添加', data: null })
         return
       }
-      console.error('写入 UB_ERP_System_role 失败（POST /api/roles）：', dbErr)
+      console.error('写入 NEW_UB_ERP_System_role 失败（POST /api/roles）：', dbErr)
       res.status(500).json({ code: 500, msg: '数据库写入失败，请联系管理员', data: null })
       return
     }
@@ -596,7 +596,7 @@ app.put('/api/roles', async (req, res) => {
       request.input('pass', sql.NVarChar(1), '0')
       request.input('Status', sql.Int, 0)
       const result = await request.query(`
-        UPDATE dbo.[UB_ERP_System_role]
+        UPDATE dbo.[NEW_UB_ERP_System_role]
         SET
           pass = @pass,
           Status = @Status,
@@ -645,7 +645,7 @@ app.put('/api/roles', async (req, res) => {
     let result
     try {
       result = await request.query(`
-        UPDATE dbo.[UB_ERP_System_role]
+        UPDATE dbo.[NEW_UB_ERP_System_role]
         SET
           RoleName = @RoleName,
           Description = @Description,
@@ -679,7 +679,7 @@ app.put('/api/roles', async (req, res) => {
         res.status(400).json({ code: 400, msg: '角色名称已存在，请更换名称', data: null })
         return
       }
-      console.error('更新 UB_ERP_System_role 失败（PUT /api/roles）：', dbErr)
+      console.error('更新 NEW_UB_ERP_System_role 失败（PUT /api/roles）：', dbErr)
       res.status(500).json({ code: 500, msg: '数据库写入失败，请联系管理员', data: null })
       return
     }
@@ -726,7 +726,7 @@ app.put('/api/roles/resume', async (req, res) => {
     request.input('now', sql.NVarChar(50), nowStr)
 
     const result = await request.query(`
-      UPDATE dbo.[UB_ERP_System_role]
+      UPDATE dbo.[NEW_UB_ERP_System_role]
       SET
         pass = @pass,
         Status = @Status,
@@ -765,7 +765,7 @@ app.put('/api/roles/resume', async (req, res) => {
 })
 
 /**
- * 仅更新角色的菜单权限（UB_ERP_System_role.Permissions：JSON 对象或兼容旧版数组，序列化后入库）
+ * 仅更新角色的菜单权限（NEW_UB_ERP_System_role.Permissions：JSON 对象或兼容旧版数组，序列化后入库）
  */
 app.put('/api/roles/permissions', async (req, res) => {
   try {
@@ -799,7 +799,7 @@ app.put('/api/roles/permissions', async (req, res) => {
     request.input('now', sql.NVarChar(50), nowStr)
 
     const result = await request.query(`
-      UPDATE dbo.[UB_ERP_System_role]
+      UPDATE dbo.[NEW_UB_ERP_System_role]
       SET
         Permissions = @Permissions,
         uid = @uid,
@@ -848,7 +848,7 @@ app.delete('/api/roles/:id', async (req, res) => {
 
     const pool = await getPool()
     const q1 = await pool.request().input('RoleID', sql.Int, roleId).query(`
-      SELECT TOP (1) pass, Status FROM dbo.[UB_ERP_System_role] WHERE RoleID = @RoleID
+      SELECT TOP (1) pass, Status FROM dbo.[NEW_UB_ERP_System_role] WHERE RoleID = @RoleID
     `)
     const row = q1.recordset?.[0]
     if (!row) {
@@ -876,7 +876,7 @@ app.delete('/api/roles/:id', async (req, res) => {
     }
 
     const del = await pool.request().input('RoleID', sql.Int, roleId).query(`
-      DELETE FROM dbo.[UB_ERP_System_role] WHERE RoleID = @RoleID
+      DELETE FROM dbo.[NEW_UB_ERP_System_role] WHERE RoleID = @RoleID
     `)
     const affected = Number(del.rowsAffected?.[0] ?? 0)
     if (affected === 0) {
@@ -967,7 +967,7 @@ app.post('/api/login', async (req, res) => {
       const roleIdSel =
         legacyOperatorV2 && qRoleId ? `u.${qRoleId}` : `CAST(NULL AS INT)`
       const rolesJoin =
-        legacyOperatorV2 && qRoleId ? `LEFT JOIN dbo.[UB_ERP_System_role] AS r ON r.RoleID = u.${qRoleId}` : ''
+        legacyOperatorV2 && qRoleId ? `LEFT JOIN dbo.[NEW_UB_ERP_System_role] AS r ON r.RoleID = u.${qRoleId}` : ''
       if (!qEntityPk || !qUidForStaff || !qUsercode || !qUsername || !qPassword) {
         res.status(500).json({
           code: 500,
@@ -1032,8 +1032,8 @@ app.post('/api/login', async (req, res) => {
         ? `CAST(u.${qIsAdminErp} AS INT) AS IsAdmin,`
         : 'CAST(0 AS INT) AS IsAdmin,'
       const joinRoles = userColset.has('roleid')
-        ? `LEFT JOIN dbo.[UB_ERP_System_role] AS r ON r.RoleID = u.${meta.qb('roleid')}`
-        : `LEFT JOIN dbo.[UB_ERP_System_role] AS r ON 1 = 0`
+        ? `LEFT JOIN dbo.[NEW_UB_ERP_System_role] AS r ON r.RoleID = u.${meta.qb('roleid')}`
+        : `LEFT JOIN dbo.[NEW_UB_ERP_System_role] AS r ON 1 = 0`
       result = await request.query(`
         SELECT TOP (1)
           ${selUserId},
@@ -1130,7 +1130,7 @@ app.post('/api/login', async (req, res) => {
           is_admin: isAdminFlag ? 1 : 0,
           isAdmin: isAdminFlag,
           IsAdmin: isAdminFlag ? 1 : 0,
-          // v1.0.7：菜单权限 JSON 字符串（与 UB_ERP_System_role.Permissions 一致）；NULL 表示未配置，前端按「不限制」处理
+          // v1.0.7：菜单权限 JSON 字符串（与 NEW_UB_ERP_System_role.Permissions 一致）；NULL 表示未配置，前端按「不限制」处理
           Permissions:
             userRow.Permissions != null && userRow.Permissions !== undefined
               ? String(userRow.Permissions)
@@ -1148,7 +1148,7 @@ app.post('/api/login', async (req, res) => {
       res.status(500).json({
         code: 500,
         msg:
-          '登录失败：数据库缺少 UB_ERP_System_role.Permissions 列。请在 SQL Server 执行迁移脚本 scripts/migrations/sqlserver_v1.0.7_rbac_phase1.txt 中第 7 段（ALTER TABLE添加 NVARCHAR(MAX)），然后重试。',
+          '登录失败：数据库缺少 NEW_UB_ERP_System_role.Permissions 列。请在 SQL Server 执行迁移脚本 scripts/migrations/sqlserver_v1.0.7_rbac_phase1.txt 中第 7 段（ALTER TABLE添加 NVARCHAR(MAX)），然后重试。',
         data: null,
       })
       return
@@ -1272,7 +1272,7 @@ app.get('/api/users', async (req, res) => {
 
     // 旧系统 UB_ERP_User：uid/username/usercode 等，只读列表映射为前端字段
     if (meta.legacyLayout) {
-      // v1.1.9：含 del+pass 时列表改为 Usercode→UB_ERP_Hr_staff.code、RoleID→UB_ERP_System_role，仅 ROW_NUMBER 分页
+      // v1.1.9：含 del+pass 时列表改为 Usercode→UB_ERP_Hr_staff.code、RoleID→NEW_UB_ERP_System_role，仅 ROW_NUMBER 分页
       if (isOperatorUsersV2(meta)) {
         try {
           const r = await queryOperatorUsersPage(pool, meta, {
@@ -1437,7 +1437,7 @@ app.get('/api/users', async (req, res) => {
     const totalResult = await totalRequest.query(`
       SELECT COUNT(1) AS total
       FROM dbo.[UB_ERP_User] AS u
-      LEFT JOIN dbo.[UB_ERP_System_role] AS r ON u.RoleID = r.RoleID
+      LEFT JOIN dbo.[NEW_UB_ERP_System_role] AS r ON u.RoleID = r.RoleID
       ${whereSql}
     `)
 
@@ -1489,7 +1489,7 @@ app.get('/api/users', async (req, res) => {
           u.RoleID,
           r.RoleName AS RoleName
         FROM dbo.[UB_ERP_User] AS u
-        LEFT JOIN dbo.[UB_ERP_System_role] AS r ON u.RoleID = r.RoleID
+        LEFT JOIN dbo.[NEW_UB_ERP_System_role] AS r ON u.RoleID = r.RoleID
         ${whereSql}
         ORDER BY u.CreatedAt DESC
         OFFSET @offset ROWS
@@ -1547,7 +1547,7 @@ app.get('/api/users', async (req, res) => {
             r.RoleName AS RoleName,
             ROW_NUMBER() OVER (ORDER BY u.CreatedAt DESC) AS rn
           FROM dbo.[UB_ERP_User] AS u
-          LEFT JOIN dbo.[UB_ERP_System_role] AS r ON u.RoleID = r.RoleID
+          LEFT JOIN dbo.[NEW_UB_ERP_System_role] AS r ON u.RoleID = r.RoleID
           ${whereSql}
         ) t
         WHERE t.rn BETWEEN @startRow AND @endRow
@@ -1637,7 +1637,7 @@ app.put('/api/users/resume', async (req, res) => {
       const rn = await pool
         .request()
         .input('RoleID', sql.Int, Number(updated.RoleID))
-        .query(`SELECT TOP (1) RoleName FROM dbo.[UB_ERP_System_role] WHERE RoleID = @RoleID`)
+        .query(`SELECT TOP (1) RoleName FROM dbo.[NEW_UB_ERP_System_role] WHERE RoleID = @RoleID`)
       roleName = rn.recordset?.[0]?.RoleName ?? null
     }
 
@@ -1972,7 +1972,7 @@ app.post('/api/users', async (req, res) => {
       const rn = await pool
         .request()
         .input('RoleID', sql.Int, Number(created.RoleID))
-        .query(`SELECT TOP (1) RoleName FROM dbo.[UB_ERP_System_role] WHERE RoleID = @RoleID`)
+        .query(`SELECT TOP (1) RoleName FROM dbo.[NEW_UB_ERP_System_role] WHERE RoleID = @RoleID`)
       roleName = rn.recordset?.[0]?.RoleName ?? null
     }
 
@@ -2089,7 +2089,7 @@ app.put('/api/users', async (req, res) => {
         const rn = await pool
           .request()
           .input('RoleID', sql.Int, Number(updated.RoleID))
-          .query(`SELECT TOP (1) RoleName FROM dbo.[UB_ERP_System_role] WHERE RoleID = @RoleID`)
+          .query(`SELECT TOP (1) RoleName FROM dbo.[NEW_UB_ERP_System_role] WHERE RoleID = @RoleID`)
         roleName = rn.recordset?.[0]?.RoleName ?? null
       }
 
@@ -2174,7 +2174,7 @@ app.put('/api/users', async (req, res) => {
       const rn = await pool
         .request()
         .input('RoleID', sql.Int, Number(updated.RoleID))
-        .query(`SELECT TOP (1) RoleName FROM dbo.[UB_ERP_System_role] WHERE RoleID = @RoleID`)
+        .query(`SELECT TOP (1) RoleName FROM dbo.[NEW_UB_ERP_System_role] WHERE RoleID = @RoleID`)
       roleName = rn.recordset?.[0]?.RoleName ?? null
     }
 
@@ -6829,6 +6829,7 @@ function escapeSqlLikePattern(s) {
  * GET /api/supply-chain/suppliers/list
  * - 默认：只查已审核 pass=1 且在册 del=0（或空/NULL）
  * - 可切换：pass=0（显示未审核）；回收站 recycled=1（仅 del=1，不按 pass 过滤）
+ * - 排序：s_code DESC, id ASC（对齐旧系统管理列表）；出参含 s_fax / s_bj / intime（编辑回填）
  */
 app.get('/api/supply-chain/suppliers/list', async (req, res) => {
   try {
@@ -6878,6 +6879,7 @@ app.get('/api/supply-chain/suppliers/list', async (req, res) => {
     listReq.input('endRow', sql.Int, endRow)
     if (hasKeyword) listReq.input('kw', sql.NVarChar(200), kwPat)
 
+    // 业务：对齐旧系统管理列表——按编码倒序，同编码再按 id 升序；列表需返回传真 s_fax
     const listResult = await listReq.query(`
       SELECT
         x.id,
@@ -6891,9 +6893,12 @@ app.get('/api/supply-chain/suppliers/list', async (req, res) => {
         x.s_lxr,
         x.s_mobile,
         x.s_tel,
+        x.s_fax,
         x.s_payfor,
         x.s_jh,
         x.s_wx_jh,
+        x.s_bj,
+        x.intime,
         x.sl,
         x.kplx,
         x.kplxx,
@@ -6916,9 +6921,12 @@ app.get('/api/supply-chain/suppliers/list', async (req, res) => {
           LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(s.s_lxr, N'')))) AS s_lxr,
           LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(s.s_mobile, N'')))) AS s_mobile,
           LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(s.s_tel, N'')))) AS s_tel,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(s.s_fax, N'')))) AS s_fax,
           LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(s.s_payfor, N'')))) AS s_payfor,
           LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(s.s_jh, N'')))) AS s_jh,
           LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(s.s_wx_jh, N'')))) AS s_wx_jh,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(s.s_bj, N'')))) AS s_bj,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(s.intime, N'')))) AS intime,
           LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(s.sl, N'')))) AS sl,
           LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(s.kplx, N'')))) AS kplx,
           LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(s.kplxx, N'')))) AS kplxx,
@@ -6928,7 +6936,7 @@ app.get('/api/supply-chain/suppliers/list', async (req, res) => {
           LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.s_bank, N'')))) AS s_bank,
           LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(s.s_bank_number, N'')))) AS s_bank_number,
           LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(s.s_info, N'')))) AS s_info,
-          ROW_NUMBER() OVER (ORDER BY s.id DESC) AS rn
+          ROW_NUMBER() OVER (ORDER BY s.s_code DESC, s.id ASC) AS rn
         FROM ${SYS_SUPPLIER_FROM} AS s
         ${whereBase}
       ) AS x
@@ -6948,9 +6956,12 @@ app.get('/api/supply-chain/suppliers/list', async (req, res) => {
       s_lxr: row.s_lxr ?? '',
       s_mobile: row.s_mobile ?? '',
       s_tel: row.s_tel ?? '',
+      s_fax: row.s_fax ?? '',
       s_payfor: row.s_payfor ?? '',
       s_jh: row.s_jh ?? '',
       s_wx_jh: row.s_wx_jh ?? '',
+      s_bj: row.s_bj ?? '',
+      intime: row.intime ?? '',
       sl: row.sl ?? '',
       kplx: row.kplx ?? '',
       kplxx: row.kplxx ?? '',
@@ -6974,33 +6985,34 @@ app.get('/api/supply-chain/suppliers/list', async (req, res) => {
  * 供应商资料：建议编码（用于前端 placeholder）
  * GET /api/supply-chain/suppliers/suggest-code
  * 规则：
- * - 优先：从 s_code 中挑选“纯数字”的最大值 + 1
- * - 兜底：MAX(id) + 1
+ * - 只认 s_code 以 CN- 开头、后缀为纯数字的编码（含回收站，避免号段冲突）
+ * - 取最大后缀 + 1，如 CN-1254 → CN-1255
+ * - 库中尚无 CN- 号段时兜底 CN-1
  */
 app.get('/api/supply-chain/suppliers/suggest-code', async (req, res) => {
   try {
     const pool = await getPool()
+    // SQL Server 2008 R2：SUBSTRING 取「CN-」后数字；不用 TRY_CONVERT / IIF
     const r = await pool.request().query(`
       SELECT
         ISNULL(
           MAX(
             CASE
-              WHEN LTRIM(RTRIM(ISNULL(s.s_code, N''))) <> N''
-                AND PATINDEX('%[^0-9]%', LTRIM(RTRIM(ISNULL(s.s_code, N'')))) = 0
-                AND ISNUMERIC(LTRIM(RTRIM(ISNULL(s.s_code, N'')))) = 1
-              THEN CAST(LTRIM(RTRIM(ISNULL(s.s_code, N'0'))) AS INT)
+              WHEN UPPER(LTRIM(RTRIM(ISNULL(s.s_code, N'')))) LIKE N'CN-%'
+                AND LEN(LTRIM(RTRIM(ISNULL(s.s_code, N'')))) > 3
+                AND PATINDEX('%[^0-9]%', SUBSTRING(UPPER(LTRIM(RTRIM(ISNULL(s.s_code, N'')))), 4, 50)) = 0
+                AND ISNUMERIC(SUBSTRING(UPPER(LTRIM(RTRIM(ISNULL(s.s_code, N'')))), 4, 50)) = 1
+              THEN CAST(SUBSTRING(UPPER(LTRIM(RTRIM(ISNULL(s.s_code, N'0')))), 4, 50) AS INT)
               ELSE NULL
             END
           ),
           0
-        ) AS max_numeric_code,
-        ISNULL(MAX(CASE WHEN s.id IS NULL THEN 0 ELSE s.id END), 0) AS max_id
+        ) AS max_cn_suffix
       FROM ${SYS_SUPPLIER_FROM} AS s
     `)
-    const maxNumeric = Number(r.recordset?.[0]?.max_numeric_code ?? 0)
-    const maxId = Number(r.recordset?.[0]?.max_id ?? 0)
-    const n = Number.isFinite(maxNumeric) && maxNumeric > 0 ? maxNumeric + 1 : maxId + 1
-    res.json({ code: 200, msg: 'success', data: { suggestedCode: String(n) } })
+    const maxCn = Number(r.recordset?.[0]?.max_cn_suffix ?? 0)
+    const next = Number.isFinite(maxCn) && maxCn > 0 ? maxCn + 1 : 1
+    res.json({ code: 200, msg: 'success', data: { suggestedCode: `CN-${String(next)}` } })
   } catch (err) {
     console.error('GET /api/supply-chain/suppliers/suggest-code 失败：', err)
     const detail = String(err?.message ?? err?.originalError?.message ?? '数据库查询失败')
@@ -7054,9 +7066,12 @@ app.post('/api/supply-chain/suppliers', async (req, res) => {
       { col: 's_lxr', key: 's_lxr', type: sql.NVarChar, len: 100 },
       { col: 's_mobile', key: 's_mobile', type: sql.NVarChar, len: 50 },
       { col: 's_tel', key: 's_tel', type: sql.NVarChar, len: 50 },
+      { col: 's_fax', key: 's_fax', type: sql.NVarChar, len: 50 },
       { col: 's_payfor', key: 's_payfor', type: sql.NVarChar, len: 100 },
       { col: 's_jh', key: 's_jh', type: sql.NVarChar, len: 50 },
       { col: 's_wx_jh', key: 's_wx_jh', type: sql.NVarChar, len: 50 },
+      { col: 's_bj', key: 's_bj', type: sql.NVarChar, len: 50 },
+      { col: 'intime', key: 'intime', type: sql.NVarChar, len: 50 },
       { col: 'sl', key: 'sl', type: sql.NVarChar, len: 50 },
       { col: 'kplx', key: 'kplx', type: sql.NVarChar, len: 10 },
       { col: 'kplxx', key: 'kplxx', type: sql.NVarChar, len: 10 },
@@ -7074,12 +7089,18 @@ app.post('/api/supply-chain/suppliers', async (req, res) => {
     const vals = []
     const insReq = pool.request()
 
+    // 初始时间 intime：前端可改；空则兜底当天
+    const todayPad = (n) => String(n).padStart(2, '0')
+    const today = new Date()
+    const intimeFallback = `${today.getFullYear()}-${todayPad(today.getMonth() + 1)}-${todayPad(today.getDate())}`
+
     // 业务字段
     for (const f of fields) {
       if (!colset.has(f.col.toLowerCase())) continue
       cols.push(f.col)
       vals.push(`@${f.key}`)
-      const v = String(body[f.key] ?? '').trim()
+      let v = String(body[f.key] ?? '').trim()
+      if (f.key === 'intime' && !v) v = intimeFallback
       insReq.input(f.key, f.type(f.len ?? 50), v)
     }
 
@@ -7189,9 +7210,12 @@ app.put('/api/supply-chain/suppliers', async (req, res) => {
       { col: 's_lxr', key: 's_lxr', type: sql.NVarChar, len: 100 },
       { col: 's_mobile', key: 's_mobile', type: sql.NVarChar, len: 50 },
       { col: 's_tel', key: 's_tel', type: sql.NVarChar, len: 50 },
+      { col: 's_fax', key: 's_fax', type: sql.NVarChar, len: 50 },
       { col: 's_payfor', key: 's_payfor', type: sql.NVarChar, len: 100 },
       { col: 's_jh', key: 's_jh', type: sql.NVarChar, len: 50 },
       { col: 's_wx_jh', key: 's_wx_jh', type: sql.NVarChar, len: 50 },
+      { col: 's_bj', key: 's_bj', type: sql.NVarChar, len: 50 },
+      { col: 'intime', key: 'intime', type: sql.NVarChar, len: 50 },
       { col: 'sl', key: 'sl', type: sql.NVarChar, len: 50 },
       { col: 'kplx', key: 'kplx', type: sql.NVarChar, len: 10 },
       { col: 'kplxx', key: 'kplxx', type: sql.NVarChar, len: 10 },
@@ -7503,11 +7527,14 @@ app.get('/api/supply-chain/customers/list', async (req, res) => {
         x.s_code,
         x.pass,
         x.del,
+        x.intime,
         x.s_name,
+        x.s_sh,
         x.s_address,
         x.s_lxr,
         x.s_tel,
         x.s_mobile,
+        x.s_fax,
         x.s_payfor,
         x.lxr,
         x.s_info,
@@ -7519,11 +7546,14 @@ app.get('/api/supply-chain/customers/list', async (req, res) => {
           LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.s_code, N'')))) AS s_code,
           LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(c.pass, N'')))) AS pass,
           LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(c.del, N'')))) AS del,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(c.intime, N'')))) AS intime,
           LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.s_name, N'')))) AS s_name,
+          LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.s_sh, N'')))) AS s_sh,
           LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(c.s_address, N'')))) AS s_address,
           LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.s_lxr, N'')))) AS s_lxr,
           LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(c.s_tel, N'')))) AS s_tel,
           LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(c.s_mobile, N'')))) AS s_mobile,
+          LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(c.s_fax, N'')))) AS s_fax,
           LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.s_payfor, N'')))) AS s_payfor,
           LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.lxr, N'')))) AS lxr,
           LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(c.s_info, N'')))) AS s_info,
@@ -7542,11 +7572,14 @@ app.get('/api/supply-chain/customers/list', async (req, res) => {
       s_code: row.s_code ?? '',
       pass: row.pass ?? '',
       del: row.del ?? '',
+      intime: row.intime ?? '',
       s_name: row.s_name ?? '',
+      s_sh: row.s_sh ?? '',
       s_address: row.s_address ?? '',
       s_lxr: row.s_lxr ?? '',
       s_tel: row.s_tel ?? '',
       s_mobile: row.s_mobile ?? '',
+      s_fax: row.s_fax ?? '',
       s_payfor: row.s_payfor ?? '',
       lxr: row.lxr ?? '',
       s_info: row.s_info ?? '',
@@ -7581,11 +7614,14 @@ app.get('/api/supply-chain/customers/:id', async (req, res) => {
         LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.s_code, N'')))) AS s_code,
         LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(c.pass, N'')))) AS pass,
         LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(c.del, N'')))) AS del,
+        LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(c.intime, N'')))) AS intime,
         LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(c.s_name, N'')))) AS s_name,
+        LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.s_sh, N'')))) AS s_sh,
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(c.s_address, N'')))) AS s_address,
         LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.s_lxr, N'')))) AS s_lxr,
         LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(c.s_tel, N'')))) AS s_tel,
         LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(c.s_mobile, N'')))) AS s_mobile,
+        LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(c.s_fax, N'')))) AS s_fax,
         LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.s_payfor, N'')))) AS s_payfor,
         LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(c.lxr, N'')))) AS lxr,
         LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(c.s_info, N'')))) AS s_info,
@@ -7607,11 +7643,14 @@ app.get('/api/supply-chain/customers/:id', async (req, res) => {
         s_code: row.s_code ?? '',
         pass: row.pass ?? '',
         del: row.del ?? '',
+        intime: row.intime ?? '',
         s_name: row.s_name ?? '',
+        s_sh: row.s_sh ?? '',
         s_address: row.s_address ?? '',
         s_lxr: row.s_lxr ?? '',
         s_tel: row.s_tel ?? '',
         s_mobile: row.s_mobile ?? '',
+        s_fax: row.s_fax ?? '',
         s_payfor: row.s_payfor ?? '',
         lxr: row.lxr ?? '',
         s_info: row.s_info ?? '',
@@ -7670,15 +7709,18 @@ app.post('/api/supply-chain/customers', async (req, res) => {
     const fields = [
       { col: 's_code', key: 's_code', type: sql.NVarChar, len: 100 },
       { col: 's_name', key: 's_name', type: sql.NVarChar, len: 200 },
+      { col: 's_sh', key: 's_sh', type: sql.NVarChar, len: 100 },
       { col: 's_address', key: 's_address', type: sql.NVarChar, len: 500 },
       { col: 's_lxr', key: 's_lxr', type: sql.NVarChar, len: 100 },
       { col: 's_tel', key: 's_tel', type: sql.NVarChar, len: 50 },
       { col: 's_mobile', key: 's_mobile', type: sql.NVarChar, len: 50 },
+      { col: 's_fax', key: 's_fax', type: sql.NVarChar, len: 50 },
       { col: 's_payfor', key: 's_payfor', type: sql.NVarChar, len: 100 },
       { col: 'lxr', key: 'lxr', type: sql.NVarChar, len: 100 },
       { col: 's_info', key: 's_info', type: sql.NVarChar, len: 500 },
       { col: 's_business', key: 's_business', type: sql.NVarChar, len: 1000 },
       { col: 's_lb', key: 's_lb', type: sql.NVarChar, len: 50 },
+      { col: 'intime', key: 'intime', type: sql.NVarChar, len: 50 },
     ]
 
     /** @type {string[]} */
@@ -7687,11 +7729,17 @@ app.post('/api/supply-chain/customers', async (req, res) => {
     const vals = []
     const insReq = pool.request()
 
+    // 初始时间 intime：前端可改；空则兜底当天
+    const todayPad = (n) => String(n).padStart(2, '0')
+    const today = new Date()
+    const intimeFallback = `${today.getFullYear()}-${todayPad(today.getMonth() + 1)}-${todayPad(today.getDate())}`
+
     for (const f of fields) {
       if (!colset.has(f.col.toLowerCase())) continue
       cols.push(f.col)
       vals.push(`@${f.key}`)
-      const v = String(body[f.key] ?? '').trim()
+      let v = String(body[f.key] ?? '').trim()
+      if (f.key === 'intime' && !v) v = intimeFallback
       insReq.input(f.key, f.type(f.len ?? 50), v)
     }
 
@@ -7798,15 +7846,18 @@ app.put('/api/supply-chain/customers', async (req, res) => {
     const fields = [
       { col: 's_code', key: 's_code', type: sql.NVarChar, len: 100 },
       { col: 's_name', key: 's_name', type: sql.NVarChar, len: 200 },
+      { col: 's_sh', key: 's_sh', type: sql.NVarChar, len: 100 },
       { col: 's_address', key: 's_address', type: sql.NVarChar, len: 500 },
       { col: 's_lxr', key: 's_lxr', type: sql.NVarChar, len: 100 },
       { col: 's_tel', key: 's_tel', type: sql.NVarChar, len: 50 },
       { col: 's_mobile', key: 's_mobile', type: sql.NVarChar, len: 50 },
+      { col: 's_fax', key: 's_fax', type: sql.NVarChar, len: 50 },
       { col: 's_payfor', key: 's_payfor', type: sql.NVarChar, len: 100 },
       { col: 'lxr', key: 'lxr', type: sql.NVarChar, len: 100 },
       { col: 's_info', key: 's_info', type: sql.NVarChar, len: 500 },
       { col: 's_business', key: 's_business', type: sql.NVarChar, len: 1000 },
       { col: 's_lb', key: 's_lb', type: sql.NVarChar, len: 50 },
+      { col: 'intime', key: 'intime', type: sql.NVarChar, len: 50 },
     ]
 
     /** @type {string[]} */

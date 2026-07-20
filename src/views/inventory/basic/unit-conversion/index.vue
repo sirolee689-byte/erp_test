@@ -219,7 +219,9 @@ import { ref, computed } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
-import { getErpTableActionsColMinWidth } from '@/utils/erpTableActionsLayout'
+import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
+import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
+import { isErpSuperAdmin } from '@/utils/erpSuperAdmin'
 const { onErpListRowContextMenu } = useErpListRowContextMenu()
 
 /** 页面标题（与左侧菜单一致） */
@@ -236,11 +238,27 @@ const showUnAudited = ref(false)
 const showRecycle = ref(false)
 const busyId = ref(null)
 
-const actionsColWidth = computed(() => {
-  if (showRecycle.value) return getErpTableActionsColMinWidth(2)
-  if (showUnAudited.value) return getErpTableActionsColMinWidth(2)
-  return getErpTableActionsColMinWidth(1)
-})
+const unitConversionPermissionModel = getPermissionModelFromStorage()
+const UNIT_CONVERSION_MENU_PATH = 'inventory/basic/unit-conversion'
+const actionsColWidth = computed(() => getErpTableActionsColWidthByRows(tableList.value, getUnitConversionRowActionLabels, {
+  fallbackLabels: [],
+}))
+
+/** 操作列按钮文案：需与模板 v-if / v-permission 条件保持一致 */
+function getUnitConversionRowActionLabels(row) {
+  if (showRecycle.value) return [
+    '恢复',
+    isErpSuperAdmin() && hasPageAction(unitConversionPermissionModel, UNIT_CONVERSION_MENU_PATH, 'delete') ? '彻底删除' : false,
+  ]
+  const labels = []
+  if (showUnAudited.value) {
+    if (!passIsAudited(row) && hasPageAction(unitConversionPermissionModel, UNIT_CONVERSION_MENU_PATH, 'audit')) labels.push('审核')
+    labels.push('删除')
+  } else if (passIsAudited(row) && hasPageAction(unitConversionPermissionModel, UNIT_CONVERSION_MENU_PATH, 'unaudit')) {
+    labels.push('反审')
+  }
+  return labels
+}
 
 const createVisible = ref(false)
 const createSubmitting = ref(false)
