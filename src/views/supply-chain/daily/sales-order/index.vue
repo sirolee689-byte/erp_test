@@ -147,7 +147,6 @@
                   <template v-else>
                     <el-button type="info" plain @click.stop="openView(row)">查看</el-button>
                     <el-button
-                      v-if="!row.isPureSpareOrder"
                       v-permission="'edit'"
                       type="primary"
                       plain
@@ -156,24 +155,6 @@
                     >
                       一键运算
                     </el-button>
-                    <el-tooltip
-                      v-if="row.hasSpareParts"
-                      :disabled="row.canAddSpareUsage"
-                      content="混单须先一键运算整款，再增加散件单用量"
-                      placement="top"
-                    >
-                      <span class="erp-action-tooltip-wrap">
-                        <el-button
-                          v-permission="'edit'"
-                          plain
-                          :disabled="!row.canAddSpareUsage"
-                          :loading="spareUsageLoading"
-                          @click.stop="addSpareUsage(row)"
-                        >
-                          增加散件单用量
-                        </el-button>
-                      </span>
-                    </el-tooltip>
                     <el-button
                       v-if="showUnAudited && !passIsAudited(row)"
                       v-permission="'edit'"
@@ -857,7 +838,10 @@ function getActionBarColWidth(buttonCount, options = {}) {
 
 /** 主列表操作列：按当前页实际可见按钮文案估宽（含权限），对齐采购订单 */
 const salesOrderActionsColWidth = computed(() =>
-  getErpTableActionsColWidthByRows(tableList.value, getSalesOrderRowActionLabels),
+  getErpTableActionsColWidthByRows(tableList.value, getSalesOrderRowActionLabels, {
+    // 与 so-order-actions CSS --erp-table-actions-cols: 4 对齐，避免未审核五行按 3 列估窄穿列
+    forceCols: 4,
+  }),
 )
 
 function getSalesOrderRowActionLabels(row) {
@@ -868,11 +852,8 @@ function getSalesOrderRowActionLabels(row) {
     ]
   }
   const labels = ['查看']
-  if (!row?.isPureSpareOrder && hasPageAction(soPermissionModel, SO_MENU_PATH, 'edit')) {
+  if (hasPageAction(soPermissionModel, SO_MENU_PATH, 'edit')) {
     labels.push('一键运算')
-  }
-  if (row?.hasSpareParts && hasPageAction(soPermissionModel, SO_MENU_PATH, 'edit')) {
-    labels.push('增加散件单用量')
   }
   if (showUnAudited.value) {
     if (!passIsAudited(row) && hasPageAction(soPermissionModel, SO_MENU_PATH, 'edit')) labels.push('编辑')
@@ -1021,7 +1002,6 @@ const editHeaderPass = ref('0')
 /** 编辑页运算状态（与列表 calcStatus 一致） */
 const editHeaderCalcStatus = ref('未运算')
 const calculateLoading = ref(false)
-const spareUsageLoading = ref(false)
 /** 本次会话内已同步 BOM、待部分重算的款号 */
 const syncedSinceCalc = ref([])
 /** 打开编辑时保存快照，用于运算前未保存拦截 */
@@ -1098,7 +1078,7 @@ function formatSalesDataMoney(row, key) {
 }
 
 /**
- * @param {{ id: number, calcStatus?: string }} row
+ * @param {{ id: number, calcStatus?: string, hasSpareParts?: boolean }} row
  * @param {boolean} fromEdit
  */
 async function calculateOrder(row, fromEdit) {
@@ -1111,9 +1091,12 @@ async function calculateOrder(row, fromEdit) {
     return
   }
   const partial = fromEdit && syncedSinceCalc.value.length > 0
+  const withSpareHint = row?.hasSpareParts
+    ? '订单含散件时将一并写入散件自用量。'
+    : ''
   const tip = partial
-    ? `将仅重算已同步 BOM 的 ${syncedSinceCalc.value.length} 款，其它款物料单不变。确认运算？`
-    : '将按当前 PI BOM 重写物料单（不乘订货数量）。确认一键运算？'
+    ? `将仅重算已同步 BOM 的 ${syncedSinceCalc.value.length} 款，其它整款物料单不变。${withSpareHint}确认运算？`
+    : `将按当前 PI BOM 重写物料单（不乘订货数量）。${withSpareHint}确认一键运算？`
   try {
     await ElMessageBox.confirm(tip, '一键运算', {
       type: 'warning',
@@ -1148,41 +1131,6 @@ async function calculateOrder(row, fromEdit) {
     ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '运算失败'))
   } finally {
     calculateLoading.value = false
-  }
-}
-
-/**
- * @param {{ id: number, hasSpareParts?: boolean }} row
- */
-async function addSpareUsage(row) {
-  const orderId = Number(row?.id)
-  if (!orderId || !row?.hasSpareParts || !row?.canAddSpareUsage) return
-  try {
-    await ElMessageBox.confirm(
-      '将为散件明细写入自用量（kcac04=1，不乘订货数量），仅更新 UB_ERP_Bom_pi_cost。确认继续？',
-      '增加散件单用量',
-      {
-        type: 'warning',
-        confirmButtonText: '确认',
-        cancelButtonText: '取消',
-      },
-    )
-  } catch {
-    return
-  }
-  spareUsageLoading.value = true
-  try {
-    const res = await axios.post(`/api/sales-order/${orderId}/add-spare-usage`)
-    ElMessage.success(res?.data?.msg ?? '散件单用量已增加')
-    forgetDetail(orderId)
-    if (editVisible.value && editMode.value === 'view' && viewId.value === orderId) {
-      await loadOrderIntoPanel(orderId, { captureSnapshot: false })
-    }
-    await loadData()
-  } catch (e) {
-    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '增加散件单用量失败'))
-  } finally {
-    spareUsageLoading.value = false
   }
 }
 

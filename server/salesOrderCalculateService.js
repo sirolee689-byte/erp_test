@@ -38,8 +38,14 @@ import { allOrderLinesHavePiCost } from './salesOrderPiCostCoverage.js'
 import {
   fetchBomCodeExcludePrefixes,
   filterWholeProductOrderLines,
+  orderLinesHaveSpareParts,
   orderLinesIsPureSpare,
 } from './salesOrderSpareParts.js'
+import {
+  addSalesOrderSpareUsage,
+  fetchOrderLinesForSpareUsage,
+  writeSalesOrderSparePiCostInTx,
+} from './salesOrderSpareUsageService.js'
 import {
   buildSalesOrderCalcStatusExpr,
   pickSalesOrderCalcStatusColumn,
@@ -47,7 +53,6 @@ import {
 } from './salesOrderListQuery.js'
 
 const HEADER_FROM = `dbo.[${SALES_ORDER_HEADER_TABLE}]`
-const LINE_FROM = 'dbo.[UB_ERP_Sales_order_list]'
 const PI_COST_TABLE = 'UB_ERP_Bom_pi_cost'
 const PI_COST_FROM = `dbo.[${PI_COST_TABLE}]`
 const PI_CONSUMPTION_TABLE = 'UB_ERP_Bom_pi_consumption'
@@ -105,27 +110,6 @@ async function fetchOrderHeaderForCalculate(pool, id) {
     WHERE h.[id] = @id
   `)
   return r.recordset?.[0] ?? null
-}
-
-/**
- * @param {import('mssql').ConnectionPool} pool
- * @param {string} piNo
- */
-async function fetchOrderLinesForCalculate(pool, piNo) {
-  const pi = normKcaa01(piNo)
-  const r = await pool.request().input('pi', sql.NVarChar(200), pi).query(`
-    SELECT
-      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL([kcaa01], N'')))) AS kcaa01,
-      CAST(ISNULL([xsak03], [plan_quantity]) AS decimal(18, 4)) AS orderQty
-    FROM ${LINE_FROM}
-    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([xsak01], N'')))) = @pi
-  `)
-  return (r.recordset ?? [])
-    .map((row) => ({
-      kcaa01: normKcaa01(row.kcaa01),
-      orderQty: Number(row.orderQty ?? 0),
-    }))
-    .filter((row) => row.kcaa01)
 }
 
 /**
@@ -322,9 +306,28 @@ export async function calculateSalesOrderMaterialBill(opts) {
   if (stateErr) return { ok: false, status: stateErr === '记录不存在' ? 404 : 400, msg: stateErr }
 
   const piNo = normKcaa01(header.piNo)
-  const orderLines = await fetchOrderLinesForCalculate(pool, piNo)
+  // 与散件写库共用明细（含品名），便于同事务串联散件自用量
+  const orderLines = await fetchOrderLinesForSpareUsage(pool, piNo)
   const lineCodes = orderLines.map((row) => row.kcaa01)
   const qtyByProduct = new Map(orderLines.map((row) => [row.kcaa01, row.orderQty]))
+  const excludePrefixes = await fetchBomCodeExcludePrefixes(pool)
+
+  // 纯散件单：一键运算直接写散件自用量（与原「增加散件单用量」同口径）
+  if (orderLinesIsPureSpare(orderLines, excludePrefixes)) {
+    const spareResult = await addSalesOrderSpareUsage({ pool, id, actor, ip })
+    if (!spareResult.ok) return spareResult
+    return {
+      ok: true,
+      piNo: spareResult.piNo,
+      mode: 'spare',
+      productCount: 0,
+      spareCount: spareResult.spareCount,
+      includedSpareUsage: true,
+      calcStatus: spareResult.calcStatus,
+      msg: '运算成功（含散件用量）',
+    }
+  }
+
   const existR = await pool.request().input('pi', sql.NVarChar(200), piNo).query(`
     SELECT TOP 1 1 AS ok FROM ${PI_COST_FROM}
     WHERE LTRIM(RTRIM(ISNULL([sid], N''))) = @pi
@@ -339,11 +342,6 @@ export async function calculateSalesOrderMaterialBill(opts) {
   })
   if (!scope.ok) return { ok: false, status: 400, msg: scope.msg }
 
-  const excludePrefixes = await fetchBomCodeExcludePrefixes(pool)
-  if (orderLinesIsPureSpare(orderLines, excludePrefixes)) {
-    return { ok: false, status: 400, msg: '纯散件单请使用「增加散件单用量」，无需一键运算' }
-  }
-
   const wholeCodeSet = new Set(
     filterWholeProductOrderLines(orderLines, excludePrefixes).map((line) => line.kcaa01),
   )
@@ -352,6 +350,7 @@ export async function calculateSalesOrderMaterialBill(opts) {
     return { ok: false, status: 400, msg: '当前订单无整款明细，无法一键运算' }
   }
 
+  const hasSpare = orderLinesHaveSpareParts(orderLines, excludePrefixes)
   const hasConsumption = await piConsumptionTableExists(pool)
   const calcCol = await ensureCalcStatusColumn(pool)
   const tx = new sql.Transaction(pool)
@@ -381,6 +380,7 @@ export async function calculateSalesOrderMaterialBill(opts) {
       for (const f of flat) allFlatForConsumption.push(f)
     }
 
+    // consumption 先按整款汇总；散件自用量不进 pi_consumption，须在其后写入
     if (hasConsumption) {
       await deletePiConsumptionForOrder(tx, piNo)
       if (scope.mode === 'partial') {
@@ -389,6 +389,17 @@ export async function calculateSalesOrderMaterialBill(opts) {
         const merged = aggregateBomConsumptionFromFlat(allFlatForConsumption, hidePrefixes)
         await insertPiConsumptionBulk(tx, piNo, merged)
       }
+    }
+
+    let spareCount = 0
+    if (hasSpare) {
+      const spareWritten = await writeSalesOrderSparePiCostInTx(pool, tx, {
+        piNo,
+        orderLines,
+        excludePrefixes,
+        actor,
+      })
+      spareCount = spareWritten.spareCount
     }
 
     const now = formatSalesOrderAuditTime()
@@ -427,7 +438,10 @@ export async function calculateSalesOrderMaterialBill(opts) {
       piNo,
       mode: scope.mode,
       productCount: scope.products.length,
+      spareCount,
+      includedSpareUsage: hasSpare,
       calcStatus: allCovered ? '已运算' : '未运算',
+      msg: hasSpare ? '运算成功（含散件用量）' : '运算成功',
     }
   } catch (err) {
     try {

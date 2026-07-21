@@ -5,8 +5,17 @@ import {
   resolveFinishedGoodsBatchSelectState,
   resolveFinishedGoodsDetailKey,
   formatFinishedGoodsPendingText,
+  buildKeywordWhere,
 } from './stockOutFinishedGoodsBatchAdd.js'
 import { computeKsum } from './stockInPurchaseBatchAdd.js'
+
+test('buildKeywordWhere 仅材料编码 kcaa01 模糊', () => {
+  const where = buildKeywordWhere('PQ-')
+  assert.match(where, /l\.\[kcaa01\].*LIKE @keyword/)
+  assert.doesNotMatch(where, /kcaa02/)
+  assert.doesNotMatch(where, / OR /)
+  assert.equal(buildKeywordWhere(''), '')
+})
 
 test('computeFinishedGoodsShippableQty subtracts approved and pending', () => {
   assert.equal(computeFinishedGoodsShippableQty({ orderQty: 100, approvedOutQty: 30, pendingOutQty: 20 }), 50)

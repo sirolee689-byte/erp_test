@@ -175,7 +175,7 @@
                 <el-table-column label="数量" prop="kcak03" width="96" align="right">
                   <template #default="{ row: line }">{{ line._rowType === 'fee' ? '' : formatQuantityBlankZero(line.kcak03) }}</template>
                 </el-table-column>
-                <el-table-column label="入库相关" min-width="260" class-name="buy-expand-inbound-col">
+                <el-table-column label="入库相关" min-width="380" class-name="buy-expand-inbound-col">
                   <template #default="{ row: line }">
                     <template v-if="line._rowType === 'fee'">-</template>
                     <div v-else class="buy-inbound-cell">
@@ -879,7 +879,8 @@ const blankHeader = () => ({
   referenceOrderId: null,
   supplierCode: '',
   taxIncluded: '1',
-  currencyCode: '',
+  // 新增默认人民币（编码 001，与外协订单/采购报价一致）；下拉仍可改
+  currencyCode: '001',
   loadingPort: '',
   dischargePort: '',
   paymentTerms: '',

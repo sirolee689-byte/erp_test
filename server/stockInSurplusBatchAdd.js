@@ -57,16 +57,8 @@ function bomSelectList() {
 
 export function buildSurplusBatchKeywordWhere(keyword) {
   if (!text(keyword)) return ''
-  const parts = [
-    `${nvarcharTextExpr('bom', 'systemcode', 200)} LIKE @keyword`,
-    `${nvarcharTextExpr('bom', 'location', 200)} LIKE @keyword`,
-    `${nvarcharTextExpr('bom', 'kcaa02_en', 500)} LIKE @keyword`,
-    `${nvarcharTextExpr('bom', 'kpname', 500)} LIKE @keyword`,
-  ]
-  for (const col of KCAA_COLS) {
-    parts.push(`${nvarcharTextExpr('bom', col, 500)} LIKE @keyword`)
-  }
-  return `AND (${parts.join(' OR ')})`
+  // 批量添加搜索仅材料编码 kcaa01 模糊（盘盈/其他入库共用）
+  return `AND (${nvarcharTextExpr('bom', 'kcaa01', 300)} LIKE @keyword)`
 }
 
 export function buildSurplusBatchListSql({ keyword = '' } = {}) {

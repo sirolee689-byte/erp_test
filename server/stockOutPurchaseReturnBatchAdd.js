@@ -65,12 +65,11 @@ function parsePage(query = {}) {
   return { page, pageSize, startRow: (page - 1) * pageSize + 1, endRow: page * pageSize }
 }
 
-function buildKeywordWhere(keyword) {
+/** 批量添加查询条件：仅材料编码 kcaa01 模糊匹配 */
+export function buildKeywordWhere(keyword) {
   const kw = text(keyword)
   if (!kw) return ''
-  const likeCols = ['kcaa01', 'kcaa02', 'kcaa03', 'kcaa11', 'Reference', 'info', 'kcak02', 'systemcode']
-  const parts = likeCols.map((col) => `${nvarcharTextExpr('l', col)} LIKE @keyword`)
-  return `AND (${parts.join(' OR ')})`
+  return `AND (${nvarcharTextExpr('l', 'kcaa01')} LIKE @keyword)`
 }
 
 function resolveDetailKey(row) {

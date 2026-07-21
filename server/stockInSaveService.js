@@ -240,9 +240,10 @@ async function validateSourceOrder(pool, header, related) {
   return { ok: true }
 }
 
-/** 入库单保存一律自动审核（新增与待审核编辑相同口径） */
-export function __resolveStockInSaveApprovalForTest() {
-  return { autoApprove: true, pass: '1' }
+/** 有效明细才自动审核；空明细仅保存为待审核草稿。 */
+export function __resolveStockInSaveApprovalForTest(lineCount = 0) {
+  const autoApprove = Number(lineCount) > 0
+  return { autoApprove, pass: autoApprove ? '1' : '0' }
 }
 
 async function fetchMaterialSnapshot(pool, materialCode) {
@@ -347,7 +348,7 @@ async function saveStockIn({ pool, body, req: httpReq, actor, id = null }) {
   const source = await validateSourceOrder(pool, header, related)
   if (!source.ok) return { ok: false, status: 400, msg: source.msg }
 
-  const { autoApprove, pass } = __resolveStockInSaveApprovalForTest()
+  const { autoApprove, pass } = __resolveStockInSaveApprovalForTest(lines.length)
   const saveDate = new Date()
   const receiptNo = id ? existing.receiptNo : await resolveFinalReceiptNo(pool, saveDate)
   const systemCode = id ? existing.systemCode : buildStockInSystemCode(actor, saveDate)

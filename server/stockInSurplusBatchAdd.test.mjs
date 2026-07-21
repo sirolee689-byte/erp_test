@@ -27,12 +27,13 @@ describe('stockInSurplusBatchAdd', () => {
     assert.doesNotMatch(sqlText, /OFFSET/i)
   })
 
-  test('关键字查询覆盖材料编码名称规格等主档字段', () => {
+  test('关键字查询仅材料编码 kcaa01 模糊', () => {
     const where = buildSurplusBatchKeywordWhere('kw')
     assert.match(where, /bom\.\[kcaa01\]/)
-    assert.match(where, /bom\.\[kcaa02\]/)
-    assert.match(where, /bom\.\[kcaa03\]/)
-    assert.match(where, /bom\.\[kcaa11\]/)
+    assert.doesNotMatch(where, /bom\.\[kcaa02\]/)
+    assert.doesNotMatch(where, /bom\.\[kcaa03\]/)
+    assert.doesNotMatch(where, /bom\.\[systemcode\]/)
+    assert.doesNotMatch(where, / OR /)
   })
 
   test('最近复核入库价 SQL 按仓库已审已复核取最新价', () => {

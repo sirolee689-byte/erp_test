@@ -61,6 +61,14 @@ describe('stockInSaveLogic', () => {
     assert.match(err, /来货单号不能为空/)
   })
 
+  test('入库单草稿允许空明细保存，审核阶段另行校验有效明细', () => {
+    const draft = validateStockInPayload({
+      header: { inboundType: '0', inboundDate: '2026-06-17', warehouseCode: 'WH', paperNo: 'PN-1' },
+      lines: [],
+    })
+    assert.equal(draft, null)
+  })
+
   test('外协退料来货单号 kcan08 允许为空', () => {
     const ok = validateStockInPayload({
       header: {

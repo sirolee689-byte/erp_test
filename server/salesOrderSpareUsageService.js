@@ -1,5 +1,6 @@
 /**
  * 销售订单：增加散件单用量 → 仅写 UB_ERP_Bom_pi_cost（不写 pi_consumption）
+ * 写库核心可复用：一键运算（混单/纯散件）同一口径串联
  */
 import sql from 'mssql'
 import {
@@ -80,7 +81,7 @@ async function fetchOrderHeaderForSpareUsage(pool, id) {
  * @param {import('mssql').ConnectionPool} pool
  * @param {string} piNo
  */
-async function fetchOrderLinesForSpareUsage(pool, piNo) {
+export async function fetchOrderLinesForSpareUsage(pool, piNo) {
   const pi = normKcaa01(piNo)
   const r = await pool.request().input('pi', sql.NVarChar(200), pi).query(`
     SELECT
@@ -179,6 +180,39 @@ async function buildSparePartPiCostRows(pool, spareLines, actor) {
 }
 
 /**
+ * 在已有事务内覆盖写入散件自用量（仅 pi_cost，不写 consumption、不改主表运算标记）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {import('mssql').Transaction} tx
+ * @param {{
+ *   piNo: string,
+ *   orderLines: { kcaa01: string, materialName?: string, orderQty?: number }[],
+ *   excludePrefixes: string[],
+ *   actor: { uidInt: number | null, uname: string | null, utruename: string | null },
+ * }} opts
+ */
+export async function writeSalesOrderSparePiCostInTx(pool, tx, opts) {
+  const { piNo, orderLines, excludePrefixes, actor } = opts
+  const spareLines = filterSparePartOrderLines(orderLines, excludePrefixes).map((line) => ({
+    kcaa01: normKcaa01(line.kcaa01),
+    materialName: String(line.materialName ?? '').trim(),
+    orderQty: Number(line.orderQty ?? 0),
+  }))
+  if (!spareLines.length) {
+    return { spareCount: 0, rowCount: 0 }
+  }
+  const spareCodes = spareLines.map((line) => line.kcaa01)
+  const rows = await buildSparePartPiCostRows(pool, spareLines, actor)
+  await deletePiCostForProducts(tx, piNo, spareCodes)
+  for (const line of spareLines) {
+    const productRows = rows.filter((row) => normKcaa01(row.kcaa01) === line.kcaa01)
+    if (productRows.length) {
+      await insertCostBulkEnriched(pool, tx, PI_COST_TABLE, line.kcaa01, piNo, productRows)
+    }
+  }
+  return { spareCount: spareLines.length, rowCount: rows.length }
+}
+
+/**
  * @param {{
  *   pool: import('mssql').ConnectionPool,
  *   id: number,
@@ -209,22 +243,17 @@ export async function addSalesOrderSpareUsage(opts) {
     }
   }
 
-  const spareLines = filterSparePartOrderLines(orderLines, excludePrefixes)
-  const spareCodes = spareLines.map((line) => line.kcaa01)
   const lineCodes = orderLines.map((line) => line.kcaa01)
-  const rows = await buildSparePartPiCostRows(pool, spareLines, actor)
-
   const calcCol = await ensureCalcStatusColumn(pool)
   const tx = new sql.Transaction(pool)
   await tx.begin()
   try {
-    await deletePiCostForProducts(tx, piNo, spareCodes)
-    for (const line of spareLines) {
-      const productRows = rows.filter((row) => normKcaa01(row.kcaa01) === line.kcaa01)
-      if (productRows.length) {
-        await insertCostBulkEnriched(pool, tx, PI_COST_TABLE, line.kcaa01, piNo, productRows)
-      }
-    }
+    const written = await writeSalesOrderSparePiCostInTx(pool, tx, {
+      piNo,
+      orderLines,
+      excludePrefixes,
+      actor,
+    })
 
     const now = formatSalesOrderAuditTime()
     const up = new sql.Request(tx)
@@ -261,8 +290,8 @@ export async function addSalesOrderSpareUsage(opts) {
     return {
       ok: true,
       piNo,
-      spareCount: spareLines.length,
-      rowCount: rows.length,
+      spareCount: written.spareCount,
+      rowCount: written.rowCount,
       calcStatus: allCovered ? '已运算' : String(header.calcStatus ?? '未运算'),
     }
   } catch (err) {

@@ -59,11 +59,12 @@ describe('stockOutOtherBatchAdd', () => {
     assert.match(sqlText, /WHERE rn = 1/)
   })
 
-  test('buildOtherBatchKeywordWhere searches bom and materialCode', () => {
+  test('buildOtherBatchKeywordWhere 仅材料编码 materialCode（kcaa01）模糊', () => {
     const where = buildOtherBatchKeywordWhere('kw')
     assert.match(where, /sc\.\[materialCode\] LIKE @keyword/)
-    assert.match(where, /bom\.\[kcaa01\]/)
-    assert.match(where, /bom\.\[systemcode\]/)
+    assert.doesNotMatch(where, /bom\.\[systemcode\]/)
+    assert.doesNotMatch(where, /bom\.\[kcaa02\]/)
+    assert.doesNotMatch(where, / OR /)
   })
 
   test('enrichOtherBatchRow maps select states', () => {

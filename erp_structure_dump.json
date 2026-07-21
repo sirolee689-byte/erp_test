@@ -341,6 +341,12 @@
   },
   {
     "name": "traceability",
-    "title": "追溯系统"
+    "title": "追溯系统",
+    "children": [
+      {
+        "name": "pi-trace",
+        "title": "PI追溯管理"
+      }
+    ]
   }
 ]

@@ -551,17 +551,18 @@
           <template #default="{ row }">{{ formatTrimNumber(row.orderQty) }}</template>
         </el-table-column>
         <template v-if="hasPricePermission">
+          <!-- 采购选择弹窗：单价/金额列最多 4 位小数并去尾 0（仅展示） -->
           <el-table-column label="单价" prop="unitPrice" width="110" align="right">
-            <template #default="{ row }">{{ formatTrimNumber(row.unitPrice) }}</template>
+            <template #default="{ row }">{{ formatErpPriceDisplay(row.unitPrice, '') }}</template>
           </el-table-column>
           <el-table-column label="单价(含税)" prop="unitPriceTax" width="120" align="right">
-            <template #default="{ row }">{{ formatTrimNumber(row.unitPriceTax) }}</template>
+            <template #default="{ row }">{{ formatErpPriceDisplay(row.unitPriceTax, '') }}</template>
           </el-table-column>
           <el-table-column label="金额" prop="amount" width="110" align="right">
-            <template #default="{ row }">{{ formatTrimNumber(row.amount) }}</template>
+            <template #default="{ row }">{{ formatErpPriceDisplay(row.amount, '') }}</template>
           </el-table-column>
           <el-table-column label="金额(含税)" prop="amountTax" width="120" align="right">
-            <template #default="{ row }">{{ formatTrimNumber(row.amountTax) }}</template>
+            <template #default="{ row }">{{ formatErpPriceDisplay(row.amountTax, '') }}</template>
           </el-table-column>
         </template>
         <el-table-column label="入库单未审数" prop="pendingInboundQty" width="120" align="right">
@@ -673,6 +674,7 @@
 import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
 import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
+import { formatErpPriceDisplay } from '@/utils/erpNumberDisplay'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -2395,13 +2397,12 @@ async function validateHeaderBeforeSave() {
 
 async function saveReceipt() {
   if (!(await validateHeaderBeforeSave())) return
-  if (!lines.value.length) return ElMessage.warning('请至少添加一条明细')
-  if (!validateLineBeforeSave()) return
+  if (lines.value.length && !validateLineBeforeSave()) return
   saving.value = true
   try {
     const payload = buildPayload()
     const res = editId.value ? await axios.put(`/api/stock-in/${editId.value}`, payload) : await axios.post('/api/stock-in', payload)
-    ElMessage.success(res.data?.data?.autoApproved ? '保存成功，已自动审核' : '保存成功，等待审核')
+    ElMessage.success(res.data?.data?.autoApproved ? '保存成功，已自动审核' : '保存成功，等待补充明细并审核')
     switchList()
   } catch (err) {
     ElMessage.error(err.response?.data?.msg || err.message || '保存失败')

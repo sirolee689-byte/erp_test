@@ -73,13 +73,11 @@ function parsePage(query = {}) {
   return { page, pageSize, startRow: (page - 1) * pageSize + 1, endRow: page * pageSize }
 }
 
-function buildKeywordWhere(keyword) {
+/** 批量添加查询条件：仅材料编码 kcaa01 模糊匹配 */
+export function buildKeywordWhere(keyword) {
   const kw = text(keyword)
   if (!kw) return ''
-  // 销售明细表无 Reference/info（属采购明细/出库明细），关键字改搜 remark、客款/厂款等
-  const likeCols = ['kcaa01', 'kcaa02', 'kcaa03', 'kcaa11', 'kcaa06', 'kcaa09', 'remark', 'location', 'xsak02', 'systemcode']
-  const parts = likeCols.map((col) => `${nvarcharTextExpr('l', col)} LIKE @keyword`)
-  return `AND (${parts.join(' OR ')})`
+  return `AND (${nvarcharTextExpr('l', 'kcaa01')} LIKE @keyword)`
 }
 
 async function validateSalesHeader(pool, { sourceOrderNo, customerCode, sourceSystemcodeId }) {

@@ -994,12 +994,14 @@ export function registerSalesOrderRoutes(app, deps) {
       }
       res.json({
         code: 200,
-        msg: '运算成功',
+        msg: result.msg || '运算成功',
         data: {
           id: parsed.id,
           piNo: result.piNo,
           mode: result.mode,
           productCount: result.productCount,
+          spareCount: result.spareCount ?? 0,
+          includedSpareUsage: Boolean(result.includedSpareUsage),
           calcStatus: result.calcStatus,
         },
       })

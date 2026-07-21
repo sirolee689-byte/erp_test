@@ -17,6 +17,12 @@ function isAdminActor(actor = {}) {
   return actor.isAdmin === true || actor.is_admin === 1 || actor.is_admin === '1' || actor.isAdmin === 1 || actor.role === 'admin'
 }
 
+/** 审核前校验：草稿允许空明细保存，但入账必须至少保留一条有效明细。 */
+export function validateStockInAuditLineCount(lineCount) {
+  if (Number(lineCount) > 0) return null
+  return '入库单至少需要一条明细才能审核'
+}
+
 async function fetchStockInColumnSet(pool, tableName) {
   const r = await pool.request().input('tableName', sql.NVarChar(128), tableName).query(`
     SELECT LOWER([name]) AS name
@@ -154,11 +160,27 @@ async function fetchOrder(pool, id) {
   return r.recordset?.[0] ?? null
 }
 
+async function fetchValidLineCount(pool, receiptNo) {
+  const r = await pool.request().input('receiptNo', sql.NVarChar(200), receiptNo).query(`
+    SELECT COUNT(1) AS lineCount
+    FROM ${LINE_FROM}
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([kcao01], N'')))) = @receiptNo
+      AND (ISNULL([del], N'') = N'' OR [del] = N'0')
+      AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([kcaa01], N'')))) <> N''
+      AND ISNULL([kcao03], 0) > 0
+  `)
+  return Number(r.recordset?.[0]?.lineCount ?? 0)
+}
+
 export async function applyStockInLifecycleAction({ pool, id, action, actor }) {
   const row = await fetchOrder(pool, id)
   if (!row) return { ok: false, status: 404, msg: '入库单不存在' }
   const config = resolveStockInLifecycleConfig(action, row, actor)
   if (config.error) return { ok: false, status: 400, msg: config.error }
+  if (action === 'audit') {
+    const lineError = validateStockInAuditLineCount(await fetchValidLineCount(pool, row.receiptNo))
+    if (lineError) return { ok: false, status: 400, msg: lineError }
+  }
   const info = buildStockInLogInfo({ receiptNo: row.receiptNo, sourceOrderNo: row.sourceOrderNo, actor })
 
   if (config.hardDelete) {

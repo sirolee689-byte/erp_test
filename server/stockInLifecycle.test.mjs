@@ -3,9 +3,15 @@ import { describe, test } from 'node:test'
 import {
   buildStockInLifecycleSetSql,
   resolveStockInLifecycleConfig,
+  validateStockInAuditLineCount,
 } from './stockInLifecycle.js'
 
 describe('stockInLifecycle', () => {
+  test('空明细草稿不能审核', () => {
+    assert.match(validateStockInAuditLineCount(0), /至少需要一条明细才能审核/)
+    assert.equal(validateStockInAuditLineCount(1), null)
+  })
+
   test('已审核入库单不能直接删除，必须先反审核', () => {
     const cfg = resolveStockInLifecycleConfig('delete', { pass: '1', del: '0', sp_flag: '0', closed: '0', inboundType: '1' })
     assert.match(cfg.error, /先反审核/)

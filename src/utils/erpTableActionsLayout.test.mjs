@@ -28,6 +28,13 @@ test('singleRow：两按钮按同一行估宽（不按两行折列）', () => {
   assert.ok(single > getErpTableActionsColWidthByLabels(['查看']))
 })
 
+test('forceCols: 4 时未审核五行估宽大于默认 3 列', () => {
+  const labels = ['查看', '一键运算', '编辑', '审核', '删除']
+  const defaultW = getErpTableActionsColWidthByLabels(labels)
+  const forcedW = getErpTableActionsColWidthByLabels(labels, { forceCols: 4 })
+  assert.ok(forcedW > defaultW)
+})
+
 test('按当前页各行实际可见操作取最大宽度', () => {
   const rows = [{ audited: true }, { audited: false }]
   const width = getErpTableActionsColWidthByRows(rows, (row) => (

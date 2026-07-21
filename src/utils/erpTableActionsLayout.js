@@ -46,8 +46,9 @@ export function getErpTableActionsColMinWidth(buttonCount, options = {}) {
  * 只依赖传入数据，不读取或监听 DOM，避免表格列宽与组件渲染互相触发更新。
  *
  * @param {Array<string | null | undefined | false>} actionLabels 当前会显示的按钮文案
- * @param {{ comfortable?: boolean, cellPadPx?: number, colGapPx?: number, extraPx?: number, singleRow?: boolean }} [options]
+ * @param {{ comfortable?: boolean, cellPadPx?: number, colGapPx?: number, extraPx?: number, singleRow?: boolean, forceCols?: number }} [options]
  *   singleRow=true 时按「全部按钮同一行」估宽（不按两行 Grid 折列），配合 CSS flex-nowrap 使用。
+ *   forceCols 为正整数时按该列数估宽（优先于 singleRow / 默认折列），用于 CSS 固定列数（如销售订单 so-order-actions 强制 4 列）。
  */
 export function getErpTableActionsColWidthByLabels(actionLabels, options = {}) {
   const labels = (Array.isArray(actionLabels) ? actionLabels : [])
@@ -61,9 +62,12 @@ export function getErpTableActionsColWidthByLabels(actionLabels, options = {}) {
   const cellPad = Number(options.cellPadPx ?? ERP_TABLE_ACTIONS_CELL_PAD_X)
   const colGap = Number(options.colGapPx ?? 4)
   const extra = Number(options.extraPx) || 0
-  const cols = options.singleRow === true
-    ? Math.max(1, labels.length)
-    : getErpTableActionsColCount(labels.length)
+  const forcedCols = Math.floor(Number(options.forceCols))
+  const cols = Number.isFinite(forcedCols) && forcedCols > 0
+    ? forcedCols
+    : options.singleRow === true
+      ? Math.max(1, labels.length)
+      : getErpTableActionsColCount(labels.length)
   const columnWidths = Array.from({ length: cols }, () => 0)
 
   labels.forEach((label, index) => {

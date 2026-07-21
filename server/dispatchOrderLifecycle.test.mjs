@@ -15,3 +15,9 @@ test('已审派工单不能编辑删除，已审回收站记录不能彻底删�
   assert.match(resolveDispatchOrderLifecycleConfig('delete', { pass: '1', del: '0' }).error, /已审核/)
   assert.match(resolveDispatchOrderLifecycleConfig('hard-delete', { pass: '1', del: '1' }).error, /已审核/)
 })
+
+test('未审未删派工单允许进入审核流程（空明细由 apply 阶段查库拦截）', () => {
+  const cfg = resolveDispatchOrderLifecycleConfig('audit', { pass: '0', del: '0' })
+  assert.equal(cfg.nextPass, '1')
+  assert.equal(cfg.error, undefined)
+})

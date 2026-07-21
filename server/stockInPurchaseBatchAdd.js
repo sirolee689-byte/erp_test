@@ -95,9 +95,8 @@ function parsePage(query = {}) {
 function buildKeywordWhere(keyword) {
   const kw = text(keyword)
   if (!kw) return ''
-  const likeCols = ['kcaa01', 'kcaa02', 'kcaa03', 'kcaa11', 'Reference', 'info', 'kcak02', 'systemcode']
-  const parts = likeCols.map((col) => `${nvarcharTextExpr('l', col)} LIKE @keyword`)
-  return `AND (${parts.join(' OR ')})`
+  // 批量添加搜索仅材料编码 kcaa01 模糊
+  return `AND (${nvarcharTextExpr('l', 'kcaa01')} LIKE @keyword)`
 }
 
 function toRmbPrice(price, rate) {

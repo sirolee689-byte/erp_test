@@ -13,7 +13,7 @@
         v-model="keyword"
         clearable
         class="stock-return-batch-query-input"
-        placeholder="材料编码 / 名称 / 规格 / PI / 备注"
+        placeholder="材料编码"
         @keyup.enter="reload"
       />
       <el-button type="primary" @click="reload">查询</el-button>

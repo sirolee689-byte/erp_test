@@ -44,7 +44,8 @@
 | POST | `/api/sales-order/:id/hard-delete` | delete | 彻底删除（回收站且未审） |
 | POST | `/api/sales-order/:id/sync-bom` | edit | body `{ kcaa01 }`；主 BOM → 该款 PI BOM（单款） |
 | POST | `/api/sales-order/:id/sync-bom-batch` | edit | body `{ kcaa01: string[] }`；三路并发准备主 BOM 树，逐款短事务串行写入；批量预读主 BOM 头/规则/列元数据，同款明细按安全批次写入；返回准备、删除、写入和提交耗时；遇错停后续；只覆盖点选款 |
-| POST | `/api/sales-order/:id/calculate` | edit | 一键运算；已审核/未审核在册订单均可执行；可选 `{ syncedKcaa01: string[] }` 部分重算 |
+| POST | `/api/sales-order/:id/calculate` | edit | 一键运算；含散件时同请求自动写散件自用量；纯散件单亦走本接口；可选 `{ syncedKcaa01: string[] }` 部分重算 |
+| POST | `/api/sales-order/:id/add-spare-usage` | edit | 兼容保留（列表不再入口）；仅写散件 `pi_cost` 自用量 |
 | GET | `/api/sales-order/:id/material-bill` | view | 物料单（未运算 409）；前端主入口在生产管理 → 统计分析 → 物料单 |
 | GET | `/api/sales-order/:id/pi-bom?kcaa01=` | view | 无 `kcaa01`：款列表；有：树 + flat |
 | PUT | `/api/sales-order/:id/pi-bom` | edit | body `{ kcaa01, lines: [{ id, kcac04, kcac05?, Describe? }] }` |
@@ -60,9 +61,8 @@
 3. **PI BOM 维护** `GET/PUT /:id/pi-bom`：改用量/损耗/备注（不从主 BOM 拉）
 4. **同步 BOM**：明细行点「同步 BOM」标记为「已选择」，再点「批量同步 BOM」（编辑明细在「批量添加」旁）；一次调用 `POST /:id/sync-bom-batch`（三路并发准备主 BOM 树；准备完成后逐款短事务串行删除并写入，避免读树期间长期占用 PI BOM 写锁；批量开始时预读主 BOM 头、分类规则、列元数据；同款 `UB_ERP_Bom_Sales_list` 明细按 SQL Server 参数上限分批写入；主表 `is_pur=0` 只改一次；死锁自动退避重试；遇错停后续；已启动的款允许跑完），**只覆盖点选编码**的 PI BOM，**当下不删** `pi_cost`；接口返回总耗时和逐款准备、删除、写入、提交耗时，单款接口 `POST /:id/sync-bom` 仍保留
 5. **同步后再保存**：`PUT` body 带 `syncedKcaa01`（本会话已同步款）→ 删除该 PI **全部** `UB_ERP_Bom_pi_cost`，主表用量清空并回到未运算；保存成功后前端清空本会话同步标记，下次一键运算为整单重算
-6. **一键运算** `POST /:id/calculate` → **物料单** `GET /:id/material-bill`；查看入口在生产管理 → 统计分析 → 物料单
-7. **增加散件单用量** `POST /:id/add-spare-usage`（订单含散件时列表显示；**纯散件单**可独立操作；**混单**须先一键运算整款）
-8. 需要时：**审核** / **软删** / **恢复** / **彻底删除**
+6. **一键运算** `POST /:id/calculate`（含散件时自动补散件自用量；纯散件单也点本按钮）→ **物料单** `GET /:id/material-bill`；查看入口在生产管理 → 统计分析 → 物料单
+7. 需要时：**审核** / **软删** / **恢复** / **彻底删除**
 
 ```text
 保存订单 ──► PI BOM 对齐（删款物理删 PI；在单款不动；新款从主 BOM 建）
@@ -72,8 +72,8 @@
      │         └─► 再点保存（body.syncedKcaa01）──► 清空该 PI 全部 pi_cost → 未运算
      └─► 改货品行/订货数量（保存）──► 未运算，并清空该 PI 的 pi_cost
 
-未运算 ──► 一键运算（读 PI BOM）──► 已运算 ──► 物料单有效
-已运算 + 仅部分款同步后、尚未保存就运算 ──► 只重算 syncedKcaa01 中的款
+未运算 ──► 一键运算（整款读 PI BOM；含散件则同请求写散件自用量）──► 已运算 ──► 物料单有效
+已运算 + 仅部分款同步后、尚未保存就运算 ──► 只重算 syncedKcaa01 中的整款，并仍自动补散件用量
 同步后再保存（已清整单 pi_cost）──► 下次一键运算为整单重算
 ```
 
@@ -91,14 +91,14 @@
 - **一键运算** 只读 **PI BOM**（`UB_ERP_Bom_Sales_list`），写入 `UB_ERP_Bom_pi_*`，**不乘订货数量**；**无 BOM 层数上限**（与主 BOM 用量树一致；循环引用仍失败）；隐藏前缀与 BOM 资料内置列表一致（`server/bomCostHidePrefixes.js`）；下游订料时 **用量 × 订货数量**
 - **一键运算写 `UB_ERP_Bom_pi_cost`**：按 BOM 资料**一键运算（旧）**口径平铺，`CUT-` 中间层参与路径逐层乘算；平铺不合并、隐藏前缀一致、跳过成品根行。普通 `RP-` 材料写入，`RP-PQ` 结构行不写入；**不**再按 `UB_ERP_Bom_Sales_list.id` 去重。验收：同款 PI BOM 一致时，`pi_cost` 用量应对齐 BOM 旧运算结果（仅 `sid` 为 PI 号）。历史 PI 需要手动再次一键运算才会刷新。
 - **`pi_cost` 专用字段**（用量 `kcac04/05/06` 不变）：`top_kcaa01/02` = PI BOM **第一层**命中 `UB_ERP_Bom_code flag5`（排除 OUT/CUT）的锚点，子树继承（裁片下 `RP-*` 等材料不新建锚点）；**散件单**第一层即散件时 `top` 可为自身；`t_kcaa01/02` = 直接父（父即锚点时 **留空**）；`t_kcaa03~11/14/15/25~27` = 直接父行在 `UB_ERP_Bom_Sales_list` 的同名 `kcaa*`（树遍历复制，等价 `sid`+`t_kcaa01` 查父行；父留空时 t 扩展字段亦空）；**`kcaa13`**：先按 `UB_ERP_Bom_000` enrich，若该行对应 `UB_ERP_Bom_Sales_list` 的 `kcaa13` **有值（含 0）** 则照抄覆盖；`temp` = 该款销售明细 `xsak03`（同 `pq` 下各行相同）；`isok=1`、`pass='1'`、`kcac07=0`、`kcac08=kcac06+kcac07`、`kcaa07/08=0`。实现：`server/salesOrderPiCostFields.js`。
-- **一键运算入口** 只放在列表第一列「操作」；查看整页与编辑页不放入口。已审核、未审核在册订单都可以点；回收站订单不可运算。
-- **散件判定**（`hasSpareParts`）：`UB_ERP_Bom_code` 全部 `copen=1` 且 `flag5` 非空的前缀为「排除前缀」；明细 `kcaa01` **不命中**任一排除前缀 → 散件行；订单含至少一行散件 → 列表显示 **「增加散件单用量」**。
-- **订单类型与按钮**：
-  - **纯整款**（无散件）：仅 **一键运算**。
-  - **纯散件单**（`isPureSpareOrder`）：仅 **增加散件单用量**，**不显示**一键运算。
-  - **混单**（整款 + 散件）：两个按钮均显示；散件按钮须整款已有 `pi_cost`（`canAddSpareUsage`）才可点，否则置灰并提示「请先一键运算整款」。
-- **增加散件单用量**（`POST /:id/add-spare-usage`）：**仅**对散件明细写 `UB_ERP_Bom_pi_cost` 自用量行（`pq`=散件自身、`kcac04=1`、`kcac06=1`、`top_kcaa01`=自身、`temp`=该款 `xsak03`；其余扩展字段照 `UB_ERP_Bom_000` enrich）；**不写** `pi_consumption`。混单时只覆盖散件款 `pi_cost`，整款不动；当全部明细款均有 `pi_cost` 时标 **已运算**。
-- **一键运算与散件**：运算范围 **排除散件明细**（只算整款）；混单运算完成后若散件尚未补用量，主表仍为 **未运算**；纯散件单调用一键运算接口会拒绝并提示改用散件按钮。
+- **一键运算入口** 只放在列表第一列「操作」；查看整页与编辑页不放入口。已审核、未审核在册订单都可以点（含纯散件单）；回收站订单不可运算。列表**不再**显示「增加散件单用量」。
+- **散件判定**（`hasSpareParts`）：`UB_ERP_Bom_code` 全部 `copen=1` 且 `flag5` 非空的前缀为「排除前缀」；明细 `kcaa01` **不命中**任一排除前缀 → 散件行。
+- **订单类型与一键运算**：
+  - **纯整款**（无散件）：只算整款 PI BOM。
+  - **纯散件单**（`isPureSpareOrder`）：点「一键运算」即写散件自用量（与原 `add-spare-usage` 同口径）。
+  - **混单**（整款 + 散件）：先算整款，**同请求**再写散件自用量；全部明细有 `pi_cost` 后标 **已运算**。整单运算与部分重算（`syncedKcaa01`）只要含散件都会自动补散件。
+- **散件自用量口径**（由一键运算串联，或兼容接口 `POST /:id/add-spare-usage`）：**仅**对散件明细写 `UB_ERP_Bom_pi_cost` 自用量行（`pq`=散件自身、`kcac04=1`、`kcac06=1`、`top_kcaa01`=自身、`temp`=该款 `xsak03`；其余扩展字段照 `UB_ERP_Bom_000` enrich）；**不写** `pi_consumption`。
+- **一键运算与散件**：整款运算范围仍 **排除散件明细**；散件在同请求内由 `writeSalesOrderSparePiCostInTx` 补写。实现：`server/salesOrderCalculateService.js` / `server/salesOrderSpareUsageService.js`。
 - **一键运算 PX**：`UB_ERP_Bom_pi_cost.px` 照 BOM 资料规则补入，子件 `kcaa01` → `UB_ERP_Bom_000.kcaa05` → `UB_ERP_Stocks_material.code` → `UB_ERP_Stocks_material.px`；无匹配则留空。
 - **已审**（`pass='1'`）：禁止保存订单、PI BOM PUT、同步 BOM、软删、彻底删；但允许在列表执行一键运算
 

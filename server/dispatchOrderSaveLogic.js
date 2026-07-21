@@ -83,8 +83,9 @@ export function validateDispatchOrderPayload(payload) {
   if (!header.dispatchType) return '派工类型不能为空'
   if (!header.workshopCode) return '生产车间不能为空'
   if (!header.referenceNo) return header.dispatchType === '2' ? '委外供应商不能为空' : '关联 PI 不能为空'
+  // 允许空明细保存（草稿）；有明细时仍做行级校验。空明细审核在 lifecycle 拦截。
   const lines = (payload?.lines ?? []).map((line, idx) => normalizeDispatchOrderLine(line, idx + 1))
-  if (!lines.length) return '派工单至少需要一条明细'
+  if (!lines.length) return null
   const seenCodes = new Set()
   const seenPis = new Set()
   for (let i = 0; i < lines.length; i += 1) {

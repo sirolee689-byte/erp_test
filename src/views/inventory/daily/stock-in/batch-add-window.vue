@@ -11,7 +11,7 @@
         v-model="keyword"
         clearable
         class="stock-batch-query-input"
-        placeholder="材料编码 / 名称 / 规格 / 颜色"
+        placeholder="材料编码"
         @keyup.enter="reload"
       />
       <el-button type="primary" @click="reload">查询</el-button>

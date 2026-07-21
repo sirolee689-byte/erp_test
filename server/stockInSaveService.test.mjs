@@ -21,8 +21,9 @@ describe('stockInSaveService', () => {
     assert.doesNotMatch(sqlText, /cgad01|cgad05/i)
   })
 
-  test('stock-in save is always auto-approved for create and edit', () => {
-    assert.deepEqual(__resolveStockInSaveApprovalForTest(), { autoApprove: true, pass: '1' })
+  test('stock-in save auto-approves only when it contains details', () => {
+    assert.deepEqual(__resolveStockInSaveApprovalForTest(), { autoApprove: false, pass: '0' })
+    assert.deepEqual(__resolveStockInSaveApprovalForTest(0), { autoApprove: false, pass: '0' })
     assert.deepEqual(__resolveStockInSaveApprovalForTest(12), { autoApprove: true, pass: '1' })
   })
 

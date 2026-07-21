@@ -124,11 +124,25 @@ async function fetchOrder(pool, id) {
   return r.recordset?.[0] ?? null
 }
 
+async function countDispatchOrderLines(pool, orderNo) {
+  const r = await pool.request().input('orderNo', sql.NVarChar(200), orderNo).query(`
+    SELECT COUNT(1) AS cnt
+    FROM ${LINE_FROM}
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([scak01], N'')))) = @orderNo
+  `)
+  return Number(r.recordset?.[0]?.cnt ?? 0) || 0
+}
+
 export async function applyDispatchOrderLifecycleAction({ pool, id, action, actor }) {
   const row = await fetchOrder(pool, id)
   if (!row) return { ok: false, status: 404, msg: '派工单不存在' }
   const config = resolveDispatchOrderLifecycleConfig(action, row)
   if (config.error) return { ok: false, status: 400, msg: config.error }
+  // 允许空明细保存草稿，但不允许空明细审核
+  if (action === 'audit') {
+    const lineCount = await countDispatchOrderLines(pool, row.dispatchOrderNo)
+    if (lineCount <= 0) return { ok: false, status: 400, msg: '派工单没有明细，不能审核' }
+  }
   const info = buildDispatchOrderLogInfo({ orderNo: row.dispatchOrderNo, referenceNo: row.referenceNo, actor })
 
   if (config.hardDelete) {

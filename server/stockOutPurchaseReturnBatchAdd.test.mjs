@@ -5,8 +5,18 @@ import {
   computePurchaseReturnableQty,
   fetchStockOutPurchaseReturnBatchLines,
   resolvePurchaseReturnSelectState,
+  buildKeywordWhere,
 } from './stockOutPurchaseReturnBatchAdd.js'
 import { readFileSync } from 'node:fs'
+
+test('buildKeywordWhere 仅材料编码 kcaa01 模糊', () => {
+  const where = buildKeywordWhere('BN-')
+  assert.match(where, /l\.\[kcaa01\].*LIKE @keyword/)
+  assert.doesNotMatch(where, /kcaa02/)
+  assert.doesNotMatch(where, /Reference/)
+  assert.doesNotMatch(where, / OR /)
+  assert.equal(buildKeywordWhere(''), '')
+})
 
 function fakePool() {
   const calls = []

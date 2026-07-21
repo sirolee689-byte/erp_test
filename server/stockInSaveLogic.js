@@ -163,7 +163,8 @@ export function validateStockInPayload(payload = {}) {
 
   const rawLines = payload.rawLines ?? payload.lines ?? []
   const lines = (payload.lines ?? []).map((line, idx) => normalizeStockInLine(line, idx + 1, header))
-  if (!lines.length) return '入库单至少需要一条明细'
+  // 草稿允许先保存基础资料；审核时再由生命周期接口要求至少一条有效明细。
+  if (!lines.length) return null
   const linked = isLinkedInboundType(header.inboundType, header.sourceOrderNo)
   for (let i = 0; i < lines.length; i += 1) {
     const rawLine = rawLines[i] ?? {}

@@ -32,14 +32,14 @@ test('委外派工主表 scaj04 和 kid 保存供应商，明细 PI 仍由明细
   assert.equal(header.supplierCode, 'SUP-002')
 })
 
-test('正式保存必须有明细、数量大于 0、同单不能重复货号、不能混 PI', () => {
+test('允许空明细保存；有明细时数量须大于 0、同单不能重复货号、不能混 PI', () => {
   const header = {
     dispatchDate: '2025-06-15',
     dispatchType: '0',
     workshopCode: 'CJ01',
     referenceNo: 'PI-001',
   }
-  assert.equal(validateDispatchOrderPayload({ header, lines: [] }), '派工单至少需要一条明细')
+  assert.equal(validateDispatchOrderPayload({ header, lines: [] }), null)
   assert.equal(
     validateDispatchOrderPayload({ header, lines: [{ kcaa01: 'A', scak03: 0, pi: 'PI-001' }] }),
     '第 1 行本次派工数量必须大于 0',

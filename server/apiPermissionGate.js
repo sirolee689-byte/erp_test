@@ -1278,6 +1278,15 @@ export function matchApiPermissionRule(method, path, body, params) {
       ],
     }
   }
+  // PI追溯（只读查询）
+  if (
+    m === 'GET' &&
+    (path === '/api/traceability/pi-trace/forward' ||
+      path === '/api/traceability/pi-trace/reverse/list' ||
+      path === '/api/traceability/pi-trace/reverse/detail')
+  ) {
+    return { menuPath: 'traceability/pi-trace', action: 'view' }
+  }
   if (m === 'GET' && path === '/api/inventory/pi-bom-data/list') {
     return { menuPath: 'inventory/basic/pi-bom-data', action: 'view' }
   }

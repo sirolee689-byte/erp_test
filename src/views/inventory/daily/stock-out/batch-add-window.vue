@@ -15,7 +15,7 @@
         v-model="keyword"
         clearable
         class="stock-out-batch-query-input"
-        placeholder="材料编码 / 唯一码 / 产地 / 物料资料关键字"
+        placeholder="材料编码"
         @keyup.enter="reload"
       />
       <el-button type="primary" @click="reload">立即查询</el-button>

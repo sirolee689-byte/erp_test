@@ -85,20 +85,11 @@ export function parseOtherBatchPage(query = {}) {
   return { page, pageSize, startRow: (page - 1) * pageSize + 1, endRow: page * pageSize }
 }
 
-export function buildOtherBatchKeywordWhere(keyword, { bomAlias = 'bom' } = {}) {
+/** 批量添加查询条件：仅材料编码 kcaa01（库存汇总 materialCode）模糊匹配 */
+export function buildOtherBatchKeywordWhere(keyword) {
   const kw = text(keyword)
   if (!kw) return ''
-  const parts = [
-    `sc.[materialCode] LIKE @keyword`,
-    `${nvarcharTextExpr(bomAlias, 'systemcode', 200)} LIKE @keyword`,
-    `${nvarcharTextExpr(bomAlias, 'location', 200)} LIKE @keyword`,
-    `${nvarcharTextExpr(bomAlias, 'kcaa02_en', 500)} LIKE @keyword`,
-    `${nvarcharTextExpr(bomAlias, 'kpname', 500)} LIKE @keyword`,
-  ]
-  for (const col of KCAA_COLS) {
-    parts.push(`${nvarcharTextExpr(bomAlias, col, 500)} LIKE @keyword`)
-  }
-  return `AND (${parts.join(' OR ')})`
+  return `AND (sc.[materialCode] LIKE @keyword)`
 }
 
 export function buildOtherBatchStockCoreSql({ excludeOutboundNo = '' } = {}) {
