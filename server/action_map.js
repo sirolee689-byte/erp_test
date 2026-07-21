@@ -296,13 +296,13 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   {
     method: 'POST',
     path: '/api/bom/usage-calc-batch',
-    action: '批量BOM用量运算并写入UB_ERP_Bom_cost明细',
+    action: '批量BOM用量运算并写入UB_ERP_Bom_cost明细（CUT参与下层乘算，与一键运算同口径）',
     targetTable: 'UB_ERP_Bom_cost',
   },
   {
     method: 'POST',
     path: '/api/bom/usage-calc-legacy',
-    action: 'BOM列表一键运算并写入UB_ERP_Bom_cost明细（CUT参与下层乘算）',
+    action: 'BOM一键/详情运算并写入UB_ERP_Bom_cost明细（CUT参与下层乘算）',
     targetTable: 'UB_ERP_Bom_cost',
   },
   {

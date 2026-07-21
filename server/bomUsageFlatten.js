@@ -129,7 +129,7 @@ export function flattenBomPartsCostUsageFlatForBomCost(
 
 /**
  * 旧系统兼容写库平铺：CUT- 中间层和普通父级一样参与路径逐层累乘。
- * 仅供「一键运算(旧)」接口使用，普通一键运算仍走 flattenBomPartsCostUsageFlatForBomCost。
+ * BOM 主界面一键/详情/批量运算与 tree 无缓存预览均用此口径；普通口径见 flattenBomPartsCostUsageFlatForBomCost。
  * @param {any[]} treeNodes
  * @param {number|null|undefined} parentYl
  * @param {any[]} [acc]

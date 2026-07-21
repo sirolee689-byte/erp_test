@@ -2,6 +2,16 @@
   <div class="pi-bom-standalone-window erp-detail-form-context">
     <header class="pi-bom-standalone-header">
       <h1 class="pi-bom-standalone-title">{{ pageTitle }}</h1>
+      <button
+        v-if="isViewMode"
+        type="button"
+        class="pi-bom-standalone-close"
+        aria-label="关闭"
+        title="关闭"
+        @click="closeStandaloneWindow"
+      >
+        <el-icon><Close /></el-icon>
+      </button>
     </header>
     <template v-if="ready">
       <PiBomViewerPanel
@@ -29,6 +39,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Close } from '@element-plus/icons-vue'
 import PiBomEditorPanel from './PiBomEditorPanel.vue'
 import PiBomViewerPanel from './PiBomViewerPanel.vue'
 
@@ -89,6 +100,10 @@ function onViewerMeta(payload) {
   if (pi) resolvedPiNo.value = pi
 }
 
+function closeStandaloneWindow() {
+  window.close()
+}
+
 if (!ready.value) {
   ElMessage.error('新窗口缺少 orderId 或编码，无法打开')
 }
@@ -101,6 +116,10 @@ if (!ready.value) {
 }
 
 .pi-bom-standalone-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 44px;
   padding: 14px 16px 0;
 }
 
@@ -109,5 +128,44 @@ if (!ready.value) {
   font-size: 18px;
   font-weight: 600;
   color: var(--el-text-color-primary);
+}
+
+.pi-bom-standalone-close {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  width: var(--erp-dialog-close-size, 44px);
+  height: var(--erp-dialog-close-size, 44px);
+  margin: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--el-color-danger) !important;
+  border-radius: var(--el-border-radius-base) !important;
+  background-color: #fff !important;
+  color: var(--el-color-danger) !important;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 12%);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.pi-bom-standalone-close:hover,
+.pi-bom-standalone-close:focus-visible {
+  border-color: var(--el-color-danger) !important;
+  background-color: var(--el-color-danger-light-9, #fef2f2) !important;
+  outline: none;
+}
+
+.pi-bom-standalone-close :deep(.el-icon),
+.pi-bom-standalone-close :deep(svg) {
+  width: var(--erp-dialog-close-icon-size, 22px);
+  height: var(--erp-dialog-close-icon-size, 22px);
+  font-size: var(--erp-dialog-close-icon-size, 22px);
+  color: var(--el-color-danger) !important;
+  font-weight: 700;
 }
 </style>

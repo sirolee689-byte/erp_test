@@ -2538,6 +2538,7 @@ app.post('/api/bom/usage-calc-legacy', async (req, res) => {
 
 /**
  * BOM 主页批量运算：只处理前端传入的当前页 systemcode；已运算或不需要运算的行跳过。
+ * 平铺口径与列表「一键运算」一致：CUT- 中间层倍率参与下层逐层乘算。
  */
 app.post('/api/bom/usage-calc-batch', async (req, res) => {
   try {
@@ -2583,7 +2584,7 @@ app.post('/api/bom/usage-calc-batch', async (req, res) => {
           skipped.push({ systemcode, code: head.code, reason: '已运算，跳过' })
           continue
         }
-        const calc = await runBomUsageCalcForHead(pool, head, hidePrefixes, actor)
+        const calc = await runBomUsageCalcForHead(pool, head, hidePrefixes, actor, true)
         console.log('[bom-usage-calc-batch:item]', JSON.stringify(calc.metrics))
         success.push({ systemcode, code: head.code, total: calc.total })
       } catch (err) {
@@ -2614,7 +2615,7 @@ app.post('/api/bom/usage-calc-batch', async (req, res) => {
 /**
  * BOM 用量表：GET /api/bom/tree?systemcode=xxx
  * - 若 UB_ERP_Bom_cost 已有 pq+sid 缓存：hasCache=true，直接返回 UB_ERP_Bom_cost，不递归 UB_ERP_Bom_parts、不平铺 flatCostUsageRaw
- * - 否则：hasCache=false，递归树 data + flatCostUsageRaw（前端本地筛选合并预览；首次落库用 POST /api/bom/usage-calc）
+ * - 否则：hasCache=false，递归树 data + flatCostUsageRaw（legacy 平铺预览，与一键/详情/批量落库同口径；首次落库用 POST /api/bom/usage-calc-legacy）
  */
 app.get('/api/bom/tree', async (req, res) => {
   try {
@@ -2673,7 +2674,8 @@ app.get('/api/bom/tree', async (req, res) => {
 
     const bomHeadStack = new Set([systemcode])
     const data = await buildBomPartsUsageTreeNodes(pool, systemcode, 1, bomHeadStack)
-    const flatCostUsageRaw = flattenBomPartsCostUsageFlatForBomCost(data, null, [])
+    // 与一键/详情/批量落库同口径：CUT 中间层倍率参与下层乘算
+    const flatCostUsageRaw = flattenBomPartsCostUsageFlatForLegacyBomCost(data, null, [])
     res.json({
       success: true,
       hasCache: false,

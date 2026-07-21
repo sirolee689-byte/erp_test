@@ -166,11 +166,14 @@ const errorMessage = ref('')
 const tableList = ref([])
 const total = ref(0)
 const page = ref(1)
-const pageSize = ref(20)
+const pageSize = ref(10)
 const keyword = ref('')
 /** 操作列按钮：查看/编辑均无按钮级权限限制（模板无 v-permission），文案恒定 */
+// 操作区固定保留左 10px、右 5px；按钮文案变化时仍自动计算列宽。
 const listActionsColWidth = computed(() => getErpTableActionsColWidthByRows(tableList.value, getPiBomDataRowActionLabels, {
   fallbackLabels: ['查看', '编辑'],
+  cellPadPx: 15,
+  colGapPx: 4,
 }))
 
 function getPiBomDataRowActionLabels() {

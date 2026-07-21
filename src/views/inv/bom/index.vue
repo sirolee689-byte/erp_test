@@ -2378,7 +2378,7 @@ async function ensureBomBasicFull() {
   }
 }
 
-/** 将 POST /api/bom/usage-calc 成功响应写入详情用量块（树 + 成本平铺） */
+/** 将 POST /api/bom/usage-calc-legacy 成功响应写入详情用量块（树 + 成本平铺） */
 function applyBomUsageCalcResult(body, systemcode) {
   lastBomUsageFetchSystemcode.value = String(systemcode ?? '').trim()
   bomUsageHasCache.value = true
@@ -2391,16 +2391,18 @@ function applyBomUsageCalcResult(body, systemcode) {
   recomputeBomCostUsageDisplay()
 }
 
-/** @param {string} systemcode @param {string[]} hidePrefixes */
+/**
+ * 详情「运算/重新运算」与列表「一键运算」同口径：CUT 中间层倍率参与下层乘算。
+ * @param {string} systemcode @param {string[]} hidePrefixes
+ */
 async function postBomUsageCalcApi(systemcode, hidePrefixes) {
-  const res = await axios.post('/api/bom/usage-calc', { systemcode, hidePrefixes })
+  const res = await axios.post('/api/bom/usage-calc-legacy', { systemcode, hidePrefixes })
   return res.data
 }
 
-/** @param {string} systemcode @param {string[]} hidePrefixes */
+/** 列表「一键运算」：与详情运算同接口同口径 */
 async function postBomListUsageCalcApi(systemcode, hidePrefixes) {
-  const res = await axios.post('/api/bom/usage-calc-legacy', { systemcode, hidePrefixes })
-  return res.data
+  return postBomUsageCalcApi(systemcode, hidePrefixes)
 }
 
 function clearBomUsageCalcResultOnError() {
@@ -2423,6 +2425,22 @@ async function onBomUsageTableCalc(opts = {}) {
   }
   if (!recalc && bomUsageHasCache.value) {
     ElMessage.info('当前已有运算缓存，请使用「重新运算」覆盖，或「刷新」仅重新读取')
+    return
+  }
+  const code = String(bomBasic.value?.kcaa01 ?? detailTitleCode.value ?? '').trim()
+  try {
+    await ElMessageBox.confirm(
+      recalc
+        ? `【物料编码 ${code || '当前 BOM'}】已有运算结果，将按配件明细递归重新运算并覆盖。CUT- 中间层数量会参与下层逐层乘算，是否继续？`
+        : `将对【物料编码 ${code || '当前 BOM'}】按配件明细递归运算并写入 UB_ERP_Bom_cost。CUT- 中间层数量会参与下层逐层乘算，是否继续？`,
+      recalc ? '确认重新运算' : '确认运算',
+      {
+        type: 'warning',
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch {
     return
   }
   bomUsageTreeLoading.value = true
@@ -4822,8 +4840,7 @@ async function onPropagateMaster(row) {
 }
 
 /**
- * 列表「一键运算」：采用 CUT 中间层倍率参与下层乘算的旧口径。
- * 详情页、批量运算仍走普通口径，不能改到这里。
+ * 列表「一键运算」：CUT 中间层倍率参与下层乘算（与详情运算、批量运算同口径）。
  */
 async function onOneClickUsageCalc(row) {
   const sc = String(row?.systemcode ?? '').trim()
@@ -4900,7 +4917,7 @@ async function doBatchUsageCalcCurrentPage() {
   }
   try {
     await ElMessageBox.confirm(
-      `确定批量运算当前页 ${n} 条未运算 BOM 吗？已运算的数据会跳过，不会覆盖旧 UB_ERP_Bom_cost。`,
+      `确定批量运算当前页 ${n} 条未运算 BOM 吗？口径与「一键运算」相同：CUT- 中间层数量会参与下层逐层乘算。已运算的数据会跳过，不会覆盖旧 UB_ERP_Bom_cost。`,
       '确认批量运算',
       {
         type: 'warning',

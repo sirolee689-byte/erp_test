@@ -26,12 +26,13 @@
   - `管理PI-BOM资料`：列表查询、查看与编辑入口。
   - `PI-BOM物料批量替换`：按 PI 批量替换配件明细中的物料档案（见下节）。
 - 搜索框支持按 PI 号或编码查询。
+- 列表默认每页 10 条，用户仍可通过分页器自行调整。
 - 默认只查在册订单，也就是销售订单主表 `del` 为空或 `0`，并默认只展示已审核订单。
 - 列表按销售订单明细款展示：一行 = 一个 PI 号下的一个成品编码。
 - 列顺序固定为：操作、状态(是否审核)、录入时间、PI号、编码、是否运算、成本用量、名称(中文)、客户款号、组别、单位、分类、工厂款号。
 - 成本用量列显示格式为 `成本：kcac04合计,kcac06合计`，统一按 4 位小数展示并去掉无意义尾零（例如 `1.2300` 显示 `1.23`，`80.0000` 显示 `80`）。
 - 操作列提供 **查看** 与 **编辑** 两个按钮；均以浏览器原生新标签打开无侧栏全屏独立页（`tag="a"` + `target="_blank"`，对齐 BOM / 销售订单展开明细「查看」）。
-- **查看**：`/inventory/basic/pi-bom-data-window?mode=view&orderId=…&kcaa01=…&piNo=…`（挂 `PiBomViewerPanel`，4 标签：基础资料、配件明细、PI_BOM树形、成本BOM用量表）；标题为 `查看 PI-BOM  {PI号}  {编码}`；基础资料与 BOM「查看详情」同组件同字段排版；配件明细可下钻查看下级，不可修改。销售订单侧亦可走 `sales-order-pi-bom-window`（同一基础资料页）。
+- **查看**：`/inventory/basic/pi-bom-data-window?mode=view&orderId=…&kcaa01=…&piNo=…`（挂 `PiBomViewerPanel`，4 标签：基础资料、配件明细、PI_BOM树形、成本BOM用量表）；标题为 `查看 PI-BOM  {PI号}  {编码}`，右上角有与 BOM资料一致的红框 `×` 关闭按钮；基础资料与 BOM「查看详情」同组件同字段排版；配件明细可下钻查看下级，不可修改。销售订单侧亦可走 `sales-order-pi-bom-window`（同一基础资料页）。
 - **编辑**：`/inventory/basic/pi-bom-data-window?mode=edit&orderId=…&kcaa01=…`（挂 `PiBomEditorPanel`，2 标签：基础资料 + 配件明细）；基础资料点「保存主档」写入 `UB_ERP_Bom_Sales`；配件明细点「保存配件明细」写入 `UB_ERP_Bom_Sales_list`。
 - 编辑页配件行点 **编辑配件**：再开一层原生新页 `mode=parts-edit`（无侧栏）；下层页基础资料只读，配件明细可维护；继续下钻仍用「编辑配件」新页。进入编辑后，单位用量、损耗率、单价、备注默认可直接改，无需逐行点「编辑」。缺订单 ID 或编码时不跳转并中文提示。
 - `分类` 显示 `UB_ERP_Stocks_material.name`，通过销售订单明细快照 `kcaa05` 匹配 `UB_ERP_Stocks_material.code`（旧表名 `Bom_material`）。
