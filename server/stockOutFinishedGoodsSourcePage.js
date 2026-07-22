@@ -1,7 +1,7 @@
 import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * 成品出库（类型 6）关联销售订单选单。
- * 主从展开：一行 = 销售订单一条已审明细；PI 进列表仍须 EXISTS 至少一条可出明细。
+ * 主从展开：一行 = 销售订单一条已审明细；已出完的 PI 也可选来看/关联（不要求 xsak03-xsak06>0）。
  * 分页 SQL 兼容 SQL Server 2008 R2。
  */
 import { sql } from './db.js'
@@ -52,40 +52,21 @@ export function buildStockOutFinishedGoodsKeywordWhere(hasKeyword = false) {
   `
 }
 
-/** 明细仍有可出数量（xsak03-xsak06>0）且 xsak02=GUID — 控制哪些 PI 出现在选派列表 */
-export function buildStockOutFinishedGoodsShippableLineExistsSql() {
-  const remainingExpr = `ISNULL(${safeDecimalExpr('l', 'xsak03')}, 0) - ISNULL(${safeDecimalExpr('l', 'xsak06')}, 0)`
-  // xsak01/xsaj01 均为 PI 号 nvarchar，直比可走索引；勿用 nvarcharTextExpr 包列（相关子查询会全表扫）
-  return `
-    EXISTS (
-      SELECT 1
-      FROM ${SALES_LINE_FROM} AS l
-      WHERE l.[xsak01] = h.[xsaj01]
-        AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
-        AND LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), l.[pass]), N''))) = N'1'
-        AND ${nvarcharTextExpr('l', 'xsak02', 200)} = ${nvarcharTextExpr('l', 'GUID', 200)}
-        AND ${nvarcharTextExpr('l', 'xsak02', 200)} <> N''
-        AND ${remainingExpr} > 0
-    )
-  `
-}
-
 function buildHeaderBaseWhereSql({
   hasCustomerName = false,
   hasCustomerCode = false,
 } = {}) {
   const customerWhere = buildCustomerWhere(hasCustomerName, hasCustomerCode)
-  const shippableExists = buildStockOutFinishedGoodsShippableLineExistsSql()
+  // PI 是否进列表：靠 INNER JOIN 有效明细；已出完（xsak03-xsak06<=0）仍可选来看/关联
   return `
     ${nvarcharTextExpr('h', 'del', 20)} IN (N'', N'0')
     AND LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), h.[pass]), N''))) = N'1'
     AND LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), h.[closed]), N'0'))) = N'0'
-    AND ${shippableExists}
     ${customerWhere}
   `
 }
 
-/** 选派弹窗展示的明细行：已审未删且 xsak02=GUID（不要求 xsak03-xsak06>0） */
+/** 选派弹窗展示的明细行：已审未删且 xsak02=GUID（含已出完明细） */
 function buildLineBaseWhereSql(alias = 'l') {
   return `
     AND ${nvarcharTextExpr(alias, 'del', 20)} IN (N'', N'0')

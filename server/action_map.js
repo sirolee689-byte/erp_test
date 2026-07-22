@@ -717,6 +717,17 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   },
   { method: 'DELETE', path: /^\/api\/supply-chain\/outsourcing-quotations\/[^/]+$/, action: '删除外协报价', targetTable: 'UB_ERP_assist_offer' },
 
+  { method: 'GET', path: '/api/inventory/warehouse/list', action: '查询仓库编码列表', targetTable: 'UB_ERP_Stocks_warehouse' },
+  { method: 'GET', path: '/api/inventory/warehouse/user-options', action: '查询仓库参管人员候选', targetTable: 'UB_ERP_User' },
+  { method: 'GET', path: /^\/api\/inventory\/warehouse\/.+$/, action: '查询仓库编码详情', targetTable: 'UB_ERP_Stocks_warehouse' },
+  { method: 'POST', path: '/api/inventory/warehouse', action: '新增仓库编码', targetTable: 'UB_ERP_Stocks_warehouse' },
+  { method: 'PUT', path: '/api/inventory/warehouse/audit', action: '审核仓库编码', targetTable: 'UB_ERP_Stocks_warehouse' },
+  { method: 'PUT', path: '/api/inventory/warehouse/unaudit', action: '反审核仓库编码', targetTable: 'UB_ERP_Stocks_warehouse' },
+  { method: 'PUT', path: '/api/inventory/warehouse/audit-batch', action: '批量审核仓库编码', targetTable: 'UB_ERP_Stocks_warehouse' },
+  { method: 'PUT', path: '/api/inventory/warehouse/restore', action: '恢复仓库编码', targetTable: 'UB_ERP_Stocks_warehouse' },
+  { method: 'PUT', path: '/api/inventory/warehouse', action: '修改仓库编码', targetTable: 'UB_ERP_Stocks_warehouse' },
+  { method: 'DELETE', path: /^\/api\/inventory\/warehouse\/.+$/, action: '删除仓库编码', targetTable: 'UB_ERP_Stocks_warehouse' },
+
   { method: 'GET', path: '/api/inventory/color-code/list', action: '查询颜色编码列表', targetTable: 'UB_ERP_Stocks_colorcode' },
   { method: 'POST', path: '/api/inventory/color-code', action: '新增颜色编码', targetTable: 'UB_ERP_Stocks_colorcode' },
   { method: 'PUT', path: '/api/inventory/color-code', action: '保存颜色编码', targetTable: 'UB_ERP_Stocks_colorcode' },

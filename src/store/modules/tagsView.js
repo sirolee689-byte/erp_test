@@ -28,6 +28,8 @@ function normalizeVisited(route) {
 function addVisitedView(route) {
   const path = String(route.path ?? '')
   if (!path || path === '/login') return
+  // 装饰首页等：meta.noTags 不进多标签栏
+  if (route.meta?.noTags) return
 
   const next = normalizeVisited(route)
   const idx = state.visitedViews.findIndex((v) => v.path === next.path)

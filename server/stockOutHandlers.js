@@ -27,6 +27,7 @@ import { fetchCuttingIssueConfig, updateCuttingIssueConfig } from './stockOutCut
 import { fetchStockOutMaterialTrace } from './stockOutMaterialTrace.js'
 import { fetchStockOutPrintDocuments } from './stockOutPrintData.js'
 import { safeDecimalExpr } from './buyOrderSqlSafe.js'
+import { sqlWarehouseEnameContainsUsercode } from './warehouseManagerAccess.js'
 
 const HEADER_FROM = 'dbo.[UB_ERP_Stocks_out]'
 const WAREHOUSE_FROM = 'dbo.[UB_ERP_Stocks_Warehouse]'
@@ -383,15 +384,23 @@ export function registerStockOutRoutes(app, deps) {
 
   app.get('/api/stock-out/warehouse-options', async (req, res) => {
     try {
+      // 仅返回当前登录账号在仓库编码「参管人员」ename 中的仓；空 ename 对任何人都不可见
+      const usercode = text(req.user?.userCode)
+      if (!usercode) {
+        res.json({ code: 200, msg: 'success', data: { list: [] } })
+        return
+      }
       const keyword = text(req.query?.keyword)
       const pool = await getPool()
       const dbReq = pool.request()
+      dbReq.input('usercode', sql.NVarChar(50), usercode)
       if (keyword) dbReq.input('kw', sql.NVarChar(400), `%${keyword}%`)
       const r = await dbReq.query(`
         SELECT TOP 100 LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([code], N'')))) AS code,
                LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([name], N'')))) AS name
         FROM ${WAREHOUSE_FROM}
         WHERE (ISNULL([del], N'') = N'' OR [del] = N'0')
+          AND ${sqlWarehouseEnameContainsUsercode('[ename]', 'usercode')}
         ${keyword ? `AND (LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([code], N'')))) LIKE @kw OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([name], N'')))) LIKE @kw)` : ''}
         ORDER BY [code] ASC
       `)
@@ -674,7 +683,7 @@ export function registerStockOutRoutes(app, deps) {
   })
 
   /** 生产领料批量添加：派工明细 PI 成本展开 + 库存/PI 上限 */
-  /** 成品出库：关联销售订单分页（只显示还有可出货明细的销售订单） */
+  /** 成品出库：关联销售订单分页（主从展开；已出完的 PI 也可选来看/关联） */
   app.get('/api/stock-out/finished-goods-source-page', async (req, res) => {
     try {
       const pool = await getPool()

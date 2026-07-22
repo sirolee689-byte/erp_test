@@ -2,7 +2,6 @@ import { createRouter, createWebHistory } from 'vue-router'
 import menuStructure from '../../erp_structure_dump.json'
 import ErpLayout from '@/layout/index.vue'
 import {
-  getFirstPermittedRoutePath,
   getPermissionModelFromStorage,
   isRouteAllowed,
 } from '@/utils/menuPermission'
@@ -24,7 +23,16 @@ function walkRoutes(nodes, base = '') {
         path: full,
         name: full.replace(/\//g, '-'),
         component: comp,
-        meta: { title: n.title, ...(n.permissionPath ? { permissionPath: n.permissionPath } : {}) },
+        meta: {
+          title: n.title,
+          ...(n.permissionPath ? { permissionPath: n.permissionPath } : {}),
+          // 侧栏隐藏但仍注册路由（如装饰首页）
+          ...(n.hideInMenu ? { hideInMenu: true } : {}),
+          // 只要登录可进，不校验 Permissions（装饰首页）
+          ...(n.allowLoggedIn ? { allowLoggedIn: true } : {}),
+          // 不进多标签栏
+          ...(n.noTags ? { noTags: true } : {}),
+        },
       })
     }
     if (n.children?.length) {
@@ -308,8 +316,8 @@ const router = createRouter({
     {
       path: '/',
       component: ErpLayout,
-      // v1.0.7：按当前用户 Permissions 动态落到第一个有权的叶子菜单；全无则 /403
-      redirect: () => ({ path: getFirstPermittedRoutePath(menuStructure) }),
+      // 定稿：登录后固定进装饰首页 /home（侧栏隐藏、不进标签）
+      redirect: () => ({ path: '/home' }),
       children: childRoutes,
     },
   ],
@@ -325,13 +333,18 @@ router.beforeEach((to) => {
 
   if (to.path === '/login') {
     if (isLoggedIn()) {
-      return { path: getFirstPermittedRoutePath(menuStructure) }
+      return { path: '/home' }
     }
     return true
   }
 
   if (!isLoggedIn()) {
     return { path: '/login', query: { redirect: to.fullPath } }
+  }
+
+  // 装饰首页等：只要登录即可，不校验角色 Permissions
+  if (to.meta?.allowLoggedIn) {
+    return true
   }
 
   // v1.0.7：已登录访问具体页时，用 NEW_UB_ERP_System_role.Permissions 与目标 path 比对

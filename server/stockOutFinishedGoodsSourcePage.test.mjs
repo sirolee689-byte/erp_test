@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import {
   buildStockOutFinishedGoodsKeywordWhere,
-  buildStockOutFinishedGoodsShippableLineExistsSql,
   buildStockOutFinishedGoodsSourceListSql,
   fetchStockOutFinishedGoodsSourcePage,
 } from './stockOutFinishedGoodsSourcePage.js'
@@ -39,33 +38,22 @@ describe('stock-out finished-goods-source-page SQL', () => {
     assertSql2008(sql)
   })
 
-  test('可出明细用 EXISTS 过滤：del/pass/xsak02=GUID 且 xsak03-xsak06 大于 0', () => {
-    const existsSql = buildStockOutFinishedGoodsShippableLineExistsSql()
-    assert.match(existsSql, /EXISTS/i)
-    assert.match(existsSql, /l\.\[xsak01\]\s*=\s*h\.\[xsaj01\]/i)
-    assert.match(existsSql, /ISNULL\(l\.\[del\]/i)
-    assert.match(existsSql, /UB_ERP_Sales_order_list/i)
-    assert.match(existsSql, /l\.\[pass\].*N'1'/is)
-    assert.match(existsSql, /l\.\[del\]/i)
-    assert.match(existsSql, /l\.\[xsak02\].*l\.\[GUID\]/is)
-    assert.match(existsSql, /xsak03[\s\S]*-[\s\S]*xsak06[\s\S]*>\s*0/i)
-
+  test('主表过滤 closed/del/pass，不按可出余量 EXISTS 挡已出完 PI', () => {
     const listSql = buildStockOutFinishedGoodsSourceListSql()
-    assert.match(listSql, /EXISTS/i)
     assert.match(listSql, /h\.\[closed\].*N'0'/is)
     assert.match(listSql, /h\.\[pass\].*N'1'/is)
     assert.match(listSql, /h\.\[del\]/i)
     assert.match(listSql, /COUNT\(1\) OVER\(\) AS total/i)
+    // 已出完也可选：整段列表 SQL 不再出现 xsak03-xsak06>0
+    assert.doesNotMatch(listSql, /xsak03[\s\S]*-[\s\S]*xsak06[\s\S]*>\s*0/i)
     assertSql2008(listSql)
   })
 
-  test('展开明细 xsak02=GUID 且 del/pass 有效，JOIN 不要求 xsak03-xsak06>0', () => {
+  test('展开明细 xsak02=GUID 且 del/pass 有效，不要求 xsak03-xsak06>0', () => {
     const sql = buildStockOutFinishedGoodsSourceListSql({ hasKeyword: false })
     assert.match(sql, /l\.\[xsak02\].*l\.\[GUID\]/is)
     assert.match(sql, /l\.\[pass\].*N'1'/is)
-    // xsak03-xsak06>0 仅出现在 EXISTS（PI 进列表），不在 JOIN 明细 WHERE
-    const joinLineFilter = sql.split('INNER JOIN')[1]?.split(')')[0] ?? ''
-    assert.doesNotMatch(joinLineFilter, /xsak03[\s\S]*xsak06[\s\S]*>\s*0/i)
+    assert.doesNotMatch(sql, /xsak03[\s\S]*xsak06[\s\S]*>\s*0/i)
   })
 
   test('关键字搜索主表字段与明细 kcaa01/kcaa02/kcaa03', () => {

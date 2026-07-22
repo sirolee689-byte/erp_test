@@ -41,7 +41,7 @@ describe('salesOrderListQuery', () => {
     assert.equal(bin.pass, '')
   })
 
-  test('buildSalesOrderListWhereSql 支持审核状态与统一关键词', () => {
+  test('buildSalesOrderListWhereSql 支持审核状态与 PI 号关键词', () => {
     const active = buildSalesOrderListWhereSql({
       recycled: false,
       pass: '0',
@@ -49,7 +49,7 @@ describe('salesOrderListQuery', () => {
     })
     assert.match(active.whereSql, /h\.\[pass\].*=\s*@pass/i)
     assert.match(active.whereSql, /h\.\[xsaj01\].*LIKE\s+@keyword/is)
-    assert.match(active.whereSql, /h\.\[systemcode\].*LIKE\s+@keyword/is)
-    assert.match(active.whereSql, /h\.\[kehu\].*LIKE\s+@keyword/is)
+    assert.doesNotMatch(active.whereSql, /h\.\[systemcode\].*LIKE\s+@keyword/is)
+    assert.doesNotMatch(active.whereSql, /h\.\[kehu\].*LIKE\s+@keyword/is)
   })
 })

@@ -1,5 +1,12 @@
 [
   {
+    "name": "home",
+    "title": "首页",
+    "hideInMenu": true,
+    "allowLoggedIn": true,
+    "noTags": true
+  },
+  {
     "name": "system",
     "title": "系统管理",
     "children": [

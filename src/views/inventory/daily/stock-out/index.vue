@@ -240,7 +240,12 @@
       <StockOutMaterialTracePanel />
     </section>
 
-    <section v-show="pageMode === 'form' || pageMode === 'view'" class="erp-section" :class="{ 'stock-form-section--readonly': isReadonlyForm }">
+    <section
+      v-show="pageMode === 'form' || pageMode === 'view'"
+      v-loading="formDetailLoading"
+      class="erp-section"
+      :class="{ 'stock-form-section--readonly': isReadonlyForm }"
+    >
       <div class="form-head">
         <strong>{{ pageMode === 'view' ? '查看出库单' : editId ? '编辑出库单' : '新增出库单' }}</strong>
         <div>
@@ -985,6 +990,10 @@ const linesTableRef = ref(null)
 const expandedRowKeys = ref([])
 const loading = ref(false)
 const saving = ref(false)
+/** 编辑无预取时：表单区短暂 loading；有预取则秒开，后台静默刷新 */
+const formDetailLoading = ref(false)
+/** 防止连点编辑 / 返回列表后，旧请求回写覆盖当前单据 */
+let editLoadToken = 0
 const list = ref([])
 const editId = ref(null)
 const viewId = ref(null)
@@ -1636,6 +1645,8 @@ async function saveCuttingIssueConfig() {
 }
 
 function switchList() {
+  editLoadToken += 1
+  formDetailLoading.value = false
   pageMode.value = 'list'
   editId.value = null
   viewId.value = null
@@ -1643,6 +1654,8 @@ function switchList() {
 }
 
 async function newOrder() {
+  editLoadToken += 1
+  formDetailLoading.value = false
   editId.value = null
   viewId.value = null
   Object.assign(form, defaultForm())
@@ -1661,7 +1674,7 @@ async function newOrder() {
 }
 
 /** 生产领料编辑态：按派工单批量接口补齐明细行的数量上限字段（库中不存，仅供前端校验） */
-async function enrichProductionIssueLineQtyCaps() {
+async function enrichProductionIssueLineQtyCaps(token = editLoadToken) {
   const isDispatchIssue = form.outboundType === '4'
     || (isSupplementProductionIssuePicker.value && isSupplementProductionIssueWithDispatch.value)
   if (!isDispatchIssue) return
@@ -1679,6 +1692,7 @@ async function enrichProductionIssueLineQtyCaps() {
         pageSize: 200,
       },
     })
+    if (token !== editLoadToken) return
     const capByMaterial = new Map()
     for (const row of data?.data?.list || []) {
       const key = String(row.kcaa01 ?? '').trim().toLowerCase()
@@ -1709,32 +1723,51 @@ async function enrichProductionIssueLineQtyCaps() {
   }
 }
 
+/** 列表行别名 → 详情头表字段，供编辑秒开时先填主表 */
+function buildHeaderFromListRow(row = {}) {
+  return {
+    kcap01: row.outboundNo || row.kcap01 || '',
+    kcap02: row.outboundDate || row.kcap02 || '',
+    kcap03: row.outboundType || row.kcap03 || '0',
+    kcap04: row.sourceOrderNo || row.kcap04 || '',
+    kcap05: row.relatedPartyCode || row.kcap05 || '',
+    kehu: row.relatedPartyName || row.kehu || '',
+    kcap06: row.warehouseCode || row.kcap06 || '',
+    ck: row.warehouseName || row.ck || '',
+    kcap07: row.handlerName || row.kcap07 || '',
+    kcap08: row.paperNo || row.kcap08 || '',
+    kcap09: row.reserveNo || row.kcap09 || '',
+    in_tax: row.inTax || row.in_tax || '1',
+    remark: row.remark || '',
+  }
+}
+
 function applyOrderDetailToForm(data, rowFallback = {}) {
   const h = data?.header || {}
   const outboundType = String(h.kcap03 || rowFallback.outboundType || '0')
   const isAssist = outboundType === '2'
   const isProduction = outboundType === '4'
   const isSupplementProduction = ['7', '8'].includes(outboundType)
-  const sourceOrderNo = h.kcap04 || ''
+  const sourceOrderNo = h.kcap04 || rowFallback.sourceOrderNo || ''
   const usesPiNo = isAssist || isProduction || (isSupplementProduction && String(sourceOrderNo).trim())
   Object.assign(form, {
     outboundNo: h.kcap01 || rowFallback.outboundNo || '',
     outboundDate: formatDateTime(h.kcap02 || rowFallback.outboundDate),
     outboundType,
     sourceOrderNo,
-    relatedPartyCode: h.kcap05 || '',
-    relatedPartyName: h.kehu || '',
-    warehouseCode: h.kcap06 || '',
-    handlerName: h.kcap07 || '',
-    paperNo: usesPiNo ? '' : (h.kcap08 || ''),
-    piNo: usesPiNo ? (h.kcap08 || '') : '',
-    reserveNo: h.kcap09 || '',
+    relatedPartyCode: h.kcap05 || rowFallback.relatedPartyCode || '',
+    relatedPartyName: h.kehu || rowFallback.relatedPartyName || '',
+    warehouseCode: h.kcap06 || rowFallback.warehouseCode || '',
+    handlerName: h.kcap07 || rowFallback.handlerName || '',
+    paperNo: usesPiNo ? '' : (h.kcap08 || rowFallback.paperNo || ''),
+    piNo: usesPiNo ? (h.kcap08 || rowFallback.paperNo || '') : '',
+    reserveNo: h.kcap09 || rowFallback.reserveNo || '',
     postProcessAssist: false,
     workshopCode: '',
     workshopName: '',
     sourceSystemcodeId: '',
-    inTax: String(h.in_tax || '1'),
-    remark: h.remark || '',
+    inTax: String(h.in_tax || rowFallback.inTax || '1'),
+    remark: h.remark || rowFallback.remark || '',
     lines: (data?.lines || []).map((line, idx) => {
       const enriched = { ...line, tax: Number(line.tax ?? line.Tax ?? 0) }
       if (isAssist) {
@@ -1751,30 +1784,89 @@ function applyOrderDetailToForm(data, rowFallback = {}) {
       return wrapOutboundLine(enriched, idx)
     }),
   })
-  prevWorkshopCode.value = String(h.kcap05 || '').trim()
+  prevWorkshopCode.value = String(h.kcap05 || rowFallback.relatedPartyCode || '').trim()
   return { isProduction, isSupplementProduction, sourceOrderNo }
 }
 
-async function loadOrderIntoForm(id, rowFallback = {}) {
+function applyLoadedOrderToForm(data, rowFallback = {}, token = editLoadToken) {
+  if (token !== editLoadToken) return null
+  const meta = applyOrderDetailToForm(data, rowFallback)
+  seedViewFormOptions(data?.header?.ck || rowFallback.warehouseName || '')
+  return meta
+}
+
+function maybeEnrichCapsInBackground(meta, token) {
+  if (!meta) return
+  const needCaps = meta.isProduction || (meta.isSupplementProduction && String(meta.sourceOrderNo).trim())
+  if (!needCaps) return
+  // 不阻塞首屏：上限后台补齐，保存时后端仍校验
+  void enrichProductionIssueLineQtyCaps(token)
+}
+
+async function loadOrderIntoForm(id, rowFallback = {}, { deferCaps = false, token = editLoadToken } = {}) {
   const data = await fetchDetail(id)
-  const { isProduction, isSupplementProduction, sourceOrderNo } = applyOrderDetailToForm(data, rowFallback)
-  ensureRelatedPartyOptionSeed()
-  syncOtherOutboundRelatedPartyDisplay()
-  // 编辑态才补齐生产领料数量上限；查看只读不需要
-  if (isProduction || (isSupplementProduction && String(sourceOrderNo).trim())) {
-    await enrichProductionIssueLineQtyCaps()
+  if (token !== editLoadToken) return null
+  const meta = applyLoadedOrderToForm(data, rowFallback, token)
+  if (!meta) return null
+  if (deferCaps) maybeEnrichCapsInBackground(meta, token)
+  else if (meta.isProduction || (meta.isSupplementProduction && String(meta.sourceOrderNo).trim())) {
+    await enrichProductionIssueLineQtyCaps(token)
+  }
+  return meta
+}
+
+/** 有列表预取时：先秒填，再静默拉详情刷新（防预取后别人改过单） */
+async function refreshEditOrderInBackground(id, row, token) {
+  try {
+    await loadOrderIntoForm(id, row, { deferCaps: true, token })
+  } catch {
+    // 已有预取数据可继续编辑；保存时后端仍校验
   }
 }
 
 async function editOrder(row) {
+  const id = Number(row?.id)
+  if (!Number.isFinite(id) || id <= 0) {
+    ElMessage.warning('出库单参数无效')
+    return
+  }
+  const token = ++editLoadToken
+  // 秒开：先切编辑页，再填数据（有预取则立即填；无预取再等详情）
+  editId.value = id
+  viewId.value = null
+  formTab.value = 'base'
+  pageMode.value = 'form'
+
+  const hasPrefetch = !!row.__linesLoaded && Array.isArray(row.__lines)
+  if (hasPrefetch) {
+    formDetailLoading.value = false
+    applyLoadedOrderToForm(
+      { header: buildHeaderFromListRow(row), lines: row.__lines },
+      row,
+      token,
+    )
+    // 上限跟详情刷新一起补，避免预取填表后又被刷新覆盖
+    void refreshEditOrderInBackground(id, row, token)
+    return
+  }
+
+  // 无预取：主表先用列表行秒填，明细区 loading，再拉详情
+  applyLoadedOrderToForm(
+    { header: buildHeaderFromListRow(row), lines: [] },
+    row,
+    token,
+  )
+  formDetailLoading.value = true
   try {
-    await loadOrderIntoForm(row.id, row)
-    editId.value = row.id
-    viewId.value = null
-    pageMode.value = 'form'
-    formTab.value = 'base'
+    await loadOrderIntoForm(id, row, { deferCaps: true, token })
+    if (token !== editLoadToken) return
   } catch (err) {
+    if (token !== editLoadToken) return
     ElMessage.error(err?.response?.data?.msg || err.message || '读取出库单失败')
+    pageMode.value = 'list'
+    editId.value = null
+  } finally {
+    if (token === editLoadToken) formDetailLoading.value = false
   }
 }
 

@@ -1,7 +1,6 @@
 import { sql } from './db.js'
 import { formatSalesOrderAuditTime } from './salesOrderPiBom.js'
 import { getRequestIp } from './operationAuditMiddleware.js'
-import { safeDecimalExpr } from './buyOrderSqlSafe.js'
 import {
   buildNextStockOutNo,
   buildStockOutSystemCode,
@@ -13,6 +12,7 @@ import {
 } from './stockOutSaveLogic.js'
 import { STOCK_OUT_HEADER_TABLE, STOCK_OUT_LINE_TABLE } from './stockOutListQuery.js'
 import { buildStockOutSaveLogPayload, writeStockOutOperationLog } from './stockOutOperationLog.js'
+import { assertUserManagesWarehouse } from './warehouseManagerAccess.js'
 
 const HEADER_FROM = `dbo.[${STOCK_OUT_HEADER_TABLE}]`
 const LINE_FROM = `dbo.[${STOCK_OUT_LINE_TABLE}]`
@@ -200,7 +200,7 @@ export async function suggestStockOutNo(pool, saveDate = new Date()) {
   return buildNextStockOutNo({ saveDate, existingOutboundNos: await fetchOutboundNosForDate(pool, saveDate) })
 }
 
-async function resolveWarehouse(pool, warehouseCode) {
+async function resolveWarehouse(pool, warehouseCode, usercode) {
   const r = await pool.request().input('code', sql.NVarChar(200), warehouseCode).query(`
     SELECT TOP 1
       LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([code], N'')))) AS code,
@@ -212,6 +212,9 @@ async function resolveWarehouse(pool, warehouseCode) {
   `)
   const row = r.recordset?.[0]
   if (!row?.code) return { ok: false, msg: '仓库不存在或不可用' }
+  // 保存再拦一道：须为仓库编码参管人员（与候选下拉同一规则）
+  const access = await assertUserManagesWarehouse(pool, usercode, row.code, { warehouseFrom: WAREHOUSE_FROM })
+  if (!access.ok) return access
   return { ok: true, code: row.code, name: row.name ?? '' }
 }
 
@@ -333,7 +336,7 @@ export function buildValidateStockOutSourceOrderSql(outboundType) {
     `
   }
   if (t === '6') {
-    const remainingExpr = `ISNULL(${safeDecimalExpr('l', 'xsak03')}, 0) - ISNULL(${safeDecimalExpr('l', 'xsak06')}, 0)`
+    // 已出完的 PI 也允许关联；真正可出数量仍由明细行级校验卡住
     return `
       SELECT TOP 1 h.[id]
       FROM ${SALES_HEADER_FROM} AS h
@@ -350,7 +353,6 @@ export function buildValidateStockOutSourceOrderSql(outboundType) {
             AND LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), l.[pass]), N''))) = N'1'
             AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[xsak02], N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[GUID], N''))))
             AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[xsak02], N'')))) <> N''
-            AND ${remainingExpr} > 0
         )
     `
   }
@@ -531,7 +533,8 @@ async function saveStockOut({ pool, body, req: httpReq, actor, id = null }) {
     return { ok: false, status: 400, msg: '此出库单当前状态不允许编辑' }
   }
 
-  const warehouse = await resolveWarehouse(pool, header.warehouseCode)
+  const usercode = text(actor?.userCode ?? httpReq?.user?.userCode)
+  const warehouse = await resolveWarehouse(pool, header.warehouseCode, usercode)
   if (!warehouse.ok) return { ok: false, status: 400, msg: warehouse.msg }
   const related = await resolveRelatedParty(pool, header)
   if (!related.ok) return { ok: false, status: 400, msg: related.msg }

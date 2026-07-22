@@ -40,7 +40,7 @@
           <div class="so-filter-actions">
             <el-input
               v-model="filterKeyword"
-              placeholder="输入 PI 号 / 系统单号 / 客户名称"
+              placeholder="输入 PI 号"
               clearable
               class="so-keyword-input"
               @keyup.enter="onSearch"

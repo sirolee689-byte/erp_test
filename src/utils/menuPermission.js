@@ -165,6 +165,38 @@ export function getFirstPermittedRoutePath(menuStructure) {
   return getFirstLeafPath(tree, '') || '/403'
 }
 
+/**
+ * 有权限的叶子菜单（按菜单树深度优先），供装饰首页轻导航。
+ * 已过滤 hideInMenu；不含业务数据，只返回 title + path。
+ * @param {any[]} menuStructure
+ * @param {number|null|undefined} [limit=6] 传 null/undefined 表示不截断（编辑勾选列表用）
+ * @returns {{ title: string, path: string }[]}
+ */
+export function getPermittedLeafMenus(menuStructure, limit = 6) {
+  const unlimited = limit == null
+  const max = unlimited ? Number.POSITIVE_INFINITY : Math.max(0, Number(limit) || 0)
+  if (!unlimited && max === 0) return []
+  const model = getPermissionModelFromStorage()
+  const tree = filterMenuTreeByPermission(menuStructure, model, '')
+  const out = []
+  function walk(nodes, base = '') {
+    for (const n of nodes) {
+      if (!unlimited && out.length >= max) return
+      const p = base ? `${base}/${n.name}` : n.name
+      if (!n.children?.length) {
+        out.push({
+          title: String(n.title ?? n.name ?? '').trim() || p,
+          path: `/${p}`,
+        })
+      } else {
+        walk(n.children, p)
+      }
+    }
+  }
+  walk(tree)
+  return out
+}
+
 function normalizeFullPath(fullPath) {
   return String(fullPath ?? '').replace(/^\/+/, '').replace(/\/+$/, '')
 }
@@ -174,7 +206,8 @@ function normalizeFullPath(fullPath) {
  */
 export function isRouteAllowed(fullPath, model) {
   const p = normalizeFullPath(fullPath)
-  if (!p || p === '403') {
+  // 403 / 装饰首页：登录即可，不占用角色 Permissions
+  if (!p || p === '403' || p === 'home') {
     return true
   }
   if (model.mode === 'full') {

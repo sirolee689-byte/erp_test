@@ -11,14 +11,11 @@
 
 <script setup>
 import { useRouter } from 'vue-router'
-import { getFirstPermittedRoutePath } from '@/utils/menuPermission'
-import menuStructure from '../../../../erp_structure_dump.json'
 
 const router = useRouter()
 
 async function goHome() {
-  const path = getFirstPermittedRoutePath(menuStructure)
-  await router.replace(path)
+  await router.replace('/home')
 }
 
 function goBack() {

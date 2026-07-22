@@ -70,12 +70,9 @@ export function buildSalesOrderListWhereSql(opts) {
   if (!recycled && opts?.pass) {
     whereSql += ` AND LTRIM(RTRIM(ISNULL(h.[pass], N''))) = @pass `
   }
+  // 管理列表关键词只按 PI 号（xsaj01）模糊匹配，不再含系统单号/客户名称
   if (opts?.keyword) {
-    whereSql += ` AND (
-      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj01], N'')))) LIKE @keyword
-      OR LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[systemcode], N'')))) LIKE @keyword
-      OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(h.[kehu], N'')))) LIKE @keyword
-    ) `
+    whereSql += ` AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj01], N'')))) LIKE @keyword `
   }
   if (opts?.piNo) {
     whereSql += ` AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[xsaj01], N'')))) = @piNo `

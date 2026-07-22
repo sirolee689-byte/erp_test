@@ -49,6 +49,7 @@ const BOM_UNIT_FROM = 'dbo.[UB_ERP_Stocks_unit]'
 const BOM_UNIT_CHANGE_FROM = 'dbo.[UB_ERP_Stocks_unit_change]'
 const BOM_MATERIAL_FROM = 'dbo.[UB_ERP_Stocks_material]'
 const BOM_STOCKS_WORKSHOP_FROM = 'dbo.[UB_ERP_Stocks_workshop]'
+const STOCKS_WAREHOUSE_FROM = 'dbo.[UB_ERP_Stocks_warehouse]'
 const SYS_ROLES_FROM = 'dbo.[NEW_UB_ERP_System_role]'
 const SYS_SUPPLIER_FROM = 'dbo.[UB_ERP_System_supplier]'
 const SYS_SETTLEMENT_METHOD_FROM = 'dbo.[UB_ERP_System_settlement_method]'
@@ -293,6 +294,25 @@ async function fetchColorCodeSnapshotForAudit(pool, codeRaw) {
       LTRIM(RTRIM(CONVERT(nvarchar(10), ISNULL(b.del, N'')))) AS del
     FROM ${BOM_COLORCODE_FROM} AS b
     WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.code, N'')))) = @code
+  `)
+  return r.recordset?.[0] ?? null
+}
+
+/**
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {string} systemcodeRaw
+ */
+async function fetchWarehouseSnapshotForAudit(pool, systemcodeRaw) {
+  const systemcode = String(systemcodeRaw ?? '').trim()
+  if (!systemcode) return null
+  const r = await pool.request().input('systemcode', sql.NVarChar(50), systemcode).query(`
+    SELECT TOP (1)
+      LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(w.systemcode, N'')))) AS systemcode,
+      LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(w.code, N'')))) AS code,
+      LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(w.name, N'')))) AS name,
+      LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(w.del, N'')))) AS del
+    FROM ${STOCKS_WAREHOUSE_FROM} AS w
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(w.systemcode, N'')))) = @systemcode
   `)
   return r.recordset?.[0] ?? null
 }
@@ -860,6 +880,58 @@ export function createOperationAuditPrepareMiddleware() {
             if ('ename' in body) parts.push(`英文名[${displayCell(oldRow.ename)}→${displayCell(body.ename)}]`)
             if ('info' in body) parts.push(`备注[${displayCell(oldRow.info)}→${displayCell(body.info)}]`)
             req.__auditPutColorCodeDiff = parts.filter(Boolean).join('，')
+          }
+        }
+      }
+
+      // === 仓库编码 UB_ERP_Stocks_warehouse ===
+      if (method === 'DELETE' && /^\/api\/inventory\/warehouse\/.+$/.test(path)) {
+        const systemcode = decodeURIComponent(path.slice('/api/inventory/warehouse/'.length)).trim()
+        if (systemcode) {
+          const row = await fetchWarehouseSnapshotForAudit(pool, systemcode)
+          if (row) {
+            req.__auditDeleteWarehouse = {
+              systemcode: String(row.systemcode ?? systemcode),
+              code: String(row.code ?? ''),
+              name: String(row.name ?? ''),
+            }
+          }
+        }
+      }
+
+      if (
+        method === 'PUT' &&
+        (path === '/api/inventory/warehouse/audit' ||
+          path === '/api/inventory/warehouse/unaudit' ||
+          path === '/api/inventory/warehouse/restore')
+      ) {
+        const systemcode = String(req.body?.systemcode ?? '').trim()
+        if (systemcode) {
+          const row = await fetchWarehouseSnapshotForAudit(pool, systemcode)
+          if (row) {
+            req.__auditWarehouseSnapshot = {
+              systemcode: String(row.systemcode ?? systemcode),
+              code: String(row.code ?? ''),
+              name: String(row.name ?? ''),
+            }
+          }
+        }
+      }
+
+      if (method === 'PUT' && path === '/api/inventory/warehouse') {
+        const body = req.body ?? {}
+        const systemcode = String(body.systemcode ?? '').trim()
+        if (systemcode) {
+          const oldRow = await fetchWarehouseSnapshotForAudit(pool, systemcode)
+          if (oldRow) {
+            req.__auditWarehouseSnapshot = {
+              systemcode: String(oldRow.systemcode ?? systemcode),
+              code: String(oldRow.code ?? ''),
+              name: String(oldRow.name ?? ''),
+            }
+            const parts = []
+            if ('name' in body) parts.push(`名称[${displayCell(oldRow.name)}→${displayCell(body.name)}]`)
+            req.__auditPutWarehouseDiff = parts.filter(Boolean).join('，')
           }
         }
       }
@@ -1473,6 +1545,39 @@ export function createOperationAuditMiddleware(deps) {
           const code = displayCell(req.body?.code)
           const name = displayCell(req.body?.name)
           content = `${op}新增了颜色编码「${name}」（编码：${code}）`
+        } else if (method === 'POST' && path === '/api/inventory/warehouse') {
+          const op = operatorDisplayName(user)
+          const code = displayCell(req.body?.code)
+          const name = displayCell(req.body?.name)
+          content = `${op}新增了仓库编码「${name}」（编码：${code}）`
+        } else if (method === 'PUT' && path === '/api/inventory/warehouse/audit' && req.__auditWarehouseSnapshot) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditWarehouseSnapshot
+          content = `${op}审核了仓库编码「${displayCell(s.name)}」（编码：${displayCell(s.code)}，systemcode：${displayCell(s.systemcode)}）`
+        } else if (method === 'PUT' && path === '/api/inventory/warehouse/unaudit' && req.__auditWarehouseSnapshot) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditWarehouseSnapshot
+          content = `${op}反审了仓库编码「${displayCell(s.name)}」（编码：${displayCell(s.code)}，systemcode：${displayCell(s.systemcode)}）`
+        } else if (method === 'PUT' && path === '/api/inventory/warehouse/restore' && req.__auditWarehouseSnapshot) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditWarehouseSnapshot
+          content = `${op}恢复了仓库编码「${displayCell(s.name)}」（编码：${displayCell(s.code)}，systemcode：${displayCell(s.systemcode)}）`
+        } else if (method === 'PUT' && path === '/api/inventory/warehouse/audit-batch') {
+          const op = operatorDisplayName(user)
+          const n = Number(req.__auditWarehouseBatchAffected ?? 0)
+          content = `${op}批量审核仓库编码，实际处理 ${n} 条`
+        } else if (method === 'PUT' && path === '/api/inventory/warehouse') {
+          const op = operatorDisplayName(user)
+          const s = req.__auditWarehouseSnapshot
+          const code = displayCell(s?.code || req.body?.systemcode)
+          const diff = String(req.__auditPutWarehouseDiff ?? '').trim()
+          content = diff
+            ? `${op}修改了仓库编码[${code}]：${diff}`
+            : `${op}修改了仓库编码[${code}]（systemcode：${displayCell(s?.systemcode || req.body?.systemcode)}）`
+        } else if (method === 'DELETE' && /^\/api\/inventory\/warehouse\/.+$/.test(path) && req.__auditDeleteWarehouse) {
+          const op = operatorDisplayName(user)
+          const s = req.__auditDeleteWarehouse
+          content = `${op}删除了仓库编码「${displayCell(s.name)}」（编码：${displayCell(s.code)}，systemcode：${displayCell(s.systemcode)}，已移入回收站）`
         } else if (method === 'POST' && path === '/api/roles') {
           // 角色管理：按你要求的固定中文模板（备注为空则不显示）
           const roleName = meaningfulStr(req.body?.RoleName) ?? ''

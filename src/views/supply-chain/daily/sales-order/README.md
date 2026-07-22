@@ -31,7 +31,7 @@
 | 方法 | 路径 | 权限 action | 说明 |
 |------|------|-------------|------|
 | GET | `/api/sales-order/currency-options` | view | 币别下拉（读 `UB_ERP_System_currency`） |
-| GET | `/api/sales-order/list` | view | 分页列表（`recycled`、PI/客户/日期筛选） |
+| GET | `/api/sales-order/list` | view | 分页列表（`recycled`、PI 号模糊、日期筛选） |
 | GET | `/api/sales-order/pi-suggest?keyword=` | view | 生产管理物料单页 PI 候选；只按 PI 号相近匹配已审核在册订单 |
 | GET | `/api/sales-order/check-pi?piNo=&excludeId=` | add | PI 号重复校验（新增页失焦校验） |
 | GET | `/api/sales-order/:id` | view | 主表 + 明细 |
@@ -154,7 +154,7 @@
 - **UI 对齐 BOM 资料（2026-07）**：顶部「管理销售订单 / 销售订单添加」模式按钮、筛选区「查询 / 重置 / 刷新」字号与主列表列数据一致（`--erp-table-data-size` + `--erp-font-weight-body`）；主列表用 `ErpTableViewportHScroll` 视口底横滚（**仅主表**表内横条隐藏；展开行内嵌套明细表保留自身横滚条）；展开/收起后会 `doLayout` + `refreshErpTableViewportHScroll`；标题行操作钮、明细工具条与行操作钮走 `.so-unified-btn-font`；主表表单字段字号与列数据对齐。**主列表双分页**（头+底、`pagination-row`、左对齐，头部分页在 skeleton 外）对齐 BOM 资料。DIY：`index.vue` 搜 `.so-mode-btn`、`.so-filter-action-btn`、`.so-unified-btn-font`、`pagination-row--top`；全局变量 `element-override.scss` 搜 `--erp-table-data-size`。
 - **筛选栏顺序（2026-07）**：单行 `关键词 → 查询 → 重置 → | → 回收站 → | → 显示未审核`（开回收站时隐藏未审核段）；竖线对齐 BOM。DIY：`index.vue` 搜 `so-filter-divider`。
 - **数值去尾 0（2026-07）**：展开明细与编辑/查看只读列——数量最多 3 位、单价最多 4 位、金额最多 2 位，去掉末尾无意义 0（如 `0.00000` → `0`）；不改落库。实现：`formatOrderQty` / `formatPrice` / `formatMoney`（`erpNumberDisplay`）。
-- 顶部只保留一个关键词搜索框，同时匹配 PI 号、系统单号、客户名称；日期范围仍独立筛选。
+- 顶部只保留一个关键词搜索框，**仅**按 PI 号（`xsaj01`）模糊匹配；不再匹配系统单号、客户名称；日期范围仍独立筛选。
 - 列表列调整：新增 `PO号` 列，移除 `系统单号` 列（系统单号仍保留在详情接口中）。
 - 列表列顺序（主列）调整为：操作、状态、结案、运算状态、销售单号、销售日期、交货日期、PO号、销售数据、币别、客户、备注（展开列保留在末尾）。
 - 新增“销售数据”汇总列（按当前行 `piNo` = `UB_ERP_Sales_order.xsaj01` 汇总）：

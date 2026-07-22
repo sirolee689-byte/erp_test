@@ -152,7 +152,7 @@
 | 销售出库批量选材（类型 `10`） | 复用「其他出库批量选材」相关表 | 基础资料 `kcap04` 允许自由填写或为空；点击批量添加始终走 `other-batch-lines`/`other-batch-prices` 普通库存选材，按当前仓库实际库存出库；不走销售订单来源、不回写 `UB_ERP_Sales_order_list` |
 | 采购退货关联采购单选择 | `UB_ERP_Buy_order` + `UB_ERP_Buy_order_list` | 仅显示主表 `del=0/pass=1/closed=0` 与明细 `del=0/pass=1`；按采购单分组首行显示「关联选择」；回填 `kcap04←kcaj01`、`kcap05/kehu←kcaj05/kehu`、前端隐藏 `sourceSystemcodeId←systemcode` |
 | 生产领料关联派工单选择 | `UB_ERP_Dispatch_order` + `UB_ERP_Dispatch_order_list` + `UB_ERP_Stocks_out` + `UB_ERP_Stocks_workshop` | `GET /api/stock-out/production-dispatch-source-page`；主表 `del=0/pass=1/closed=0` 且 `scaj05=车间`；明细 `scak02=GUID`；排序 `scaj01` 倒序；关联出库单号按 `kcap04=派工单号` 聚合；回填 `kcap04←scaj01`、`kcap08←scaj04`（PI）、`kcap05/kehu←车间`、`sourceSystemcodeId←systemcode`（前端暂存，不入主表） |
-| 成品出库关联销售订单选择 | `UB_ERP_Sales_order` + `UB_ERP_Sales_order_list`（EXISTS 可出过滤 + 主从展开） | `GET /api/stock-out/finished-goods-source-page`；**主从展开**一行一明细；列表 `sourceOrderNo/kcaa01/orderQty/customerStyleNo/factoryStyleNo/orderDate/deliveryDate/groupRowNo` 及回填字段 `poNo/customerCode/customerName/sourceSystemcode`；弹窗列顺序：操作、PI号、货品编码、数量、客款号、厂款号、销售日期、交货日期；数量=`xsak03`（空回退 `plan_quantity`）、客款号=`kcaa06`、厂款号=`kcaa09`；PI 进列表用 `EXISTS`（`l.xsak01=h.xsaj01`；明细 `del=0/pass=1`、`xsak02=GUID` 且 `xsak03-xsak06>0`）；展开展示该 PI 全部已审 `xsak02=GUID` 明细；关键字含主表与明细 `kcaa01~03`；主表 `closed=0/del=0/pass=1`；回填 `kcap04←xsaj01`、`kcap08←xsaj06`、`kcap05/kehu←xsaj05/kehu`、`sourceSystemcodeId←systemcode` |
+| 成品出库关联销售订单选择 | `UB_ERP_Sales_order` + `UB_ERP_Sales_order_list`（主从展开；已出完也可选） | `GET /api/stock-out/finished-goods-source-page`；**主从展开**一行一明细；列表 `sourceOrderNo/kcaa01/orderQty/customerStyleNo/factoryStyleNo/orderDate/deliveryDate/groupRowNo` 及回填字段 `poNo/customerCode/customerName/sourceSystemcode`；弹窗列顺序：操作、PI号、货品编码、数量、客款号、厂款号、销售日期、交货日期；数量=`xsak03`（空回退 `plan_quantity`）、客款号=`kcaa06`、厂款号=`kcaa09`；PI 进列表靠 `INNER JOIN` 有效明细（`del=0/pass=1`、`xsak02=GUID`），**不要求** `xsak03-xsak06>0`；保存来源校验同口径；关键字含主表与明细 `kcaa01~03`；主表 `closed=0/del=0/pass=1`；回填 `kcap04←xsaj01`、`kcap08←xsaj06`、`kcap05/kehu←xsaj05/kehu`、`sourceSystemcodeId←systemcode` |
 | 成品出库批量添加 | `UB_ERP_Sales_order` + `UB_ERP_Sales_order_list` + `UB_ERP_Finance_currency` + `UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list` + `UB_ERP_Stocks_out` + `UB_ERP_Stocks_out_list` | `GET /api/stock-out/finished-goods-batch-lines`；主表校验 `xsaj01/xsaj05/systemcode`；明细 `xsak01=订单`；可出货=`换算(xsak03)−已审出(按kcaa01)−未审出(按kcaq02=xsak02)`；库存按仓+子料；选行 `kcaq02←xsak02/systemcode`；**不带单价**；**关键字仅 `kcaa01` 模糊**；独立页 `/inventory/daily/stock-out-finished-goods-batch-window` |
 | 生产领料批量添加 | `UB_ERP_Dispatch_order_list` + `UB_ERP_Bom_pi_cost` + `UB_ERP_Bom_000` + `UB_ERP_Stocks_material` + `UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list` + `UB_ERP_Stocks_out` + `UB_ERP_Stocks_out_list` + `UB_ERP_Buy_order` + `UB_ERP_Buy_order_list` | `GET /api/stock-out/production-issue-batch-lines`；**非开料部**：派工明细 `scak02=GUID` 经 pi_cost 展开（`sid=PI`、`isok=1`、`top_kcaa01` 或 `pq` 命中派工物料）；列表需出库=`SUM(kcac06×scak03)`；`Describe←Bom_000.kcaa02`；**开料部（车间 04）**：不走派工展开；`sid=PI` 且 CUT 裁片且 `kcaa05` 命中 `cutting_issue=1`；列表需出库=`SUM(kcac06×temp)`（裁片子集）；**PI共用池总量** `piDemandQty`=`ROUND(SUM(kcac06×ISNULL(temp,1)),3)`（`pi_cost.sid=PI、isok=1、kcaa01=子料`，全PI不按车间/派工）；**PI已出** `piIssuedQty`=`SUM(kcaq03)`（`kcap08=PI、kcaa01=子料、h.del=0`，不按车间/派工/仓库/pass）；**还需出库**=`min(派工剩余,PI剩余)`，派工剩余=需出库−本派工(`kcap03=4,kcap04`)+本仓+子料已审/未审；默认可领=`min(还需出库,实际库存)`；批量窗口 `sourceLineCode` 仅作去重；**落库 `kcaq02` 按子料 `kcaa01` 写 BOM.systemcode**；配置 `GET/PUT /api/stock-out/cutting-issue-config`；列表按子料 `kcaa01` 合并；**关键字仅子料 `kcaa01` 模糊** |
 | 生产领料（计划外）类型 `7` | `UB_ERP_Stocks_out` + `UB_ERP_Dispatch_order`（选派工，选填）+ 复用上表或「其他出库批量选材」 | **强制** `kcap05` 生产车间、`kcap06` 仓库、`in_tax`；`kcap04` 派工单**选填**；有派工时 `kcap08←PI`，无派工时 `kcap08←纸质单号`；有派工批量走 `production-issue-batch-lines`，无派工走 `other-batch-lines`/`other-batch-prices`；**审核不回写** `scak04`；无派工来源明细 `kcaq02←BOM.systemcode` |
@@ -167,7 +167,7 @@
 | 业务功能 | 物理表 | 关键字段 / 说明 |
 |----------|--------|-----------------|
 | 角色管理 | `NEW_UB_ERP_System_role` | `GET/POST/PUT/DELETE /api/roles` 统一读取和维护新系统角色表；列表按 `pass`、`del` 与 `Status` 切换启用/回收站视图，角色名称、说明及 `Permissions` 均以此表为准。旧表 `UB_ERP_System_role` 可与本表同时保留，但角色模块不会再读取或写入旧表。 |
-| 操作员、登录与权限 | `UB_ERP_User` + `NEW_UB_ERP_System_role` | `UB_ERP_User.RoleID` 按 `RoleID` 关联新角色表，登录返回 `RoleName` 与 `Permissions`；路由、菜单、按钮和接口权限统一使用 `NEW_UB_ERP_System_role.Permissions`。新表须具备当前角色模块使用的 `RoleID/RoleName/Description/pass/del/Status/Permissions` 等字段，且 `RoleID` 与用户表的关联数据一致。 |
+| 操作员、登录与权限 | `UB_ERP_User` + `NEW_UB_ERP_System_role` | `UB_ERP_User.RoleID` 按 `RoleID` 关联新角色表，登录返回 `RoleName`、`Permissions` 与 `truename`（库列 `UB_ERP_User.truename`，供装饰首页欢迎语）；路由、菜单、按钮和接口权限统一使用 `NEW_UB_ERP_System_role.Permissions`。登录后默认落点 `/home`（侧栏隐藏、不进标签）。新表须具备当前角色模块使用的 `RoleID/RoleName/Description/pass/del/Status/Permissions` 等字段，且 `RoleID` 与用户表的关联数据一致。 |
 | 操作审计与数据库配置 | `NEW_UB_ERP_System_role` | 角色新增、修改、删除、恢复、权限保存的操作日志目标表更新为新表；系统数据库配置的“系统角色权限表”登记新表名。`Sys_Roles` 是独立兼容表，本模块不使用。 |
 
 ## 系统内核 · 系统EMAIL发送配置
@@ -366,3 +366,18 @@
 | 销售客户管理列表 | `UB_ERP_System_sales_customer` | `GET /api/supply-chain/customers/list`；在册 `del=0/空/NULL`，默认 `pass=1`，可切 `pass=0`；回收站 `del=1`；分页 `ROW_NUMBER()`；列表字段含 `s_code/pass/s_name/s_sh/s_lb/s_address/s_lxr/s_tel/s_mobile/s_fax/s_payfor/lxr/s_business/s_info/intime` 等 |
 | 销售客户详情 | `UB_ERP_System_sales_customer` | `GET /api/supply-chain/customers/:id`；不区分 pass/del；含 `intime`/`s_sh`/`s_fax` 等主档字段 |
 | 销售客户新增/编辑 | `UB_ERP_System_sales_customer` | `POST/PUT /api/supply-chain/customers`；写入含 `intime`（初始时间，空则新增兜底当天）、`s_sh`（税号）、`s_fax`（传真）及主档字段；新增默认 `pass=0`/`del=0`；编辑仅未审在册；前端当前页表单（非弹窗） |
+
+## 库存基本资料 · 仓库编码
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|----------|--------|-----------------|
+| 仓库编码列表 | `UB_ERP_Stocks_warehouse` | `GET /api/inventory/warehouse/list`；在册 `del=0`，默认 `pass=1`，可切 `pass=0`；回收站 `del=1`；关键字模糊 `code/name/info/ename`；排序 `code ASC, id ASC`；`ROW_NUMBER()` 分页；列表参管人员姓名由 `ename`（`Usercode` 分号串）批量查 `UB_ERP_User`（`del=0 pass=1`）解析。权限 `inventory/basic/warehouse:view`。 |
+| 出入库选仓权限 | `UB_ERP_Stocks_warehouse` | `ename` 供入库/出库「仓库」候选与保存校验：登录 `userCode` 须为 `ename` 完整令牌之一；**空 `ename` 任何人不可选**；逻辑 `server/warehouseManagerAccess.js`；接口 `GET /api/stock-in/warehouse-options`、`GET /api/stock-out/warehouse-options` 及对应 SaveService。统计类仓库下拉本期不联动。 |
+| 仓库编码详情 | `UB_ERP_Stocks_warehouse` | `GET /api/inventory/warehouse/:systemcode`；定位键 `systemcode`。 |
+| 仓库编码新增 | `UB_ERP_Stocks_warehouse` | `POST /api/inventory/warehouse`；后端生成 `systemcode`；`code` **全表唯一**（含 `del=1`）；写入 `name/info2/negative/pd/ks/ename/etname/info` 及审计字段；未传 `logo` 则不写该列（保留库默认 HTML）。默认 `pass=0`/`del=0`。权限 `add`。 |
+| 仓库编码修改 | `UB_ERP_Stocks_warehouse` | `PUT /api/inventory/warehouse`；仅未审在册；`code` 不可改；更新 `edittime`/`ip`，**不覆盖 `addtime`**；真表无 `eid/euname/eutruename/uptime` 故不写。未交 `logo` 不改原值。权限 `edit`。 |
+| 仓库编码审核 | `UB_ERP_Stocks_warehouse` | `PUT .../audit`、`.../unaudit`、`.../audit-batch`；写 `pass` + `passuid`/`passuname`；批量审全部 `del=0 and pass=0`。权限 `audit`/`unaudit`。 |
+| 仓库编码删除/恢复 | `UB_ERP_Stocks_warehouse` | 逻辑删写 `del=1` 及 `delid/delname/deltruename/deltime`（已审禁止）；恢复 `del=0`。不做物理删除。权限 `delete`/`edit`。 |
+| 参管人员候选 | `UB_ERP_User` | `GET /api/inventory/warehouse/user-options`；`del=0 pass=1`；模糊 `Usercode`/`truename`。 |
+| 操作日志 | `UB_Date_ERP_Operation_log` | 增改删恢复审反审批量审经 `operationAuditMiddleware` 写入；`code` 映射表名为 `UB_ERP_Stocks_warehouse`。 |
+| 本期不做 | — | Excel 导入、打印、彻底删除、DDL。 |

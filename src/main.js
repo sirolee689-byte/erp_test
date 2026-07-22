@@ -18,6 +18,7 @@ import ErpTableViewportHScroll from './components/erp/ErpTableViewportHScroll.vu
 import ErpTableActions from './components/erp/ErpTableActions.vue'
 import { getPermissionModelFromStorage, hasPageAction } from './utils/menuPermission'
 import { isErpSuperAdmin } from './utils/erpSuperAdmin'
+import { useTagsViewStore } from './store/modules/tagsView'
 
 /**
  * 所有 axios 请求自动附带登录 token，供后端 API 权限闸门识别用户身份
@@ -46,6 +47,8 @@ axios.interceptors.response.use(
         handling401 = true
         localStorage.removeItem('erp_token')
         localStorage.removeItem('erp_user')
+        // token 失效跳登录时也清标签，避免换号后仍看见旧页签
+        useTagsViewStore().delAllViews()
         ElMessage.warning('登录已失效，请重新登录（若刚重启过后端，也必须重新登录一次）')
         const current = router.currentRoute.value
         if (current?.path !== '/login') {

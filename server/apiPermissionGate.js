@@ -1179,6 +1179,38 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'supply-chain/daily/outsourcing-quote', action: 'delete' }
   }
 
+  /* 仓库编码 UB_ERP_Stocks_warehouse（须先于其它 inventory 泛化规则） */
+  if (m === 'GET' && path === '/api/inventory/warehouse/list') {
+    return { menuPath: 'inventory/basic/warehouse', action: 'view' }
+  }
+  if (m === 'GET' && path === '/api/inventory/warehouse/user-options') {
+    return { menuPath: 'inventory/basic/warehouse', action: 'view' }
+  }
+  if (m === 'GET' && /^\/api\/inventory\/warehouse\/.+$/.test(path)) {
+    return { menuPath: 'inventory/basic/warehouse', action: 'view' }
+  }
+  if (m === 'POST' && path === '/api/inventory/warehouse') {
+    return { menuPath: 'inventory/basic/warehouse', action: 'add' }
+  }
+  if (m === 'PUT' && path === '/api/inventory/warehouse/audit') {
+    return { menuPath: 'inventory/basic/warehouse', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/inventory/warehouse/unaudit') {
+    return { menuPath: 'inventory/basic/warehouse', action: 'unaudit' }
+  }
+  if (m === 'PUT' && path === '/api/inventory/warehouse/audit-batch') {
+    return { menuPath: 'inventory/basic/warehouse', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/inventory/warehouse/restore') {
+    return { menuPath: 'inventory/basic/warehouse', action: 'edit' }
+  }
+  if (m === 'PUT' && path === '/api/inventory/warehouse') {
+    return { menuPath: 'inventory/basic/warehouse', action: 'edit' }
+  }
+  if (m === 'DELETE' && /^\/api\/inventory\/warehouse\/.+$/.test(path)) {
+    return { menuPath: 'inventory/basic/warehouse', action: 'delete' }
+  }
+
   if (m === 'GET' && path === '/api/inventory/color-code/list') {
     return {
       anyOf: [

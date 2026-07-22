@@ -984,6 +984,8 @@ function formatYmd(d) {
 
 
 
+/** Excel 序列日 → YYYY-MM-DD（优先 SSF，避免 SheetJS Date 时区少一天） */
+
 function excelSerialToYmd(n) {
 
   if (!Number.isFinite(n) || n < 1 || n > 80000) return null
@@ -996,9 +998,13 @@ function excelSerialToYmd(n) {
 
   }
 
+  // 回退：按 UTC 日历日取数，避免东八区 local getDate 再偏一天
+
   const ms = Date.UTC(1899, 11, 30) + Math.round(n) * 86400000
 
-  return formatYmd(new Date(ms))
+  const d = new Date(ms)
+
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
 
 }
 
@@ -1024,11 +1030,17 @@ function cellText(cell) {
 
 
 
+/**
+
+ * 出货日期专用：Excel 日期列优先当序列号解析。
+
+ * SheetJS cellDates=true 在东八区常得到「少一天」的 Date，不可信。
+
+ */
+
 function shipDateCellText(cell) {
 
   if (cell == null || cell === '') return ''
-
-  if (cell instanceof Date) return formatYmd(cell)
 
   if (typeof cell === 'number') {
 
@@ -1038,7 +1050,27 @@ function shipDateCellText(cell) {
 
   }
 
-  return cellText(cell)
+  if (cell instanceof Date) {
+
+    // cellDates 已关闭时一般走不到；若仍遇到 Date，勿信本地日历日
+
+    return `${cell.getUTCFullYear()}-${String(cell.getUTCMonth() + 1).padStart(2, '0')}-${String(cell.getUTCDate()).padStart(2, '0')}`
+
+  }
+
+  const text = cellText(cell)
+
+  // 纯数字字符串也可能是序列日
+
+  if (/^\d+(\.\d+)?$/.test(text)) {
+
+    const asDate = excelSerialToYmd(Number(text))
+
+    if (asDate) return asDate
+
+  }
+
+  return text
 
 }
 
@@ -1070,7 +1102,9 @@ async function parseExcelFile(file) {
 
   try {
 
-    wb = XLSX.read(buf, { type: 'array', cellDates: true })
+    // 出货日期必须按 Excel 序列号解析；cellDates:true 在东八区会少一天
+
+    wb = XLSX.read(buf, { type: 'array', cellDates: false })
 
   } catch (e) {
 

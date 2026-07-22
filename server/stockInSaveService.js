@@ -12,6 +12,7 @@ import {
 } from './stockInSaveLogic.js'
 import { STOCK_IN_HEADER_TABLE, STOCK_IN_LINE_TABLE } from './stockInListQuery.js'
 import { buildStockInLogInfo, writeStockInOperationLog } from './stockInOperationLog.js'
+import { assertUserManagesWarehouse } from './warehouseManagerAccess.js'
 
 const HEADER_FROM = `dbo.[${STOCK_IN_HEADER_TABLE}]`
 const LINE_FROM = `dbo.[${STOCK_IN_LINE_TABLE}]`
@@ -125,7 +126,7 @@ async function resolveFinalReceiptNo(pool, saveDate) {
   return buildNextStockInNo({ saveDate, existingReceiptNos: await fetchReceiptNosForDate(pool, saveDate) })
 }
 
-async function resolveWarehouse(pool, warehouseCode) {
+async function resolveWarehouse(pool, warehouseCode, usercode) {
   const r = await pool.request().input('code', sql.NVarChar(200), warehouseCode).query(`
     SELECT TOP 1
       LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([code], N'')))) AS code,
@@ -137,6 +138,9 @@ async function resolveWarehouse(pool, warehouseCode) {
   `)
   const row = r.recordset?.[0]
   if (!row?.code) return { ok: false, msg: '仓库不存在或不可用' }
+  // 保存再拦一道：须为仓库编码参管人员（与候选下拉同一规则）
+  const access = await assertUserManagesWarehouse(pool, usercode, row.code, { warehouseFrom: WAREHOUSE_FROM })
+  if (!access.ok) return access
   return { ok: true, code: row.code, name: row.name ?? '' }
 }
 
@@ -341,7 +345,8 @@ async function saveStockIn({ pool, body, req: httpReq, actor, id = null }) {
     return { ok: false, status: 400, msg: '此入库单当前状态不允许编辑' }
   }
 
-  const warehouse = await resolveWarehouse(pool, header.warehouseCode)
+  const usercode = text(actor?.userCode ?? httpReq?.user?.userCode)
+  const warehouse = await resolveWarehouse(pool, header.warehouseCode, usercode)
   if (!warehouse.ok) return { ok: false, status: 400, msg: warehouse.msg }
   const related = await resolveRelatedParty(pool, header)
   if (!related.ok) return { ok: false, status: 400, msg: related.msg }

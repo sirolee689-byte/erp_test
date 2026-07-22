@@ -5,10 +5,6 @@
       默认只查已审 pass=1；可切换显示未审核；回收站仅查 del=1。
     -->
     <el-card shadow="never">
-      <p class="page-desc">
-        数据表 <code>UB_ERP_Stocks_colorcode</code>；默认按录入时间降序，每页 20 条；已审核行不可软删，需先反审。
-      </p>
-
       <div class="search-row">
         <el-input
           v-model="keyword"

@@ -35,6 +35,7 @@ import { fetchStockInLabelPrintDocuments } from './stockInLabelPrintData.js'
 import { fetchStockInMaterialQrInfo } from './stockInMaterialQrInfo.js'
 import { fetchStockInMaterialTrace } from './stockInMaterialTrace.js'
 import { bindIntInList, bindNVarCharInList, groupRowsByKey, normalizeIntIds } from './sqlInListHelpers.js'
+import { sqlWarehouseEnameContainsUsercode } from './warehouseManagerAccess.js'
 
 const HEADER_FROM = `dbo.[${STOCK_IN_HEADER_TABLE}]`
 const LINE_FROM = `dbo.[${STOCK_IN_LINE_TABLE}]`
@@ -1345,9 +1346,16 @@ export function registerStockInRoutes(app, deps) {
 
   app.get('/api/stock-in/warehouse-options', async (req, res) => {
     try {
+      // 仅返回当前登录账号在仓库编码「参管人员」ename 中的仓；空 ename 对任何人都不可见
+      const usercode = text(req.user?.userCode)
+      if (!usercode) {
+        res.json({ code: 200, msg: 'success', data: { list: [] } })
+        return
+      }
       const pool = await getPool()
       const keyword = text(req.query?.keyword)
       const dbReq = pool.request()
+      dbReq.input('usercode', sql.NVarChar(50), usercode)
       let kwSql = ''
       if (keyword) {
         dbReq.input('kw', sql.NVarChar(400), `%${keyword}%`)
@@ -1357,7 +1365,9 @@ export function registerStockInRoutes(app, deps) {
         SELECT TOP 100 LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([code], N'')))) AS code,
                LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL([name], N'')))) AS name
         FROM ${WAREHOUSE_FROM}
-        WHERE (ISNULL([del], N'') = N'' OR [del] = N'0') ${kwSql}
+        WHERE (ISNULL([del], N'') = N'' OR [del] = N'0')
+          AND ${sqlWarehouseEnameContainsUsercode('[ename]', 'usercode')}
+          ${kwSql}
         ORDER BY [code] ASC
       `)
       res.json({ code: 200, msg: 'success', data: { list: r.recordset ?? [] } })

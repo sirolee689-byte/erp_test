@@ -133,14 +133,14 @@ describe('stockOutSaveService', () => {
     assert.match(sql, /pass/)
   })
 
-  test('成品出库来源校验 SQL 指向销售订单且要求仍有可出货明细', () => {
+  test('成品出库来源校验 SQL 指向销售订单；已出完也可关联（不要求 xsak03-xsak06>0）', () => {
     const sql = buildValidateStockOutSourceOrderSql('6')
     assert.match(sql, /UB_ERP_Sales_order\]/)
     assert.match(sql, /UB_ERP_Sales_order_list\]/)
     assert.match(sql, /xsaj01/)
     assert.match(sql, /xsaj05/)
     assert.match(sql, /xsak02[\s\S]*GUID/i)
-    assert.match(sql, /xsak03[\s\S]*-[\s\S]*xsak06[\s\S]*>\s*0/i)
+    assert.doesNotMatch(sql, /xsak03[\s\S]*-[\s\S]*xsak06[\s\S]*>\s*0/i)
     assert.match(sql, /closed/)
     assert.match(sql, /pass/)
   })

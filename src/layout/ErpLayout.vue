@@ -372,6 +372,8 @@ function clearAuthStorage() {
 async function doLogout() {
   // 主动退出：关掉关页守卫，避免叠浏览器「离开此网站」
   await runWithoutCloseGuard(async () => {
+    // 标签栏在内存单例里，不清的话换账号登录会残留下一账号的页签
+    tagsStore.delAllViews()
     clearAuthStorage()
     await router.push('/login')
   })

@@ -70,6 +70,7 @@ import { registerSystemDatabaseConfigRoutes } from './systemDatabaseConfigHandle
 import { registerBomRoutes } from './bom/registerBomRoutes.js'
 import { registerPiTraceRoutes } from './piTraceHandlers.js'
 import { registerCustomsDeclarationRoutes } from './customsDeclarationHandlers.js'
+import { registerWarehouseRoutes } from './warehouseHandlers.js'
 import {
   BOM_COST_TABLE,
   INV_BOM_CODE_FROM,
@@ -1137,6 +1138,8 @@ app.post('/api/login', async (req, res) => {
             userRow.Permissions != null && userRow.Permissions !== undefined
               ? String(userRow.Permissions)
               : null,
+          // 欢迎首页等展示用：UB_ERP_User.truename（库列经 qb 读出为 AuditTruename）
+          truename: String(userRow.AuditTruename ?? '').trim(),
         },
       },
     })
@@ -12154,6 +12157,7 @@ registerSystemDatabaseConfigRoutes(app, { getPool })
 registerPiBomDataRoutes(app, { getPool })
 registerPiTraceRoutes(app, { getPool })
 registerCustomsDeclarationRoutes(app, { getPool })
+registerWarehouseRoutes(app, { getPool })
 registerBomRoutes(app, {
   escapeSqlLikePattern,
   formatBomColorcodeTimestamp,
