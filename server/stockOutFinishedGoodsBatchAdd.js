@@ -106,7 +106,7 @@ async function validateSalesHeader(pool, { sourceOrderNo, customerCode, sourceSy
   return r.recordset?.[0] ?? null
 }
 
-async function fetchApprovedOutByMaterial(pool, { sourceOrderNo, materialCodes, excludeOutboundNo }) {
+export async function fetchApprovedOutByMaterial(pool, { sourceOrderNo, materialCodes, excludeOutboundNo }) {
   const mats = (materialCodes ?? []).map((k) => text(k)).filter(Boolean)
   if (!mats.length) return new Map()
   const exclude = text(excludeOutboundNo)
@@ -140,7 +140,7 @@ async function fetchApprovedOutByMaterial(pool, { sourceOrderNo, materialCodes, 
   return map
 }
 
-async function fetchPendingOutByDetailKey(pool, { sourceOrderNo, detailKeys, excludeOutboundNo }) {
+export async function fetchPendingOutByDetailKey(pool, { sourceOrderNo, detailKeys, excludeOutboundNo }) {
   const keys = (detailKeys ?? []).map((k) => text(k)).filter(Boolean)
   if (!keys.length) return new Map()
   const exclude = text(excludeOutboundNo)
@@ -211,7 +211,7 @@ async function fetchPendingOutDetails(pool, { sourceOrderNo, detailKeys, exclude
   return map
 }
 
-async function fetchWarehouseStockByMaterial(pool, { warehouseCode, materialCodes, excludeOutboundNo }) {
+export async function fetchWarehouseStockByMaterial(pool, { warehouseCode, materialCodes, excludeOutboundNo }) {
   const mats = (materialCodes ?? []).map((k) => text(k)).filter(Boolean)
   if (!mats.length) return new Map()
   const exclude = text(excludeOutboundNo)

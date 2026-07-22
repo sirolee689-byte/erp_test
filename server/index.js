@@ -69,6 +69,7 @@ import { registerSystemPrintConfigRoutes } from './systemPrintConfigHandlers.js'
 import { registerSystemDatabaseConfigRoutes } from './systemDatabaseConfigHandlers.js'
 import { registerBomRoutes } from './bom/registerBomRoutes.js'
 import { registerPiTraceRoutes } from './piTraceHandlers.js'
+import { registerCustomsDeclarationRoutes } from './customsDeclarationHandlers.js'
 import {
   BOM_COST_TABLE,
   INV_BOM_CODE_FROM,
@@ -12152,6 +12153,7 @@ registerSystemPrintConfigRoutes(app, { getPool })
 registerSystemDatabaseConfigRoutes(app, { getPool })
 registerPiBomDataRoutes(app, { getPool })
 registerPiTraceRoutes(app, { getPool })
+registerCustomsDeclarationRoutes(app, { getPool })
 registerBomRoutes(app, {
   escapeSqlLikePattern,
   formatBomColorcodeTimestamp,

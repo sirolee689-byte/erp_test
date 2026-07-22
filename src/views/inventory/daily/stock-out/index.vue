@@ -794,14 +794,14 @@
       />
     </el-dialog>
 
-    <el-dialog v-model="finishedGoodsSourceDialog.visible" title="PI关联选择" width="760px">
+    <el-dialog v-model="finishedGoodsSourceDialog.visible" title="PI关联选择" width="92%">
       <div class="stock-filter-row production-dispatch-toolbar">
         <span class="production-dispatch-toolbar__label">查询条件</span>
         <el-input
           v-model="finishedGoodsSourceDialog.keyword"
           clearable
           class="stock-filter-keyword"
-          placeholder="PI号 / PO号 / 客户 / 销售单号等"
+          placeholder="PI号 / 日期 / 货品编码 等"
           @keyup.enter="searchFinishedGoodsSourcePage"
         />
         <el-button type="primary" @click="searchFinishedGoodsSourcePage">立即查询</el-button>
@@ -812,13 +812,26 @@
       <el-table v-loading="finishedGoodsSourceDialog.loading" :data="finishedGoodsSourceDialog.list" border stripe height="460">
         <el-table-column label="操作" width="100" fixed="left">
           <template #default="{ row }">
-            <el-button type="primary" size="small" @click="chooseFinishedGoodsSource(row)">关联选择</el-button>
+            <el-button
+              v-if="Number(row.groupRowNo) === 1"
+              type="primary"
+              size="small"
+              @click="chooseFinishedGoodsSource(row)"
+            >关联选择</el-button>
           </template>
         </el-table-column>
         <el-table-column label="PI号" prop="sourceOrderNo" min-width="150" show-overflow-tooltip />
-        <el-table-column label="PO号" prop="poNo" min-width="140" show-overflow-tooltip />
-        <el-table-column label="客户" min-width="220" show-overflow-tooltip>
-          <template #default="{ row }">{{ `${row.customerCode || ''},${row.customerName || ''},` }}</template>
+        <el-table-column label="货品编码" prop="kcaa01" min-width="150" show-overflow-tooltip />
+        <el-table-column label="数量" min-width="100" align="right" header-align="right">
+          <template #default="{ row }">{{ formatNumber(row.orderQty, 3) }}</template>
+        </el-table-column>
+        <el-table-column label="客款号" prop="customerStyleNo" min-width="140" show-overflow-tooltip />
+        <el-table-column label="厂款号" prop="factoryStyleNo" min-width="140" show-overflow-tooltip />
+        <el-table-column label="销售日期" min-width="120">
+          <template #default="{ row }">{{ formatDate(row.orderDate) }}</template>
+        </el-table-column>
+        <el-table-column label="交货日期" min-width="120" show-overflow-tooltip>
+          <template #default="{ row }">{{ formatDate(row.deliveryDate) }}</template>
         </el-table-column>
       </el-table>
       <el-pagination
@@ -1024,6 +1037,7 @@ const productionDispatchSourceDialog = reactive({
 const finishedGoodsSourceDialog = reactive({
   visible: false,
   loading: false,
+  hasQueried: false,
   keyword: '',
   page: 1,
   pageSize: 10,
@@ -1127,6 +1141,22 @@ function ensureRelatedPartyOptionSeed() {
   if (!relatedPartyOptions.value.some((item) => item.code === code)) {
     relatedPartyOptions.value = [{ code, name }, ...relatedPartyOptions.value]
   }
+}
+
+/** 查看模式：用头表仓库编码/名称 seed 下拉，避免为只读展示拉仓库候选接口 */
+function ensureWarehouseOptionVisible(warehouseName = '') {
+  const code = String(form.warehouseCode ?? '').trim()
+  const name = String(warehouseName ?? '').trim()
+  if (!code && !name) return
+  if (warehouseOptions.value.some((item) => item.code === code)) return
+  warehouseOptions.value.unshift({ code, name: name || code })
+}
+
+/** 查看模式：仓库/关联方用头表字段本地 seed，不再请求编辑态专用接口 */
+function seedViewFormOptions(warehouseName = '') {
+  ensureWarehouseOptionVisible(warehouseName)
+  ensureRelatedPartyOptionSeed()
+  syncOtherOutboundRelatedPartyDisplay()
 }
 
 function syncOtherOutboundRelatedPartyDisplay() {
@@ -1679,9 +1709,8 @@ async function enrichProductionIssueLineQtyCaps() {
   }
 }
 
-async function loadOrderIntoForm(id, rowFallback = {}) {
-  const { data } = await axios.get(`/api/stock-out/${id}`)
-  const h = data?.data?.header || {}
+function applyOrderDetailToForm(data, rowFallback = {}) {
+  const h = data?.header || {}
   const outboundType = String(h.kcap03 || rowFallback.outboundType || '0')
   const isAssist = outboundType === '2'
   const isProduction = outboundType === '4'
@@ -1706,7 +1735,7 @@ async function loadOrderIntoForm(id, rowFallback = {}) {
     sourceSystemcodeId: '',
     inTax: String(h.in_tax || '1'),
     remark: h.remark || '',
-    lines: (data?.data?.lines || []).map((line, idx) => {
+    lines: (data?.lines || []).map((line, idx) => {
       const enriched = { ...line, tax: Number(line.tax ?? line.Tax ?? 0) }
       if (isAssist) {
         const sourceLineCode = String(enriched.kcaq02 ?? enriched.sourceLineCode ?? '').trim()
@@ -1723,9 +1752,18 @@ async function loadOrderIntoForm(id, rowFallback = {}) {
     }),
   })
   prevWorkshopCode.value = String(h.kcap05 || '').trim()
+  return { isProduction, isSupplementProduction, sourceOrderNo }
+}
+
+async function loadOrderIntoForm(id, rowFallback = {}) {
+  const data = await fetchDetail(id)
+  const { isProduction, isSupplementProduction, sourceOrderNo } = applyOrderDetailToForm(data, rowFallback)
   ensureRelatedPartyOptionSeed()
   syncOtherOutboundRelatedPartyDisplay()
-  if (isProduction || (isSupplementProduction && String(sourceOrderNo).trim())) await enrichProductionIssueLineQtyCaps()
+  // 编辑态才补齐生产领料数量上限；查看只读不需要
+  if (isProduction || (isSupplementProduction && String(sourceOrderNo).trim())) {
+    await enrichProductionIssueLineQtyCaps()
+  }
 }
 
 async function editOrder(row) {
@@ -2025,13 +2063,16 @@ function chooseProductionDispatchSource(row) {
 
 async function openFinishedGoodsSourcePicker() {
   finishedGoodsSourceDialog.visible = true
+  finishedGoodsSourceDialog.hasQueried = false
   finishedGoodsSourceDialog.keyword = ''
   finishedGoodsSourceDialog.page = 1
   finishedGoodsSourceDialog.pageSize = 10
-  await loadFinishedGoodsSourcePage()
+  finishedGoodsSourceDialog.total = 0
+  finishedGoodsSourceDialog.list = []
 }
 
 async function loadFinishedGoodsSourcePage() {
+  if (!finishedGoodsSourceDialog.hasQueried) return
   finishedGoodsSourceDialog.loading = true
   try {
     const { data } = await axios.get('/api/stock-out/finished-goods-source-page', {
@@ -2054,18 +2095,22 @@ async function loadFinishedGoodsSourcePage() {
 
 function searchFinishedGoodsSourcePage() {
   finishedGoodsSourceDialog.page = 1
+  finishedGoodsSourceDialog.hasQueried = true
   loadFinishedGoodsSourcePage()
 }
 
 function resetFinishedGoodsSourceFilter() {
   finishedGoodsSourceDialog.keyword = ''
   finishedGoodsSourceDialog.page = 1
-  loadFinishedGoodsSourcePage()
+  finishedGoodsSourceDialog.hasQueried = false
+  finishedGoodsSourceDialog.total = 0
+  finishedGoodsSourceDialog.list = []
 }
 
 function queryAllFinishedGoodsSourcePage() {
   finishedGoodsSourceDialog.keyword = ''
   finishedGoodsSourceDialog.page = 1
+  finishedGoodsSourceDialog.hasQueried = true
   loadFinishedGoodsSourcePage()
 }
 
@@ -2157,7 +2202,10 @@ async function saveOrder() {
 
 async function viewOrder(row) {
   try {
-    await loadOrderIntoForm(row.id, row)
+    const data = await fetchDetail(row.id)
+    const h = data?.header || {}
+    applyOrderDetailToForm(data, row)
+    seedViewFormOptions(h.ck || row.warehouseName || '')
     viewId.value = row.id
     editId.value = null
     formTab.value = 'base'

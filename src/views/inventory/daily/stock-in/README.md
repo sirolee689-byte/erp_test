@@ -20,7 +20,7 @@
 - **入库单数据列**：两行汇总（项数/数量/入库量；含税·不含税·税点总价，需 `price` 权限）。
 - **转向物料查询（2026-07-02）**：顶栏「入库单添加」右侧新增「转向物料查询」；点击后在当前页面切换到 `pageMode=material-trace`，按入库明细物料维度查询已审核、未删除入库明细，不打开新窗口。面板提供查询条件、立即查询、查询全部和分页，表格使用底部横向滚动条；价格列仍受入库单 `price` 权限控制。
 - **入库日期**：列表只显示年-月-日。
-- 只读查看（2026-07）：列表点「查看」进入与编辑相同的两页签全屏表单（基础资料 / 明细），全程只读；顶栏仅「返回列表」，无保存/重置/批量添加/删行；复制入库单号仍可用；价格列仍受 `price` 权限控制。
+- 只读查看（2026-07）：列表点「查看」进入与编辑相同的两页签全屏表单（基础资料 / 明细），全程只读；顶栏仅「返回列表」，无保存/重置/批量添加/删行；复制入库单号仍可用；价格列仍受 `price` 权限控制。**2026-07-21 性能**：查看只请求 `GET /api/stock-in/:id` 一次即切页，仓库/关联方用头表字段本地 seed，不再拉下拉候选与派工补全接口。
 - 新增/编辑：当前开放其他入库、采购入库、外协入库、生产入库、生产退料、盘盈入库；外协退料、销售退货旧系统基本不使用，第一版只保留历史查看和列表筛选，不再提供新增/切换入口。
 - 新增/编辑 UI：已拆分为两页签「入库单基础资料 / 入库单明细」；基础资料按 8 行展示（入库单号、日期、入库类型按钮、单号、关联方、第六行为「仓库+输入框」与「来货单号/纸质单号+输入框」同一行并排、含税与否、备注）；第六行沿用系统标准「仓库」标签列对齐，右侧追加「来货单号/纸质单号+输入框」；入库单号只读但可选中/按钮复制，关联单号只读展示，右侧固定「选择 / 清空」按钮，选中后在下方固定显示“已选单号”并可复制。
 - 新增页体验：进入新增/重置新增表单时，前端优先自动选择名称或编码为「货仓」的仓库；新增单切到生产入库时，改为按候选接口带出「包装部」和「成品仓」，找不到则保持空值，不硬写编码。表单顶部原「返回列表」按钮改为「重置」，新增模式下清空基础资料和明细并重新带出建议单号/默认仓库，编辑模式下重新读取当前单据。
@@ -57,8 +57,8 @@
 
 - `GET /api/stock-in/list`：列表分页，SQL 使用 `ROW_NUMBER()`，兼容 SQL Server 2008 R2。
 - `GET /api/stock-in/material-trace/list`：转向物料查询；从 `UB_ERP_Stocks_Storage_list` 查询已审核未删除入库明细，并按 `kcao01=kcan01` 回查 `UB_ERP_Stocks_Storage` 的日期、仓库、供应商/外协商等信息；关键字第一版只搜高频字段，不全量 OR `kcaa01~kcaa35`。
-- `GET /api/stock-in/:id`：详情。
-- `GET /api/stock-in/:id`：详情明细包含 `relationOrderQty/relationInboundQty/relationReturnedQty/relationDiffQty/relationOverflowQty/relationNoData`，用于“关联单号相关信息”列展示。
+- `GET /api/stock-in/:id`：详情（头表 + 明细原始字段；**不做**逐行关联数量 enrich，查看/编辑秒开）。
+- `GET /api/stock-in/expand-lines/batch`：列表展开明细；含 `relationOrderQty/relationInboundQty/relationReturnedQty/relationDiffQty/relationOverflowQty/relationNoData`，用于主列表「关联单号相关信息」列。
 - `GET /api/stock-in/suggest-doc-no`：建议入库单号；最终单号仍以后端保存结果为准。
 - `GET /api/stock-in/warehouse-options`：仓库候选。
 - `GET /api/stock-in/list-related-party-options`：列表筛选供应商联想（`UB_ERP_System_supplier`，仅查 `del=0 AND pass=1`，关键字可空）。

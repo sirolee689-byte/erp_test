@@ -1975,15 +1975,10 @@ export function registerStockInRoutes(app, deps) {
         WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([kcao01], N'')))) = @receiptNo
         ORDER BY ISNULL([seq], [id]), [id]
       `)
-      const inboundType = text(header.kcan03)
       const rawLines = lineR.recordset ?? []
-      const enrichedLines = []
-      for (const row of rawLines) {
-        const base = serializeStockInLineRow(row)
-        const relation = await enrichStockInLineRelationInfo(pool, inboundType, base)
-        enrichedLines.push({ ...base, ...relation })
-      }
-      res.json({ code: 200, msg: 'success', data: { header: serializeRow(header), lines: enrichedLines, forPrint } })
+      // 详情/打印只返回明细原始字段；「关联单号相关信息」由 expand-lines/batch 按需 enrich，避免查看逐行串行查库
+      const lines = rawLines.map((row) => serializeStockInLineRow(row))
+      res.json({ code: 200, msg: 'success', data: { header: serializeRow(header), lines, forPrint } })
     } catch (err) {
       res.status(500).json({ code: 500, msg: `读取入库单详情失败：${String(err?.message ?? err)}`, data: null })
     }

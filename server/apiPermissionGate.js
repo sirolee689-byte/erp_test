@@ -1287,6 +1287,16 @@ export function matchApiPermissionRule(method, path, body, params) {
   ) {
     return { menuPath: 'traceability/pi-trace', action: 'view' }
   }
+  // 海关单：预览 view；生成 add（handler 内再校验入库单 add）
+  if (m === 'POST' && path === '/api/customs-declaration/preview') {
+    return { menuPath: 'supply-chain/daily/customs-declaration', action: 'view' }
+  }
+  if (m === 'POST' && path === '/api/customs-declaration/generate') {
+    return { menuPath: 'supply-chain/daily/customs-declaration', action: 'add' }
+  }
+  if (m === 'POST' && path === '/api/customs-declaration/generate-outbound') {
+    return { menuPath: 'supply-chain/daily/customs-declaration', action: 'add' }
+  }
   if (m === 'GET' && path === '/api/inventory/pi-bom-data/list') {
     return { menuPath: 'inventory/basic/pi-bom-data', action: 'view' }
   }

@@ -124,6 +124,10 @@
           {
             "name": "sales-order",
             "title": "销售订单"
+          },
+          {
+            "name": "customs-declaration",
+            "title": "海关单"
           }
         ]
       },

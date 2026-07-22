@@ -1,7 +1,7 @@
 import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * 成品出库（类型 6）关联销售订单选单。
- * 一行一 PI（销售订单主表），仅返回关联选择所需字段；有可出明细的订单用 EXISTS 过滤。
+ * 主从展开：一行 = 销售订单一条已审明细；PI 进列表仍须 EXISTS 至少一条可出明细。
  * 分页 SQL 兼容 SQL Server 2008 R2。
  */
 import { sql } from './db.js'
@@ -31,23 +31,28 @@ function buildCustomerWhere(hasCustomerName = false, hasCustomerCode = false) {
   return `AND (${parts.join(' OR ')})`
 }
 
+/** 关键字：主表 + 明细货品编码/名称/规格 */
 export function buildStockOutFinishedGoodsKeywordWhere(hasKeyword = false) {
   if (!hasKeyword) return ''
   return `
     AND (
-      ${nvarcharTextExpr('h', 'xsaj01', 200)} LIKE @keyword
+      h.[xsaj01] LIKE @keyword
       OR CONVERT(nvarchar(30), h.[xsaj02], 120) LIKE @keyword
-      OR ${nvarcharTextExpr('h', 'xsaj03', 500)} LIKE @keyword
-      OR ${nvarcharTextExpr('h', 'xsaj04', 500)} LIKE @keyword
-      OR ${nvarcharTextExpr('h', 'xsaj05', 500)} LIKE @keyword
-      OR ${nvarcharTextExpr('h', 'xsaj06', 500)} LIKE @keyword
-      OR ${nvarcharTextExpr('h', 'xsaj08', 500)} LIKE @keyword
-      OR ${nvarcharTextExpr('h', 'rmb', 200)} LIKE @keyword
+      OR CONVERT(nvarchar(30), h.[xsaj08], 120) LIKE @keyword
+      OR h.[xsaj03] LIKE @keyword
+      OR h.[xsaj04] LIKE @keyword
+      OR h.[xsaj05] LIKE @keyword
+      OR h.[xsaj06] LIKE @keyword
+      OR h.[xsaj08] LIKE @keyword
+      OR CONVERT(nvarchar(200), h.[rmb]) LIKE @keyword
+      OR l.[kcaa01] LIKE @keyword
+      OR l.[kcaa02] LIKE @keyword
+      OR l.[kcaa03] LIKE @keyword
     )
   `
 }
 
-/** 明细仍有可出数量（xsak03-xsak06>0）且 xsak02=GUID */
+/** 明细仍有可出数量（xsak03-xsak06>0）且 xsak02=GUID — 控制哪些 PI 出现在选派列表 */
 export function buildStockOutFinishedGoodsShippableLineExistsSql() {
   const remainingExpr = `ISNULL(${safeDecimalExpr('l', 'xsak03')}, 0) - ISNULL(${safeDecimalExpr('l', 'xsak06')}, 0)`
   // xsak01/xsaj01 均为 PI 号 nvarchar，直比可走索引；勿用 nvarcharTextExpr 包列（相关子查询会全表扫）
@@ -66,11 +71,9 @@ export function buildStockOutFinishedGoodsShippableLineExistsSql() {
 }
 
 function buildHeaderBaseWhereSql({
-  hasKeyword = false,
   hasCustomerName = false,
   hasCustomerCode = false,
 } = {}) {
-  const keywordWhere = buildStockOutFinishedGoodsKeywordWhere(hasKeyword)
   const customerWhere = buildCustomerWhere(hasCustomerName, hasCustomerCode)
   const shippableExists = buildStockOutFinishedGoodsShippableLineExistsSql()
   return `
@@ -79,7 +82,16 @@ function buildHeaderBaseWhereSql({
     AND LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), h.[closed]), N'0'))) = N'0'
     AND ${shippableExists}
     ${customerWhere}
-    ${keywordWhere}
+  `
+}
+
+/** 选派弹窗展示的明细行：已审未删且 xsak02=GUID（不要求 xsak03-xsak06>0） */
+function buildLineBaseWhereSql(alias = 'l') {
+  return `
+    AND ${nvarcharTextExpr(alias, 'del', 20)} IN (N'', N'0')
+    AND LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), ${alias}.[pass]), N''))) = N'1'
+    AND ${nvarcharTextExpr(alias, 'xsak02', 200)} = ${nvarcharTextExpr(alias, 'GUID', 200)}
+    AND ${nvarcharTextExpr(alias, 'xsak02', 200)} <> N''
   `
 }
 
@@ -87,43 +99,61 @@ function buildHeaderOrderSql() {
   return `${nvarcharTextExpr('h', 'xsaj01', 200)} DESC, h.[id] DESC`
 }
 
-function buildHeaderSelectFields() {
-  return `
-    h.[id] AS headerId,
-    ${nvarcharTextExpr('h', 'xsaj01', 200)} AS sourceOrderNo,
-    ${nvarcharTextExpr('h', 'xsaj05', 200)} AS customerCode,
-    ${nvarcharTextExpr('h', 'kehu', 500)} AS customerName,
-    ${nvarcharTextExpr('h', 'xsaj06', 500)} AS poNo,
-    ${nvarcharTextExpr('h', 'systemcode', 200)} AS sourceSystemcode
-  `
-}
-
-export function buildStockOutFinishedGoodsSourceCountSql(options = {}) {
-  return `
-    SELECT COUNT(1) AS total
-    FROM ${SALES_HEADER_FROM} AS h
-    WHERE ${buildHeaderBaseWhereSql(options)}
-  `
-}
-
-export function buildStockOutFinishedGoodsSourceListSql(options = {}) {
+function buildSourceCteSql(options = {}) {
+  const keywordWhere = buildStockOutFinishedGoodsKeywordWhere(options.hasKeyword)
   const headerOrder = buildHeaderOrderSql()
   return `
     WITH source AS (
       SELECT
-        ${buildHeaderSelectFields()},
-        ROW_NUMBER() OVER (ORDER BY ${headerOrder}) AS rn
+        h.[id] AS headerId,
+        l.[id] AS lineId,
+        ${nvarcharTextExpr('h', 'xsaj01', 200)} AS sourceOrderNo,
+        h.[xsaj02] AS orderDate,
+        h.[xsaj08] AS deliveryDate,
+        ${nvarcharTextExpr('h', 'xsaj05', 200)} AS customerCode,
+        ${nvarcharTextExpr('h', 'kehu', 500)} AS customerName,
+        ${nvarcharTextExpr('h', 'xsaj06', 500)} AS poNo,
+        ${nvarcharTextExpr('h', 'systemcode', 200)} AS sourceSystemcode,
+        ${nvarcharTextExpr('l', 'kcaa01', 500)} AS kcaa01,
+        CASE
+          WHEN ${nvarcharTextExpr('l', 'xsak03', 100)} <> N''
+            THEN ${safeDecimalExpr('l', 'xsak03')}
+          ELSE ${safeDecimalExpr('l', 'plan_quantity')}
+        END AS orderQty,
+        ${nvarcharTextExpr('l', 'kcaa06', 500)} AS customerStyleNo,
+        ${nvarcharTextExpr('l', 'kcaa09', 500)} AS factoryStyleNo,
+        COUNT(1) OVER() AS total,
+        ROW_NUMBER() OVER (
+          PARTITION BY ${nvarcharTextExpr('h', 'xsaj01', 200)}
+          ORDER BY ISNULL(l.[seq], l.[id]), l.[id]
+        ) AS groupRowNo,
+        ROW_NUMBER() OVER (
+          ORDER BY
+            ${headerOrder},
+            ISNULL(l.[seq], l.[id]),
+            l.[id]
+        ) AS rn
       FROM ${SALES_HEADER_FROM} AS h
+      INNER JOIN ${SALES_LINE_FROM} AS l
+        ON l.[xsak01] = h.[xsaj01]
       WHERE ${buildHeaderBaseWhereSql(options)}
-    ),
-    numbered AS (
-      SELECT
-        *,
-        COUNT(1) OVER () AS totalCount
-      FROM source
+        ${buildLineBaseWhereSql('l')}
+        ${keywordWhere}
     )
-    SELECT *
-    FROM numbered
+  `
+}
+
+export function buildStockOutFinishedGoodsSourceCountSql(options = {}) {
+  return `${buildSourceCteSql(options)}
+    SELECT COUNT(1) AS total
+    FROM source
+  `
+}
+
+export function buildStockOutFinishedGoodsSourceListSql(options = {}) {
+  return `${buildSourceCteSql(options)}
+    SELECT source.*
+    FROM source
     WHERE rn BETWEEN @startRow AND @endRow
     ORDER BY rn ASC
   `
@@ -132,11 +162,20 @@ export function buildStockOutFinishedGoodsSourceListSql(options = {}) {
 function serializeRow(row = {}) {
   const out = {}
   for (const [key, value] of Object.entries(row)) {
-    if (key === 'rn' || key === 'totalCount') continue
+    if (key === 'rn') continue
     out[key] = value instanceof Date ? value.toISOString().replace('T', ' ').slice(0, 19) : value
   }
   if (out.headerId != null) out.headerId = Number(out.headerId)
+  if (out.lineId != null) out.lineId = Number(out.lineId)
+  if (out.groupRowNo != null) out.groupRowNo = Number(out.groupRowNo)
   return out
+}
+
+function bindSourceQueryParams(req, { keyword, customerName, customerCode }) {
+  if (keyword) req.input('keyword', sql.NVarChar(400), `%${keyword}%`)
+  if (customerName) req.input('customerName', sql.NVarChar(500), customerName)
+  if (customerCode && !customerName) req.input('customerCode', sql.NVarChar(200), customerCode)
+  return req
 }
 
 export async function fetchStockOutFinishedGoodsSourcePage(pool, query = {}) {
@@ -150,30 +189,17 @@ export async function fetchStockOutFinishedGoodsSourcePage(pool, query = {}) {
     hasCustomerCode: Boolean(customerCode) && !customerName,
   }
 
-  const listReq = pool.request()
+  const listReq = bindSourceQueryParams(pool.request(), { keyword, customerName, customerCode })
     .input('startRow', sql.Int, startRow)
     .input('endRow', sql.Int, endRow)
-  if (keyword) listReq.input('keyword', sql.NVarChar(400), `%${keyword}%`)
-  if (customerName) listReq.input('customerName', sql.NVarChar(500), customerName)
-  if (customerCode && !customerName) listReq.input('customerCode', sql.NVarChar(200), customerCode)
-
   const listR = await listReq.query(buildStockOutFinishedGoodsSourceListSql(options))
-  const rows = listR.recordset ?? []
-  let total = rows.length ? Number(rows[0].totalCount ?? 0) : 0
-  if (!rows.length && page > 1) {
-    const countReq = pool.request()
-    if (keyword) countReq.input('keyword', sql.NVarChar(400), `%${keyword}%`)
-    if (customerName) countReq.input('customerName', sql.NVarChar(500), customerName)
-    if (customerCode && !customerName) countReq.input('customerCode', sql.NVarChar(200), customerCode)
-    const countR = await countReq.query(buildStockOutFinishedGoodsSourceCountSql(options))
-    total = Number(countR.recordset?.[0]?.total ?? 0)
-  }
+  const total = Number(listR.recordset?.[0]?.total ?? 0)
 
   return {
     ok: true,
     page,
     pageSize,
     total,
-    list: rows.map(serializeRow),
+    list: (listR.recordset ?? []).map(serializeRow),
   }
 }

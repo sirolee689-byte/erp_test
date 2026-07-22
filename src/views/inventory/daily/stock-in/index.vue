@@ -1264,8 +1264,7 @@ async function resetCurrentForm() {
   ElMessage.success('已重置')
 }
 
-async function loadReceiptIntoForm(id) {
-  const data = await fetchDetail(id)
+function applyReceiptDetailToForm(data) {
   Object.assign(form, {
     receiptNo: data.header.kcan01,
     inboundType: String(data.header.kcan03 || '0'),
@@ -1282,10 +1281,34 @@ async function loadReceiptIntoForm(id) {
     sourceSystemcodeId: '',
   })
   lines.value = (data.lines || []).map((line, idx) => ({ ...line, info: line.Describe || '', _lineMarked: false, __key: `${idx}-${line.systemcode || line.id || Date.now()}` }))
+}
+
+function ensureWarehouseOptionVisible() {
+  const code = String(form.warehouseCode ?? '').trim()
+  const name = String(form.warehouseName ?? '').trim()
+  if (!code && !name) return
+  if (warehouses.value.some((w) => w.code === code)) return
+  warehouses.value.unshift({ code, name: name || code })
+}
+
+/** 查看模式：用头表已有编码/名称 seed 下拉，不再请求仓库/关联方/关联单接口 */
+function seedViewFormOptions() {
+  ensureWarehouseOptionVisible()
+  ensureWorkshopOptionVisible()
+}
+
+async function loadReceiptFormOptions() {
   await Promise.all([loadWarehouses(), loadRelatedParties(), loadSourceOrders()])
   prevWorkshopCode.value = form.relatedPartyCode || ''
   ensureWorkshopOptionVisible()
+  ensureWarehouseOptionVisible()
   await restoreLinkedProductionDispatch()
+}
+
+async function loadReceiptIntoForm(id) {
+  const data = await fetchDetail(id)
+  applyReceiptDetailToForm(data)
+  await loadReceiptFormOptions()
 }
 
 async function editReceipt(row) {
@@ -1298,7 +1321,10 @@ async function editReceipt(row) {
 
 async function viewReceipt(row) {
   try {
-    await loadReceiptIntoForm(row.id)
+    const data = await fetchDetail(row.id)
+    applyReceiptDetailToForm(data)
+    seedViewFormOptions()
+    prevWorkshopCode.value = form.relatedPartyCode || ''
     viewId.value = row.id
     editId.value = null
     formTab.value = 'base'
