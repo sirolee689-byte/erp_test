@@ -44,11 +44,6 @@
             </el-button>
           </div>
         </template>
-        <el-form v-else inline class="assist-batch-search" @submit.prevent>
-          <el-form-item label="PI号">
-            <el-input :model-value="piNo" readonly />
-          </el-form-item>
-        </el-form>
         <div class="assist-batch-actions">
           <el-button class="assist-batch-toolbar-btn" @click="resetSelection">重置全部</el-button>
           <el-button
@@ -65,13 +60,15 @@
       </div>
     </section>
 
-    <el-skeleton :loading="loading" animated :rows="10">
-      <template #default>
-        <el-empty
-          v-if="!displayStyles.length && !loading"
-          :description="errorMsg || (isOtherBatch ? '暂无货品数据' : '暂无款式数据')"
-        />
-        <div v-else-if="isOtherBatch" class="assist-batch-table-wrap">
+    <div class="assist-batch-body">
+      <el-skeleton :loading="loading" animated :rows="10" class="assist-batch-skeleton">
+        <template #default>
+          <div class="assist-batch-table-host">
+            <el-empty
+              v-if="!displayStyles.length && !loading"
+              :description="errorMsg || (isOtherBatch ? '暂无货品数据' : '暂无款式数据')"
+            />
+            <div v-else-if="isOtherBatch" class="assist-batch-table-wrap">
           <table class="assist-batch-table assist-batch-table--other">
             <thead>
               <tr>
@@ -233,7 +230,7 @@
                           <td>{{ mat.kcaa02 || '-' }}</td>
                           <td class="col-num">{{ formatNum(mat.availableQty) }}</td>
                           <td class="col-num">{{ formatNum(mat.outsourcedQty) }}</td>
-                          <td class="col-num">{{ mat.outboundQtyLabel }}</td>
+                          <td class="col-num">{{ formatNum(mat.outboundQty) }}</td>
                           <td>{{ mat.version || '-' }}</td>
                           <td>{{ mat.kcaa02En || '-' }}</td>
                           <td>{{ mat.invoiceName || '-' }}</td>
@@ -246,9 +243,11 @@
               </template>
             </tbody>
           </table>
-        </div>
-      </template>
-    </el-skeleton>
+            </div>
+          </div>
+        </template>
+      </el-skeleton>
+    </div>
     <div v-if="isOtherBatch" class="assist-batch-pagination">
       <span class="assist-batch-pagination-info">
         第{{ otherPage }}页/共{{ otherTotalPages }}页，共{{ otherTotal }}条记录
@@ -656,13 +655,20 @@ onMounted(async () => {
 
 <style scoped>
 .assist-batch-window {
-  min-height: 100vh;
+  /* 整页铺满视口：表格区内部滚动，横条始终贴在可见区底，不必滚到内容最底 */
+  height: 100vh;
+  max-height: 100vh;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--erp-app-bg, #f4f6f8);
-  padding: 12px 14px 22px;
+  padding: 12px 14px 12px;
   color: var(--el-text-color-primary);
 }
 
 .assist-batch-header {
+  flex-shrink: 0;
   margin-bottom: 10px;
   padding: 10px 12px;
   background: var(--erp-surface, #fff);
@@ -683,6 +689,7 @@ onMounted(async () => {
 }
 
 .assist-batch-toolbar {
+  flex-shrink: 0;
   margin-bottom: 10px;
   padding: 10px 12px;
   background: var(--erp-surface, #fff);
@@ -695,10 +702,6 @@ onMounted(async () => {
   flex-direction: column;
   align-items: flex-start;
   gap: 8px;
-}
-
-.assist-batch-search :deep(.el-input) {
-  width: 180px;
 }
 
 .assist-batch-category {
@@ -762,6 +765,9 @@ onMounted(async () => {
 }
 
 .assist-batch-table-wrap {
+  /* 占满剩余视口高度；overflow 在此层，横滚条固定在可见区底 */
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
   background: var(--erp-surface, #fff);
   border: 1px solid var(--el-border-color);
@@ -769,7 +775,32 @@ onMounted(async () => {
   box-shadow: 0 1px 2px rgb(17 24 39 / 5%);
 }
 
+/* 表格主体区：顶栏/工具栏之下铺满，分页之上 */
+.assist-batch-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.assist-batch-skeleton {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.assist-batch-table-host {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
 .assist-batch-pagination {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -790,7 +821,7 @@ onMounted(async () => {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
-  min-width: 1400px;
+  min-width: 2200px;
   table-layout: fixed;
 }
 
@@ -816,19 +847,23 @@ onMounted(async () => {
   white-space: nowrap;
 }
 
-/* 父行边框 DIY：batch-add-window.vue .assist-batch-row--style --assist-batch-style-border */
+/* 父行浅绿底 + 边框 DIY：batch-add-window.vue .assist-batch-row--style
+   --assist-batch-style-bg 默认 #E2F0D9（对齐旧系统主行）；悬停用 --assist-batch-style-hover-bg */
 .assist-batch-row--style {
   --assist-batch-style-border: 1px solid var(--el-border-color);
-  background: var(--erp-surface, #fff);
+  --assist-batch-style-bg: #e2f0d9;
+  --assist-batch-style-hover-bg: #d5e8c8;
+  background: var(--assist-batch-style-bg);
 }
 
 .assist-batch-row--style > td {
   border-top: var(--assist-batch-style-border);
   border-bottom: var(--assist-batch-style-border);
+  background: var(--assist-batch-style-bg);
 }
 
 .assist-batch-row--style:hover > td {
-  background: #f8fbff;
+  background: var(--assist-batch-style-hover-bg);
 }
 
 .assist-batch-row--nested {

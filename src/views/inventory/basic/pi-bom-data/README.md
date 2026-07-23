@@ -7,7 +7,7 @@
 - 页面：`src/views/inventory/basic/pi-bom-data/index.vue`
 - 独立窗口（浏览器原生新页）：`/inventory/basic/pi-bom-data-window`（权限沿用 `inventory/basic/pi-bom-data`）；支持 `mode=view|detail` 只读查看、`mode=edit` / `mode=parts-edit` 编辑
 - 销售订单展开明细「查看」专用路由：`/supply-chain/daily/sales-order-pi-bom-window`（复用本目录 `window.vue` + `PiBomViewerPanel`，权限挂 `supply-chain/daily/sales-order`）
-- 只读面板组件：`PiBomViewerPanel.vue`（独立窗与销售订单侧共用）；树形表用 `default-expand-all`，切标签页不再二次整树展开，避免大树卡顿
+- 只读面板组件：`PiBomViewerPanel.vue`（独立窗与销售订单侧共用）；**PI_BOM树形**对齐 BOM用量表/PI追溯：原生 `<table>` + **▶/▼ 三角** + 展开 `Set` 压可见行（默认只显示顶层，点三角/编码时整支全开；不用 `el-table` 树与 `default-expand-all`，避免大树卡顿）
 - 查看「基础资料」复用 BOM 同款 `BomBasicForm.vue`（`readonly`，与 BOM「查看详情」1:1 同排版）；PI号不进表单，只在独立窗标题展示：`查看 PI-BOM  {PI号}  {编码}`
 - 编辑面板组件：`PiBomEditorPanel.vue`（独立窗 `mode=edit|parts-edit`）
 - 后端接口：
@@ -33,6 +33,7 @@
 - 成本用量列显示格式为 `成本：kcac04合计,kcac06合计`，统一按 4 位小数展示并去掉无意义尾零（例如 `1.2300` 显示 `1.23`，`80.0000` 显示 `80`）。
 - 操作列提供 **查看** 与 **编辑** 两个按钮；均以浏览器原生新标签打开无侧栏全屏独立页（`tag="a"` + `target="_blank"`，对齐 BOM / 销售订单展开明细「查看」）。
 - **查看**：`/inventory/basic/pi-bom-data-window?mode=view&orderId=…&kcaa01=…&piNo=…`（挂 `PiBomViewerPanel`，4 标签：基础资料、配件明细、PI_BOM树形、成本BOM用量表）；标题为 `查看 PI-BOM  {PI号}  {编码}`，右上角有与 BOM资料一致的红框 `×` 关闭按钮；基础资料与 BOM「查看详情」同组件同字段排版；配件明细可下钻查看下级，不可修改。销售订单侧亦可走 `sales-order-pi-bom-window`（同一基础资料页）。
+- **PI_BOM树形交互（2026-07）**：原生表 + ▶/▼；默认只显示顶层；点三角或编码整支全开；工具条「展开全部 / 关闭全部」。销售订单「转向物料查询」弹窗内「PI-BOM树形」同步同口径。
 - **编辑**：`/inventory/basic/pi-bom-data-window?mode=edit&orderId=…&kcaa01=…`（挂 `PiBomEditorPanel`，2 标签：基础资料 + 配件明细）；基础资料点「保存主档」写入 `UB_ERP_Bom_Sales`；配件明细点「保存配件明细」写入 `UB_ERP_Bom_Sales_list`。
 - 编辑页配件行点 **编辑配件**：再开一层原生新页 `mode=parts-edit`（无侧栏）；下层页基础资料只读，配件明细可维护；继续下钻仍用「编辑配件」新页。进入编辑后，单位用量、损耗率、单价、备注默认可直接改，无需逐行点「编辑」。缺订单 ID 或编码时不跳转并中文提示。
 - `分类` 显示 `UB_ERP_Stocks_material.name`，通过销售订单明细快照 `kcaa05` 匹配 `UB_ERP_Stocks_material.code`（旧表名 `Bom_material`）。
@@ -60,7 +61,7 @@
 |---|---|
 | 基础资料 | `UB_ERP_Bom_Sales`，按 `sid = PI号`、`kcaa01 = 编码` 查询；LEFT JOIN `UB_ERP_Stocks_material`（分类名）、`UB_ERP_Stocks_colorcode`（颜色名）、`UB_ERP_Stocks_workshop`（车间）、`UB_ERP_System_supplier`（供应商名称）；前端用 `BomBasicForm` 只读展示（与 BOM 查看详情一致） |
 | 配件明细 | `UB_ERP_Bom_Sales_list`，按 `sid = PI号`、`KCAC01 = 基础资料.systemcode` 查询当前成品直接子件 |
-| PI_BOM树形 | `UB_ERP_Bom_Sales_list`，按 `kcac01` 父级键与 `systemcode/kcac02` 子级键展开 |
+| PI_BOM树形 | `UB_ERP_Bom_Sales_list`，按 `kcac01` 父级键与 `systemcode/kcac02` 子级键展开；前端原生三角树（默认顶层，整支展开） |
 | 成本BOM用量表 | `UB_ERP_Bom_pi_cost`，按 `sid = PI号`、`pq = 编码` 查询已运算行 |
 
 只读详情页不读取 `UB_ERP_Bom_000`、`UB_ERP_Bom_parts`、`UB_ERP_Bom_cost`，也不触发同步 BOM 或一键运算。

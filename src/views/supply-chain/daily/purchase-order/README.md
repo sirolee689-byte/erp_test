@@ -81,6 +81,7 @@
 - 采购批量添加窗口：订单采购仅支持单 PI；请购采购和其他采购都支持 BOM 全量或多 PI 销售清单选材（其他采购可不填关联号直接全库选材）。批量带回的可采购数量（订单采购）是建议值；请购/其他采购带回数量默认为 0。保存端仍只强校验采购数量大于 0。
 - 若批量添加仍报类型转换错误，先确认 3001 后端已重启并重新登录，再检查 PI 运算数据是否完整。
 - **展开明细/列表汇总数字安全读取（2026-06-18）**：`expand-detail` 与列表聚合 SQL 已改用 `buyOrderSqlSafe.safeDecimalExpr`，避免旧表 nvarchar 数量/单价字段触发 `nvarchar→numeric` 转换错误。
+- **列表大金额溢出（2026-07-23）**：`safeDecimalExpr` 目标类型由 `decimal(18,6)` 改为 `decimal(38,6)`。明细 `kcak051` 等物理列为 `numeric(18,4)` 时可存 `1000000000000`（13 位整数），经文本再转回 `decimal(18,6)`（整数位仅 12）会报 `Arithmetic overflow error converting nvarchar to data type numeric`，导致「读取采购单列表失败」。
 - **展开明细 kcak06 文本读取（2026-06-22）**：明细表 `kcak06`（上级材料编码）物理类型为 `numeric`，不能再写 `ISNULL(kcak06, N'')`；已改用 `nvarcharTextExpr` 先转文本再兜底空串。
 - **BOM 快照 GUID（2026-06-18）**：保存时 `UB_ERP_Bom_buy_order.[GUID]` 与 `[systemcode]` 同值写入，均取自 `UB_ERP_Bom_000.GUID`（无 GUID 时用 systemcode 兜底）。
 

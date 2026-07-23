@@ -11,6 +11,10 @@ import {
   SALES_ORDER_HEADER_TABLE,
 } from './salesOrderListQuery.js'
 import { buildMaterialBillCostLines } from './salesOrderMaterialBillService.js'
+import {
+  fetchBomHeadSystemcodeBatch,
+  fetchBomPartsDirectChildrenBatch,
+} from './stockOutAssistIssueBomExpand.js'
 
 const SALES_HEADER_FROM = `dbo.[${SALES_ORDER_HEADER_TABLE}]`
 const SALES_LINE_FROM = 'dbo.[UB_ERP_Sales_order_list]'
@@ -21,6 +25,8 @@ const ASSIST_HEADER_FROM = 'dbo.[UB_ERP_assist_order]'
 const ASSIST_OFFER_FROM = 'dbo.[UB_ERP_assist_offer]'
 const ASSIST_OFFER_LINE_FROM = 'dbo.[UB_ERP_assist_offer_list]'
 const BUY_OFFER_LINE_FROM = 'dbo.[UB_ERP_Buy_offer_list]'
+const STOCK_OUT_HEADER_FROM = 'dbo.[UB_ERP_Stocks_out]'
+const STOCK_OUT_LINE_FROM = 'dbo.[UB_ERP_Stocks_out_list]'
 
 function parsePositiveInt(value) {
   const n = Number(value)
@@ -194,10 +200,6 @@ export function buildFirstBomQtyMapFromCostLines(costLines) {
 }
 
 /**
- * 同一款式下按 kcaa01 去重（保留 BOM 顺序第一条），并隐藏 kcaa13=0 不可外协行。
- * @param {{ kcaa01?: string, isOutsource?: number }[]} materialRows
- */
-/**
  * 旧系统 s_choose_pi_list.asp bomstr：UB_ERP_Bom_code.copen=1，OUT 用后缀，其余用 flag5- 前缀。
  * @param {import('mssql').ConnectionPool} pool
  * @returns {Promise<string[]>}
@@ -263,40 +265,59 @@ export function resolveBatchAddCodeColor({ kcaa01, bomCodePrefixes }) {
 
 /**
  * 合并 pkcaa01 子树行与 kcaa03=父款号的半成品行（BOM 顺序：先子树后半成品）。
- * @param {{ kcaa01?: string }[]} pkcaa01Rows
+ * 同码去重时优先保留 isOutsource=1（避免未外协行占坑挤掉外协子料）。
+ * @param {{ kcaa01?: string, isOutsource?: number }[]} pkcaa01Rows
  * @param {{ kcaa01?: string, kcaa03?: string, isOutsource?: number }[]} allBomRows
  * @param {string} product
  * @param {string[]} bomCodePrefixes
  */
 export function mergeBatchAddMaterialRows(pkcaa01Rows, allBomRows, product, bomCodePrefixes) {
-  /** @type {Set<string>} */
-  const seen = new Set()
+  /** @type {Map<string, number>} key -> merged 下标 */
+  const indexByKey = new Map()
   const merged = []
   const prod = normKcaa01(product)
   const prefixes = Array.isArray(bomCodePrefixes) ? bomCodePrefixes : []
+
+  /**
+   * @param {{ kcaa01?: string, isOutsource?: number }} row
+   */
+  function upsertPreferOutsource(row) {
+    const material = normKcaa01(row?.kcaa01)
+    if (!material) return
+    const key = material.toLowerCase()
+    const nextOut = Number(row?.isOutsource) === 1
+    const idx = indexByKey.get(key)
+    if (idx === undefined) {
+      indexByKey.set(key, merged.length)
+      merged.push(row)
+      return
+    }
+    const prevOut = Number(merged[idx]?.isOutsource) === 1
+    // 已有未外协、后来遇到外协 → 替换；已有外协则忽略后续重复
+    if (!prevOut && nextOut) {
+      merged[idx] = row
+    }
+  }
+
   for (const row of Array.isArray(pkcaa01Rows) ? pkcaa01Rows : []) {
     const material = normKcaa01(row?.kcaa01)
     if (!material) continue
     if (kcaa01MatchesAnyBomCodeAssistBatchPrefix(material, prefixes)) continue
-    const key = material.toLowerCase()
-    if (seen.has(key)) continue
-    seen.add(key)
-    merged.push(row)
+    upsertPreferOutsource(row)
   }
   for (const row of Array.isArray(allBomRows) ? allBomRows : []) {
     if (normKcaa01(row?.kcaa03) !== prod) continue
     if (Number(row?.isOutsource) !== 1) continue
     if (!kcaa01MatchesAnyBomCodeAssistBatchPrefix(row?.kcaa01, bomCodePrefixes)) continue
-    const material = normKcaa01(row?.kcaa01)
-    if (!material) continue
-    const key = material.toLowerCase()
-    if (seen.has(key)) continue
-    seen.add(key)
-    merged.push(row)
+    upsertPreferOutsource(row)
   }
   return merged
 }
 
+/**
+ * 只保留可外协行；同码去重。未外协不占坑，避免挤掉后面的外协同码行。
+ * @param {{ kcaa01?: string, isOutsource?: number }[]} materialRows
+ */
 export function filterBatchAddMaterialRows(materialRows) {
   /** @type {Set<string>} */
   const seen = new Set()
@@ -304,10 +325,10 @@ export function filterBatchAddMaterialRows(materialRows) {
   for (const row of Array.isArray(materialRows) ? materialRows : []) {
     const material = normKcaa01(row?.kcaa01)
     if (!material) continue
+    if (Number(row?.isOutsource) !== 1) continue
     const key = material.toLowerCase()
     if (seen.has(key)) continue
     seen.add(key)
-    if (Number(row?.isOutsource) !== 1) continue
     result.push(row)
   }
   return result
@@ -448,10 +469,209 @@ export function buildCurrentLineQtyMap(lines, piNo) {
 }
 
 /**
- * @param {Map<string, number>} bomQtyMap product|material -> qty
- * @param {Map<string, number>} outsourcedDb full key -> qty
- * @param {Map<string, number>} outsourcedCurrent full key -> qty
+ * 批量添加：已外协数量(wxak03) 同键映射
+ * @param {{ piNo?: unknown, product?: unknown, kcaa01?: unknown, outsourcedQty?: unknown }[]} rows
  */
+export function buildAssistBatchOutsourcedMaps(rows) {
+  /** @type {Map<string, number>} */
+  const outsourcedDbMap = new Map()
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const key = buildAssistBatchLineKey(row.piNo, row.product, row.kcaa01)
+    if (!key || key === '||') continue
+    outsourcedDbMap.set(key, roundQty(Number(row.outsourcedQty ?? 0), 2))
+  }
+  return { outsourcedDbMap }
+}
+
+/** 已外协出库数量展示文案（与 formatNum 一致：数字转字符串） */
+export function formatAssistBatchOutboundQtyLabel(qty) {
+  return String(roundQty(Number(qty ?? 0), 2))
+}
+
+/**
+ * 父件可归属的出库子料编码：有 Bom_parts 直接子层用子料，否则回退父件自身
+ * @param {unknown} parentKcaa01
+ * @param {Map<string, string[]> | Record<string, string[]>} childrenByParent
+ */
+export function resolveAssistBatchOutboundChildCodes(parentKcaa01, childrenByParent) {
+  const parent = normKcaa01(parentKcaa01)
+  if (!parent) return []
+  const raw =
+    childrenByParent instanceof Map
+      ? childrenByParent.get(parent.toLowerCase())
+      : childrenByParent?.[parent.toLowerCase()]
+  const kids = (Array.isArray(raw) ? raw : [])
+    .map((c) => normKcaa01(c))
+    .filter(Boolean)
+  return kids.length ? kids : [parent]
+}
+
+/**
+ * 按外协父件键汇总其子料外协领料出库数量（含未审）
+ * @param {{ piNo?: unknown, product?: unknown, kcaa01?: unknown, assistOrderNo?: unknown }[]} assistLines
+ * @param {Map<string, string[]> | Record<string, string[]>} childrenByParent
+ * @param {{ assistOrderNo?: unknown, kcaa01?: unknown, qty?: unknown }[]} outboundRows
+ * @returns {Map<string, number>}
+ */
+export function buildAssistBatchChildOutboundQtyMap(assistLines, childrenByParent, outboundRows) {
+  /** @type {Map<string, { lineKey: string, childSet: Set<string> }[]>} */
+  const byOrder = new Map()
+  for (const line of Array.isArray(assistLines) ? assistLines : []) {
+    const orderNo = String(line?.assistOrderNo ?? '').trim()
+    const parent = normKcaa01(line?.kcaa01)
+    if (!orderNo || !parent) continue
+    const lineKey = buildAssistBatchLineKey(line.piNo, line.product, parent)
+    if (!lineKey || lineKey === '||') continue
+    const childSet = new Set(
+      resolveAssistBatchOutboundChildCodes(parent, childrenByParent).map((c) => c.toLowerCase()),
+    )
+    const key = orderNo.toLowerCase()
+    const list = byOrder.get(key) ?? []
+    list.push({ lineKey, childSet })
+    byOrder.set(key, list)
+  }
+
+  /** @type {Map<string, number>} */
+  const map = new Map()
+  for (const row of Array.isArray(outboundRows) ? outboundRows : []) {
+    const orderNo = String(row?.assistOrderNo ?? '').trim().toLowerCase()
+    const mat = normKcaa01(row?.kcaa01).toLowerCase()
+    const qty = Number(row?.qty ?? 0)
+    if (!orderNo || !mat || !Number.isFinite(qty) || qty === 0) continue
+    for (const { lineKey, childSet } of byOrder.get(orderNo) ?? []) {
+      if (!childSet.has(mat)) continue
+      map.set(lineKey, roundQty((map.get(lineKey) ?? 0) + qty, 2))
+    }
+  }
+  return map
+}
+
+/**
+ * @param {Map<string, { systemcode?: unknown, bomGuid?: unknown }>} bomHeadMap
+ * @param {Map<string, any[]>} bomPartsMap
+ * @param {string[]} parentCodes
+ * @returns {Map<string, string[]>}
+ */
+export function buildAssistBatchChildrenByParentMap(bomHeadMap, bomPartsMap, parentCodes) {
+  /** @type {Map<string, string[]>} */
+  const childrenByParent = new Map()
+  for (const code of parentCodes ?? []) {
+    const parent = normKcaa01(code)
+    if (!parent) continue
+    const head = bomHeadMap?.get(parent.toLowerCase())
+    const guid = String(head?.systemcode || head?.bomGuid || '').trim()
+    const parts = guid ? (bomPartsMap?.get(guid.toLowerCase()) ?? []) : []
+    const kids = []
+    const seen = new Set()
+    for (const row of parts) {
+      const child = normKcaa01(row?.kcaa01)
+      const key = child.toLowerCase()
+      if (!child || seen.has(key)) continue
+      seen.add(key)
+      kids.push(child)
+    }
+    childrenByParent.set(parent.toLowerCase(), kids)
+  }
+  return childrenByParent
+}
+
+/**
+ * 按 PI 汇总：外协父件 → Bom 子料外协领料出库（含未审）
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {{ piNo: string, excludeOrderNo?: string }} opts
+ */
+async function fetchAssistBatchChildOutboundQtyMap(pool, { piNo, excludeOrderNo = '' }) {
+  const pi = String(piNo ?? '').trim()
+  if (!pi) return new Map()
+
+  const req = pool.request().input('pi', sql.NVarChar(200), pi)
+  let excludeSql = ''
+  if (excludeOrderNo) {
+    req.input('excludeOrderNo', sql.NVarChar(200), excludeOrderNo)
+    excludeSql = `
+      AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj01], N'')))) <> @excludeOrderNo
+    `
+  }
+  const assistR = await req.query(`
+    SELECT
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[pi], N'')))) AS piNo,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(
+        NULLIF(LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[pq], N'')))), N''),
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[Product], N''))))
+      )))) AS product,
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N'')))) AS kcaa01,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[wxak01], N'')))) AS assistOrderNo
+    FROM ${ASSIST_LINE_FROM} AS l
+    INNER JOIN ${ASSIST_HEADER_FROM} AS h
+      ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[wxak01], N'')))) =
+         LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[wxaj01], N''))))
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[pi], N'')))) = @pi
+      AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
+      AND (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
+      ${excludeSql}
+  `)
+  const assistLines = assistR.recordset ?? []
+  if (!assistLines.length) return new Map()
+
+  const parentCodes = [
+    ...new Set(assistLines.map((row) => normKcaa01(row.kcaa01)).filter(Boolean)),
+  ]
+  const orderNos = [
+    ...new Set(assistLines.map((row) => String(row.assistOrderNo ?? '').trim()).filter(Boolean)),
+  ]
+
+  const bomHeadMap = await fetchBomHeadSystemcodeBatch(pool, parentCodes)
+  const parentGuids = [
+    ...new Set(
+      parentCodes
+        .map((code) => {
+          const head = bomHeadMap.get(code.toLowerCase())
+          return String(head?.systemcode || head?.bomGuid || '').trim()
+        })
+        .filter(Boolean),
+    ),
+  ]
+  const bomPartsMap = await fetchBomPartsDirectChildrenBatch(pool, parentGuids)
+  const childrenByParent = buildAssistBatchChildrenByParentMap(bomHeadMap, bomPartsMap, parentCodes)
+
+  /** @type {{ assistOrderNo: string, kcaa01: string, qty: number }[]} */
+  let outboundRows = []
+  if (orderNos.length) {
+    const outReq = pool.request()
+    const inList = orderNos
+      .map((no, i) => {
+        const p = `ao${i}`
+        outReq.input(p, sql.NVarChar(200), no)
+        return `@${p}`
+      })
+      .join(', ')
+    const outR = await outReq.query(`
+      SELECT
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcap04], N'')))) AS assistOrderNo,
+        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N'')))) AS kcaa01,
+        SUM(ISNULL(l.[kcaq03], 0)) AS qty
+      FROM ${STOCK_OUT_HEADER_FROM} AS h
+      INNER JOIN ${STOCK_OUT_LINE_FROM} AS l
+        ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaq01], N'')))) =
+           LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcap01], N''))))
+      WHERE LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(h.[kcap03], N'')))) = N'2'
+        AND (ISNULL(h.[del], N'') = N'' OR h.[del] = N'0')
+        AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
+        AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcap04], N'')))) IN (${inList})
+      GROUP BY
+        LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[kcap04], N'')))),
+        LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N''))))
+    `)
+    outboundRows = (outR.recordset ?? []).map((row) => ({
+      assistOrderNo: String(row.assistOrderNo ?? '').trim(),
+      kcaa01: normKcaa01(row.kcaa01),
+      qty: Number(row.qty ?? 0),
+    }))
+  }
+
+  return buildAssistBatchChildOutboundQtyMap(assistLines, childrenByParent, outboundRows)
+}
+
 export function calcAvailableQty(bomQty, outsourcedDb = 0, outsourcedCurrent = 0) {
   const bom = Number(bomQty ?? 0)
   const db = Number(outsourcedDb ?? 0)
@@ -1111,12 +1331,11 @@ export async function fetchAssistOrderBatchAddTree(pool, opts) {
       LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N''))))
   `)
 
-  /** @type {Map<string, number>} */
-  const outsourcedDbMap = new Map()
-  for (const row of outsourcedR.recordset ?? []) {
-    const key = buildAssistBatchLineKey(row.piNo, row.product, row.kcaa01)
-    outsourcedDbMap.set(key, roundQty(Number(row.outsourcedQty ?? 0), 2))
-  }
+  const { outsourcedDbMap } = buildAssistBatchOutsourcedMaps(outsourcedR.recordset ?? [])
+  const outboundDbMap = await fetchAssistBatchChildOutboundQtyMap(pool, {
+    piNo,
+    excludeOrderNo,
+  })
 
   /** @type {Map<string, typeof bomListRows>} */
   const materialsByProduct = new Map()
@@ -1159,6 +1378,7 @@ export async function fetchAssistOrderBatchAddTree(pool, opts) {
       const outsourcedDb = outsourcedDbMap.get(lineKey) ?? 0
       const outsourcedCurrent = currentQtyMap.get(lineKey) ?? 0
       const availableQty = calcAvailableQty(bomQty, outsourcedDb, outsourcedCurrent)
+      const outboundQty = outboundDbMap.get(lineKey) ?? 0
       const isOutsource = Number(mat.isOutsource) === 1
       const codeColor = resolveBatchAddCodeColor({
         kcaa01: material,
@@ -1190,7 +1410,8 @@ export async function fetchAssistOrderBatchAddTree(pool, opts) {
         wxab04: price.wxab04,
         wxab05: price.wxab05,
         tax: price.tax,
-        outboundQtyLabel: '待开发',
+        outboundQty,
+        outboundQtyLabel: formatAssistBatchOutboundQtyLabel(outboundQty),
       })
     })
 

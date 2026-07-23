@@ -1053,7 +1053,7 @@
                   <el-button :disabled="!bomUsageTreeData.length" @click="expandAllBomUsageTree">展开全部</el-button>
                   <el-button :disabled="!bomUsageTreeData.length" @click="collapseAllBomUsageTree">关闭全部</el-button>
                   <span class="bom-usage-calc-toolbar__hint">
-                    提示：点三角或编码，可单独展开/收起该行；展开时打开该支下全部层级
+                    提示：点三角或编码，可手动展开/收起该行；展开时打开该支下全部层级
                   </span>
                 </div>
                 <el-alert
@@ -1065,45 +1065,69 @@
                 />
                 <div v-loading="bomUsageTreeLoading" class="bom-usage-tree-wrap">
                   <div v-if="bomUsageTreeData.length" class="bom-usage-table-outer">
-                    <el-table
-                      ref="bomUsageTableRef"
-                      :data="bomUsageTreeData"
-                      row-key="id"
-                      border
-                      stripe
-                      :size="detailTableSize"
-                      class="bom-usage-tree-table"
-                      :tree-props="{ children: 'children' }"
-                      max-height="calc(100vh - 280px)"
-                      @expand-change="onBomUsageTreeExpandChange"
-                      @row-contextmenu="onBomUsageOrCostRowContextMenu"
-                    >
-                      <el-table-column prop="kcaa01" label="编码" min-width="200" fixed="left">
-                        <template #default="{ row }">
-                          <span
-                            class="bom-usage-tree-code"
-                            :class="{ 'bom-usage-tree-code--branch': row.children?.length }"
-                            :title="row.kcaa01"
-                            @click.stop="onBomUsageCodeClick(row)"
-                          >{{ row.kcaa01 }}</span>
-                        </template>
-                      </el-table-column>
-                      <el-table-column prop="kcaa02" label="名称" min-width="120" show-overflow-tooltip />
-                      <el-table-column prop="kcaa03" label="规格" min-width="120" show-overflow-tooltip />
-                      <el-table-column prop="kcaa04" label="单位" width="72" align="center" show-overflow-tooltip />
-                      <el-table-column label="用量(kcac04)" width="118" align="right">
-                        <template #default="{ row }">{{ formatUsageCalcQty(row.kcac04) }}</template>
-                      </el-table-column>
-                      <el-table-column label="损耗(kcac05)" width="118" align="right">
-                        <template #default="{ row }">{{ formatUsageCalcQty(row.kcac05) }}</template>
-                      </el-table-column>
-                      <el-table-column label="合计(kcac06)" width="132" align="right">
-                        <template #default="{ row }">{{ formatUsageCalcQty(partUsageSum(row)) }}</template>
-                      </el-table-column>
-                      <el-table-column prop="Describe" label="备注" min-width="100" show-overflow-tooltip />
-                      <el-table-column prop="Seq" label="Seq" width="64" align="center" />
-                      <el-table-column prop="level" label="层级" width="64" align="center" />
-                    </el-table>
+                    <!-- 对齐 PI 追溯：原生 table + ▶/▼，用 Set 压可见行，避免 el-table 树展开卡顿 -->
+                    <table class="bom-usage-native-tree-table">
+                      <thead>
+                        <tr>
+                          <th class="bom-usage-th-code">编码</th>
+                          <th>名称</th>
+                          <th>规格</th>
+                          <th class="bom-usage-th-center">单位</th>
+                          <th class="bom-usage-th-num">用量(kcac04)</th>
+                          <th class="bom-usage-th-num">损耗(kcac05)</th>
+                          <th class="bom-usage-th-num">合计(kcac06)</th>
+                          <th>备注</th>
+                          <th class="bom-usage-th-center">Seq</th>
+                          <th class="bom-usage-th-center">层级</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr
+                          v-for="row in bomUsageVisibleRows"
+                          :key="row.id"
+                          :class="{
+                            'is-selected': bomUsageSelectedId === row.id,
+                            'is-top': row.depth === 0,
+                          }"
+                          @click="bomUsageSelectedId = row.id"
+                          @contextmenu.prevent="onBomUsageOrCostRowContextMenu(row.node, null, $event)"
+                        >
+                          <td class="bom-usage-td-code">
+                            <div class="bom-usage-td-code-inner">
+                              <span
+                                class="bom-usage-tree-indent"
+                                :style="{ width: `${row.depth * BOM_USAGE_TREE_INDENT_PX}px` }"
+                              />
+                              <button
+                                type="button"
+                                class="bom-usage-tree-caret"
+                                :class="{ 'bom-usage-tree-caret--leaf': !row.hasKids }"
+                                :disabled="!row.hasKids"
+                                :title="row.hasKids ? (row.expanded ? '收起' : '展开') : undefined"
+                                @click.stop="onBomUsageRowToggle(row)"
+                              >
+                                <template v-if="row.hasKids">{{ row.expanded ? '▼' : '▶' }}</template>
+                              </button>
+                              <span
+                                class="bom-usage-tree-code"
+                                :class="{ 'bom-usage-tree-code--branch': row.hasKids }"
+                                :title="row.kcaa01"
+                                @click.stop="onBomUsageCodeClick(row)"
+                              >{{ row.kcaa01 }}</span>
+                            </div>
+                          </td>
+                          <td :title="row.kcaa02">{{ row.kcaa02 }}</td>
+                          <td :title="row.kcaa03">{{ row.kcaa03 }}</td>
+                          <td class="bom-usage-td-center">{{ row.kcaa04 }}</td>
+                          <td class="bom-usage-td-num">{{ formatUsageCalcQty(row.kcac04) }}</td>
+                          <td class="bom-usage-td-num">{{ formatUsageCalcQty(row.kcac05) }}</td>
+                          <td class="bom-usage-td-num">{{ formatUsageCalcQty(partUsageSum(row.node)) }}</td>
+                          <td :title="row.Describe">{{ row.Describe }}</td>
+                          <td class="bom-usage-td-center">{{ row.Seq }}</td>
+                          <td class="bom-usage-td-center">{{ row.level }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
                   <el-empty
                     v-else-if="!bomUsageTreeLoading && !bomUsageTreeError"
@@ -1785,11 +1809,15 @@ async function onLinkedDetailSaved() {
 }
 
 /** BOM用量表运算：树形表格数据源（GET /api/bom/tree，嵌套 children） */
-const bomUsageTreeLoading = ref(false)
-const bomUsageTreeError = ref('')
-const bomUsageTreeData = ref([])
-const bomUsageTableRef = ref(null)
-const bomCostUsageTableRef = ref(null)
+  const bomUsageTreeLoading = ref(false)
+  const bomUsageTreeError = ref('')
+  const bomUsageTreeData = ref([])
+  /** 已展开节点 id（对齐 PI 追溯：原生表 + Set，不用 el-table 树） */
+  const bomUsageExpandedIds = ref(new Set())
+  const bomUsageSelectedId = ref(null)
+  /** DIY：每层缩进像素 */
+  const BOM_USAGE_TREE_INDENT_PX = 18
+  const bomCostUsageTableRef = ref(null)
 /** 成本 BOM 用量表展示行（本地：前缀筛选 + 按编码+备注合并） */
 const bomCostUsageFlatRows = ref([])
 /** 成本平铺源行：UB_ERP_Bom_cost 映射或 DFS flatCostUsageRaw（与写库同源算法，供合并用） */
@@ -2252,55 +2280,83 @@ function walkBomUsageTree(rows, fn) {
   }
 }
 
-/** 展开某行下整棵子树（凡有 children 的节点全部打开） */
-function expandBomUsageSubtree(row) {
-  const t = bomUsageTableRef.value
-  if (!t || !row?.children?.length) return
-  walkBomUsageTree(row.children, (node) => {
-    if (node.children?.length) t.toggleRowExpansion(node, true)
-  })
-}
-
 /**
- * 树表展开变化：展开时递归打开该支全部层级（与 PI 追溯「只开一层」不同）
- * 第二参：树表多为 boolean；个别版本可能给 expandedRows 数组，两边都认
+ * 按展开 Set 把用量树压成表格行（与 PI 追溯 visibleBomRows 同思路；
+ * 展开一支时把该支下有下级的节点一并写入 Set，一次重算可见行，无 el-table 连调卡顿）
  */
-function onBomUsageTreeExpandChange(row, expandedOrRows) {
-  const expanded =
-    typeof expandedOrRows === 'boolean'
-      ? expandedOrRows
-      : Array.isArray(expandedOrRows) &&
-        expandedOrRows.some((r) => r === row || (r?.id != null && r.id === row?.id))
-  if (!expanded) return
-  nextTick(() => expandBomUsageSubtree(row))
+const bomUsageVisibleRows = computed(() => {
+  const expanded = bomUsageExpandedIds.value
+  /** @type {any[]} */
+  const out = []
+  const walk = (nodes, depth) => {
+    for (const n of nodes || []) {
+      const kids = Array.isArray(n.children) ? n.children : []
+      const hasKids = kids.length > 0
+      const isExpanded = hasKids && expanded.has(n.id)
+      out.push({
+        id: n.id,
+        depth,
+        hasKids,
+        expanded: isExpanded,
+        node: n,
+        kcaa01: n.kcaa01 || '',
+        kcaa02: n.kcaa02 || '',
+        kcaa03: n.kcaa03 || '',
+        kcaa04: n.kcaa04 || '',
+        kcac04: n.kcac04,
+        kcac05: n.kcac05,
+        Describe: n.Describe || '',
+        Seq: n.Seq,
+        level: n.level,
+      })
+      if (isExpanded) walk(kids, depth + 1)
+    }
+  }
+  walk(bomUsageTreeData.value, 0)
+  return out
+})
+
+/** 展开：本节点 + 该支下凡有下级的节点；收起：本节点及子孙从 Set 清掉 */
+function toggleBomUsageExpand(node) {
+  if (!node?.children?.length || node.id == null) return
+  const set = new Set(bomUsageExpandedIds.value)
+  if (set.has(node.id)) {
+    set.delete(node.id)
+    walkBomUsageTree(node.children, (n) => {
+      if (n.id != null) set.delete(n.id)
+    })
+  } else {
+    set.add(node.id)
+    walkBomUsageTree(node.children, (n) => {
+      if (n.children?.length && n.id != null) set.add(n.id)
+    })
+  }
+  bomUsageExpandedIds.value = set
 }
 
-/** 点编码：有下级则切换展开；展开时由 expand-change 再递归全开 */
+function onBomUsageRowToggle(row) {
+  bomUsageSelectedId.value = row.id
+  if (!row.hasKids) return
+  toggleBomUsageExpand(row.node)
+}
+
+/** 点编码：有下级则切换展开（整支全开/全收） */
 function onBomUsageCodeClick(row) {
-  if (!row?.children?.length) return
-  const t = bomUsageTableRef.value
-  if (!t) return
-  t.toggleRowExpansion(row)
+  bomUsageSelectedId.value = row.id
+  if (!row.hasKids) return
+  toggleBomUsageExpand(row.node)
 }
 
 function expandAllBomUsageTree() {
-  nextTick(() => {
-    const t = bomUsageTableRef.value
-    if (!t) return
-    walkBomUsageTree(bomUsageTreeData.value, (row) => {
-      if (row.children?.length) t.toggleRowExpansion(row, true)
-    })
+  const set = new Set()
+  walkBomUsageTree(bomUsageTreeData.value, (row) => {
+    if (row.children?.length && row.id != null) set.add(row.id)
   })
+  bomUsageExpandedIds.value = set
 }
 
 function collapseAllBomUsageTree() {
-  nextTick(() => {
-    const t = bomUsageTableRef.value
-    if (!t) return
-    walkBomUsageTree(bomUsageTreeData.value, (row) => {
-      if (row.children?.length) t.toggleRowExpansion(row, false)
-    })
-  })
+  bomUsageExpandedIds.value = new Set()
 }
 
 /** 配件明细 Tab */
@@ -2430,6 +2486,8 @@ function applyBomUsageCalcResult(body, systemcode) {
   bomCostUsageRawRows.value =
     bomCostRows.length > 0 ? mapBomCostApiRowsToCostUsageRawRows(bomCostRows) : []
   bomUsageTreeData.value = Array.isArray(body?.data) ? body.data : []
+  bomUsageExpandedIds.value = new Set()
+  bomUsageSelectedId.value = null
   recomputeBomCostUsageDisplay()
 }
 
@@ -2449,6 +2507,8 @@ async function postBomListUsageCalcApi(systemcode, hidePrefixes) {
 
 function clearBomUsageCalcResultOnError() {
   bomUsageTreeData.value = []
+  bomUsageExpandedIds.value = new Set()
+  bomUsageSelectedId.value = null
   bomCostUsageRawRows.value = []
   bomUsageHasCache.value = false
   recomputeBomCostUsageDisplay()
@@ -3931,6 +3991,8 @@ async function loadBomUsageTreeOrCache(force = false) {
     }
     lastBomUsageFetchSystemcode.value = sc
     bomUsageTreeError.value = ''
+    bomUsageExpandedIds.value = new Set()
+    bomUsageSelectedId.value = null
     if (body.hasCache) {
       bomUsageHasCache.value = true
       bomCostUsageRawRows.value = mapBomCostApiRowsToCostUsageRawRows(body.UB_ERP_Bom_cost)
@@ -3945,6 +4007,8 @@ async function loadBomUsageTreeOrCache(force = false) {
     const msg = String(e?.response?.data?.msg ?? e?.message ?? '网络错误')
     bomUsageTreeError.value = msg
     bomUsageTreeData.value = []
+    bomUsageExpandedIds.value = new Set()
+    bomUsageSelectedId.value = null
     bomCostUsageRawRows.value = []
     bomUsageHasCache.value = false
     recomputeBomCostUsageDisplay()
@@ -3963,6 +4027,8 @@ function resetBomUsageBlockState() {
   lastBomUsageFetchSystemcode.value = ''
   bomUsageHasCache.value = false
   bomUsageTreeData.value = []
+  bomUsageExpandedIds.value = new Set()
+  bomUsageSelectedId.value = null
   bomCostUsageRawRows.value = []
   bomCostUsageFlatRows.value = []
   bomUsageTreeError.value = ''
@@ -5780,27 +5846,125 @@ if (isBomWindowRoute.value) {
   border-radius: 6px;
 }
 
-/* 树形表：横向字段多，外层横向滚动 + 视口限高（.cursorrules 超长表格约定） */
+/* 用量表：对齐 PI 追溯原生树表（三角 ▶/▼ + 缩进），不用 el-table 树 */
 .bom-usage-table-outer {
   width: 100%;
-  overflow-x: auto;
-  max-height: calc(100vh - 260px);
+  overflow: auto;
+  /* DIY：可视高度上限，与成本BOM用量表（100vh-190px）对齐。
+     数字调小=表格更高、底部留白更少；调大=底部空白更多 */
+  max-height: calc(100vh - 160px);
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+  background: #fff;
 }
-
-/* 用量表编码可点（对齐 PI 追溯：有下级时指针+主色悬停） */
-.bom-usage-tree-code {
-  word-break: break-all;
+.bom-usage-native-tree-table {
+  width: 100%;
+  min-width: 1100px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 13px;
   color: var(--el-text-color-primary);
+}
+.bom-usage-native-tree-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--el-fill-color-light);
+  border-bottom: 1px solid var(--el-border-color);
+  border-right: 1px solid var(--el-border-color-lighter);
+  padding: 8px 10px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+.bom-usage-native-tree-table thead th:last-child {
+  border-right: none;
+}
+.bom-usage-th-code {
+  width: 22%;
+}
+.bom-usage-th-center,
+.bom-usage-td-center {
+  text-align: center;
+  width: 64px;
+}
+.bom-usage-th-num,
+.bom-usage-td-num {
+  text-align: right;
+  width: 110px;
+  font-variant-numeric: tabular-nums;
+}
+.bom-usage-native-tree-table tbody td {
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  border-right: 1px solid var(--el-border-color-extra-light);
+  padding: 7px 10px;
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: #fff;
+}
+.bom-usage-native-tree-table tbody td:last-child {
+  border-right: none;
+}
+.bom-usage-native-tree-table tbody tr:hover td {
+  background: var(--el-fill-color-light);
+}
+.bom-usage-native-tree-table tbody tr.is-selected td {
+  background: var(--el-color-primary-light-7);
+}
+.bom-usage-native-tree-table tbody tr.is-top .bom-usage-tree-code {
+  font-weight: 600;
+}
+.bom-usage-td-code {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
+.bom-usage-td-code-inner {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+}
+.bom-usage-tree-indent {
+  flex: 0 0 auto;
+  height: 1px;
+  margin-top: 11px;
+}
+.bom-usage-tree-caret {
+  flex: 0 0 20px;
+  width: 20px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font-size: 10px;
+  line-height: 22px;
+  color: var(--el-text-color-secondary);
+  cursor: pointer;
+  user-select: none;
+  text-align: center;
+}
+.bom-usage-tree-caret--leaf {
+  visibility: hidden;
+  cursor: default;
+}
+.bom-usage-tree-code {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--el-text-color-primary);
+  word-break: break-all;
+  white-space: normal;
+  line-height: 1.35;
+  padding-top: 2px;
 }
 .bom-usage-tree-code--branch {
   cursor: pointer;
 }
 .bom-usage-tree-code--branch:hover {
   color: var(--el-color-primary);
-}
-
-.bom-usage-tree-table {
-  min-width: 1100px;
 }
 
 /* 成本 BOM 用量：抬头在工具条；灰框铺满 Tab 剩余高度，表体内部滚动 */

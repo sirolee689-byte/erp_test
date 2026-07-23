@@ -65,7 +65,73 @@
               <el-descriptions-item v-for="item in basicFields" :key="item.key" :label="item.label">{{ valueText(viewer.basic[item.key]) }}</el-descriptions-item>
             </el-descriptions><el-empty v-else description="暂无 PI-BOM 基础资料" /></el-tab-pane>
             <el-tab-pane label="配件明细" name="parts"><el-table :data="viewer.parts" border stripe class="erp-list-table" max-height="58vh"><el-table-column label="编码" prop="kcaa01" min-width="180" /><el-table-column label="名称" prop="kcaa02" min-width="180" /><el-table-column label="规格" prop="kcaa03" min-width="150" /><el-table-column label="单位" prop="kcaa04" width="80" /><el-table-column label="用量" width="110" align="right"><template #default="{ row }">{{ numberText(row.kcac04) }}</template></el-table-column><el-table-column label="损耗" width="100" align="right"><template #default="{ row }">{{ numberText(row.kcac05) }}</template></el-table-column><el-table-column label="合计" width="110" align="right"><template #default="{ row }">{{ numberText(row.kcac06) }}</template></el-table-column><el-table-column label="备注" prop="Describe" min-width="160" /></el-table></el-tab-pane>
-            <el-tab-pane label="PI-BOM树形" name="tree"><el-table :data="viewer.tree" row-key="id" :tree-props="{ children: 'children' }" default-expand-all border stripe class="erp-list-table" max-height="58vh"><el-table-column label="编码" prop="kcaa01" min-width="220" /><el-table-column label="名称" prop="kcaa02" min-width="180" /><el-table-column label="规格" prop="kcaa03" min-width="150" /><el-table-column label="单位" prop="kcaa04" width="80" /><el-table-column label="用量" prop="kcac04" width="110" /><el-table-column label="损耗" prop="kcac05" width="100" /><el-table-column label="合计" prop="kcac06" width="110" /><el-table-column label="备注" prop="Describe" min-width="160" /></el-table></el-tab-pane>
+            <el-tab-pane label="PI-BOM树形" name="tree">
+              <div class="so-trace-tree-toolbar">
+                <el-button :disabled="!viewer.tree.length" @click="expandAllViewerTree">展开全部</el-button>
+                <el-button :disabled="!viewer.tree.length" @click="collapseAllViewerTree">关闭全部</el-button>
+                <span class="so-trace-tree-hint">提示：点三角或编码，可手动展开/收起该行；展开时打开该支下全部层级</span>
+              </div>
+              <div class="so-trace-native-tree-wrap">
+                <table v-if="viewer.tree.length" class="so-trace-native-tree-table">
+                  <thead>
+                    <tr>
+                      <th class="so-trace-th-code">编码</th>
+                      <th>名称</th>
+                      <th>规格</th>
+                      <th class="so-trace-th-center">单位</th>
+                      <th class="so-trace-th-num">用量</th>
+                      <th class="so-trace-th-num">损耗</th>
+                      <th class="so-trace-th-num">合计</th>
+                      <th>备注</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="row in viewerTreeVisibleRows"
+                      :key="row.id"
+                      :class="{
+                        'is-selected': viewerTreeSelectedId === row.id,
+                        'is-top': row.depth === 0,
+                      }"
+                      @click="viewerTreeSelectedId = row.id"
+                    >
+                      <td class="so-trace-td-code">
+                        <div class="so-trace-td-code-inner">
+                          <span
+                            class="so-trace-tree-indent"
+                            :style="{ width: `${row.depth * SO_TRACE_TREE_INDENT_PX}px` }"
+                          />
+                          <button
+                            type="button"
+                            class="so-trace-tree-caret"
+                            :class="{ 'so-trace-tree-caret--leaf': !row.hasKids }"
+                            :disabled="!row.hasKids"
+                            :title="row.hasKids ? (row.expanded ? '收起' : '展开') : undefined"
+                            @click.stop="onViewerTreeRowToggle(row)"
+                          >
+                            <template v-if="row.hasKids">{{ row.expanded ? '▼' : '▶' }}</template>
+                          </button>
+                          <span
+                            class="so-trace-tree-code"
+                            :class="{ 'so-trace-tree-code--branch': row.hasKids }"
+                            :title="row.kcaa01"
+                            @click.stop="onViewerTreeCodeClick(row)"
+                          >{{ row.kcaa01 }}</span>
+                        </div>
+                      </td>
+                      <td :title="row.kcaa02">{{ row.kcaa02 }}</td>
+                      <td :title="row.kcaa03">{{ row.kcaa03 }}</td>
+                      <td class="so-trace-td-center">{{ row.kcaa04 }}</td>
+                      <td class="so-trace-td-num">{{ numberText(row.kcac04) }}</td>
+                      <td class="so-trace-td-num">{{ numberText(row.kcac05) }}</td>
+                      <td class="so-trace-td-num">{{ numberText(row.kcac06) }}</td>
+                      <td :title="row.Describe">{{ row.Describe }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <el-empty v-else description="暂无PI-BOM树形数据" :image-size="72" />
+              </div>
+            </el-tab-pane>
             <el-tab-pane label="成本BOM用量表" name="cost"><el-table :data="viewer.costRows" border stripe class="erp-list-table" max-height="58vh"><el-table-column label="编码" prop="kcaa01" min-width="200" /><el-table-column label="名称" prop="kcaa02" min-width="170" /><el-table-column label="规格" prop="kcaa03" min-width="150" /><el-table-column label="单位" prop="kcaa04" width="80" /><el-table-column label="用量" width="110"><template #default="{ row }">{{ numberText(row.kcac04) }}</template></el-table-column><el-table-column label="损耗" width="100"><template #default="{ row }">{{ numberText(row.kcac05) }}</template></el-table-column><el-table-column label="合计" width="110"><template #default="{ row }">{{ numberText(row.kcac06) }}</template></el-table-column><el-table-column label="备注" prop="Describe" min-width="160" /></el-table></el-tab-pane>
           </el-tabs>
         </template>
@@ -95,9 +161,92 @@ const categories = ref([]); const rows = ref([]); const loading = ref(false); co
 const checkedColumns = ref([...defaultColumnKeys])
 const visibleDynamicColumns = computed(() => { const set = new Set(checkedColumns.value); return dynamicColumns.filter((item) => !item.fixed && set.has(item.key)) })
 const viewerVisible = ref(false); const viewerLoading = ref(false); const viewerError = ref(''); const viewerTab = ref('basic'); const viewerRow = ref(null); const viewer = reactive({ basic: null, parts: [], tree: [], costRows: [] })
+const viewerTreeExpandedIds = ref(new Set())
+const viewerTreeSelectedId = ref(null)
+/** DIY：每层缩进像素 */
+const SO_TRACE_TREE_INDENT_PX = 18
 const basicFields = [['piNo', 'PI号'], ['kcaa01', '编码'], ['kcaa02', '名称'], ['kcaa03', '规格'], ['kcaa04', '单位'], ['kcaa06', '客户款号'], ['kcaa09', '工厂款号'], ['kcaa10', '组别'], ['version', '版本'], ['remark', '备注']].map(([key, label]) => ({ key, label }))
 const emptyText = computed(() => loading.value ? '加载中...' : queried.value ? '暂无数据' : '请填写条件后点“立即查询”')
 const viewerTitle = computed(() => { const row = viewerRow.value || {}; return `查看 PI-BOM：${row.salesOrderNo || ''} / ${row.kcaa01 || ''}` })
+
+function walkViewerTree(rows, fn) {
+  for (const row of rows ?? []) {
+    fn(row)
+    if (row.children?.length) walkViewerTree(row.children, fn)
+  }
+}
+
+const viewerTreeVisibleRows = computed(() => {
+  const expanded = viewerTreeExpandedIds.value
+  /** @type {any[]} */
+  const out = []
+  const walk = (nodes, depth) => {
+    for (const n of nodes || []) {
+      const kids = Array.isArray(n.children) ? n.children : []
+      const hasKids = kids.length > 0
+      const isExpanded = hasKids && expanded.has(n.id)
+      out.push({
+        id: n.id,
+        depth,
+        hasKids,
+        expanded: isExpanded,
+        node: n,
+        kcaa01: n.kcaa01 || '',
+        kcaa02: n.kcaa02 || '',
+        kcaa03: n.kcaa03 || '',
+        kcaa04: n.kcaa04 || '',
+        kcac04: n.kcac04,
+        kcac05: n.kcac05,
+        kcac06: n.kcac06,
+        Describe: n.Describe || '',
+      })
+      if (isExpanded) walk(kids, depth + 1)
+    }
+  }
+  walk(viewer.tree, 0)
+  return out
+})
+
+function toggleViewerTreeExpand(node) {
+  if (!node?.children?.length || node.id == null) return
+  const set = new Set(viewerTreeExpandedIds.value)
+  if (set.has(node.id)) {
+    set.delete(node.id)
+    walkViewerTree(node.children, (n) => {
+      if (n.id != null) set.delete(n.id)
+    })
+  } else {
+    set.add(node.id)
+    walkViewerTree(node.children, (n) => {
+      if (n.children?.length && n.id != null) set.add(n.id)
+    })
+  }
+  viewerTreeExpandedIds.value = set
+}
+
+function onViewerTreeRowToggle(row) {
+  viewerTreeSelectedId.value = row.id
+  if (!row.hasKids) return
+  toggleViewerTreeExpand(row.node)
+}
+
+function onViewerTreeCodeClick(row) {
+  viewerTreeSelectedId.value = row.id
+  if (!row.hasKids) return
+  toggleViewerTreeExpand(row.node)
+}
+
+function expandAllViewerTree() {
+  const set = new Set()
+  walkViewerTree(viewer.tree, (row) => {
+    if (row.children?.length && row.id != null) set.add(row.id)
+  })
+  viewerTreeExpandedIds.value = set
+}
+
+function collapseAllViewerTree() {
+  viewerTreeExpandedIds.value = new Set()
+}
 
 function dateText(value) { const raw = String(value ?? ''); return raw ? raw.replace('T', ' ').slice(0, 10) : '' }
 function numberText(value, digits = 6) { const n = Number(value); return Number.isFinite(n) ? n.toFixed(digits).replace(/\.?0+$/, '') : '' }
@@ -118,7 +267,27 @@ function onReset() { Object.assign(filters, { categoryId: '', groupName: '', sta
 function onDateChange() { if (filters.startDate && filters.endDate && filters.startDate > filters.endDate) ElMessage.warning('开始日期不能晚于结束日期') }
 function onPageSizeChange() { page.page = 1; if (queried.value) loadList() }
 function onPageChange() { if (queried.value) loadList() }
-async function openViewer(row) { viewerRow.value = row; viewerVisible.value = true; viewerLoading.value = true; viewerError.value = ''; viewerTab.value = 'basic'; Object.assign(viewer, { basic: null, parts: [], tree: [], costRows: [] }); try { const { data } = await axios.get('/api/inventory/pi-bom-data/detail', { params: { orderId: row.orderId, kcaa01: row.kcaa01 } }); if (data?.code !== 200) throw new Error(data?.msg || '加载 PI-BOM 详情失败'); Object.assign(viewer, { basic: data.data?.basic || null, parts: data.data?.parts || [], tree: data.data?.tree || [], costRows: data.data?.costRows || [] }) } catch (err) { viewerError.value = err?.response?.data?.msg || err?.message || '加载 PI-BOM 详情失败' } finally { viewerLoading.value = false } }
+async function openViewer(row) {
+  viewerRow.value = row
+  viewerVisible.value = true
+  viewerLoading.value = true
+  viewerError.value = ''
+  viewerTab.value = 'basic'
+  viewerTreeExpandedIds.value = new Set()
+  viewerTreeSelectedId.value = null
+  Object.assign(viewer, { basic: null, parts: [], tree: [], costRows: [] })
+  try {
+    const { data } = await axios.get('/api/inventory/pi-bom-data/detail', { params: { orderId: row.orderId, kcaa01: row.kcaa01 } })
+    if (data?.code !== 200) throw new Error(data?.msg || '加载 PI-BOM 详情失败')
+    Object.assign(viewer, { basic: data.data?.basic || null, parts: data.data?.parts || [], tree: data.data?.tree || [], costRows: data.data?.costRows || [] })
+    viewerTreeExpandedIds.value = new Set()
+    viewerTreeSelectedId.value = null
+  } catch (err) {
+    viewerError.value = err?.response?.data?.msg || err?.message || '加载 PI-BOM 详情失败'
+  } finally {
+    viewerLoading.value = false
+  }
+}
 async function exportXlsx() { if (!queried.value) return ElMessage.warning('请先执行查询'); exporting.value = true; try { const all = []; const size = 500; const pages = Math.max(1, Math.ceil(page.total / size)); for (let current = 1; current <= pages; current += 1) { const { data } = await axios.get('/api/sales-order/material-trace/list', { params: requestParams({ page: current, pageSize: size }) }); all.push(...(data?.data?.list || [])) }; const workbook = new ExcelJS.Workbook(); const sheet = workbook.addWorksheet('销售订单转向物料查询'); const configuredColumns = dynamicColumns.filter((column) => column.fixed && isColumnVisible(column.key)); const exportColumns = [...configuredColumns, { key: 'orderPass', label: '状态' }, ...visibleDynamicColumns.value]; sheet.addRow(exportColumns.map((item) => item.label)); all.forEach((row) => sheet.addRow(exportColumns.map((item) => item.key === 'orderPass' ? statusText(row.orderPass) : cellText(row, item)))); sheet.getRow(1).font = { bold: true }; sheet.columns.forEach((column) => { column.width = 18 }); const buffer = await workbook.xlsx.writeBuffer(); const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = '销售订单转向物料查询.xlsx'; link.click(); URL.revokeObjectURL(url) } catch (err) { ElMessage.error(err?.response?.data?.msg || err?.message || '导出失败') } finally { exporting.value = false } }
 onMounted(() => { try { const raw = localStorage.getItem(COLUMN_KEY); const saved = raw == null ? null : JSON.parse(raw); const allowed = new Set(defaultColumnKeys); if (Array.isArray(saved)) checkedColumns.value = saved.filter((key) => allowed.has(key)) } catch {} loadCategories() })
 </script>
@@ -128,4 +297,134 @@ onMounted(() => { try { const raw = localStorage.getItem(COLUMN_KEY); const save
 .so-trace-toolbar__row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .so-trace-category { width: 180px; }.so-trace-group { width: 140px; }.so-trace-date { width: 142px; }.so-trace-keyword { width: min(420px, 100%); }.so-trace-category, .so-trace-group, .so-trace-date, .so-trace-keyword { --el-component-size: 32px; }.so-trace-toolbar :deep(.el-input__wrapper), .so-trace-toolbar :deep(.el-select__wrapper) { min-height: 32px; }.so-trace-pagination { margin-top: 12px; display: flex; justify-content: flex-end; }
 .column-setting-panel { max-height: 52vh; overflow: auto; }.column-setting-panel :deep(.el-checkbox-group) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }.column-setting-actions { margin-top: 10px; }
+
+.so-trace-tree-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.so-trace-tree-hint {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.so-trace-native-tree-wrap {
+  width: 100%;
+  max-height: 58vh;
+  overflow: auto;
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+  background: #fff;
+}
+.so-trace-native-tree-table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 13px;
+  color: var(--el-text-color-primary);
+}
+.so-trace-native-tree-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--el-fill-color-light);
+  border-bottom: 1px solid var(--el-border-color);
+  border-right: 1px solid var(--el-border-color-lighter);
+  padding: 8px 10px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+.so-trace-native-tree-table thead th:last-child {
+  border-right: none;
+}
+.so-trace-th-code {
+  width: 26%;
+}
+.so-trace-th-center,
+.so-trace-td-center {
+  text-align: center;
+  width: 64px;
+}
+.so-trace-th-num,
+.so-trace-td-num {
+  text-align: right;
+  width: 100px;
+  font-variant-numeric: tabular-nums;
+}
+.so-trace-native-tree-table tbody td {
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  border-right: 1px solid var(--el-border-color-extra-light);
+  padding: 7px 10px;
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: #fff;
+}
+.so-trace-native-tree-table tbody td:last-child {
+  border-right: none;
+}
+.so-trace-native-tree-table tbody tr:hover td {
+  background: var(--el-fill-color-light);
+}
+.so-trace-native-tree-table tbody tr.is-selected td {
+  background: var(--el-color-primary-light-7);
+}
+.so-trace-native-tree-table tbody tr.is-top .so-trace-tree-code {
+  font-weight: 600;
+}
+.so-trace-td-code {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
+.so-trace-td-code-inner {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+}
+.so-trace-tree-indent {
+  flex: 0 0 auto;
+  height: 1px;
+  margin-top: 11px;
+}
+.so-trace-tree-caret {
+  flex: 0 0 20px;
+  width: 20px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font-size: 10px;
+  line-height: 22px;
+  color: var(--el-text-color-secondary);
+  cursor: pointer;
+  user-select: none;
+  text-align: center;
+}
+.so-trace-tree-caret--leaf {
+  visibility: hidden;
+  cursor: default;
+}
+.so-trace-tree-code {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--el-text-color-primary);
+  word-break: break-all;
+  white-space: normal;
+  line-height: 1.35;
+  padding-top: 2px;
+}
+.so-trace-tree-code--branch {
+  cursor: pointer;
+}
+.so-trace-tree-code--branch:hover {
+  color: var(--el-color-primary);
+}
 </style>

@@ -103,38 +103,79 @@
             <div class="pi-bom-tab-toolbar">
               <el-button :disabled="!tree.length" @click="expandAllTree">展开全部</el-button>
               <el-button :disabled="!tree.length" @click="collapseAllTree">关闭全部</el-button>
+              <span class="pi-bom-tree-toolbar-hint">
+                提示：点三角或编码，可手动展开/收起该行；展开时打开该支下全部层级
+              </span>
             </div>
-            <ErpTableViewportHScroll>
-              <el-table
-                ref="treeTableRef"
-                :data="tree"
-                border
-                stripe
-                row-key="id"
-                :tree-props="{ children: 'children' }"
-                default-expand-all
-                class="erp-list-table pi-bom-tree-table"
-                :max-height="tableMaxHeight"
-                :empty-text="loading ? '加载中...' : '暂无PI-BOM树形数据'"
-              >
-                <el-table-column label="编码" prop="kcaa01" min-width="220" fixed="left" show-overflow-tooltip />
-                <el-table-column label="名称" prop="kcaa02" min-width="180" show-overflow-tooltip />
-                <el-table-column label="规格" prop="kcaa03" min-width="150" show-overflow-tooltip />
-                <el-table-column label="单位" prop="kcaa04" width="80" align="center" show-overflow-tooltip />
-                <el-table-column label="用量" width="110" align="right">
-                  <template #default="{ row }">{{ formatNumber(row.kcac04) }}</template>
-                </el-table-column>
-                <el-table-column label="损耗" width="100" align="right">
-                  <template #default="{ row }">{{ formatNumber(row.kcac05) }}</template>
-                </el-table-column>
-                <el-table-column label="合计" width="110" align="right">
-                  <template #default="{ row }">{{ formatNumber(row.kcac06) }}</template>
-                </el-table-column>
-                <el-table-column label="备注" prop="Describe" min-width="160" show-overflow-tooltip />
-                <el-table-column label="Seq" prop="Seq" width="72" align="center" />
-                <el-table-column label="层级" prop="level" width="72" align="center" />
-              </el-table>
-            </ErpTableViewportHScroll>
+            <!-- 对齐 BOM用量表/PI追溯：原生 table + ▶/▼，用 Set 压可见行 -->
+            <div class="pi-bom-native-tree-wrap" :style="{ maxHeight: tableMaxHeight }">
+              <table v-if="tree.length" class="pi-bom-native-tree-table">
+                <thead>
+                  <tr>
+                    <th class="pi-bom-th-code">编码</th>
+                    <th>名称</th>
+                    <th>规格</th>
+                    <th class="pi-bom-th-center">单位</th>
+                    <th class="pi-bom-th-num">用量</th>
+                    <th class="pi-bom-th-num">损耗</th>
+                    <th class="pi-bom-th-num">合计</th>
+                    <th>备注</th>
+                    <th class="pi-bom-th-center">Seq</th>
+                    <th class="pi-bom-th-center">层级</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="row in treeVisibleRows"
+                    :key="row.id"
+                    :class="{
+                      'is-selected': treeSelectedId === row.id,
+                      'is-top': row.depth === 0,
+                    }"
+                    @click="treeSelectedId = row.id"
+                  >
+                    <td class="pi-bom-td-code">
+                      <div class="pi-bom-td-code-inner">
+                        <span
+                          class="pi-bom-tree-indent"
+                          :style="{ width: `${row.depth * PI_BOM_TREE_INDENT_PX}px` }"
+                        />
+                        <button
+                          type="button"
+                          class="pi-bom-tree-caret"
+                          :class="{ 'pi-bom-tree-caret--leaf': !row.hasKids }"
+                          :disabled="!row.hasKids"
+                          :title="row.hasKids ? (row.expanded ? '收起' : '展开') : undefined"
+                          @click.stop="onTreeRowToggle(row)"
+                        >
+                          <template v-if="row.hasKids">{{ row.expanded ? '▼' : '▶' }}</template>
+                        </button>
+                        <span
+                          class="pi-bom-tree-code"
+                          :class="{ 'pi-bom-tree-code--branch': row.hasKids }"
+                          :title="row.kcaa01"
+                          @click.stop="onTreeCodeClick(row)"
+                        >{{ row.kcaa01 }}</span>
+                      </div>
+                    </td>
+                    <td :title="row.kcaa02">{{ row.kcaa02 }}</td>
+                    <td :title="row.kcaa03">{{ row.kcaa03 }}</td>
+                    <td class="pi-bom-td-center">{{ row.kcaa04 }}</td>
+                    <td class="pi-bom-td-num">{{ formatNumber(row.kcac04) }}</td>
+                    <td class="pi-bom-td-num">{{ formatNumber(row.kcac05) }}</td>
+                    <td class="pi-bom-td-num">{{ formatNumber(row.kcac06) }}</td>
+                    <td :title="row.Describe">{{ row.Describe }}</td>
+                    <td class="pi-bom-td-center">{{ row.Seq }}</td>
+                    <td class="pi-bom-td-center">{{ row.level }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <el-empty
+                v-else
+                :description="loading ? '加载中...' : '暂无PI-BOM树形数据'"
+                :image-size="72"
+              />
+            </div>
           </el-tab-pane>
 
           <el-tab-pane label="成本BOM用量表" name="cost" lazy>
@@ -205,8 +246,12 @@ const partsLoading = ref(false)
 const partsError = ref('')
 const partsParentStack = ref([])
 const partsTableRef = ref(null)
-const treeTableRef = ref(null)
 const costTableRef = ref(null)
+/** 已展开节点 id（对齐 BOM用量表：原生表 + Set，不用 el-table 树） */
+const treeExpandedIds = ref(new Set())
+const treeSelectedId = ref(null)
+/** DIY：每层缩进像素 */
+const PI_BOM_TREE_INDENT_PX = 18
 
 const tableMaxHeight = computed(() =>
   props.standalone ? 'calc(100vh - 220px)' : 'calc(84vh - 260px)',
@@ -499,24 +544,80 @@ function walkTreeRows(rows, cb) {
   }
 }
 
-function expandAllTree() {
-  nextTick(() => {
-    const t = treeTableRef.value
-    if (!t) return
-    walkTreeRows(tree.value, (row) => {
-      if (row.children?.length) t.toggleRowExpansion(row, true)
+/** 按展开 Set 压成表格行；展开一支时该支下有下级的一并写入 Set */
+const treeVisibleRows = computed(() => {
+  const expanded = treeExpandedIds.value
+  /** @type {any[]} */
+  const out = []
+  const walk = (nodes, depth) => {
+    for (const n of nodes || []) {
+      const kids = Array.isArray(n.children) ? n.children : []
+      const hasKids = kids.length > 0
+      const isExpanded = hasKids && expanded.has(n.id)
+      out.push({
+        id: n.id,
+        depth,
+        hasKids,
+        expanded: isExpanded,
+        node: n,
+        kcaa01: n.kcaa01 || '',
+        kcaa02: n.kcaa02 || '',
+        kcaa03: n.kcaa03 || '',
+        kcaa04: n.kcaa04 || '',
+        kcac04: n.kcac04,
+        kcac05: n.kcac05,
+        kcac06: n.kcac06,
+        Describe: n.Describe || '',
+        Seq: n.Seq,
+        level: n.level,
+      })
+      if (isExpanded) walk(kids, depth + 1)
+    }
+  }
+  walk(tree.value, 0)
+  return out
+})
+
+/** 展开：本节点 + 该支下凡有下级的节点；收起：本节点及子孙从 Set 清掉 */
+function toggleTreeExpand(node) {
+  if (!node?.children?.length || node.id == null) return
+  const set = new Set(treeExpandedIds.value)
+  if (set.has(node.id)) {
+    set.delete(node.id)
+    walkTreeRows(node.children, (n) => {
+      if (n.id != null) set.delete(n.id)
     })
+  } else {
+    set.add(node.id)
+    walkTreeRows(node.children, (n) => {
+      if (n.children?.length && n.id != null) set.add(n.id)
+    })
+  }
+  treeExpandedIds.value = set
+}
+
+function onTreeRowToggle(row) {
+  treeSelectedId.value = row.id
+  if (!row.hasKids) return
+  toggleTreeExpand(row.node)
+}
+
+function onTreeCodeClick(row) {
+  treeSelectedId.value = row.id
+  if (!row.hasKids) return
+  toggleTreeExpand(row.node)
+}
+
+function expandAllTree() {
+  const set = new Set()
+  walkTreeRows(tree.value, (row) => {
+    if (row.children?.length && row.id != null) set.add(row.id)
   })
+  treeExpandedIds.value = set
 }
 
 function collapseAllTree() {
-  nextTick(() => {
-    const t = treeTableRef.value
-    if (!t) return
-    walkTreeRows(tree.value, (row) => {
-      if (row.children?.length) t.toggleRowExpansion(row, false)
-    })
-  })
+  treeExpandedIds.value = new Set()
 }
 
 function scheduleTableLayout(tableRef) {
@@ -528,7 +629,6 @@ function scheduleTableLayout(tableRef) {
 function scheduleActiveTabLayout(tab = activeTab.value) {
   if (loading.value) return
   if (tab === 'parts') scheduleTableLayout(partsTableRef)
-  if (tab === 'tree') scheduleTableLayout(treeTableRef)
   if (tab === 'cost') scheduleTableLayout(costTableRef)
 }
 
@@ -555,6 +655,8 @@ async function loadDetail() {
   basic.value = null
   parts.value = []
   tree.value = []
+  treeExpandedIds.value = new Set()
+  treeSelectedId.value = null
   costRows.value = []
   costUsageRows.value = []
   partsParentStack.value = []
@@ -581,6 +683,8 @@ async function loadDetail() {
     partsParentStack.value = rootParent.parentSystemcode ? [rootParent] : []
     replaceParts(Array.isArray(data.parts) ? data.parts : [])
     tree.value = Array.isArray(data.tree) ? data.tree : []
+    treeExpandedIds.value = new Set()
+    treeSelectedId.value = null
     costRows.value = Array.isArray(data.costRows) ? data.costRows : []
     recomputeCostUsageRows()
   } catch (e) {
@@ -602,7 +706,6 @@ watch(
   () => [activeTab.value, loading.value],
   ([tab, loadingNow]) => {
     if (loadingNow) return
-    // 树表模板已 default-expand-all，切页勿再整树 toggleRowExpansion（大树会卡）
     scheduleActiveTabLayout(tab)
   },
 )
@@ -653,7 +756,6 @@ watch(
 }
 
 .pi-bom-detail-table,
-.pi-bom-tree-table,
 .pi-bom-cost-table {
   width: 100%;
 }
@@ -666,5 +768,129 @@ watch(
   margin-bottom: 10px;
   font-weight: 600;
   color: var(--el-text-color-primary);
+}
+
+.pi-bom-tree-toolbar-hint {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* 对齐 PI 追溯 / BOM用量表：原生树表 + ▶/▼ */
+.pi-bom-native-tree-wrap {
+  width: 100%;
+  overflow: auto;
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+  background: #fff;
+}
+.pi-bom-native-tree-table {
+  width: 100%;
+  min-width: 1100px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 13px;
+  color: var(--el-text-color-primary);
+}
+.pi-bom-native-tree-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--el-fill-color-light);
+  border-bottom: 1px solid var(--el-border-color);
+  border-right: 1px solid var(--el-border-color-lighter);
+  padding: 8px 10px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+.pi-bom-native-tree-table thead th:last-child {
+  border-right: none;
+}
+.pi-bom-th-code {
+  width: 22%;
+}
+.pi-bom-th-center,
+.pi-bom-td-center {
+  text-align: center;
+  width: 64px;
+}
+.pi-bom-th-num,
+.pi-bom-td-num {
+  text-align: right;
+  width: 100px;
+  font-variant-numeric: tabular-nums;
+}
+.pi-bom-native-tree-table tbody td {
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  border-right: 1px solid var(--el-border-color-extra-light);
+  padding: 7px 10px;
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: #fff;
+}
+.pi-bom-native-tree-table tbody td:last-child {
+  border-right: none;
+}
+.pi-bom-native-tree-table tbody tr:hover td {
+  background: var(--el-fill-color-light);
+}
+.pi-bom-native-tree-table tbody tr.is-selected td {
+  background: var(--el-color-primary-light-7);
+}
+.pi-bom-native-tree-table tbody tr.is-top .pi-bom-tree-code {
+  font-weight: 600;
+}
+.pi-bom-td-code {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
+.pi-bom-td-code-inner {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+}
+.pi-bom-tree-indent {
+  flex: 0 0 auto;
+  height: 1px;
+  margin-top: 11px;
+}
+.pi-bom-tree-caret {
+  flex: 0 0 20px;
+  width: 20px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font-size: 10px;
+  line-height: 22px;
+  color: var(--el-text-color-secondary);
+  cursor: pointer;
+  user-select: none;
+  text-align: center;
+}
+.pi-bom-tree-caret--leaf {
+  visibility: hidden;
+  cursor: default;
+}
+.pi-bom-tree-code {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--el-text-color-primary);
+  word-break: break-all;
+  white-space: normal;
+  line-height: 1.35;
+  padding-top: 2px;
+}
+.pi-bom-tree-code--branch {
+  cursor: pointer;
+}
+.pi-bom-tree-code--branch:hover {
+  color: var(--el-color-primary);
 }
 </style>

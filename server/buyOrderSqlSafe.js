@@ -37,14 +37,17 @@ export function decimalLikeExpr(valueExpr) {
     AND (CHARINDEX(N'-', ${valueExpr}) = 0 OR LEFT(${valueExpr}, 1) = N'-')`
 }
 
-/** 安全读取 decimal；非法或空值返回 fallback（默认 0） */
+/** 安全读取 decimal；非法或空值返回 fallback（默认 0）
+ * 目标类型用 decimal(38,6)：明细金额等物理列为 numeric(18,2/4) 时，
+ * 经 nvarchar 再转回若仍用 decimal(18,6)（整数位仅 12），像 1e12 会 Arithmetic overflow。
+ */
 export function safeDecimalExpr(alias, col, fallback = 0) {
   const value = trimExpr(alias, col)
   return `CASE
     WHEN ${alias}.[${col}] IS NULL THEN ${fallback}
     WHEN ${value} = N'' THEN ${fallback}
     WHEN ${decimalLikeExpr(value)}
-      THEN CONVERT(decimal(18, 6), ${value})
+      THEN CONVERT(decimal(38, 6), ${value})
     ELSE ${fallback}
   END`
 }

@@ -152,6 +152,10 @@ Element Plus 约定：固定列（操作、序号）用 `width`；数据列优�
 
 - 接口：`GET /api/assist-order/batch-add-tree?piNo=&excludeOrderNo=&currentLines=`（JSON 字符串）
 
+- **顶栏 PI 显示**（2026-07-23）：标题「外协订单批量选材」下用副标题「PI 号：xxx（已锁定）」；已去掉工具栏里的「PI号 + 只读输入框」。
+
+- **横向滚动条贴底**（2026-07-23）：整页 `100vh` 分栏，表格区 `.assist-batch-table-wrap` 占满剩余高度并 `overflow: auto`，横条始终在可见区底部，无需先滚到内容最底。
+
 
 
 ### 父子页通信
@@ -170,9 +174,7 @@ Element Plus 约定：固定列（操作、序号）用 `width`；数据列优�
 
 ### 子行展示规则
 
-
-
-- 同一款式下 `kcaa01` 去重：BOM 顺序第一条为准，后续同码行不显示。
+- 同一款式下 `kcaa01` 去重：同码多行时**优先保留 `kcaa13=1`（可外协）**；未外协行不占坑，避免挤掉挂在已勾外协父件下的同码子料（如 BN-0005 下的 BN-0008）。
 
 - `kcaa13=0` 不可外协物料直接隐藏，不渲染灰色按钮。
 
@@ -186,7 +188,7 @@ Element Plus 约定：固定列（操作、序号）用 `width`；数据列优�
 
 - **子行排序**：①红 pi_cost → `px`；②蓝 `kcaa03=款号` 半成品 → `seq`；③蓝 pi_cost 余量 → `px`。
 
-- **父行边框 DIY**：`batch-add-window.vue` → `.assist-batch-row--style` → `--assist-batch-style-border`。
+- **父行浅绿底 DIY**（2026-07-23）：`batch-add-window.vue` → `.assist-batch-row--style` → `--assist-batch-style-bg`（默认 `#E2F0D9`，对齐旧系统主行高亮）、悬停 `--assist-batch-style-hover-bg`、边框 `--assist-batch-style-border`；子表仍为白底，与主行区分。
 
 - **子表操作列宽 DIY**：`batch-add-window.vue` → `.assist-batch-subtable .col-action` → `--assist-batch-sub-action-width`（默认 128px）；选择按钮最小宽 `--assist-batch-pick-btn-min-width`。
 
@@ -208,7 +210,11 @@ Element Plus 约定：固定列（操作、序号）用 `width`；数据列优�
 
 已外协数量：`SUM(wxak03)`，键为 `pi + pq(款号，优先 pq 列否则 Product) + kcaa01`，`del=0`（含未审主单）。
 
-可入数量 = BOM 用量 − 已外协 − 父页当前行（编辑时另排除本单已存行）；下限 0。出库数量列：占位「待开发」。
+可入数量 = BOM 用量 − 已外协 − 父页当前行（编辑时另排除本单已存行）；下限 0。
+
+已外协出库数量：同键归属外协单号下，汇总该父件 **Bom_parts 直接子料**（无子层则回退父件自身）的外协领料出库 `kcaq03`（`kcap03=2`，主从 `del=0`，**含未审**）；只展示，不参与可入扣减。无出库显示 `0`。
+
+同码多行时用量取 **pi_cost 中该码 `kcaa13=1` 行**（已含 CUT×父×子路径汇总），不取其它 CUT 下未外协行的零散用量。
 
 
 

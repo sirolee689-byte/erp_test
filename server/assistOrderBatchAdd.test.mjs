@@ -2,6 +2,11 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import {
   buildAssistBatchLineKey,
+  buildAssistBatchOutsourcedMaps,
+  buildAssistBatchChildOutboundQtyMap,
+  buildAssistBatchChildrenByParentMap,
+  formatAssistBatchOutboundQtyLabel,
+  resolveAssistBatchOutboundChildCodes,
   getBuyOfferPriceOrZero,
   getAssistOfferPriceOrZero,
   buildBomQtyMapFromCostLines,
@@ -53,6 +58,58 @@ describe('assistOrderBatchAdd', () => {
   test('calcAvailableQty never goes below zero', () => {
     assert.equal(calcAvailableQty(10, 4, 3), 3)
     assert.equal(calcAvailableQty(5, 8, 0), 0)
+  })
+
+  test('buildAssistBatchOutsourcedMaps maps wxak03 by line key', () => {
+    const { outsourcedDbMap } = buildAssistBatchOutsourcedMaps([
+      { piNo: 'PI-1', product: 'PQ-A', kcaa01: 'M-1', outsourcedQty: 10 },
+      { piNo: 'PI-1', product: 'PQ-A', kcaa01: 'M-2', outsourcedQty: 2 },
+    ])
+    assert.equal(outsourcedDbMap.get('pi-1|pq-a|m-1'), 10)
+    assert.equal(outsourcedDbMap.get('pi-1|pq-a|m-2'), 2)
+  })
+
+  test('buildAssistBatchChildOutboundQtyMap maps child stock-out qty to parent key (incl unaudited)', () => {
+    const childrenByParent = new Map([['bp-0080/1011', ['BP-0038/-']]])
+    const map = buildAssistBatchChildOutboundQtyMap(
+      [
+        {
+          piNo: 'PI-4181',
+          product: 'PQ-3796B1/N',
+          kcaa01: 'BP-0080/1011',
+          assistOrderNo: 'WX26062902',
+        },
+      ],
+      childrenByParent,
+      [
+        { assistOrderNo: 'WX26062902', kcaa01: 'BP-0038/-', qty: 7 },
+        { assistOrderNo: 'WX26062902', kcaa01: 'OTHER/-', qty: 99 },
+        { assistOrderNo: 'WX-OTHER', kcaa01: 'BP-0038/-', qty: 5 },
+      ],
+    )
+    const key = buildAssistBatchLineKey('PI-4181', 'PQ-3796B1/N', 'BP-0080/1011')
+    assert.equal(map.get(key), 7)
+    assert.equal(formatAssistBatchOutboundQtyLabel(map.get(key)), '7')
+    assert.notEqual(formatAssistBatchOutboundQtyLabel(map.get(key)), '待开发')
+  })
+
+  test('resolveAssistBatchOutboundChildCodes falls back to parent when no bom children', () => {
+    assert.deepEqual(resolveAssistBatchOutboundChildCodes('BP-SELF/-', new Map()), ['BP-SELF/-'])
+    assert.deepEqual(
+      resolveAssistBatchOutboundChildCodes('BP-0080/1011', new Map([['bp-0080/1011', ['BP-0038/-']]])),
+      ['BP-0038/-'],
+    )
+  })
+
+  test('buildAssistBatchChildrenByParentMap reads bom parts by parent systemcode', () => {
+    const bomHeadMap = new Map([
+      ['bp-0080/1011', { systemcode: 'PARENT-GUID-1' }],
+    ])
+    const bomPartsMap = new Map([
+      ['parent-guid-1', [{ kcaa01: 'BP-0038/-' }, { kcaa01: 'BP-0038/-' }]],
+    ])
+    const children = buildAssistBatchChildrenByParentMap(bomHeadMap, bomPartsMap, ['BP-0080/1011'])
+    assert.deepEqual(children.get('bp-0080/1011'), ['BP-0038/-'])
   })
 
   test('normalizes assist offer price values', () => {
@@ -156,6 +213,58 @@ describe('assistOrderBatchAdd', () => {
     assert.equal(rows.length, 2)
     assert.equal(rows[0].kcaa02, 'first')
     assert.equal(rows[1].kcaa02, 'ok')
+  })
+
+  test('filterBatchAddMaterialRows prefers later outsource over earlier non-outsource same code', () => {
+    const rows = filterBatchAddMaterialRows([
+      { kcaa01: 'BN-0008/-', isOutsource: 0, kcaa02: 'other-cut' },
+      { kcaa01: 'BN-0008/-', isOutsource: 1, kcaa02: 'under-bn0005' },
+      { kcaa01: 'BN-0005/-', isOutsource: 1, kcaa02: 'parent' },
+    ])
+    assert.equal(rows.length, 2)
+    assert.equal(rows[0].kcaa02, 'under-bn0005')
+    assert.equal(rows[1].kcaa02, 'parent')
+  })
+
+  test('mergeBatchAddMaterialRows prefers outsource when same kcaa01 appears twice', () => {
+    const merged = mergeBatchAddMaterialRows(
+      [
+        { kcaa01: 'BN-0008/-', isOutsource: 0, kcaa02: 'strap-cut' },
+        { kcaa01: 'BN-0005/-', isOutsource: 1, kcaa02: 'parent' },
+        { kcaa01: 'BN-0008/-', isOutsource: 1, kcaa02: 'under-bn0005' },
+      ],
+      [],
+      'PQ-3796B1/N',
+      ['BAG', 'CUT', 'PQ'],
+    )
+    const bn8 = merged.filter((r) => String(r.kcaa01).toUpperCase() === 'BN-0008/-')
+    assert.equal(bn8.length, 1)
+    assert.equal(bn8[0].isOutsource, 1)
+    assert.equal(bn8[0].kcaa02, 'under-bn0005')
+  })
+
+  test('mergeBatchAddMaterialRows keeps earlier outsource when later is non-outsource', () => {
+    const merged = mergeBatchAddMaterialRows(
+      [
+        { kcaa01: 'BN-0008/-', isOutsource: 1, kcaa02: 'under-bn0005' },
+        { kcaa01: 'BN-0008/-', isOutsource: 0, kcaa02: 'other-cut' },
+      ],
+      [],
+      'PQ-1',
+      [],
+    )
+    assert.equal(merged.length, 1)
+    assert.equal(merged[0].kcaa02, 'under-bn0005')
+  })
+
+  test('pi_cost outsource qty for BN-0008 under BN-0005 rounds to 2.62', () => {
+    const map = buildFirstBomQtyMapFromCostLines([
+      { pq: 'PQ-3796B1/N', kcaa01: 'BN-0005/-', kcac06: 0.02617, orderQty: 100 },
+      { pq: 'PQ-3796B1/N', kcaa01: 'BN-0008/-', kcac06: 0.02617, orderQty: 100 },
+    ])
+    const bomQty = map.get('pq-3796b1/n|bn-0008/-')
+    assert.equal(bomQty, 2.617)
+    assert.equal(calcAvailableQty(bomQty, 0, 0), 2.62)
   })
 
   test('kcaa01MatchesBomCodeAssistBatchPrefix follows legacy bomstr', () => {

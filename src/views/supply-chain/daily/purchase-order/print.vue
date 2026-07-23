@@ -64,13 +64,13 @@
               <th class="col-code">{{ label('materialCode') }}</th>
               <th>{{ label('materialName') }}</th>
               <th>{{ label('spec') }}</th>
-              <th>{{ label('color') }}</th>
+              <th class="col-color">{{ label('color') }}</th>
               <th class="col-unit">{{ label('unit') }}</th>
               <th class="col-qty">{{ label('qty') }}</th>
               <th v-if="block.doc.hasPricePermission" class="col-money">{{ label('price') }}</th>
               <th v-if="block.doc.hasPricePermission" class="col-money">{{ label('amount') }}</th>
               <th class="col-date">{{ label('delivery') }}</th>
-              <th>{{ label('lineRemark') }}</th>
+              <th class="col-remark">{{ label('lineRemark') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -452,7 +452,7 @@ onMounted(loadPrintData)
   object-fit: contain;
 }
 .buy-print-head-html {
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.3;
 }
 .buy-print-head-html :deep(*) {
@@ -464,7 +464,7 @@ onMounted(loadPrintData)
   flex-direction: column;
   align-items: center;
   gap: 3px;
-  font-size: 14px;
+  font-size: 18px;
 }
 .buy-print-company-text strong {
   font-size: 18px;
@@ -472,7 +472,7 @@ onMounted(loadPrintData)
 }
 .buy-print-no {
   text-align: right;
-  font-size: 13px;
+  font-size: 18px;
 }
 .buy-print-unaudited {
   color: #c2410c;
@@ -482,7 +482,7 @@ h1 {
   margin: 0 0 22px;
   text-align: center;
   font-size: 20px;
-  letter-spacing: 0;
+  letter-spacing: 8px;
 }
 .buy-print-meta {
   display: grid;
@@ -525,10 +525,12 @@ h1 {
 }
 .col-seq { width: 42px; }
 .col-code { width: 150px; }
-.col-unit { width: 74px; }
-.col-qty { width: 90px; }
-.col-money { width: 112px; }
-.col-date { width: 128px; }
+.col-color { width: 65px; }
+.col-unit { width: 60px; }
+.col-qty { width:40px; }
+.col-money { width: 60px; }
+.col-date { width: 90px; }
+.col-remark { width: 120px; }
 .buy-print-total td {
   font-weight: 700;
 }
