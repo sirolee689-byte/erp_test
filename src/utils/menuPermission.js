@@ -88,14 +88,16 @@ export function getPermissionModelFromStorage() {
 }
 
 /**
- * 侧栏：某 path 是否应出现（有任意操作或子级可见）
+ * 侧栏：某 path 是否因本页/父级授权而应出现。
+ * 仅「精确」或「授权父 path 覆盖子」；子授权不能反开父页。
+ * 父文件夹靠 filterMenuTreeByPermission 在子节点过滤后非空时保留。
  */
 export function isPathVisibleForMenu(path, model) {
   if (model.mode === 'full') return true
   if (model.mode === 'none') return false
   const keys = [...model.actionsByPath.keys()]
   for (const k of keys) {
-    if (path === k || path.startsWith(`${k}/`) || k.startsWith(`${path}/`)) {
+    if (path === k || path.startsWith(`${k}/`)) {
       return true
     }
   }
@@ -234,8 +236,9 @@ export function hasPageAction(model, menuPath, action) {
   if (model.mode === 'none') return false
   const path = normalizeFullPath(menuPath)
 
+  // 父可覆盖子；子不可反开父（避免 import/manage 误开 import）
   for (const [key, set] of model.actionsByPath.entries()) {
-    const match = path === key || path.startsWith(`${key}/`) || key.startsWith(`${path}/`)
+    const match = path === key || path.startsWith(`${key}/`)
     if (!match) continue
     if (set.has('all')) return true
     if (set.has(act)) return true

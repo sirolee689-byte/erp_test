@@ -155,6 +155,7 @@ import { useTagsViewStore } from '@/store/modules/tagsView'
 import { useUiDensity } from '@/composables/useUiDensity'
 import { useUiTheme } from '@/composables/useUiTheme'
 import { runWithoutCloseGuard, useErpBrowserCloseGuard } from '@/composables/useErpBrowserCloseGuard'
+import { clearErpAuthStorage } from '@/utils/erpAuthStorage'
 import ErpAppMain from './ErpAppMain.vue'
 import ErpSidebar from './ErpSidebar.vue'
 import ErpListRowContextMenu from '@/components/erp/ErpListRowContextMenu.vue'
@@ -326,47 +327,6 @@ const displayName = computed(() => {
 })
 
 /**
- * 清理登录缓存（退出登录的第 1 步：清理现场）
- * 小白版解释（重点讲 clear()）：
- * - localStorage / sessionStorage 都是浏览器提供的“本地小仓库”
- * - 它们里面是一对一对的：key（钥匙名）-> value（内容）
- * - 我们登录时写了：
- *   - erp_token：登录凭证
- *   - erp_user：用户信息
- *
- * 清理方式有两种：
- * 1) removeItem(key)：只删除某一个 key（更安全，不影响别的功能缓存）
- * 2) clear()：把这个仓库里“所有 key 全部清空”（最干净，但可能误删别的模块缓存）
- *
- * 本项目为了“干净利落 + 不误伤”，优先用 removeItem 精准删除；
- * 如果你确定整个系统只有我们这几个 key，也可以改成 clear() 一键清空。
- */
-function clearAuthStorage() {
-  // =========================
-  // 1) 精准删除（推荐）
-  // =========================
-  // 关键：删除 localStorage 里的 token
-  localStorage.removeItem('erp_token')
-  // 关键：删除 localStorage 里的用户信息
-  localStorage.removeItem('erp_user')
-
-  // 关键：如果你未来把 token 放进 sessionStorage，这里也一起清掉（避免漏清）
-  sessionStorage.removeItem('erp_token')
-  sessionStorage.removeItem('erp_user')
-
-  // =========================
-  // 2) 一键清空（可选，不默认启用）
-  // =========================
-  // 小白版解释：
-  // - clear() 会把仓库里的内容全部删除
-  // - 删除后：localStorage.length 会变成 0（表示一个 key 都不剩）
-  // - 风险：如果你别的页面也存了缓存（比如主题色/分页大小），也会一起被清掉
-  //
-  // localStorage.clear()
-  // sessionStorage.clear()
-}
-
-/**
  * 执行退出登录（供“菜单退出”和“改密成功强制退出”复用）
  */
 async function doLogout() {
@@ -374,7 +334,7 @@ async function doLogout() {
   await runWithoutCloseGuard(async () => {
     // 标签栏在内存单例里，不清的话换账号登录会残留下一账号的页签
     tagsStore.delAllViews()
-    clearAuthStorage()
+    clearErpAuthStorage()
     await router.push('/login')
   })
 }

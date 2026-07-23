@@ -43,7 +43,19 @@ describe('assist order print data', () => {
     assert.equal(doc.pages[1].rows[0].amount, '12.50')
     assert.equal(doc.totals.quantity, '9.00')
     assert.equal(doc.totals.amount, '61.09')
-    assert.ok(doc.contractTerms.length >= 12)
+    assert.equal(doc.contractTerms.length, 12)
+    assert.equal(
+      doc.contractTerms[0],
+      '乙方要按甲方提供正确及标准样板生产。未得甲方书面同意不能随便改变动物料及做法。',
+    )
+    assert.equal(
+      doc.contractTerms[8],
+      '如乙方未能按期交货，而没有合理解释，甲方有权扣加工费每天5%',
+    )
+    assert.equal(
+      doc.contractTerms[11],
+      '甲方拥有由其支付模具费（或制版费）的模具归属权，模具在生产期间交由乙方保管，必要时，甲方有权拿回模具；乙方需无条件配合完整交还模具。',
+    )
     assert.equal(doc.signature.makerName, '测试用户')
     assert.equal(doc.pages[0].pageTotal, 2)
     assert.equal(doc.pages[0].rows[0].describe, '')

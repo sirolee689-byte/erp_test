@@ -57,7 +57,6 @@
           <el-option label="订单外发" value="2" />
         </el-select>
         <span v-permission="'print'" class="assist-print-selected">已选择 {{ printSelectedCount }} 条</span>
-        <el-button v-permission="'print'" :disabled="printSelectedCount === 0" @click="openSelectedPrint('1')">打印外协订单（采购格式）</el-button>
         <el-button v-permission="'print'" :disabled="printSelectedCount === 0" @click="openSelectedPrint('0')">打印外协订单（外协格式）</el-button>
       </div>
       <div class="assist-filter-row erp-filter-row">
@@ -363,7 +362,7 @@
       :class="{ 'assist-create-panel--readonly': isReadonlyForm }"
     >
       <div ref="formHeadRef" class="assist-form-head">
-        <strong>{{ pageMode === 'view' ? '查看外协订单' : pageMode === 'edit' ? '编辑外协订单' : '新增外协订单' }}</strong>
+        <strong class="assist-form-head__title">{{ pageMode === 'view' ? '查看外协订单' : pageMode === 'edit' ? '编辑外协订单' : '新增外协订单' }}</strong>
         <div class="assist-form-head__actions">
           <el-button v-if="pageMode === 'view' || pageMode === 'edit'" @click="switchToManage">返回列表</el-button>
           <template v-if="pageMode !== 'view'">
@@ -1443,7 +1442,12 @@ async function openLinePiBom(row) {
     ElMessage.warning('无法解析销售订单，请确认关联 PI 号是否正确')
     return
   }
-  const url = `/inventory/basic/pi-bom-data-window?mode=edit&orderId=${encodeURIComponent(orderId)}&kcaa01=${encodeURIComponent(product)}`
+  // 对齐 PI_BOM 资料「查看」：mode=view → PiBomViewerPanel（非编辑面板）
+  const linePi = String(row?.piNo ?? '').trim()
+  const formPi = String(editForm.referenceNo ?? '').trim()
+  const pi = linePi || formPi
+  let url = `/inventory/basic/pi-bom-data-window?mode=view&orderId=${encodeURIComponent(orderId)}&kcaa01=${encodeURIComponent(product)}`
+  if (pi) url += `&piNo=${encodeURIComponent(pi)}`
   const opened = window.open(url, '_blank')
   if (!opened) {
     ElMessage.error('无法打开新窗口，请检查浏览器是否拦截弹窗')
@@ -1658,12 +1662,9 @@ onUnmounted(() => {
   gap: 12px;
 }
 
-/* DIY：表单模式预留 ERP 顶栏高度，改 --assist-page-chrome */
+/* DIY：表单模式对齐入库单——不锁 100vh、不造内层滚动条；页面随内容自然增高 */
 .assist-order-page--form {
-  --assist-page-chrome: 200px;
   --assist-form-footer-height: 56px;
-  height: calc(100vh - var(--assist-page-chrome));
-  overflow: hidden;
   gap: 8px;
 }
 
@@ -1676,8 +1677,8 @@ onUnmounted(() => {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 4px;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
 .assist-material-trace-panel {
@@ -1689,18 +1690,15 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 0;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
 }
 
 .assist-create-panel :deep(.assist-edit-form) {
-  flex: 1;
-  min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
+/* DIY：外协订单表单头（标题「新增/编辑/查看外协订单」+ 立即提交/重置/返回列表）
+   标题字号建议 16～22；按钮高度建议 36～48，字号建议 13～16 */
 .assist-form-head {
   display: flex;
   flex-shrink: 0;
@@ -1709,6 +1707,13 @@ onUnmounted(() => {
   gap: 12px;
   padding: 8px 0 12px;
   border-bottom: 1px solid var(--el-border-color-light);
+  --assist-form-head-title-font-size: 18px;
+  --assist-form-head-btn-height: 36px;
+  --assist-form-head-btn-font-size: 16px;
+}
+
+.assist-form-head__title {
+  font-size: var(--assist-form-head-title-font-size);
 }
 
 .assist-form-head__actions {
@@ -1718,9 +1723,9 @@ onUnmounted(() => {
 }
 
 .assist-form-head__actions :deep(.el-button) {
-  min-height: 40px;
-  padding: 10px 20px;
-  font-size: 16px;
+  height: var(--assist-form-head-btn-height);
+  min-height: var(--assist-form-head-btn-height);
+  font-size: var(--assist-form-head-btn-font-size);
 }
 
 .assist-form-footer {

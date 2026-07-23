@@ -146,7 +146,7 @@
             <el-button type="danger" plain @click="$emit('delete-all-lines')">删除全部明细</el-button>
             <el-button type="primary" @click="$emit('open-batch-add')">批量添加</el-button>
           </div>
-          <div ref="linesWrapRef" class="assist-lines-table-wrap">
+          <div class="assist-lines-table-wrap">
             <ErpTableViewportHScroll :bottom-offset="assistLinesHScrollBottom">
               <el-table
                 ref="linesTableRef"
@@ -154,7 +154,6 @@
                 border
                 stripe
                 class="erp-list-table assist-lines-table"
-                :height="linesTableHeight"
                 empty-text="暂无明细"
                 :row-class-name="lineRowClassName"
               >
@@ -283,13 +282,12 @@
             <el-button size="small" @click="$emit('add-fee-row')">增行</el-button>
             <el-button size="small" @click="$emit('reset-fees')">重置</el-button>
           </div>
-          <div ref="feesWrapRef" class="assist-fees-table-wrap">
+          <div class="assist-fees-table-wrap">
             <el-table
               ref="feesTableRef"
               :data="model.fees"
               border
               stripe
-              :height="feesTableHeight"
               class="assist-fees-table"
             >
           <el-table-column label="序号" width="64" align="center">
@@ -353,7 +351,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { refreshErpTableViewportHScroll } from '@/utils/erpTableViewportHScroll'
@@ -447,8 +445,6 @@ function onFeeCodeClear(row) {
   row.feeName = ''
 }
 
-const linesTableHeight = ref(320)
-const feesTableHeight = ref(320)
 const assistLinesHScrollBottom = computed(() => {
   const h = Number(props.footerHeight)
   return Number.isFinite(h) && h > 0 ? h : 56
@@ -457,45 +453,6 @@ const assistLinesHScrollBottom = computed(() => {
 const assistLineActionsColWidth = 118
 const linesTableRef = ref(null)
 const feesTableRef = ref(null)
-const linesWrapRef = ref(null)
-const feesWrapRef = ref(null)
-let linesWrapRo = null
-let feesWrapRo = null
-
-function syncLinesTableHeight() {
-  const h = linesWrapRef.value?.clientHeight
-  if (h && h > 0) linesTableHeight.value = h
-}
-
-function syncFeesTableHeight() {
-  const h = feesWrapRef.value?.clientHeight
-  if (h && h > 0) feesTableHeight.value = h
-}
-
-function bindTableWrapObservers() {
-  linesWrapRo?.disconnect()
-  feesWrapRo?.disconnect()
-  linesWrapRo = null
-  feesWrapRo = null
-
-  if (linesWrapRef.value) {
-    linesWrapRo = new ResizeObserver(() => {
-      syncLinesTableHeight()
-      if (props.editTab === 'lines') refreshLinesTableLayout()
-    })
-    linesWrapRo.observe(linesWrapRef.value)
-    syncLinesTableHeight()
-  }
-
-  if (feesWrapRef.value) {
-    feesWrapRo = new ResizeObserver(() => {
-      syncFeesTableHeight()
-      if (props.editTab === 'fees') refreshFeesTableLayout()
-    })
-    feesWrapRo.observe(feesWrapRef.value)
-    syncFeesTableHeight()
-  }
-}
 
 async function refreshLinesTableLayout() {
   await nextTick()
@@ -513,12 +470,8 @@ watch(
   () => props.editTab,
   async (tab) => {
     await nextTick()
-    if (tab === 'lines') {
-      syncLinesTableHeight()
-      refreshLinesTableLayout()
-    }
+    if (tab === 'lines') refreshLinesTableLayout()
     if (tab === 'fees') {
-      syncFeesTableHeight()
       refreshFeesTableLayout()
       if (!feeOptions.value.length) loadFeeOptions('')
     }
@@ -542,16 +495,8 @@ watch(
 
 onMounted(async () => {
   await nextTick()
-  bindTableWrapObservers()
   if (props.editTab === 'lines') refreshLinesTableLayout()
   if (props.editTab === 'fees') refreshFeesTableLayout()
-})
-
-onUnmounted(() => {
-  linesWrapRo?.disconnect()
-  feesWrapRo?.disconnect()
-  linesWrapRo = null
-  feesWrapRo = null
 })
 
 function lineRowClassName({ row }) {
@@ -612,35 +557,10 @@ function onAssistDateChanged() {
   formRef.value?.validateField?.('deliveryDate')
 }
 
-function dateForInput(value) {
-  if (!value) return ''
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) {
-    const s = String(value).slice(0, 10)
-    return s || ''
-  }
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-
-function applyDeliveryFromPiRow(row) {
-  const d = dateForInput(row?.deliveryDate)
-  if (!d) return
-  const assist = props.model.assistDate
-  if (assist && new Date(d) < new Date(assist)) {
-    ElMessage.warning('PI 交货日期早于外协日期，未自动填入')
-    return
-  }
-  props.model.deliveryDate = d
-}
-
 function mapPiSuggestion(row) {
   return {
     id: row.id,
     piNo: row.piNo,
-    deliveryDate: row.deliveryDate ?? null,
     value: row.piNo,
   }
 }
@@ -676,9 +596,7 @@ function onPickPi(row) {
   props.model.referenceNo = String(row?.piNo ?? '')
   const id = Number(row?.id ?? 0)
   props.model.referenceOrderId = Number.isFinite(id) && id > 0 ? id : null
-  if (isOrderAssistType.value) {
-    applyDeliveryFromPiRow(row)
-  }
+  // 关联单号只带出 PI / 订单 id，交货日期由用户自行填写
 }
 
 async function onReferenceNoBlur() {
@@ -691,9 +609,6 @@ async function onReferenceNoBlur() {
   if (row) {
     const id = Number(row.id ?? 0)
     props.model.referenceOrderId = Number.isFinite(id) && id > 0 ? id : null
-    if (isOrderAssistType.value) {
-      applyDeliveryFromPiRow(row)
-    }
   } else if (!isOrderAssistType.value) {
     props.model.referenceOrderId = null
   }
@@ -709,11 +624,8 @@ defineExpose({
 <style scoped>
 .assist-edit-form {
   max-width: none;
-  flex: 1;
-  min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 
 .assist-header-rows {
@@ -725,7 +637,11 @@ defineExpose({
   --assist-field-width-sm: 120px;
   --assist-supplier-width: 400px;
   /* DIY：同一行表单项之间的水平间距 */
-  --assist-row-gap: 16px;
+  --assist-row-gap: 2px;
+  /* DIY：基础资料单行输入高度（对齐出库单）；不含外协类型/是否含税按钮 */
+  --assist-base-input-height: var(--el-component-size);
+  /* DIY：备注/打印注释多行高度（默认与单行同高，可自调） */
+  --assist-remark-input-height: calc(var(--assist-base-input-height) * 1);
 }
 
 .assist-form-row {
@@ -733,7 +649,7 @@ defineExpose({
   flex-wrap: wrap;
   align-items: flex-start;
   column-gap: var(--assist-row-gap);
-  row-gap: 8px;
+  row-gap: 12px;
 }
 
 .assist-form-row--1 {
@@ -764,6 +680,22 @@ defineExpose({
 .assist-form-row--1 :deep(.el-textarea) {
   width: var(--assist-textarea-width);
 }
+/* 只统一单行输入/下拉/日期/数字高度；不碰外协类型/是否含税按钮 */
+.assist-header-rows :deep(.el-input__wrapper),
+.assist-header-rows :deep(.el-select__wrapper),
+.assist-header-rows :deep(.el-input-number .el-input__wrapper) {
+  height: var(--assist-base-input-height);
+  min-height: var(--assist-base-input-height);
+  box-sizing: border-box;
+}
+.assist-header-rows :deep(.el-date-editor) {
+  height: var(--assist-base-input-height);
+}
+.assist-header-rows :deep(.el-textarea__inner) {
+  height: var(--assist-remark-input-height);
+  min-height: var(--assist-remark-input-height);
+  box-sizing: border-box;
+}
 
 /* DIY：外协类型/是否含税按钮 — 对齐采购订单 buy-basic-buttons（高 40、宽 106、字 16） */
 .assist-basic-buttons {
@@ -786,42 +718,19 @@ defineExpose({
   font-size: var(--assist-basic-button-font-size);
 }
 
-.assist-edit-form :deep(.el-tabs) {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
 .assist-edit-form :deep(.el-tabs__header) {
   flex-shrink: 0;
 }
 
-.assist-edit-form :deep(.el-tabs__content) {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.assist-edit-form :deep(#pane-header),
-.assist-edit-form :deep(#pane-lines),
-.assist-edit-form :deep(#pane-fees) {
-  height: 100%;
-  overflow: hidden;
-}
-
+/* 基础资料/明细均随内容增高，不造内层滚动条（对齐入库单添加） */
 .assist-header-scroll {
-  height: 100%;
-  overflow-y: auto;
   padding-right: 4px;
+  padding-bottom: 18px;
 }
 
 .assist-lines-pane {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  min-height: 0;
 }
 
 .assist-lines-toolbar {
@@ -830,11 +739,18 @@ defineExpose({
   gap: 8px;
   margin-bottom: 10px;
   flex-shrink: 0;
+  /* DIY：外协订单明细工具栏按钮高度/字号；建议高度 36～48，字号 13～16 */
+  --assist-line-toolbar-btn-height: 36px;
+  --assist-line-toolbar-btn-font-size: 16px;
+}
+.assist-lines-toolbar :deep(.el-button) {
+  height: var(--assist-line-toolbar-btn-height);
+  min-height: var(--assist-line-toolbar-btn-height);
+  font-size: var(--assist-line-toolbar-btn-font-size);
 }
 
 .assist-lines-table-wrap {
-  flex: 1;
-  min-height: 0;
+  width: 100%;
 }
 
 /* DIY：操作列两钮等宽 AssistOrderEditForm.vue .assist-line-action-btn */
@@ -886,8 +802,6 @@ defineExpose({
 .assist-fees-pane {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  min-height: 0;
 }
 
 .assist-fees-toolbar {
@@ -898,8 +812,7 @@ defineExpose({
 }
 
 .assist-fees-table-wrap {
-  flex: 1;
-  min-height: 0;
+  width: 100%;
 }
 
 .assist-fee-select {
@@ -908,19 +821,6 @@ defineExpose({
 
 :deep(.assist-fees-table .assist-fee-select .el-select__wrapper) {
   width: 100%;
-}
-
-/* 10 行均分表体高度，减少表内底部留白 */
-:deep(.assist-fees-table .el-table__body-wrapper table) {
-  height: 100%;
-}
-
-:deep(.assist-fees-table .el-table__body) {
-  height: 100%;
-}
-
-:deep(.assist-fees-table .el-table__body tr) {
-  height: 10%;
 }
 
 :deep(.assist-fees-table .el-table__body td .cell) {

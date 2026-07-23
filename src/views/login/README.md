@@ -73,8 +73,9 @@
   - **两种清理方式：**
     - `removeItem('key')`：只删某一个 key（推荐，不误删别的缓存）
     - `clear()`：把仓库里的所有 key 全部清空（最干净，但可能误删别的模块缓存）
-  - 本项目默认使用 `removeItem` 精准删除 `erp_token/erp_user`，更安全
+  - 本项目默认使用 `removeItem` 精准删除 `erp_token/erp_user`，更安全（共用工具 `src/utils/erpAuthStorage.js` 的 `clearErpAuthStorage`）
   - **补充**：多标签栏不在 localStorage，而在前端内存；退出 / 登录成功 / token 失效（401）三处都会调用 `delAllViews()`，防止换账号残留页签
+- **主壳关浏览器标签（2026-07）**：主壳关标签/窗口会弹出系统「离开此网站」；点确定离开后清除 `erp_token`/`erp_user`，下次打开需重新登录。键盘 F5 / Ctrl+R 尽量保留登录。右键新开副标签与独立窗关页不确认、也不清登录。顶栏「退出登录」仍只走自身二次确认。
 
 ### 7. 修改密码（Change Password）
 - **入口位置**：右上角用户名下拉菜单 → `修改密码`（`src/layout/ErpLayout.vue`）

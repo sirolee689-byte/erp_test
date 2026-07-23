@@ -1329,6 +1329,9 @@ function formatHeaderRowText(header, fieldRow) {
     .join('    ')
 }
 
+/** 导出字体强制：与成本BOM用量表一致（Arial Unicode MS / 10 号） */
+const MATERIAL_SHEET_EXPORT_FONT = { name: 'Arial Unicode MS', size: 10 }
+
 function applyMaterialSheetExportTableStyle(ws, rowNumber, opts = {}) {
   const numStartCol = Number(opts.numStartCol ?? 7)
   const row = ws.getRow(rowNumber)
@@ -1339,6 +1342,8 @@ function applyMaterialSheetExportTableStyle(ws, rowNumber, opts = {}) {
       horizontal: colNumber >= numStartCol ? 'right' : 'left',
       wrapText: true,
     }
+    // 先铺强制字体，再叠加加粗，避免被空 font 冲掉
+    if (opts.font) cell.font = { ...(cell.font || {}), ...opts.font }
     if (opts.bold) cell.font = { ...(cell.font || {}), bold: true }
     if (opts.fill) cell.fill = opts.fill
   })
@@ -1428,32 +1433,36 @@ async function exportDetailMaterialSheetXls(downloadFileName = materialSheetDefa
     const brandRow = ws.addRow([REPORT_BRAND])
     rowNum = brandRow.number
     ws.mergeCells(rowNum, 1, rowNum, DETAIL_MATERIAL_SHEET_COL_COUNT)
-    ws.getRow(rowNum).font = { bold: true, size: 14 }
+    ws.getRow(rowNum).font = { ...MATERIAL_SHEET_EXPORT_FONT, bold: true }
     ws.getCell(rowNum, 1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
 
     const titleRow = ws.addRow([REPORT_TITLE])
     rowNum = titleRow.number
     ws.mergeCells(rowNum, 1, rowNum, DETAIL_MATERIAL_SHEET_COL_COUNT)
-    ws.getRow(rowNum).font = { bold: true, size: 12 }
+    ws.getRow(rowNum).font = { ...MATERIAL_SHEET_EXPORT_FONT, bold: true }
     ws.getCell(rowNum, 1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
 
     for (const fieldRow of DETAIL_HEADER_FIELD_ROWS) {
       const added = ws.addRow([formatHeaderRowText(group.header, fieldRow)])
       rowNum = added.number
       ws.mergeCells(rowNum, 1, rowNum, DETAIL_MATERIAL_SHEET_COL_COUNT)
+      ws.getRow(rowNum).font = { ...MATERIAL_SHEET_EXPORT_FONT }
       ws.getCell(rowNum, 1).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }
     }
 
     const headerAdded = ws.addRow(visibleReportColumns.value.map((col) => col.label))
     rowNum = headerAdded.number
     applyMaterialSheetExportTableStyle(ws, rowNum, {
+      font: MATERIAL_SHEET_EXPORT_FONT,
       bold: true,
       fill: MATERIAL_SHEET_EXPORT_HEADER_FILL,
     })
 
     for (let i = 0; i < group.rows.length; i++) {
       const added = ws.addRow(detailRowToExportCells(group.rows[i], group, i))
-      applyMaterialSheetExportTableStyle(ws, added.number)
+      applyMaterialSheetExportTableStyle(ws, added.number, {
+        font: MATERIAL_SHEET_EXPORT_FONT,
+      })
     }
   }
   ws.columns.forEach((col, index) => {
@@ -1470,29 +1479,33 @@ async function exportSummaryMaterialSheetXls(downloadFileName = materialSheetDef
   })
   const brandRow = ws.addRow([REPORT_BRAND])
   ws.mergeCells(1, 1, 1, SUMMARY_MATERIAL_SHEET_COL_COUNT)
-  ws.getRow(1).font = { bold: true, size: 14 }
+  ws.getRow(1).font = { ...MATERIAL_SHEET_EXPORT_FONT, bold: true }
   ws.getCell(1, 1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
 
   const titleRow = ws.addRow([REPORT_TITLE])
   ws.mergeCells(2, 1, 2, SUMMARY_MATERIAL_SHEET_COL_COUNT)
-  ws.getRow(2).font = { bold: true, size: 12 }
+  ws.getRow(2).font = { ...MATERIAL_SHEET_EXPORT_FONT, bold: true }
   ws.getCell(2, 1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
 
   const headRow = ws.addRow([
     formatHeaderRowText(summaryHeader.value, SUMMARY_HEADER_FIELD_ROWS[0]),
   ])
   ws.mergeCells(headRow.number, 1, headRow.number, SUMMARY_MATERIAL_SHEET_COL_COUNT)
+  ws.getRow(headRow.number).font = { ...MATERIAL_SHEET_EXPORT_FONT }
   ws.getCell(headRow.number, 1).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }
 
   const headerAdded = ws.addRow(visibleReportColumns.value.map((col) => col.label))
   applyMaterialSheetExportTableStyle(ws, headerAdded.number, {
+    font: MATERIAL_SHEET_EXPORT_FONT,
     bold: true,
     fill: MATERIAL_SHEET_EXPORT_HEADER_FILL,
   })
 
   for (let i = 0; i < consumptionLines.value.length; i++) {
     const added = ws.addRow(summaryRowToExportCells(consumptionLines.value[i], i))
-    applyMaterialSheetExportTableStyle(ws, added.number)
+    applyMaterialSheetExportTableStyle(ws, added.number, {
+      font: MATERIAL_SHEET_EXPORT_FONT,
+    })
   }
 
   ws.columns.forEach((col, index) => {
@@ -1584,28 +1597,31 @@ async function exportRangeListWorkbook({
     const brandRow = ws.addRow([REPORT_BRAND])
     rowNum = brandRow.number
     ws.mergeCells(rowNum, 1, rowNum, OUTSOURCING_COL_COUNT)
-    ws.getRow(rowNum).font = { bold: true, size: 14 }
+    ws.getRow(rowNum).font = { ...MATERIAL_SHEET_EXPORT_FONT, bold: true }
     ws.getCell(rowNum, 1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
 
     const titleRow = ws.addRow([reportTitle])
     rowNum = titleRow.number
     ws.mergeCells(rowNum, 1, rowNum, OUTSOURCING_COL_COUNT)
-    ws.getRow(rowNum).font = { bold: true, size: 12 }
+    ws.getRow(rowNum).font = { ...MATERIAL_SHEET_EXPORT_FONT, bold: true }
     ws.getCell(rowNum, 1).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
 
     const headText = `PI号：${piGroup.piNo || ''}    PO号：${piGroup.poNo || ''}    日期：${formatHeaderDate(piGroup.salesDate)}`
     const headRow = ws.addRow([headText])
     rowNum = headRow.number
     ws.mergeCells(rowNum, 1, rowNum, OUTSOURCING_COL_COUNT)
+    ws.getRow(rowNum).font = { ...MATERIAL_SHEET_EXPORT_FONT }
 
     for (const product of piGroup.products || []) {
       const meta = `厂款号：${product.factoryStyleNo || '-'}    客款号：${product.customerStyleNo || '-'}    组别：${product.groupName || '-'}    订单量：${formatOutsourcingOrderQty(product.orderQty)}`
       const metaRow = ws.addRow([meta])
       rowNum = metaRow.number
       ws.mergeCells(rowNum, 1, rowNum, OUTSOURCING_COL_COUNT)
+      ws.getRow(rowNum).font = { ...MATERIAL_SHEET_EXPORT_FONT }
 
       const headerAdded = ws.addRow(OUTSOURCING_EXPORT_HEADERS)
       applyMaterialSheetExportTableStyle(ws, headerAdded.number, {
+        font: MATERIAL_SHEET_EXPORT_FONT,
         bold: true,
         fill: MATERIAL_SHEET_EXPORT_HEADER_FILL,
         numStartCol: 7,
@@ -1614,6 +1630,7 @@ async function exportRangeListWorkbook({
       if (!mats.length) {
         const emptyRow = ws.addRow([emptyText])
         ws.mergeCells(emptyRow.number, 1, emptyRow.number, OUTSOURCING_COL_COUNT)
+        ws.getRow(emptyRow.number).font = { ...MATERIAL_SHEET_EXPORT_FONT }
       } else {
         for (let i = 0; i < mats.length; i++) {
           const row = mats[i]
@@ -1629,7 +1646,10 @@ async function exportRangeListWorkbook({
             row.position || '-',
             row.cutLeather || '-',
           ])
-          applyMaterialSheetExportTableStyle(ws, added.number, { numStartCol: 7 })
+          applyMaterialSheetExportTableStyle(ws, added.number, {
+            font: MATERIAL_SHEET_EXPORT_FONT,
+            numStartCol: 7,
+          })
         }
         if (includeProductTotal) {
           const totalRow = ws.addRow([
@@ -1644,7 +1664,11 @@ async function exportRangeListWorkbook({
             '',
             '',
           ])
-          applyMaterialSheetExportTableStyle(ws, totalRow.number, { numStartCol: 7, bold: true })
+          applyMaterialSheetExportTableStyle(ws, totalRow.number, {
+            font: MATERIAL_SHEET_EXPORT_FONT,
+            numStartCol: 7,
+            bold: true,
+          })
           ws.mergeCells(totalRow.number, 1, totalRow.number, 7)
         }
       }
@@ -1949,18 +1973,19 @@ function onPrintMaterialSheet() {
   border: 1px solid #cbd5e1;
   border-radius: 6px;
 }
+/* DIY：列数据字号/字重对齐成本BOM用量表（--erp-table-data-size + 体字重 600） */
 .report-table {
   width: 100%;
   border-collapse: collapse;
   border-style: hidden;
   table-layout: fixed;
-  font-size: 13px;
+  font-size: var(--erp-table-data-size, 14px);
 }
 .report-table th,
 .report-table td {
   border: 1px solid #cbd5e1;
   padding: 5px 8px;
-  line-height: 19px;
+  line-height: 1.2;
   text-align: center;
   word-break: break-all;
 }
@@ -1968,6 +1993,9 @@ function onPrintMaterialSheet() {
   color: #0f172a;
   font-weight: 600;
   background: #eef4fb;
+}
+.report-table tbody td {
+  font-weight: 400;
 }
 .report-table tbody tr:hover {
   background: #edf6ff;
@@ -2000,7 +2028,7 @@ function onPrintMaterialSheet() {
 }
 .col-loss {
   /* 损耗列独立宽度（与 .col-num 分开，可单独改） */
-  width: 28px;
+  width: 30px;
 }
 @media (max-width: 900px) {
   .top-search-row {

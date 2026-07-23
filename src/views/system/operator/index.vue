@@ -113,34 +113,10 @@
             :empty-text="loading ? '加载中...' : '暂无数据'"
             @row-contextmenu="onErpListRowContextMenu"
           >
-            <!-- 主键 UserID 仅作 row-key，不在表格中展示 -->
-            <el-table-column prop="Usercode" label="登录账号" min-width="140" show-overflow-tooltip>
+            <!-- 操作列固定左侧第一列；四钮单行紧凑，列宽由 operatorActionsColWidth + singleRow 估宽 -->
+            <el-table-column label="操作" :width="250" fixed="left" class-name="erp-col-actions">
               <template #default="{ row }">
-                {{ row?.Usercode ?? row?.UserCode ?? row?.Username ?? '—' }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="truename" label="姓名" min-width="120" show-overflow-tooltip>
-              <template #default="{ row }">
-                {{ row?.truename ?? row?.Truename ?? '—' }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="RoleName" label="关联角色" min-width="120" show-overflow-tooltip>
-              <template #default="{ row }">
-                {{ row?.RoleName || '—' }}
-              </template>
-            </el-table-column>
-            <!-- pass：1 已审核（绿），0 未审核（红） -->
-            <el-table-column prop="Pass" label="状态" min-width="100">
-              <template #default="{ row }">
-                <el-tag :type="Number(row?.Pass) === 1 ? 'success' : 'danger'" effect="light">
-                  {{ Number(row?.Pass) === 1 ? '已审核' : '未审核' }}
-                </el-tag>
-              </template>
-            </el-table-column>
-
-            <el-table-column label="操作" :width="operatorActionsColWidth" fixed="right" class-name="erp-col-actions">
-              <template #default="{ row }">
-                <ErpTableActions>
+                <ErpTableActions class="operator-list-actions">
                   <template v-if="!showRecycle">
                     <el-button v-permission="'view'" type="info" plain @click="openViewDialog(row)">查看</el-button>
                     <el-button v-permission="'edit'" type="primary" plain @click="openEditDialog(row)">编辑</el-button>
@@ -179,6 +155,30 @@
                     <el-button v-permission="'edit'" type="primary" plain @click="resumeUser(row)">恢复</el-button>
                   </template>
                 </ErpTableActions>
+              </template>
+            </el-table-column>
+            <!-- 主键 UserID 仅作 row-key，不在表格中展示 -->
+            <el-table-column prop="Usercode" label="登录账号" min-width="140" show-overflow-tooltip>
+              <template #default="{ row }">
+                {{ row?.Usercode ?? row?.UserCode ?? row?.Username ?? '—' }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="truename" label="姓名" min-width="120" show-overflow-tooltip>
+              <template #default="{ row }">
+                {{ row?.truename ?? row?.Truename ?? '—' }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="RoleName" label="关联角色" min-width="120" show-overflow-tooltip>
+              <template #default="{ row }">
+                {{ row?.RoleName || '—' }}
+              </template>
+            </el-table-column>
+            <!-- pass：1 已审核（绿），0 未审核（红） -->
+            <el-table-column prop="Pass" label="状态" min-width="100">
+              <template #default="{ row }">
+                <el-tag :type="Number(row?.Pass) === 1 ? 'success' : 'danger'" effect="light">
+                  {{ Number(row?.Pass) === 1 ? '已审核' : '未审核' }}
+                </el-tag>
               </template>
             </el-table-column>
           </el-table>
@@ -320,6 +320,7 @@ import { Plus, Setting } from '@element-plus/icons-vue'
 import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
 import { isErpSuperAdmin } from '@/utils/erpSuperAdmin'
 import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
+import { getStoredUiDensity } from '@/utils/uiDensity'
 
 /** 页面标题（与左侧菜单一致） */
 const pageTitle = '操作员管理'
@@ -351,7 +352,16 @@ const showRecycle = ref(false)
 /** 在册列表：默认 pass=1；打开后查 pass=0（与颜色编码一致）；回收站时隐藏 */
 const showUnAudited = ref(false)
 
-const operatorActionsColWidth = computed(() => getErpTableActionsColWidthByRows(users.value, getOperatorRowActionLabels))
+/** 操作列宽：全部按钮同一行估宽（singleRow）；间隙收紧，避免默认 3 列折成两行 */
+const operatorActionsColWidth = computed(() =>
+  getErpTableActionsColWidthByRows(users.value, getOperatorRowActionLabels, {
+    comfortable: getStoredUiDensity() === 'comfortable',
+    singleRow: true,
+    cellPadPx: 10,
+    colGapPx: 2,
+    extraPx: 4,
+  }),
+)
 
 /** 操作员主列表操作列按钮：与模板 v-if / v-permission 保持一致，用于估算列宽 */
 function getOperatorRowActionLabels(row) {
@@ -1018,6 +1028,31 @@ onMounted(async () => {
 }
 .audit-alert {
   margin-bottom: 12px;
+}
+/* 操作列：强制四钮（或回收站两钮）同一行、间隙紧凑；列宽由 operatorActionsColWidth + singleRow 估够 */
+.operator-list-actions.erp-table-actions--grid {
+  display: flex !important;
+  flex-wrap: nowrap;
+  flex-direction: row;
+  justify-content: flex-start;
+  align-items: center;
+  column-gap: 2px;
+  row-gap: 0;
+  max-height: none;
+  max-width: none;
+  overflow: visible;
+  white-space: nowrap;
+}
+.operator-list-actions.erp-table-actions--grid :deep(.el-button) {
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+:deep(td.erp-col-actions .cell) {
+  /* DIY：操作列左右留白，建议 ≤5px */
+  padding-left: 5px;
+  padding-right: 5px;
 }
 .operator-toolbar {
   /* 业务：flex + wrap，按钮一行放不下时自动换行 */

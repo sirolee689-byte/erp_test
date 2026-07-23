@@ -17,3 +17,17 @@ describe('反审权限模型', () => {
     assert.equal(roleAllowsAction(parsed, 'inventory/daily/stock-in', 'unaudit'), true)
   })
 })
+
+describe('菜单 path 前缀：父可覆盖子，子不可反开父', () => {
+  test('仅授 paper-pattern/import/manage 时不能开纸格资料导入', () => {
+    const parsed = parseRolePermissions('{"paper-pattern/import/manage":["view"]}')
+    assert.equal(roleAllowsAction(parsed, 'paper-pattern/import/manage', 'view'), true)
+    assert.equal(roleAllowsAction(parsed, 'paper-pattern/import', 'view'), false)
+  })
+
+  test('授父级 paper-pattern 时两子页均可 view', () => {
+    const parsed = parseRolePermissions('{"paper-pattern":["view"]}')
+    assert.equal(roleAllowsAction(parsed, 'paper-pattern/import', 'view'), true)
+    assert.equal(roleAllowsAction(parsed, 'paper-pattern/import/manage', 'view'), true)
+  })
+})

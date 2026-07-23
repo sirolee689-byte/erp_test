@@ -4,7 +4,7 @@
       外协报价：UB_ERP_assist_offer + UB_ERP_assist_offer_list
       顶栏「管理 / 添加」；列表分页 + 展开明细；新增/编辑为页内嵌面板（对齐销售订单）
     -->
-    <div class="pq-mode-bar">
+    <div class="pq-mode-bar erp-mode-bar">
       <el-button
         :type="pageMode === 'manage' ? 'primary' : 'default'"
         plain
@@ -344,12 +344,18 @@
       </div>
     </el-dialog>
 
-    <!-- 新增/编辑：页内嵌面板（基础资料 / 明细 Tab） -->
+    <!-- 新增/编辑：页内嵌面板（基础资料 / 明细 Tab）；表单头操作钮对齐采购报价 -->
     <section v-show="editVisible" v-loading="editLoading" class="pq-edit-panel">
       <div class="pq-edit-panel__header">
         <h2 class="pq-edit-panel__title">
           {{ editMode === 'create' ? '新增外协报价' : '编辑外协报价' }}
         </h2>
+        <div class="pq-edit-panel__actions">
+          <el-button @click="switchToManage">取消</el-button>
+          <el-button type="primary" :loading="editSaving" :disabled="detailLocked" @click="submitEdit">
+            保存
+          </el-button>
+        </div>
       </div>
       <div class="edit-wrap">
         <el-tabs v-model="editActiveTab" class="pq-edit-tabs" @tab-change="onEditTabChange">
@@ -628,12 +634,6 @@
             </el-table>
           </el-tab-pane>
         </el-tabs>
-      </div>
-      <div class="pq-edit-panel__footer">
-        <el-button @click="switchToManage">取消</el-button>
-        <el-button type="primary" :loading="editSaving" :disabled="detailLocked" @click="submitEdit">
-          保存
-        </el-button>
       </div>
     </section>
 
@@ -1736,18 +1736,24 @@ loadData()
 .pq-quote-page {
   display: flex;
   flex-direction: column;
-  gap: 12px;
   min-height: 200px;
 }
+/* 顶栏与出入库一致：外框/留白走全局 erp-mode-bar；去掉左侧蓝条 */
 .pq-mode-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-bottom: 4px;
-  padding: 10px 12px;
-  border-left: 4px solid var(--el-color-primary);
-  background: var(--el-fill-color-lighter);
+  margin-bottom: 12px;
+}
+/* 列表卡片与出入库一致：不加外框线 */
+.pq-quote-page > :deep(.el-card) {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+.pq-quote-page > :deep(.el-card > .el-card__body) {
+  padding: 0;
 }
 .page-title {
   font-size: 18px;
@@ -1862,13 +1868,13 @@ loadData()
   max-height: 280px;
   overflow: auto;
 }
-/* 新增/编辑页内嵌面板 */
+/* 新增/编辑页内嵌面板：与出入库一致，不加外框线 */
 .pq-edit-panel {
   box-sizing: border-box;
   min-height: 360px;
-  padding: 14px 16px 12px;
-  border: 1px solid var(--el-border-color-light);
-  background: var(--el-bg-color);
+  padding: 0;
+  border: none;
+  background: transparent;
   font-size: 15px;
   line-height: 1.55;
 }
@@ -1877,27 +1883,26 @@ loadData()
   align-items: center;
   justify-content: space-between;
   margin-bottom: 12px;
+  /* DIY：外协报价表单头（标题 + 取消/保存，对齐采购报价）；标题字号 16～22，按钮高度 36～48，字号 13～16 */
+  --oq-form-head-title-font-size: 18px;
+  --oq-form-head-btn-height: 36px;
+  --oq-form-head-btn-font-size: 16px;
 }
 .pq-edit-panel__title {
   margin: 0;
-  font-size: var(--pq-edit-title-size, 18px);
+  font-size: var(--oq-form-head-title-font-size);
   font-weight: 600;
 }
-.pq-edit-panel__footer {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
+.pq-edit-panel__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 12px -16px -12px;
-  padding: 10px 16px;
-  border-top: 1px solid var(--el-border-color-light);
-  background: var(--el-bg-color);
+  align-items: center;
 }
-.pq-edit-panel__footer :deep(.el-button) {
-  font-size: 15px;
-  padding: 10px 22px;
+.pq-edit-panel__actions :deep(.el-button) {
+  height: var(--oq-form-head-btn-height);
+  min-height: var(--oq-form-head-btn-height);
+  font-size: var(--oq-form-head-btn-font-size);
 }
 .pq-edit-tabs {
   margin-top: -4px;
@@ -1914,6 +1919,10 @@ loadData()
 .pq-basic-form {
   padding-top: 8px;
   max-width: 1180px;
+  /* DIY：基础资料单行输入高度（对齐出库单） */
+  --oq-base-input-height: var(--el-component-size);
+  /* DIY：备注多行高度（默认与单行同高，可自调） */
+  --oq-remark-input-height: calc(var(--oq-base-input-height) * 1);
 }
 .pq-edit-panel .pq-basic-form :deep(.el-form-item) {
   margin-bottom: 18px;
@@ -1927,8 +1936,21 @@ loadData()
 .pq-edit-panel .pq-basic-form :deep(.el-textarea__inner) {
   font-size: 15px;
 }
-.pq-edit-panel .pq-basic-form :deep(.el-input__wrapper) {
+.pq-edit-panel .pq-basic-form :deep(.el-input__wrapper),
+.pq-edit-panel .pq-basic-form :deep(.el-select__wrapper),
+.pq-edit-panel .pq-basic-form :deep(.el-input-number .el-input__wrapper) {
+  height: var(--oq-base-input-height);
+  min-height: var(--oq-base-input-height);
+  box-sizing: border-box;
   font-size: 15px;
+}
+.pq-edit-panel .pq-basic-form :deep(.el-date-editor) {
+  height: var(--oq-base-input-height);
+}
+.pq-edit-panel .pq-basic-form :deep(.el-textarea__inner) {
+  height: var(--oq-remark-input-height);
+  min-height: var(--oq-remark-input-height);
+  box-sizing: border-box;
 }
 .pq-edit-panel .pq-basic-form :deep(.el-select .el-select__wrapper),
 .pq-edit-panel .pq-basic-form :deep(.el-select__placeholder) {

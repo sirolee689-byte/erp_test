@@ -61,6 +61,7 @@
 - 侧栏：`ErpLayout` 对 `erp_structure_dump.json` 做递归过滤后传给 `ErpMenuTree`（见 `src/utils/menuPermission.js` 中 **filter** 算法注释）。
 - 路由：`router.beforeEach` 对无权限 URL 重定向 `/403`；根路径 `/` 动态重定向到「第一个有权限的叶子菜单」。
 - 角色管理页「分配权限」：`el-tree` 勾选 path，保存为 JSON 数组；支持开关「全部菜单」写入 `["*"]`。
+- **path 匹配（前后端一致）**：只认「精确」或「授权父 path → 子路由继承」；**子菜单授权不能反开父页**。侧栏父文件夹靠「子节点过滤后非空则保留」露出，不靠反向前缀。典型陷阱：`paper-pattern/import`（纸格资料导入）与 `paper-pattern/import/manage`（管理纸格导入资料）字符串上是前缀关系，仅勾管理页时不得出现导入页。
 
 详细交互与路由说明见 `role/README.md`。
 

@@ -69,7 +69,8 @@ export function parseRolePermissions(raw) {
 }
 
 /**
- * 某菜单 path 下是否允许某操作（含前缀：授权父 path 则子路由继承）
+ * 某菜单 path 下是否允许某操作。
+ * 精确匹配，或授权父 path 则子路由继承；子授权不可反开父页。
  */
 export function roleAllowsAction(parsed, menuPath, action) {
   const act = String(action ?? '').trim().toLowerCase()
@@ -79,7 +80,8 @@ export function roleAllowsAction(parsed, menuPath, action) {
   const path = String(menuPath ?? '').replace(/^\/+/, '').replace(/\/+$/, '')
   const entries = [...parsed.actionsByPath.entries()]
 
-  const pathMatchesKey = (key) => path === key || path.startsWith(`${key}/`) || key.startsWith(`${path}/`)
+  // 父可覆盖子；禁止 key.startsWith(path/) 以免 import/manage 误开 import
+  const pathMatchesKey = (key) => path === key || path.startsWith(`${key}/`)
 
   for (const [key, set] of entries) {
     if (!pathMatchesKey(key)) continue

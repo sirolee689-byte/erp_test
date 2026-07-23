@@ -1,6 +1,6 @@
 <template>
   <div class="erp-module-page dispatch-page">
-    <div class="dispatch-mode-bar">
+    <div class="dispatch-mode-bar erp-mode-bar">
       <el-button :type="pageMode === 'list' ? 'primary' : 'default'" plain @click="switchList">派工单管理</el-button>
       <el-button v-permission="'add'" :type="pageMode === 'form' && !editId ? 'primary' : 'default'" plain @click="newOrder">
         新增派工单
@@ -163,7 +163,7 @@
 
     <section v-show="pageMode === 'form' || pageMode === 'view'" class="erp-section" :class="{ 'dispatch-form-section--readonly': isReadonlyForm }">
       <div class="form-head">
-        <strong>{{ pageMode === 'view' ? '查看派工单' : editId ? '编辑派工单' : '新增派工单' }}</strong>
+        <strong class="form-head-title">{{ pageMode === 'view' ? '查看派工单' : editId ? '编辑派工单' : '新增派工单' }}</strong>
         <div>
           <el-button v-if="pageMode === 'view'" @click="switchList">返回列表</el-button>
           <template v-else>
@@ -243,7 +243,7 @@
               </div>
               <div class="dispatch-form-row dispatch-form-row--1">
                 <el-form-item label="备注">
-                  <el-input v-model="form.remark" :readonly="isReadonlyForm" />
+                  <el-input v-model="form.remark" class="dispatch-remark-input" :readonly="isReadonlyForm" />
                 </el-form-item>
               </div>
             </div>
@@ -251,9 +251,9 @@
         </el-tab-pane>
         <el-tab-pane label="派工单明细" name="lines">
           <div v-if="!isReadonlyForm" class="line-toolbar">
-            <el-button type="primary" plain @click="openGoodsDialog">批量添加</el-button>
             <el-button type="danger" plain :disabled="!hasMarkedLines" @click="removeMarkedLines">删除选定明细</el-button>
             <el-button type="danger" plain :disabled="!lines.length" @click="removeAllLines">删除全部明细</el-button>
+            <el-button type="primary" plain @click="openGoodsDialog">批量添加</el-button>
           </div>
           <el-table :data="lines" border stripe row-key="__key" class="erp-list-table">
             <el-table-column v-if="!isReadonlyForm" label="操作" width="86">
@@ -898,7 +898,13 @@ onMounted(() => {
 .dispatch-page {
   min-height: 100%;
 }
-.dispatch-mode-bar,
+/* 顶栏与出入库一致：外框/留白走全局 erp-mode-bar */
+.dispatch-mode-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
 .form-head,
 .line-toolbar,
 .goods-toolbar {
@@ -906,6 +912,31 @@ onMounted(() => {
   align-items: center;
   gap: 10px;
   margin-bottom: 12px;
+}
+/* DIY：派工单明细工具栏按钮（删除选定/删除全部/批量添加）；高度建议 36～48，字号建议 13～16 */
+.line-toolbar {
+  --dispatch-line-toolbar-btn-height: 36px;
+  --dispatch-line-toolbar-btn-font-size: 16px;
+}
+.line-toolbar :deep(.el-button) {
+  height: var(--dispatch-line-toolbar-btn-height);
+  min-height: var(--dispatch-line-toolbar-btn-height);
+  font-size: var(--dispatch-line-toolbar-btn-font-size);
+}
+/* DIY：派工单添加/编辑表单头（标题「新增/编辑/查看派工单」+ 返回列表/保存）
+   标题字号建议 16～22；按钮高度建议 36～48，字号建议 13～16 */
+.form-head {
+  --dispatch-form-head-title-font-size: 18px;
+  --dispatch-form-head-btn-height: 36px;
+  --dispatch-form-head-btn-font-size: 16px;
+}
+.form-head-title {
+  font-size: var(--dispatch-form-head-title-font-size);
+}
+.form-head :deep(.el-button) {
+  height: var(--dispatch-form-head-btn-height);
+  min-height: var(--dispatch-form-head-btn-height);
+  font-size: var(--dispatch-form-head-btn-font-size);
 }
 .dispatch-page {
   --dispatch-filter-type-width: 160px;
@@ -952,11 +983,12 @@ onMounted(() => {
   font-size: 14px;
   white-space: nowrap;
 }
+/* 与出入库一致：列表/添加内容区不加外框线 */
 .erp-section {
-  padding: 12px;
-  background: var(--el-bg-color);
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 6px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
 }
 .dispatch-alert {
   margin-bottom: 12px;
@@ -972,6 +1004,10 @@ onMounted(() => {
   flex-direction: column;
   --dispatch-field-width: 290px;
   --dispatch-row-gap: 14px;
+  /* DIY：基础资料单行输入高度（对齐出库单）；不含派工类型按钮 */
+  --dispatch-base-input-height: var(--el-component-size);
+  /* DIY：备注高度（派工单备注为单行，默认与单行同高） */
+  --dispatch-remark-input-height: calc(var(--dispatch-base-input-height) * 1);
 }
 .dispatch-form-row {
   display: flex;
@@ -992,6 +1028,21 @@ onMounted(() => {
 }
 .dispatch-form-row :deep(.el-form-item__content) {
   justify-content: flex-start;
+}
+/* 只统一单行输入/下拉/日期/自动完成高度；不碰派工类型按钮 */
+.dispatch-header-rows :deep(.el-input__wrapper),
+.dispatch-header-rows :deep(.el-select__wrapper) {
+  height: var(--dispatch-base-input-height);
+  min-height: var(--dispatch-base-input-height);
+  box-sizing: border-box;
+}
+.dispatch-header-rows :deep(.el-date-editor),
+.dispatch-header-rows :deep(.el-autocomplete) {
+  height: var(--dispatch-base-input-height);
+}
+.dispatch-header-rows :deep(.dispatch-remark-input .el-input__wrapper) {
+  height: var(--dispatch-remark-input-height);
+  min-height: var(--dispatch-remark-input-height);
 }
 .dispatch-type-btns {
   display: flex;

@@ -154,7 +154,7 @@
                 size="small"
                 class="buy-expand-table"
                 show-summary
-                :summary-method="(param) => buyExpandSummaryMethod(row.expandedRows, param)"
+                :summary-method="(param) => buyExpandSummaryMethod(row.expandedRows, row, param)"
               >
                 <el-table-column label="序号" width="66" align="center">
                   <template #default="{ row: line, $index }">{{ line._rowType === 'fee' ? '费用' : $index + 1 }}</template>
@@ -205,16 +205,16 @@
                   </template>
                 </el-table-column>
                 <el-table-column v-if="hasPrice" label="单价" prop="kcak04" width="130" align="right">
-                  <template #default="{ row: line }">{{ line._rowType === 'fee' ? '' : formatMoneyWithPrecision(line.kcak04, 4) }}</template>
+                  <template #default="{ row: line }">{{ line._rowType === 'fee' ? '' : formatExpandMoney(line.kcak04, decimalPlaces(row)) }}</template>
                 </el-table-column>
                 <el-table-column v-if="hasPrice" label="单价（含税）" prop="kcak041" width="130" align="right">
-                  <template #default="{ row: line }">{{ line._rowType === 'fee' ? '' : formatMoneyWithPrecision(line.kcak041, taxIncludedPricePrecision) }}</template>
+                  <template #default="{ row: line }">{{ line._rowType === 'fee' ? '' : formatExpandMoney(line.kcak041, decimalPlaces(row)) }}</template>
                 </el-table-column>
                 <el-table-column v-if="hasPrice" label="金额" prop="kcak05" width="130" align="right">
-                  <template #default="{ row: line }">{{ line._rowType === 'fee' ? '' : money(line.kcak05) }}</template>
+                  <template #default="{ row: line }">{{ line._rowType === 'fee' ? '' : formatExpandMoney(line.kcak05, decimalPlaces(row)) }}</template>
                 </el-table-column>
                 <el-table-column v-if="hasPrice" label="金额（含税）" prop="kcak051" width="130" align="right">
-                  <template #default="{ row: line }">{{ money(line._rowType === 'fee' ? line.money : line.kcak051) }}</template>
+                  <template #default="{ row: line }">{{ formatExpandMoney(line._rowType === 'fee' ? line.money : line.kcak051, decimalPlaces(row)) }}</template>
                 </el-table-column>
                 <el-table-column v-if="hasPrice" label="税点" prop="tax" width="90" align="right">
                   <template #default="{ row: line }">{{ formatMoneyWithPrecision(line.tax, 2) }}</template>
@@ -378,7 +378,7 @@
       :class="{ 'buy-create-panel--readonly': isReadonlyForm }"
     >
       <div class="buy-form-head">
-        <strong>{{ pageMode === 'view' ? '查看采购订单' : pageMode === 'edit' ? '编辑采购订单' : '新增采购订单' }}</strong>
+        <strong class="buy-form-head__title">{{ pageMode === 'view' ? '查看采购订单' : pageMode === 'edit' ? '编辑采购订单' : '新增采购订单' }}</strong>
         <div class="buy-form-head__actions">
           <el-button v-if="pageMode === 'view' || pageMode === 'edit'" @click="switchToManage">返回列表</el-button>
           <el-button v-else @click="confirmAndResetCreateForm">重置</el-button>
@@ -969,6 +969,10 @@ function decimalPlaces(row) {
   const n = Number(row?.decimalPlaces)
   return Number.isInteger(n) && n >= 0 ? n : 4
 }
+/** 展开明细单价/金额：按该单小数点配置展示并去尾 0 */
+function formatExpandMoney(value, places) {
+  return formatErpTrimDecimal(value, { maxDecimals: places, empty: '-' })
+}
 function formatNumber(v, precision = 2) {
   return numberVal(v).toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: Math.max(0, precision) })
 }
@@ -1465,16 +1469,17 @@ function calcExpandSubtotal(rows) {
     taxIncludedAmount: list.reduce((sum, row) => sum + numberVal(row._rowType === 'fee' ? row.money : row.kcak051), 0),
   }
 }
-function buyExpandSummaryMethod(rows, { columns }) {
+function buyExpandSummaryMethod(rows, orderRow, { columns }) {
   const sub = calcExpandSubtotal(rows)
+  const places = decimalPlaces(orderRow)
   return columns.map((col) => {
     const prop = col.property
     if (prop === 'kcaa02') return '小计：'
     if (prop === 'kcak03') return formatQuantity(sub.quantity)
-    if (prop === 'kcak04') return formatMoneyWithPrecision(sub.taxExcludedPrice, 4)
-    if (prop === 'kcak041') return formatMoneyWithPrecision(sub.taxIncludedPrice, taxIncludedPricePrecision.value)
-    if (prop === 'kcak05') return money(sub.taxExcludedAmount)
-    if (prop === 'kcak051') return money(sub.taxIncludedAmount)
+    if (prop === 'kcak04') return formatExpandMoney(sub.taxExcludedPrice, places)
+    if (prop === 'kcak041') return formatExpandMoney(sub.taxIncludedPrice, places)
+    if (prop === 'kcak05') return formatExpandMoney(sub.taxExcludedAmount, places)
+    if (prop === 'kcak051') return formatExpandMoney(sub.taxIncludedAmount, places)
     return ''
   })
 }
@@ -2083,11 +2088,8 @@ onUnmounted(() => {
   --buy-filter-switch-gap: 20px;
 }
 
-/* DIY：表单模式预留 ERP 顶栏高度，改 --buy-page-chrome */
+/* DIY：表单模式对齐入库单/外协订单——不锁 100vh、不造内层滚动条；页面随内容自然增高 */
 .buy-order-page--form {
-  --buy-page-chrome: 200px;
-  height: calc(100vh - var(--buy-page-chrome));
-  overflow: hidden;
   gap: 8px;
 }
 
@@ -2100,19 +2102,18 @@ onUnmounted(() => {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 4px;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
 .buy-create-panel {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
 }
 
+/* DIY：采购订单表单头（标题「新增/编辑/查看采购订单」+ 重置/保存/返回列表）
+   标题字号建议 16～22；按钮高度建议 36～48，字号建议 13～16 */
 .buy-form-head {
   display: flex;
   align-items: center;
@@ -2120,10 +2121,13 @@ onUnmounted(() => {
   flex-shrink: 0;
   min-height: 42px;
   padding: 0 2px;
+  --buy-form-head-title-font-size: 18px;
+  --buy-form-head-btn-height: 36px;
+  --buy-form-head-btn-font-size: 16px;
 }
 
-.buy-form-head strong {
-  font-size: 16px;
+.buy-form-head__title {
+  font-size: var(--buy-form-head-title-font-size);
   color: var(--el-text-color-primary);
 }
 
@@ -2133,24 +2137,24 @@ onUnmounted(() => {
   gap: 8px;
 }
 
+.buy-form-head__actions :deep(.el-button) {
+  height: var(--buy-form-head-btn-height);
+  min-height: var(--buy-form-head-btn-height);
+  font-size: var(--buy-form-head-btn-font-size);
+}
+
 .buy-create-panel :deep(.buy-edit-form) {
-  flex: 1;
-  min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
 .buy-create-panel :deep(.buy-edit-tabs) {
-  flex: 1;
-  min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
 .buy-create-panel :deep(.buy-edit-tabs > .el-tabs__content) {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
+  overflow: visible;
 }
 
 .buy-table {
@@ -2158,11 +2162,26 @@ onUnmounted(() => {
 }
 
 .line-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+/* DIY：采购订单明细工具栏按钮（删除选定/删除全部/批量添加）；高度建议 36～48，字号建议 13～16 */
+.line-toolbar {
+  --buy-line-toolbar-btn-height: 36px;
+  --buy-line-toolbar-btn-font-size: 16px;
+}
+.line-toolbar :deep(.el-button) {
+  height: var(--buy-line-toolbar-btn-height);
+  min-height: var(--buy-line-toolbar-btn-height);
+  font-size: var(--buy-line-toolbar-btn-font-size);
+}
 .line-toolbar .el-select { width: 420px; }
 .buy-basic-layout {
   --buy-basic-button-width: 106px;
   --buy-basic-label-width: 86px;
-  --buy-basic-input-height: 40px;
+  /* DIY：基础资料单行输入高度（对齐出库单）；类型/含税按钮另用 button-height */
+  --buy-basic-input-height: var(--el-component-size);
+  /* DIY：单号类型/采购类型/是否含税按钮高度，保持原 40px 不动 */
+  --buy-basic-button-height: 40px;
+  /* DIY：备注多行高度（默认与单行同高，可自调） */
+  --buy-remark-input-height: calc(var(--buy-basic-input-height) * 1);
   --buy-basic-control-font-size: 16px;
   display: flex;
   flex-direction: column;
@@ -2218,7 +2237,17 @@ onUnmounted(() => {
 .buy-basic-field :deep(.el-input__wrapper),
 .buy-basic-field :deep(.el-select__wrapper),
 .buy-basic-field :deep(.el-input-number .el-input__wrapper) {
+  height: var(--buy-basic-input-height);
   min-height: var(--buy-basic-input-height);
+  box-sizing: border-box;
+}
+.buy-basic-field :deep(.el-date-editor) {
+  height: var(--buy-basic-input-height);
+}
+.buy-basic-field :deep(.el-textarea__inner) {
+  height: var(--buy-remark-input-height);
+  min-height: var(--buy-remark-input-height);
+  box-sizing: border-box;
 }
 .buy-basic-field :deep(.el-input__inner),
 .buy-basic-field :deep(.el-select__placeholder),
@@ -2260,7 +2289,7 @@ onUnmounted(() => {
 .buy-reference-picker :deep(.el-button) {
   width: var(--buy-basic-button-width);
   min-width: var(--buy-basic-button-width);
-  height: var(--buy-basic-input-height);
+  height: var(--buy-basic-button-height);
   margin-left: 0;
   padding-left: 0;
   padding-right: 0;

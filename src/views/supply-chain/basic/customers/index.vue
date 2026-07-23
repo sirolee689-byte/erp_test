@@ -970,8 +970,22 @@ async function loadSettlementMethodOptions() {
 .cust-mode-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   margin-bottom: 12px;
+}
+/* 列表卡片与出入库一致：不加外框线 */
+.cust-manage-panel > :deep(.el-card) {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+.cust-manage-panel > :deep(.el-card > .el-card__body) {
+  padding: 0;
+}
+.cust-manage-panel > :deep(.el-card > .el-card__header) {
+  padding-left: 0;
+  padding-right: 0;
+  border-bottom: none;
 }
 .cust-toolbar {
   margin-bottom: 12px;
@@ -1023,12 +1037,12 @@ async function loadSettlementMethodOptions() {
   white-space: pre-line;
 }
 
-/* —— 当前页表单（对齐供应商资料布局） —— */
+/* —— 当前页表单（对齐出入库：无外框线） —— */
 .cust-form-panel {
-  background: var(--el-bg-color);
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 4px;
-  padding: 16px 20px 24px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
 }
 .cust-form-head {
   display: flex;

@@ -13,6 +13,7 @@
 ## 界面说明
 
 - 布局与 **操作员资料**（`system/operator`）一致：大按钮工具栏、橙色激活态视图切换、`el-table` + `el-pagination`、表格上方独立搜索栏。
+- **操作列在左侧第一列、按钮单行紧凑**：`fixed="left"`；类名 `role-list-actions` 强制不换行；列宽由 `roleActionsColWidth`（`singleRow: true`）按本页按钮文案估宽。DIY：改 `colGapPx` / 按钮 `padding-left/right`，或写死 `width="280"`。
 
 ## 菜单与路由
 
@@ -31,5 +32,6 @@
 - 角色名称 `RoleName` 有唯一约束，重复会返回中文错误提示。
 - 修改某角色的 `Permissions` 后，**已登录**该角色的用户需**重新登录**，侧栏与路由守卫才会读到新权限。
 - 分配权限时，点击菜单文字只会在右侧回显该菜单已保存的操作权限；只有点击复选框才会增删菜单授权。新勾选菜单默认只有 `view`，新增、编辑、删除等必须在右侧明确勾选。
+- **path 前缀规则**：父 path 可覆盖其下所有子菜单/子路由；子 path 授权**不会**打开父菜单。例：只勾「管理纸格导入资料」（`paper-pattern/import/manage`）时，侧栏与接口都不应放行「纸格资料导入」（`paper-pattern/import`）；若整支勾选后只记父级 `paper-pattern`，则两子页均可进入。
 - 细粒度操作已将 `审核`（`audit`）与 `反审`（`unaudit`）拆分；角色同时拥有两项才可完成审核与反审。历史角色启动时会自动补入原有 `audit` 对应的 `unaudit`，随后可在本页单独取消反审。
 - 超级管理员不是角色权限，不能在本页分配；由操作员资料的 `UB_ERP_User.is_admin=1` 单独维护。

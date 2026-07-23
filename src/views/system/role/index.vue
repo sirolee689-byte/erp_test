@@ -90,20 +90,10 @@
             style="width: 100%"
             :empty-text="loading ? '加载中...' : '暂无数据'"
            @row-contextmenu="onErpListRowContextMenu">
-            <el-table-column prop="RoleID" label="角色 ID" min-width="100" />
-            <el-table-column prop="RoleName" label="角色名称" min-width="140" show-overflow-tooltip />
-            <el-table-column prop="Description" label="描述" min-width="200" show-overflow-tooltip />
-            <el-table-column prop="pass" label="状态" min-width="100">
+            <!-- 操作列固定左侧第一列；按钮单行紧凑，列宽由 roleActionsColWidth + singleRow 估宽 -->
+            <el-table-column label="操作" :width="220" fixed="left" class-name="erp-col-actions">
               <template #default="{ row }">
-                <el-tag :type="String(row?.pass ?? '') === '1' ? 'success' : 'info'" effect="light">
-                  {{ String(row?.pass ?? '') === '1' ? '启用' : '禁用' }}
-                </el-tag>
-              </template>
-            </el-table-column>
-
-            <el-table-column label="操作" :width="roleActionsColWidth" fixed="right" class-name="erp-col-actions">
-              <template #default="{ row }">
-                <ErpTableActions>
+                <ErpTableActions class="role-list-actions">
                   <template v-if="Number(selectedStatus) === 1">
                     <el-button v-permission="'edit'" type="primary" plain @click="openEditDialog(row)">编辑</el-button>
                     <el-button v-permission="'audit'" type="info" plain @click="openPermDialog(row)">分配权限</el-button>
@@ -114,6 +104,16 @@
                     <el-button v-permission="'delete'" type="danger" plain @click="deleteRole(row)">删除</el-button>
                   </template>
                 </ErpTableActions>
+              </template>
+            </el-table-column>
+            <el-table-column prop="RoleID" label="角色 ID" min-width="100" />
+            <el-table-column prop="RoleName" label="角色名称" min-width="140" show-overflow-tooltip />
+            <el-table-column prop="Description" label="描述" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="pass" label="状态" min-width="100">
+              <template #default="{ row }">
+                <el-tag :type="String(row?.pass ?? '') === '1' ? 'success' : 'info'" effect="light">
+                  {{ String(row?.pass ?? '') === '1' ? '启用' : '禁用' }}
+                </el-tag>
               </template>
             </el-table-column>
           </el-table>
@@ -249,6 +249,7 @@ import { Plus, Refresh, RefreshLeft, Setting } from '@element-plus/icons-vue'
 import menuDump from '../../../../erp_structure_dump.json'
 import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
 import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
+import { getStoredUiDensity } from '@/utils/uiDensity'
 const { onErpListRowContextMenu } = useErpListRowContextMenu()
 
 const menuPath = 'system/role'
@@ -266,7 +267,17 @@ const errorMessage = ref('')
 /** 双视图：1=启用列表，0=回收站 */
 const selectedStatus = ref(1)
 
-const roleActionsColWidth = computed(() => getErpTableActionsColWidthByRows(roleList.value, getRoleRowActionLabels))
+/** 操作列宽：全部按钮同一行估宽（singleRow）；间隙收紧，避免默认折行 */
+const roleActionsColWidth = computed(() =>
+  getErpTableActionsColWidthByRows(roleList.value, getRoleRowActionLabels, {
+    comfortable: getStoredUiDensity() === 'comfortable',
+    singleRow: true,
+    cellPadPx: 10,
+    colGapPx: 2,
+    extraPx: 4,
+    fallbackLabels: ['编辑'],
+  }),
+)
 
 /** 角色列表操作列按钮：与模板 v-if / v-permission 保持一致，用于估算列宽 */
 function getRoleRowActionLabels() {
@@ -881,6 +892,31 @@ onMounted(() => {
 }
 .error-alert {
   margin: 12px 0;
+}
+/* 操作列：强制按钮同一行、间隙紧凑；列宽由 roleActionsColWidth + singleRow 估够 */
+.role-list-actions.erp-table-actions--grid {
+  display: flex !important;
+  flex-wrap: nowrap;
+  flex-direction: row;
+  justify-content: flex-start;
+  align-items: center;
+  column-gap: 2px;
+  row-gap: 0;
+  max-height: none;
+  max-width: none;
+  overflow: visible;
+  white-space: nowrap;
+}
+.role-list-actions.erp-table-actions--grid :deep(.el-button) {
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+:deep(td.erp-col-actions .cell) {
+  /* DIY：操作列左右留白，建议 ≤5px */
+  padding-left: 5px;
+  padding-right: 5px;
 }
 .search-row {
   display: flex;

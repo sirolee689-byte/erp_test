@@ -1190,8 +1190,22 @@ onMounted(() => {
 .supplier-mode-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   margin-bottom: 12px;
+}
+/* 列表卡片与出入库一致：不加外框线 */
+.supplier-manage-panel > :deep(.el-card) {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+.supplier-manage-panel > :deep(.el-card > .el-card__body) {
+  padding: 0;
+}
+.supplier-manage-panel > :deep(.el-card > .el-card__header) {
+  padding-left: 0;
+  padding-right: 0;
+  border-bottom: none;
 }
 .supplier-toolbar {
   margin-bottom: 12px;
@@ -1239,12 +1253,12 @@ onMounted(() => {
   font-weight: 600;
 }
 
-/* —— 当前页表单（对齐采购订单基础资料布局） —— */
+/* —— 当前页表单（对齐出入库：无外框线） —— */
 .supplier-form-panel {
-  background: var(--el-bg-color);
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 4px;
-  padding: 16px 20px 24px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
 }
 .supplier-form-head {
   display: flex;

@@ -9,10 +9,11 @@
 - 主路径：`/supply-chain/daily/outsourcing-order`
 
 - 顶部 **管理外协订单 / 外协订单添加** 模式条；编辑、添加与**查看**共用整页表单 `AssistOrderEditForm.vue`（基础资料 / 明细 / 额外费用）。
+- **顶栏贴紧**（2026-07-23）：模式条间距对齐出入库（全站 `erp-mode-bar`）。
 - **基础资料按钮（2026-07）**：「外协类型」「是否含税」与采购订单同款 `el-button`（高 40 / 宽 106 / 字 16）；是否含税为「是/否」按钮，不再用下拉。
 - **币别默认（2026-07）**：点「外协订单添加」时币别下拉默认「人民币」（编码 `001`），可手动改；编辑/查看仍带出原单币别。
 
-- **查看**（2026-07）：列表点「查看」进入与编辑相同的三页签全屏表单，全程只读；顶栏标题「查看外协订单」+「返回列表」；无「立即提交」「重置」及明细删行/批量添加/费用增行；明细行「查看」仍打开 PI-BOM 新页；价格列仍受 `price` 权限控制。
+- **查看**（2026-07）：列表点「查看」进入与编辑相同的三页签全屏表单，全程只读；顶栏标题「查看外协订单」+「返回列表」；无「立即提交」「重置」及明细删行/批量添加/费用增行；明细行「查看」打开 PI-BOM 只读查看页（`mode=view`）；价格列仍受 `price` 权限控制。
 - **主列表操作列宽（2026-07）**：按当前页实际可见按钮 + 权限估宽（`getErpTableActionsColWidthByRows`）；仅查看权限时不再按 5 钮预留空白。
 
 
@@ -25,7 +26,7 @@
 
 |------|------|
 
-| 操作列「查看」 | 新页打开该行款号对应的 PI-BOM（`/inventory/basic/pi-bom-data-window?mode=edit&orderId=…&kcaa01=款号`） |
+| 操作列「查看」 | 新页打开该行款号对应的 PI-BOM 只读查看（`/inventory/basic/pi-bom-data-window?mode=view&orderId=…&kcaa01=款号&piNo=…`，对齐 PI_BOM 资料「查看」） |
 
 | 操作列「删除」 | 橘色按钮标记待删；再点变灰「已选择」可取消标记（对齐 BOM 配件表） |
 
@@ -35,7 +36,10 @@
 
 | 批量添加 | 见下节；新行插入表顶 |
 
-
+- **明细工具栏**（2026-07-23）：顺序已为「删除选定 → 删除全部 → 批量添加」；高度/字号 DIY（`AssistOrderEditForm.vue`）：`--assist-line-toolbar-btn-height` / `--assist-line-toolbar-btn-font-size`（默认 36px / 16px）。
+- **表单头标题与立即提交/重置**（2026-07-23）：左上「新增/编辑/查看外协订单」字号 `--assist-form-head-title-font-size`；右上按钮高度/字号 `--assist-form-head-btn-height` / `--assist-form-head-btn-font-size`（默认 18px / 36px / 16px）。
+- **基础资料输入高度**（2026-07-23）：单行输入对齐出库单，DIY `--assist-base-input-height`；备注/打印注释 DIY `--assist-remark-input-height`；外协类型/是否含税按钮仍用 `--assist-basic-button-height`（默认 40px）不动。
+- **基础资料区域高度**（2026-07-23）：对齐入库单——表单模式不锁 `100vh`、页签内不造滚动条；缩放浏览器也不应再多出内层滚动条。明细/费用表随内容增高（不再强制填满视口）。
 
 - **序号倒序**：顶行序号最大；批量添加的新明细出现在最上方。
 
@@ -124,7 +128,9 @@
 
 | 查看/删除按钮等宽 | 样式 `.assist-line-action-btn` → `--assist-line-action-btn-min-width`（默认 52px，两钮共用） |
 
-| 表单面板顶留白 | `index.vue` → `.assist-order-page--form` → `--assist-page-chrome`（默认 48px，对齐 ERP 顶栏） |
+| 基础资料底边留白 | `AssistOrderEditForm.vue` → `.assist-header-scroll` → `padding-bottom`（默认 18px） |
+
+| 表单高度策略 | 对齐入库单：表单模式**不锁** `100vh`、不造内层滚动条；内容随页面自然增高（浏览器窗口滚，不是页签内滚） |
 
 | 底栏高度 / 横条位置 | `index.vue` → `.assist-form-footer` 的 padding；横条 `bottom-offset` 随底栏 `ResizeObserver` 自动同步 |
 
@@ -172,7 +178,9 @@ Element Plus 约定：固定列（操作、序号）用 `width`；数据列优�
 
 - 展开后子表相对父行左缩进（`--assist-batch-child-indent`），嵌套独立子表头。
 
-- 子表头「操作」列有棕色「全选」，仅勾选该款可入物料；子行另有「查看」打开 PI-BOM 新页。
+- 子表头「操作」列有棕色「全选」，仅勾选该款可入物料；子行另有「查看」打开 PI-BOM 只读查看页（`mode=view`，与库存 PI_BOM 资料「查看」同样式）。
+
+- **列头缩放不换行**（2026-07-23）：父/子表 `th` 强制 `white-space: nowrap`；子表最小宽 DIY `--assist-batch-subtable-min-width`（默认 1200px），挤不下时由 `.assist-batch-table-wrap` 横滚，表头高度不因换行变高。
 
 - **款号/编码颜色**：红色 = 编码未命中 `UB_ERP_Bom_code` 分类前缀；蓝色 = 编码命中 `UB_ERP_Bom_code.flag5-` 前缀（`copen=1`；`OUT` 为 `-OUT` 后缀口径，与旧系统 `bomstr` 一致）。父行款号与子行物料同一规则。
 
@@ -223,10 +231,10 @@ Element Plus 约定：固定列（操作、序号）用 `width`；数据列优�
 - 编码列完整展示；操作列仅「选择 / 选择成功」，列宽紧凑（DIY：`--assist-batch-other-action-width`、`--assist-batch-other-code-min-width`）。
 - 保存：默认 `wxak03=0`；`product` 为空；经 `sessionStorage` / `postMessage` 回传父页；父页对「其他外协」不校验 PI 必填与 PI 快照一致（`requirePi=false`）。
 
-## 关联单号（其他外协）
+## 关联单号
 
-- 基础资料「关联单号」与订单外协同源 PI 联想（`el-autocomplete` + `pi-suggest`），可空、可手填非 PI 文本。
-- 从下拉选 PI 只填关联单号，**不**自动改交货日期（交货日期自动带入仅订单外协/订单外发）。
+- 基础资料「关联单号」用 PI 联想（`el-autocomplete` + `pi-suggest`）；订单外协/订单外发必填，其他外协可空、可手填非 PI 文本。
+- 选择或失焦确认 PI 时只写入关联单号与订单 id，**不**再自动带出交货日期；交货日期一律由用户手选。
 
 
 
@@ -255,16 +263,18 @@ Element Plus 约定：固定列（操作、序号）用 `width`；数据列优�
 - 批量选材返回的 `wxab04` / `wxab05` / `tax` 会落到订单明细的 `wxak04` / `wxak041` / `tax`，金额按现有数量直接计算；不会把含税单价强制重算成“不含税单价 × (1 + tax)”。
 ## 2026-07-10 管理页筛选区布局
 
-- 筛选区第一行：外协商、外协类型、已选择数量、打印外协订单（采购格式）、打印外协订单（外协格式）（无「条件项目」、无「刷新」）。
+- 筛选区第一行：外协商、外协类型、已选择数量、打印外协订单（外协格式）（无「条件项目」、无「刷新」）。
 - 筛选区第二行（对齐采购订单）：查询内容 → 查询 → 重置 → 竖线间隔符 → 回收站 →（非回收站时）竖线 → 显示未审核。
 - 关键字为全字段模糊搜索（等同旧系统「全部字段」）；间隔符复用全局 `erp-filter-divider`。
 
-## 打印外协订单（两种格式）
+## 打印外协订单
 
-- 入口：列表勾选「打印选择」后，点筛选区「打印外协订单（采购格式）」或「打印外协订单（外协格式）」，新窗口打开 `outsourcing-order-print`（`p_sum` + `wxgs`）。
-- **两种格式共用同一套采购观感**（灰蓝底、居中抬头、「点击此处打印」、备注与合计同排、合约条款中文序号、无格线签字区、无二维码）。合约条款与签名区共用同一外框左右边线（避免两段各自描边出现细微缺口）。
-- **采购格式**（`wxgs=1`）：表格含「外协内容」列（后端 `showDescribeColumn=true`）。
-- **外协格式**（`wxgs=0`）：同观感，无「外协内容」列。
+- 入口：列表勾选「打印选择」后，点筛选区「打印外协订单（外协格式）」，新窗口打开 `outsourcing-order-print`（`p_sum` + `wxgs=0`）。列表已去掉「采购格式」按钮（2026-07）。
+- **版式**：灰蓝底、居中抬头、「点击此处打印」、备注与合计同排、合约条款中文序号「一：…十二：」、无格线签字区、无二维码。合约条款与签名区共用同一外框左右边线。
+- **抬头四行**（2026-07）：①加工商/结算方式/日期 ②地址/是否含税/币别 ③联系人/电话/PI ④备注整行；布局在 `print.vue` 的 `.assist-po-print-meta`。
+- **合约条款正文**（2026-07）：十二条定稿文案写在 `server/assistOrderPrintData.js` 的 `ASSIST_ORDER_CONTRACT_TERMS`；序号由打印页拼「一：」样式。
+- **合约条款排版**：打印页两列网格，尽量一行显示两条（长句在半栏内换行）；列数/间距 DIY 见 `print.vue` 的 `--assist-notes-cols` 等变量。
+- **外协格式**（`wxgs=0`）：无「外协内容」列。打印页仍兼容 `wxgs=1`（含外协内容列），但管理列表不再提供入口。
 - 数据接口不变：`GET /api/assist-order/print-data`；前端 `print.vue` 单模板，仅按 `showDescribeColumn` 显隐列。
 
 ## 转向物料查询

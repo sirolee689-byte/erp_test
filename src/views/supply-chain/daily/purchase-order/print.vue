@@ -30,7 +30,8 @@
             </div>
           </div>
           <div class="buy-print-no">
-            <div>{{ block.doc.pageIndex || block.docIndex }}-{{ block.pageNo }}/{{ block.pageTotal }}</div>
+            <!-- 页码对齐出库单打印：如 1/3页；每张单据独立从 1 起算 -->
+            <div>{{ block.pageNo }}/{{ block.pageTotal }}页</div>
             <div>NO. {{ block.doc.header.buyOrderNo }}</div>
             <div v-if="String(block.doc.header.pass) === '0'" class="buy-print-unaudited">{{ label('unaudited') }}</div>
           </div>
@@ -87,18 +88,22 @@
               <td>{{ row.remarkText }}</td>
             </tr>
             <tr v-if="block.showTotal && block.doc.hasPricePermission" class="buy-print-total">
-              <td colspan="7"></td>
+              <td colspan="7" class="buy-print-delivery-cell">
+                <strong>{{ label('deliveryAddress') }}:</strong>
+                中山市卓越皮具有限公司
+              </td>
               <td>{{ label('total') }}</td>
               <td class="num">{{ amount(block.doc.totals.taxIncludedAmount) }}</td>
               <td colspan="2"></td>
             </tr>
+            <tr v-else-if="block.showTotal" class="buy-print-total">
+              <td colspan="9" class="buy-print-delivery-cell">
+                <strong>{{ label('deliveryAddress') }}:</strong>
+                中山市卓越皮具有限公司
+              </td>
+            </tr>
           </tbody>
         </table>
-
-        <section v-if="block.showTotal" class="buy-print-delivery">
-          <strong>{{ label('deliveryAddress') }}:</strong>
-          中山市卓越皮具有限公司
-        </section>
 
         <section v-if="block.showTotal" class="buy-print-notes">
           <div class="buy-print-notes-title">{{ label('notes') }}</div>
@@ -383,9 +388,13 @@ function printPage() {
   }, 50)
 }
 
-function goBack() {
-  window.history.back()
-}
+	function goBack() {
+	  window.close()
+	  // 不是脚本打开的页签可能被浏览器拒绝关闭，关闭失败后回退到来源页。
+	  setTimeout(() => {
+	    if (!window.closed) window.history.back()
+	  }, 100)
+	}
 
 onMounted(loadPrintData)
 </script>
@@ -523,11 +532,10 @@ h1 {
 .buy-print-total td {
   font-weight: 700;
 }
-.buy-print-delivery {
-  border: 1px solid #000;
-  border-top: 0;
-  padding: 6px 12px;
-  font-size: 13px;
+.buy-print-table td.buy-print-delivery-cell {
+  text-align: left;
+  font-weight: 400;
+  padding-left: 12px;
 }
 .buy-print-notes {
   display: grid;

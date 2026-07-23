@@ -186,6 +186,7 @@
 ## 管理/单据页统一尺寸（2026-07）
 
 - 顶部模式按钮统一使用 `erp-mode-bar` + `erp-mode-btn`，例如「管理BOM资料 / BOM资料添加」「管理采购订单 / 采购订单添加」。
+- **内容区无外框**（2026-07-23）：列表/添加页不再套灰框卡片（对齐出入库）；顶栏选择器已覆盖派工/客户/供应商/结算方式。
 - 查询筛选区统一使用 `erp-filter-bar`、`erp-filter-row`、`erp-filter-action-btn`、`erp-filter-divider`、`erp-filter-switch`。
 - 主列表继续使用 `erp-list-table`，数据列字号和字重统一走 `--erp-table-data-size`、`--erp-font-weight-body`。
 - 适用范围是管理页和单据页：BOM、采购订单、销售订单、外协订单、出入库单、库存基础资料等；统计分析/报表页不主动套这套规则，避免影响报表排版。

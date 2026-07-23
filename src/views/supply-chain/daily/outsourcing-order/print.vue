@@ -66,22 +66,17 @@
 
             <h1 class="assist-po-print-title">外协单</h1>
 
+            <!-- 抬头四行：加工商行 / 地址行 / 联系人行 / 备注整行 -->
             <section class="assist-po-print-meta">
-              <div>
-                <p><span>加工商:</span> {{ blank(doc.header.supplierShortName || doc.header.supplierName) }}</p>
-                <p><span>电话:</span> {{ blank(doc.header.tel) }}</p>
-                <p><span>联系人:</span> {{ blank(doc.header.contact) }}</p>
-              </div>
-              <div>
-                <p><span>结算方式:</span> {{ blank(doc.header.payFor) }}</p>
-                <p><span>是否含税:</span> {{ blank(doc.header.taxFlag) }}</p>
-              </div>
-              <div>
-                <p><span>日期:</span> {{ blank(doc.header.date) }}</p>
-                <p><span>币别:</span> {{ blank(doc.header.currencyName) }}</p>
-                <p><span>PI:</span> {{ blank(doc.header.piNo) }}</p>
-              </div>
-              <p class="assist-po-print-meta-remark"><span>地址:</span> {{ blank(doc.header.address) }}</p>
+              <p><span>加工商:</span> {{ blank(doc.header.supplierShortName || doc.header.supplierName) }}</p>
+              <p><span>结算方式:</span> {{ blank(doc.header.payFor) }}</p>
+              <p><span>日期:</span> {{ blank(doc.header.date) }}</p>
+              <p><span>地址:</span> {{ blank(doc.header.address) }}</p>
+              <p><span>是否含税:</span> {{ blank(doc.header.taxFlag) }}</p>
+              <p><span>币别:</span> {{ blank(doc.header.currencyName) }}</p>
+              <p><span>联系人:</span> {{ blank(doc.header.contact) }}</p>
+              <p><span>电话:</span> {{ blank(doc.header.tel) }}</p>
+              <p><span>PI:</span> {{ blank(doc.header.piNo) }}</p>
               <p class="assist-po-print-meta-remark"><span>备注:</span> {{ blank(doc.header.remark) }}</p>
             </section>
 
@@ -90,9 +85,9 @@
                 <tr>
                   <th class="col-seq">序号</th>
                   <th class="col-code">材料编码</th>
-                  <th>材料名称/规格</th>
-                  <th>对应款号</th>
-                  <th>配件颜色</th>
+                  <th class="col-name">材料名称/规格</th>
+                  <th class="col-product">对应款号</th>
+                  <th class="col-color">配件颜色</th>
                   <th class="col-group">组别</th>
                   <th class="col-unit">单位</th>
                   <th class="col-qty">数量</th>
@@ -148,9 +143,10 @@
               <div class="assist-po-print-bottom">
                 <section class="assist-po-print-notes">
                   <div class="assist-po-print-notes-title">合约条款</div>
-                  <ul>
-                    <li v-for="(term, idx) in doc.contractTerms" :key="term">
-                      {{ toChineseNumeral(idx + 1) }}、{{ term }}
+                  <!-- DIY：两列排布，一行尽量两条；改列数搜 --assist-notes-cols -->
+                  <ul class="assist-po-print-notes-list">
+                    <li v-for="(term, idx) in doc.contractTerms" :key="`${idx}-${term}`">
+                      {{ toChineseNumeral(idx + 1) }}：{{ term }}
                     </li>
                   </ul>
                 </section>
@@ -344,7 +340,7 @@ loadPrintData()
   display: grid;
   grid-template-columns: 220px 1fr 220px;
   align-items: start;
-  min-height: 92px;
+  min-height: auto;
 }
 .assist-po-print-company-main {
   display: flex;
@@ -380,10 +376,10 @@ loadPrintData()
   line-height: 1.5;
 }
 .assist-po-print-title {
-  margin: 6px 0 10px;
+  margin: 0px 0 8px;
   text-align: center;
-  font-size: 28px;
-  font-weight: 700;
+  font-size: 23px;
+  font-weight: 600;
   letter-spacing: 8px;
 }
 .assist-po-print-meta {
@@ -391,7 +387,7 @@ loadPrintData()
   grid-template-columns: 1.2fr 1fr 1fr;
   gap: 4px 18px;
   margin-bottom: 10px;
-  font-size: 13px;
+  font-size: 14px;
 }
 .assist-po-print-meta p {
   margin: 0;
@@ -407,7 +403,7 @@ loadPrintData()
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
-  font-size: 13px;
+  font-size: 14px;
   background: #eef3f8;
 }
 .assist-po-print-table th,
@@ -424,14 +420,18 @@ loadPrintData()
 .assist-po-print-table .num {
   text-align: center;
 }
-.col-seq { width: 42px; }
+.col-seq { width: 28px; }
 .col-code { width: 120px; }
+/* DIY：配件颜色固定宽；名称/款号按剩余宽度 70:30（二者 % 相加保持 100） */
+.col-color { width: 60px; }
+.col-name { width: 70%; }
+.col-product { width: 30%; }
 .col-group { width: 56px; }
-.col-unit { width: 48px; }
-.col-qty { width: 72px; }
+.col-unit { width: 30px; }
+.col-qty { width: 40px; }
 .col-money { width: 88px; }
-.col-date { width: 100px; }
-.col-tax { width: 56px; }
+.col-date { width: 80px; }
+.col-tax { width: 28px; }
 .assist-po-print-total td {
   font-weight: 700;
 }
@@ -451,10 +451,16 @@ loadPrintData()
   width: 100%;
 }
 .assist-po-print-notes {
+  /* DIY：合约条款列数（默认两列，一行两条） */
+  --assist-notes-cols: 2;
+  /* DIY：两条之间的左右间距 */
+  --assist-notes-col-gap: 18px;
+  /* DIY：行间距 */
+  --assist-notes-row-gap: 2px;
   border: 0;
   border-bottom: 1px solid #000;
   padding: 8px 12px 10px;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.45;
 }
 .assist-po-print-notes-title {
@@ -462,13 +468,21 @@ loadPrintData()
   font-weight: 700;
   margin-bottom: 4px;
 }
-.assist-po-print-notes ul {
+.assist-po-print-notes-list {
   margin: 0;
   padding: 0;
   list-style: none;
+  display: grid;
+  grid-template-columns: repeat(var(--assist-notes-cols), minmax(0, 1fr));
+  column-gap: var(--assist-notes-col-gap);
+  row-gap: var(--assist-notes-row-gap);
 }
-.assist-po-print-notes li {
-  margin: 2px 0;
+.assist-po-print-notes-list li {
+  margin: 0;
+  min-width: 0;
+  /* 长条款在半栏内自动换行，仍占同一格，不挤到下一行整条独占 */
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .assist-po-print-sign {
   margin: 0;

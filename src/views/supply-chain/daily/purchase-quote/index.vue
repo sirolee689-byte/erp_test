@@ -492,7 +492,6 @@
                   v-permission="'add'"
                   type="danger"
                   plain
-                  size="small"
                   :disabled="detailLocked"
                   @click="deleteSelectedQuoteLines"
                 >
@@ -503,7 +502,6 @@
                   v-permission="'edit'"
                   type="danger"
                   plain
-                  size="small"
                   :disabled="detailLocked"
                   @click="deleteSelectedQuoteLines"
                 >
@@ -514,7 +512,6 @@
                   v-permission="'add'"
                   type="danger"
                   plain
-                  size="small"
                   :disabled="detailLocked"
                   @click="deleteAllQuoteLines"
                 >
@@ -525,7 +522,6 @@
                   v-permission="'edit'"
                   type="danger"
                   plain
-                  size="small"
                   :disabled="detailLocked"
                   @click="deleteAllQuoteLines"
                 >
@@ -535,7 +531,6 @@
                   v-if="editMode === 'create'"
                   v-permission="'add'"
                   type="primary"
-                  size="small"
                   :disabled="detailLocked"
                   @click="openBatchMaterialPicker"
                 >
@@ -545,7 +540,6 @@
                   v-else
                   v-permission="'edit'"
                   type="primary"
-                  size="small"
                   :disabled="detailLocked"
                   @click="openBatchMaterialPicker"
                 >
@@ -555,7 +549,6 @@
                   v-if="editMode === 'create'"
                   v-permission="'add'"
                   type="success"
-                  size="small"
                   :disabled="detailLocked"
                   :loading="excelImportLoading"
                   @click="triggerExcelImport"
@@ -565,7 +558,6 @@
                 <el-button
                   v-if="editMode === 'create'"
                   v-permission="'add'"
-                  size="small"
                   :disabled="detailLocked"
                   @click="downloadExcelImportTemplate"
                 >
@@ -2185,18 +2177,24 @@ loadData()
 .pq-quote-page {
   display: flex;
   flex-direction: column;
-  gap: 12px;
   min-height: 200px;
 }
+/* 顶栏与出入库一致：外框/留白走全局 erp-mode-bar；去掉左侧蓝条 */
 .pq-mode-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-bottom: 4px;
-  padding: 10px 12px;
-  border-left: 4px solid var(--el-color-primary);
-  background: var(--el-fill-color-lighter);
+  margin-bottom: 12px;
+}
+/* 列表卡片与出入库一致：不加外框线 */
+.pq-quote-page > :deep(.el-card) {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+.pq-quote-page > :deep(.el-card > .el-card__body) {
+  padding: 0;
 }
 .page-title {
   font-size: 18px;
@@ -2276,6 +2274,14 @@ loadData()
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  /* DIY：采购报价明细工具栏按钮（删除选定/删除全部/批量添加/Excel）；高度建议 36～48，字号建议 13～16 */
+  --pq-line-toolbar-btn-height: 36px;
+  --pq-line-toolbar-btn-font-size: 16px;
+}
+.lines-toolbar-left :deep(.el-button) {
+  height: var(--pq-line-toolbar-btn-height);
+  min-height: var(--pq-line-toolbar-btn-height);
+  font-size: var(--pq-line-toolbar-btn-font-size);
 }
 /* DIY：明细标记删除按钮，对齐采购订单 buy-line-mark-btn */
 .pq-line-mark-btn {
@@ -2348,13 +2354,13 @@ loadData()
   max-height: 280px;
   overflow: auto;
 }
-/* 新增/编辑页内嵌面板 */
+/* 新增/编辑页内嵌面板：与出入库一致，不加外框线 */
 .pq-edit-panel {
   box-sizing: border-box;
   min-height: 360px;
-  padding: 14px 16px 12px;
-  border: 1px solid var(--el-border-color-light);
-  background: var(--el-bg-color);
+  padding: 0;
+  border: none;
+  background: transparent;
   font-size: 15px;
   line-height: 1.55;
 }
@@ -2363,10 +2369,14 @@ loadData()
   align-items: center;
   justify-content: space-between;
   margin-bottom: 12px;
+  /* DIY：采购报价表单头（标题 + 取消/保存）；标题字号 16～22，按钮高度 36～48，字号 13～16 */
+  --pq-form-head-title-font-size: 18px;
+  --pq-form-head-btn-height: 36px;
+  --pq-form-head-btn-font-size: 16px;
 }
 .pq-edit-panel__title {
   margin: 0;
-  font-size: var(--pq-edit-title-size, 18px);
+  font-size: var(--pq-form-head-title-font-size);
   font-weight: 600;
 }
 .pq-edit-panel__actions {
@@ -2376,8 +2386,9 @@ loadData()
   align-items: center;
 }
 .pq-edit-panel__actions :deep(.el-button) {
-  font-size: 15px;
-  padding: 10px 22px;
+  height: var(--pq-form-head-btn-height);
+  min-height: var(--pq-form-head-btn-height);
+  font-size: var(--pq-form-head-btn-font-size);
 }
 .pq-edit-tabs {
   margin-top: -4px;
@@ -2394,6 +2405,10 @@ loadData()
 .pq-basic-form {
   padding-top: 8px;
   max-width: 1180px;
+  /* DIY：基础资料单行输入高度（对齐出库单） */
+  --pq-base-input-height: var(--el-component-size);
+  /* DIY：备注多行高度（默认与单行同高，可自调） */
+  --pq-remark-input-height: calc(var(--pq-base-input-height) * 1);
 }
 .pq-basic-row {
   display: flex;
@@ -2429,8 +2444,21 @@ loadData()
 .pq-edit-panel .pq-basic-form :deep(.el-textarea__inner) {
   font-size: 15px;
 }
-.pq-edit-panel .pq-basic-form :deep(.el-input__wrapper) {
+.pq-edit-panel .pq-basic-form :deep(.el-input__wrapper),
+.pq-edit-panel .pq-basic-form :deep(.el-select__wrapper),
+.pq-edit-panel .pq-basic-form :deep(.el-input-number .el-input__wrapper) {
+  height: var(--pq-base-input-height);
+  min-height: var(--pq-base-input-height);
+  box-sizing: border-box;
   font-size: 15px;
+}
+.pq-edit-panel .pq-basic-form :deep(.el-date-editor) {
+  height: var(--pq-base-input-height);
+}
+.pq-edit-panel .pq-basic-form :deep(.el-textarea__inner) {
+  height: var(--pq-remark-input-height);
+  min-height: var(--pq-remark-input-height);
+  box-sizing: border-box;
 }
 .pq-edit-panel .pq-basic-form :deep(.el-select .el-select__wrapper),
 .pq-edit-panel .pq-basic-form :deep(.el-select__placeholder) {

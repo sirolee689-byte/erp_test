@@ -366,7 +366,7 @@
         { 'so-edit-panel--standalone': isSalesOrderStandaloneWindow, 'so-edit-panel--readonly': isReadonlyForm },
       ]"
     >
-      <div class="so-edit-panel__header so-unified-btn-font">
+      <div class="so-edit-panel__header">
         <h2 class="so-edit-panel__title">
           {{
             editMode === 'view'
@@ -2138,12 +2138,17 @@ onUnmounted(() => {
 .so-mode-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   margin-bottom: 12px;
-  padding: 10px 12px;
-  background: var(--erp-surface, #fff);
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 4px;
+}
+/* 列表卡片与出入库一致：不加外框线 */
+.erp-module-page > :deep(.el-card) {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+.erp-module-page > :deep(.el-card > .el-card__body) {
+  padding: 0;
 }
 /* 模式行字体：与主列表数据列统一（常规字号、非粗体） */
 .so-mode-btn {
@@ -2282,10 +2287,12 @@ onUnmounted(() => {
 .so-edit-panel {
   box-sizing: border-box;
   min-height: 360px;
-  padding: 14px 16px 12px;
-  border: 1px solid var(--el-border-color-light);
-  background: var(--el-bg-color);
+  padding: 0;
+  border: none;
+  background: transparent;
 }
+/* DIY：销售订单表单头（标题「新增/编辑/查看销售订单」+ 取消/保存/返回列表）
+   标题字号建议 16～22；按钮高度建议 36～48，字号建议 13～16 */
 .so-edit-panel__header {
   display: flex;
   align-items: center;
@@ -2295,10 +2302,13 @@ onUnmounted(() => {
   margin-bottom: 12px;
   padding: 0 2px;
   gap: 12px;
+  --so-form-head-title-font-size: 18px;
+  --so-form-head-btn-height: 36px;
+  --so-form-head-btn-font-size: 16px;
 }
 .so-edit-panel__title {
   margin: 0;
-  font-size: var(--so-dialog-title-size, 18px);
+  font-size: var(--so-form-head-title-font-size);
   font-weight: 600;
 }
 /* DIY：标题行右侧「取消 / 保存 / 返回列表」间距，对齐采购订单 buy-form-head__actions */
@@ -2307,6 +2317,11 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+}
+.so-edit-panel__actions :deep(.el-button) {
+  height: var(--so-form-head-btn-height);
+  min-height: var(--so-form-head-btn-height);
+  font-size: var(--so-form-head-btn-font-size);
 }
 .so-edit-form {
   max-width: 1280px;
@@ -2324,6 +2339,10 @@ onUnmounted(() => {
   --so-field-width-wide: 500px;
   --so-field-width-narrow: 83px;
   --so-row-gap: 14px;
+  /* DIY：基础资料单行输入高度（对齐出库单） */
+  --so-base-input-height: var(--el-component-size);
+  /* DIY：备注多行高度（默认与单行同高，可自调） */
+  --so-remark-input-height: calc(var(--so-base-input-height) * 1);
 }
 .so-form-row {
   display: flex;
@@ -2359,6 +2378,22 @@ onUnmounted(() => {
   width: var(--so-field-width);
   max-width: 100%;
 }
+/* 只统一单行输入/下拉/日期/数字高度；备注单独可调 */
+.so-header-rows :deep(.el-input__wrapper),
+.so-header-rows :deep(.el-select__wrapper),
+.so-header-rows :deep(.el-input-number .el-input__wrapper) {
+  height: var(--so-base-input-height);
+  min-height: var(--so-base-input-height);
+  box-sizing: border-box;
+}
+.so-header-rows :deep(.el-date-editor) {
+  height: var(--so-base-input-height);
+}
+.so-header-rows :deep(.el-textarea__inner) {
+  height: var(--so-remark-input-height);
+  min-height: var(--so-remark-input-height);
+  box-sizing: border-box;
+}
 .so-form-row--wide :deep(.el-input),
 .so-form-row--wide :deep(.el-select),
 .so-form-row--wide :deep(.el-textarea) {
@@ -2380,6 +2415,14 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
+  /* DIY：销售订单明细工具栏按钮（删除选定/删除全部/批量添加/批量同步BOM）；高度建议 36～48，字号建议 13～16 */
+  --so-line-toolbar-btn-height: 36px;
+  --so-line-toolbar-btn-font-size: 16px;
+}
+.lines-toolbar :deep(.el-button) {
+  height: var(--so-line-toolbar-btn-height);
+  min-height: var(--so-line-toolbar-btn-height);
+  font-size: var(--so-line-toolbar-btn-font-size) !important;
 }
 /* DIY：明细选择列橙/灰钮 — 对齐采购 buy-line-mark-btn */
 .so-line-mark-btn {

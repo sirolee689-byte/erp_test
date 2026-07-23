@@ -257,7 +257,7 @@
 
     <section v-show="pageMode === 'form' || pageMode === 'view'" class="erp-section" :class="{ 'stock-form-section--readonly': formReadOnly }">
       <div class="form-head">
-        <strong>{{ pageMode === 'view' ? '查看入库单' : editId ? '编辑入库单' : '新增入库单' }}</strong>
+        <strong class="form-head-title">{{ pageMode === 'view' ? '查看入库单' : editId ? '编辑入库单' : '新增入库单' }}</strong>
         <div>
           <el-button v-if="pageMode === 'view'" @click="switchList">返回列表</el-button>
           <template v-else>
@@ -368,9 +368,9 @@
         </el-tab-pane>
         <el-tab-pane label="入库单明细" name="lines">
           <div v-if="!formReadOnly" class="line-toolbar">
-            <el-button type="primary" plain @click="openBatchDialog">批量添加</el-button>
             <el-button type="danger" plain :disabled="!selectedLineKeys.length" @click="removeSelectedLines">删除选定明细</el-button>
             <el-button type="danger" plain :disabled="!lines.length" @click="removeAllLines">删除全部明细</el-button>
+            <el-button type="primary" plain @click="openBatchDialog">批量添加</el-button>
           </div>
 
           <el-table
@@ -2582,6 +2582,31 @@ onUnmounted(() => {
   align-items: center;
   margin-bottom: 12px;
 }
+/* DIY：入库单明细工具栏按钮（删除选定/删除全部/批量添加）；高度建议 36～48，字号建议 13～16 */
+.line-toolbar {
+  --stock-in-line-toolbar-btn-height: 36px;
+  --stock-in-line-toolbar-btn-font-size: 16px;
+}
+.line-toolbar :deep(.el-button) {
+  height: var(--stock-in-line-toolbar-btn-height);
+  min-height: var(--stock-in-line-toolbar-btn-height);
+  font-size: var(--stock-in-line-toolbar-btn-font-size);
+}
+/* DIY：入库单添加/编辑表单头（标题「新增/编辑/查看入库单」+ 重置/保存按钮）
+   标题字号建议 16～22；按钮高度建议 36～48，字号建议 13～16 */
+.form-head {
+  --stock-in-form-head-title-font-size: 18px;
+  --stock-in-form-head-btn-height: 36px;
+  --stock-in-form-head-btn-font-size: 16px;
+}
+.form-head-title {
+  font-size: var(--stock-in-form-head-title-font-size);
+}
+.form-head :deep(.el-button) {
+  height: var(--stock-in-form-head-btn-height);
+  min-height: var(--stock-in-form-head-btn-height);
+  font-size: var(--stock-in-form-head-btn-font-size);
+}
 .stock-line-mark-btn {
   min-width: 56px;
   color: #e6a23c;
@@ -2747,6 +2772,10 @@ onUnmounted(() => {
 }
 .stock-form--base {
   --stock-base-input-width: 320px;
+  /* DIY：基础资料单行输入高度（对齐出库单/仓库）；不含入库类型按钮、是否含税 */
+  --stock-base-input-height: var(--el-component-size);
+  /* DIY：备注高度（入库单备注为单行，默认与单行同高） */
+  --stock-remark-input-height: calc(var(--stock-base-input-height) * 1);
   --stock-inline-gap: 12px;
   --stock-type-btn-gap: 10px;
   --stock-type-btn-height: 42px;
@@ -2756,6 +2785,17 @@ onUnmounted(() => {
 }
 .stock-unified-input {
   width: var(--stock-base-input-width);
+}
+/* 只统一单行输入/下拉/日期高度；不碰入库类型/含税按钮 */
+.stock-form--base :deep(.stock-unified-input .el-input__wrapper),
+.stock-form--base :deep(.stock-unified-input .el-select__wrapper),
+.stock-form--base :deep(.copyable-field.stock-unified-input .el-input__wrapper) {
+  height: var(--stock-base-input-height);
+  min-height: var(--stock-base-input-height);
+  box-sizing: border-box;
+}
+.stock-form--base :deep(.stock-unified-input.el-date-editor) {
+  height: var(--stock-base-input-height);
 }
 .copyable-field {
   display: inline-flex;
@@ -2797,6 +2837,12 @@ onUnmounted(() => {
 }
 .stock-remark-input {
   width: 50%;
+}
+.stock-form--base :deep(.stock-remark-input .el-input__wrapper),
+.stock-form--base :deep(.stock-remark-input .el-textarea__inner) {
+  height: var(--stock-remark-input-height);
+  min-height: var(--stock-remark-input-height);
+  box-sizing: border-box;
 }
 .source-order-toolbar {
   display: flex;

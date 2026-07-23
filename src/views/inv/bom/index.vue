@@ -1052,7 +1052,9 @@
                   </el-button>
                   <el-button :disabled="!bomUsageTreeData.length" @click="expandAllBomUsageTree">展开全部</el-button>
                   <el-button :disabled="!bomUsageTreeData.length" @click="collapseAllBomUsageTree">关闭全部</el-button>
-              
+                  <span class="bom-usage-calc-toolbar__hint">
+                    提示：点三角或编码，可单独展开/收起该行；展开时打开该支下全部层级
+                  </span>
                 </div>
                 <el-alert
                   v-if="bomUsageTreeError"
@@ -1072,11 +1074,20 @@
                       :size="detailTableSize"
                       class="bom-usage-tree-table"
                       :tree-props="{ children: 'children' }"
-                      default-expand-all
                       max-height="calc(100vh - 280px)"
+                      @expand-change="onBomUsageTreeExpandChange"
                       @row-contextmenu="onBomUsageOrCostRowContextMenu"
                     >
-                      <el-table-column prop="kcaa01" label="编码" min-width="200" fixed="left" show-overflow-tooltip />
+                      <el-table-column prop="kcaa01" label="编码" min-width="200" fixed="left">
+                        <template #default="{ row }">
+                          <span
+                            class="bom-usage-tree-code"
+                            :class="{ 'bom-usage-tree-code--branch': row.children?.length }"
+                            :title="row.kcaa01"
+                            @click.stop="onBomUsageCodeClick(row)"
+                          >{{ row.kcaa01 }}</span>
+                        </template>
+                      </el-table-column>
                       <el-table-column prop="kcaa02" label="名称" min-width="120" show-overflow-tooltip />
                       <el-table-column prop="kcaa03" label="规格" min-width="120" show-overflow-tooltip />
                       <el-table-column prop="kcaa04" label="单位" width="72" align="center" show-overflow-tooltip />
@@ -1138,14 +1149,14 @@
                       :max-height="bomCostUsageTableMaxHeight"
                       @row-contextmenu="onBomUsageOrCostRowContextMenu"
                     >
-                      <el-table-column label="编码" min-width="200" fixed="left" class-name="bom-cost-usage-wrap-cell">
+                      <el-table-column label="编码" min-width="120" fixed="left" class-name="bom-cost-usage-wrap-cell">
                         <template #default="{ row }">
                           <span class="bom-cost-usage-code" :style="bomCostUsageCodeCellStyle(row)">{{
                             dVal(row.kcaa01)
                           }}</span>
                         </template>
                       </el-table-column>
-                      <el-table-column prop="kcaa02" label="名称" min-width="140" class-name="bom-cost-usage-wrap-cell">
+                      <el-table-column prop="kcaa02" label="名称" min-width="240" class-name="bom-cost-usage-wrap-cell">
                         <template #default="{ row }">{{ dVal(row.kcaa02) }}</template>
                       </el-table-column>
                       <el-table-column prop="kcaa03" label="规格" min-width="160" class-name="bom-cost-usage-wrap-cell">
@@ -1154,16 +1165,16 @@
                       <el-table-column prop="kcaa04" label="单位" width="80" align="center" class-name="bom-cost-usage-wrap-cell">
                         <template #default="{ row }">{{ dVal(row.kcaa04) }}</template>
                       </el-table-column>
-                      <el-table-column prop="Describe" label="备注" min-width="120" class-name="bom-cost-usage-wrap-cell">
+                      <el-table-column prop="Describe" label="备注" min-width="80" class-name="bom-cost-usage-wrap-cell">
                         <template #default="{ row }">{{ dVal(row.Describe) }}</template>
                       </el-table-column>
-                      <el-table-column label="用量" width="110" align="right">
+                      <el-table-column label="用量" width="93" align="right">
                         <template #default="{ row }">{{ formatQty(row.yl) }}</template>
                       </el-table-column>
-                      <el-table-column label="损耗" width="100" align="right">
+                      <el-table-column label="损耗" width="56" align="right">
                         <template #default="{ row }">{{ formatLossRate(row.loss_rate) }}</template>
                       </el-table-column>
-                      <el-table-column label="合计" width="110" align="right">
+                      <el-table-column label="合计" width="93" align="right">
                         <template #default="{ row }">{{ formatQty(row.total_qty) }}</template>
                       </el-table-column>
                     </el-table>
@@ -2239,6 +2250,37 @@ function walkBomUsageTree(rows, fn) {
     fn(row)
     if (row.children?.length) walkBomUsageTree(row.children, fn)
   }
+}
+
+/** 展开某行下整棵子树（凡有 children 的节点全部打开） */
+function expandBomUsageSubtree(row) {
+  const t = bomUsageTableRef.value
+  if (!t || !row?.children?.length) return
+  walkBomUsageTree(row.children, (node) => {
+    if (node.children?.length) t.toggleRowExpansion(node, true)
+  })
+}
+
+/**
+ * 树表展开变化：展开时递归打开该支全部层级（与 PI 追溯「只开一层」不同）
+ * 第二参：树表多为 boolean；个别版本可能给 expandedRows 数组，两边都认
+ */
+function onBomUsageTreeExpandChange(row, expandedOrRows) {
+  const expanded =
+    typeof expandedOrRows === 'boolean'
+      ? expandedOrRows
+      : Array.isArray(expandedOrRows) &&
+        expandedOrRows.some((r) => r === row || (r?.id != null && r.id === row?.id))
+  if (!expanded) return
+  nextTick(() => expandBomUsageSubtree(row))
+}
+
+/** 点编码：有下级则切换展开；展开时由 expand-change 再递归全开 */
+function onBomUsageCodeClick(row) {
+  if (!row?.children?.length) return
+  const t = bomUsageTableRef.value
+  if (!t) return
+  t.toggleRowExpansion(row)
 }
 
 function expandAllBomUsageTree() {
@@ -5399,13 +5441,17 @@ if (isBomWindowRoute.value) {
 .bom-mode-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   margin-bottom: 12px;
-  padding: 10px 12px;
-  /* 底色跟随皮肤面色（暗黑/豆沙绿/暖色下不再是大白块） */
-  background: var(--erp-surface, #fff);
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 4px;
+}
+/* 列表卡片与出入库一致：不加外框线 */
+.erp-module-page > :deep(.el-card) {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+.erp-module-page > :deep(.el-card > .el-card__body) {
+  padding: 0;
 }
 /* BOM 模式行字体：与主列表数据列统一（常规字号、非粗体） */
 /* BOM 操作按钮字号：与模式行「管理BOM资料」一致（页头/底栏/配件工具条/配件表格操作列） */
@@ -5739,6 +5785,18 @@ if (isBomWindowRoute.value) {
   width: 100%;
   overflow-x: auto;
   max-height: calc(100vh - 260px);
+}
+
+/* 用量表编码可点（对齐 PI 追溯：有下级时指针+主色悬停） */
+.bom-usage-tree-code {
+  word-break: break-all;
+  color: var(--el-text-color-primary);
+}
+.bom-usage-tree-code--branch {
+  cursor: pointer;
+}
+.bom-usage-tree-code--branch:hover {
+  color: var(--el-color-primary);
 }
 
 .bom-usage-tree-table {
@@ -6657,6 +6715,20 @@ if (isBomWindowRoute.value) {
   html.print-bom-cost-usage .bom-cost-usage-print-only-table th {
     background: #f0f0f0 !important;
     font-weight: var(--bom-cost-print-font-weight);
+  }
+  html.print-bom-cost-usage
+    .bom-cost-usage-print-document-table
+    tbody
+    tr:not(.bom-cost-usage-print-summary-row)
+    td,
+  html.print-bom-cost-usage
+    .bom-cost-usage-print-only-table
+    tbody
+    tr:not(.bom-cost-usage-print-summary-row)
+    td {
+    font-family: "Arial Unicode MS", Arial, sans-serif;
+    font-size: 13px;
+    font-weight: 400;
   }
   html.print-bom-cost-usage .bom-cost-usage-print-document-table .num,
   html.print-bom-cost-usage .bom-cost-usage-print-document-table th:nth-child(n + 6),

@@ -425,7 +425,12 @@ function openPiBom(style) {
     ElMessage.warning('缺少销售订单或款号，无法打开 PI-BOM')
     return
   }
-  const url = `/inventory/basic/pi-bom-data-window?mode=edit&orderId=${encodeURIComponent(oid)}&kcaa01=${encodeURIComponent(product)}`
+  // 对齐 PI_BOM 资料「查看」：mode=view → PiBomViewerPanel（非编辑面板）
+  const stylePi = String(style?.piNo ?? '').trim()
+  const pagePi = String(piNo.value ?? '').trim()
+  const pi = stylePi || pagePi
+  let url = `/inventory/basic/pi-bom-data-window?mode=view&orderId=${encodeURIComponent(oid)}&kcaa01=${encodeURIComponent(product)}`
+  if (pi) url += `&piNo=${encodeURIComponent(pi)}`
   window.open(url, '_blank')
 }
 
@@ -807,7 +812,8 @@ onMounted(async () => {
   font-weight: 600;
   height: 42px;
   line-height: 18px;
-  white-space: normal;
+  /* 缩放时列头保持单行，挤不下由外层横滚 */
+  white-space: nowrap;
 }
 
 /* 父行边框 DIY：batch-add-window.vue .assist-batch-row--style --assist-batch-style-border */
@@ -841,7 +847,10 @@ onMounted(async () => {
 }
 
 .assist-batch-subtable {
+  /* DIY：子表最小宽；放大缩放防列头被挤成多行，不够则横滚 */
+  --assist-batch-subtable-min-width: 1200px;
   width: 100%;
+  min-width: var(--assist-batch-subtable-min-width);
   border-collapse: collapse;
   font-size: 13px;
 }
@@ -862,7 +871,8 @@ onMounted(async () => {
   font-weight: 600;
   height: 38px;
   line-height: 18px;
-  white-space: normal;
+  /* 与父表一致：列头单行，不随缩放折成多行/竖排 */
+  white-space: nowrap;
 }
 
 .assist-batch-subrow {
