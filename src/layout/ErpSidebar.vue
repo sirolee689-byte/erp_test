@@ -5,7 +5,7 @@
   -->
   <el-aside :width="asideWidth" class="erp-aside">
     <div class="erp-logo" :class="{ collapsed }">
-      <span v-if="!collapsed">ERP 基础框架</span>
+      <span v-if="!collapsed">ERP系统</span>
       <span v-else class="erp-logo-mini">ERP</span>
     </div>
     <el-scrollbar class="erp-menu-scroll">

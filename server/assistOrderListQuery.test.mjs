@@ -19,15 +19,30 @@ describe('assistOrderListQuery', () => {
 
   test('default list query filters audited and not deleted orders', () => {
     const parsed = parseAssistOrderListQuery({})
-    const { whereSql } = buildAssistOrderListWhereSql(parsed)
+    const { whereSql, params } = buildAssistOrderListWhereSql(parsed)
 
     assert.equal(parsed.page, 1)
     assert.equal(parsed.pageSize, 10)
     assert.equal(parsed.pass, '1')
     assert.equal(parsed.recycled, false)
+    assert.equal(parsed.showAll, false)
     assert.match(whereSql, /h\.\[pass\].*=\s*@pass/i)
     assert.match(whereSql, /ISNULL\(h\.\[del\]/i)
     assert.match(whereSql, /\[del\].*N'0'/i)
+    assert.match(whereSql, /h\.\[uname\].*=\s*@operatorAccount/i)
+    assert.equal(params.operatorAccount, '')
+  })
+
+  test('showAll removes the current-operator condition', () => {
+    const parsed = parseAssistOrderListQuery({ showAll: '1' })
+    const { whereSql, params } = buildAssistOrderListWhereSql({
+      ...parsed,
+      operatorAccount: '2019051402',
+    })
+
+    assert.equal(parsed.showAll, true)
+    assert.doesNotMatch(whereSql, /@operatorAccount/i)
+    assert.equal(Object.hasOwn(params, 'operatorAccount'), false)
   })
 
   test('recycled list query filters deleted orders without audited default', () => {

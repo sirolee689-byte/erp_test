@@ -438,7 +438,7 @@ onMounted(loadPrintData)
   display: grid;
   grid-template-columns: 220px 1fr 220px;
   align-items: start;
-  min-height: 92px;
+  min-height: auto;
 }
 .buy-print-company-main {
   display: flex;
@@ -452,8 +452,8 @@ onMounted(loadPrintData)
   object-fit: contain;
 }
 .buy-print-head-html {
-  font-size: 16px;
-  line-height: 1.3;
+  font-size: 15px;
+  line-height: 1.2;
 }
 .buy-print-head-html :deep(*) {
   margin-top: 0;
@@ -479,10 +479,10 @@ onMounted(loadPrintData)
   font-weight: 700;
 }
 h1 {
-  margin: 0 0 22px;
+  margin: 0 0 12px;
   text-align: center;
-  font-size: 20px;
-  letter-spacing: 8px;
+  font-size: 25px;
+  letter-spacing: 15px;
 }
 .buy-print-meta {
   display: grid;
@@ -505,7 +505,7 @@ h1 {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
-  font-size: 13px;
+  font-size: 15px;
   background: #eef3f8;
 }
 .buy-print-table th,

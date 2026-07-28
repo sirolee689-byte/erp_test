@@ -19,7 +19,10 @@ import {
   fetchAssistOrderMaterialTrace,
   fetchAssistOrderTraceBomCodes,
 } from './assistOrderMaterialTrace.js'
-import { resolveActorAuditTripletFromReq } from './businessAuditFields.js'
+import {
+  getActorAuditTripletFromReq,
+  resolveActorAuditTripletFromReq,
+} from './businessAuditFields.js'
 
 const HEADER_FROM = `dbo.[${ASSIST_ORDER_HEADER_TABLE}]`
 const LINE_FROM = 'dbo.[UB_ERP_assist_order_list]'
@@ -42,6 +45,9 @@ function bindListParams(req, params) {
   if (params?.assistType) req.input('assistType', sql.NVarChar(20), params.assistType)
   if (params?.supplier) req.input('supplier', sql.NVarChar(400), params.supplier)
   if (params?.keyword) req.input('keyword', sql.NVarChar(400), params.keyword)
+  if (params?.operatorAccount != null) {
+    req.input('operatorAccount', sql.NVarChar(200), params.operatorAccount)
+  }
 }
 
 function serializeAssistOrderRow(row) {
@@ -114,6 +120,14 @@ export function registerAssistOrderRoutes(app, deps) {
     try {
       const pool = await getPool()
       const q = parseAssistOrderListQuery(req.query ?? {})
+      if (!q.showAll) {
+        const actor = getActorAuditTripletFromReq(req)
+        q.operatorAccount = String(actor.uname ?? '').trim()
+        if (!q.operatorAccount) {
+          res.status(401).json({ code: 401, msg: '无法识别当前登录账号，请重新登录', data: null })
+          return
+        }
+      }
       const { whereSql, params } = buildAssistOrderListWhereSql(q)
 
       const countReq = pool.request()

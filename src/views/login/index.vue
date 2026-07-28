@@ -61,7 +61,7 @@
             :disabled="loading"
             @click="onLogin"
           >
-            {{ loading ? '登录中...' : '安全登录' }}
+            {{ loading ? '登录中...' : '登录' }}
           </el-button>
         </el-form>
 

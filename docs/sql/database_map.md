@@ -126,6 +126,7 @@
 | 转向查询主数据 | `UB_ERP_assist_order_list` | 仅查明细 `pass=1` 且 `del=0`；关键字模糊匹配单号/数量单价金额/税点/PI/备注/`kcaa01~35` 及扩展物料字段 |
 | 外协头补充信息 | `UB_ERP_assist_order` | `wxaj01=wxak01` 回填外协类型、时间、外协商、含税、币别、交货日期、主表备注；返回 `headerId` 供查看 |
 | 管理列表操作记录 | `UB_ERP_assist_order` | `GET /api/assist-order/list` 主表末列；添加=`addtime`+`utruename`（空回退 `uname`），修改=`edittime`+`uptruename`（空回退 `upname`）；展示文案「添加时间:…,操作者：… / 修改时间:…,操作者：…」 |
+| 管理列表操作人筛选 | `UB_ERP_assist_order` | `GET /api/assist-order/list` 默认由服务端从登录态取得账号，精确过滤 `uname=@operatorAccount`；`showAll=1` 时取消该条件。前端不能指定其它账号；该条件同时作用于正常列表、未审核列表和回收站。 |
 | 入库数量聚合 | `UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list` | 外协入库 `kcan03=2`；主/明细 `del=0`、主表 `pass=1`；按 `kcan04=外协单号` + `kcaa01` 汇总 `kcao03` |
 | 出库数量聚合 | `UB_ERP_Stocks_out` + `UB_ERP_Stocks_out_list` | 外协领料出库 `kcap03=2`；主/明细 `del=0`、主表 `pass=1`；按 `kcap04=外协单号` + `kcaa01` 汇总 `kcaq03` |
 | 订单外协批量添加数量 | `UB_ERP_assist_order` + `_list` + `UB_ERP_Bom_000` + `UB_ERP_Bom_parts` + `UB_ERP_Stocks_out` + `_list` | `GET /api/assist-order/batch-add-tree`（`assistType=1`）；已外协=`SUM(wxak03)`，键 `pi + pq(空则 Product) + kcaa01`；已外协出库=同键外协单下，父件 Bom_parts 直接子料（无子层回退父件）的 `SUM(kcaq03)`（`kcap03=2`，主从 `del=0`，含未审）；编辑可传 `excludeOrderNo`；出库列只读展示，不扣可入数量 |

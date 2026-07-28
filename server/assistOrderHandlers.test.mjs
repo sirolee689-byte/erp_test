@@ -84,7 +84,13 @@ describe('assistOrderHandlers', () => {
     assert.equal(typeof handler, 'function')
 
     const res = createMockRes()
-    await handler({ query: { page: '2', pageSize: '5' } }, res)
+    await handler(
+      {
+        query: { page: '2', pageSize: '5' },
+        user: { userId: 42, userCode: '2019051402', auditUserName: '2019051402' },
+      },
+      res,
+    )
 
     assert.equal(res.statusCode, 200)
     assert.equal(res.body.code, 200)
@@ -99,6 +105,9 @@ describe('assistOrderHandlers', () => {
     assert.equal(listRequest.inputs.startRow, 6)
     assert.equal(listRequest.inputs.endRow, 10)
     assert.equal(listRequest.inputs.pass, '1')
+    assert.equal(listRequest.inputs.operatorAccount, '2019051402')
+    const countRequest = requests.find((r) => /COUNT\(1\)\s+AS\s+total/i.test(r.sqlText))
+    assert.equal(countRequest.inputs.operatorAccount, '2019051402')
   })
 
   test('GET /api/assist-order/:id returns header, lines, and fees', async () => {

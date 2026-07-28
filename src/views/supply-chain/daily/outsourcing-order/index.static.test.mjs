@@ -47,6 +47,16 @@ describe('outsourcing-order index static UI contract', () => {
     assert.match(tableSource, /row\.currencyName \|\| row\.currencyCode/)
   })
 
+  test('management filters default to current operator and can show all orders', () => {
+    const unauditedAt = source.indexOf('<span class="switch-label">显示未审核</span>')
+    const showAllAt = source.indexOf('<span class="switch-label">显示全部</span>')
+    assert.ok(unauditedAt >= 0)
+    assert.ok(showAllAt > unauditedAt)
+    assert.match(source, /showAll:\s*false/)
+    assert.match(source, /showAll:\s*filters\.showAll \? '1' : ''/)
+    assert.match(source, /v-model="filters\.showAll"\s+@change="onSearch"/)
+  })
+
   test('expanded detail follows the confirmed warehouse and material column contract', () => {
     const expandStart = source.indexOf('<el-table-column type="expand"')
     const expandEnd = source.indexOf('</el-table>', expandStart)

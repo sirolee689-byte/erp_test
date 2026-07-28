@@ -16,12 +16,16 @@ export function parseAssistOrderListQuery(query) {
   const recycled = recycledRaw === '1' || recycledRaw === 'true' || recycledRaw === 'yes'
   const showUnauditedRaw = String(query?.showUnaudited ?? '').trim().toLowerCase()
   const showUnaudited = showUnauditedRaw === '1' || showUnauditedRaw === 'true' || showUnauditedRaw === 'yes'
+  const showAllRaw = String(query?.showAll ?? '').trim().toLowerCase()
+  const showAll = showAllRaw === '1' || showAllRaw === 'true' || showAllRaw === 'yes'
 
   return {
     page,
     pageSize,
     recycled,
     showUnaudited,
+    showAll,
+    operatorAccount: '',
     pass: recycled ? '' : showUnaudited ? '0' : normalizeAssistOrderPass(query?.pass),
     closed: normalizeClosed(query?.closed),
     keyword: String(query?.keyword ?? '').trim(),
@@ -76,6 +80,13 @@ export function buildAssistOrderListWhereSql(opts) {
   if (!recycled && opts?.pass) {
     whereSql += ` AND LTRIM(RTRIM(ISNULL(h.[pass], N''))) = @pass `
     params.pass = opts.pass
+  }
+
+  if (!opts?.showAll) {
+    whereSql += `
+      AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.[uname], N'')))) = @operatorAccount
+    `
+    params.operatorAccount = String(opts?.operatorAccount ?? '').trim()
   }
 
   if (opts?.closed) {

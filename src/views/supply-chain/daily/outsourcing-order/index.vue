@@ -84,6 +84,11 @@
             <el-switch v-model="filters.showUnaudited" @change="onSearch" />
           </div>
         </template>
+        <div class="assist-filter-divider erp-filter-divider" aria-hidden="true" />
+        <div class="assist-filter-switch erp-filter-switch">
+          <span class="switch-label">显示全部</span>
+          <el-switch v-model="filters.showAll" @change="onSearch" />
+        </div>
       </div>
     </div>
 
@@ -471,6 +476,7 @@ const filters = reactive({
   supplier: '',
   assistType: '',
   showUnaudited: false,
+  showAll: false,
   recycled: false,
 })
 const editForm = reactive(defaultEditForm())
@@ -905,6 +911,7 @@ async function loadData() {
         supplier: filters.supplier,
         assistType: filters.assistType,
         showUnaudited: filters.showUnaudited ? '1' : '',
+        showAll: filters.showAll ? '1' : '',
         recycled: filters.recycled ? '1' : '',
       },
     })
@@ -941,6 +948,7 @@ function onReset() {
   filters.supplier = ''
   filters.assistType = ''
   filters.showUnaudited = false
+  filters.showAll = false
   filters.recycled = false
   page.value = 1
   loadData()
