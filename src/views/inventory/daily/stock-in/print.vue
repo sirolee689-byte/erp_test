@@ -82,9 +82,15 @@
                 <td class="num">{{ line.quantityText }}</td>
                 <td>{{ blank(line.Describe) }}</td>
               </tr>
+              <!-- 合计行：颜色列写「合计」；单位+数量合并显示合计数量；前面各格留空 -->
               <tr v-if="doc.showTotal" class="stock-in-print-total">
-                <td colspan="7">合计</td>
-                <td class="num">{{ doc.totalQtyText }}</td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td>合计</td>
+                <td class="num" colspan="2">{{ doc.totalQtyText }}</td>
                 <td></td>
               </tr>
             </template>
@@ -99,14 +105,18 @@
                 <td class="num">{{ line.quantityText }}</td>
               </tr>
               <tr v-if="doc.showTotal" class="stock-in-print-total">
-                <td colspan="6">合计</td>
-                <td class="num">{{ doc.totalQtyText }}</td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td>合计</td>
+                <td class="num" colspan="2">{{ doc.totalQtyText }}</td>
               </tr>
             </template>
           </tbody>
         </table>
 
-        <footer v-if="doc.showTotal" class="stock-in-print-sign">
+        <footer class="stock-in-print-sign">
           <span>制表人：{{ blank(doc.makerName) }}</span>
           <span>仓库：{{ blank(doc.header.ck || doc.header.kcan06) }}</span>
           <span>收发人：</span>
@@ -240,15 +250,8 @@ function printPage() {
     ElMessage.warning('暂无可打印数据')
     return
   }
-  document.documentElement.classList.add('print-stock-in')
-  const cleanup = () => {
-    document.documentElement.classList.remove('print-stock-in')
-    window.removeEventListener('afterprint', cleanup)
-  }
-  window.addEventListener('afterprint', cleanup)
   setTimeout(() => {
     window.print()
-    setTimeout(cleanup, 3000)
   }, 50)
 }
 
@@ -295,7 +298,6 @@ onMounted(loadPrintData)
   color: #000;
   padding: 18px 18px 22px;
   margin: 0 auto 18px;
-  page-break-after: always;
   font-size: 12px;
   display: flex;
   flex-direction: column;
@@ -390,6 +392,7 @@ onMounted(loadPrintData)
   font-weight: 700;
 }
 
+/* DIY：打印列宽 — print.vue 下面几个 .col-*；材料名称/规格/颜色/备注未写 width，自动分剩余宽度 */
 .stock-in-print-table .col-seq {
   width: 44px;
 }
@@ -406,13 +409,15 @@ onMounted(loadPrintData)
   width: 58px;
 }
 
+/* DIY：打印「数量」列固定宽 — print.vue .col-qty */
 .stock-in-print-table .col-qty {
   width: 80px;
 }
 
+/* DIY：数量/合计居中 — print.vue .num */
 .stock-in-print-table .num {
-  text-align: right;
-  padding-right: 6px;
+  text-align: center;
+  padding-right: 2px;
 }
 
 .stock-in-print-total td {
@@ -428,39 +433,58 @@ onMounted(loadPrintData)
   font-size: 13px;
 }
 
+@page {
+  size: 215mm 139mm;
+  margin: 0;
+}
+
 @media print {
-  :global(html.print-stock-in body *) {
-    visibility: hidden;
-  }
-
-  :global(html.print-stock-in #div_print),
-  :global(html.print-stock-in #div_print *) {
-    visibility: visible;
-  }
-
-  :global(html.print-stock-in body) {
+  :global(body) {
     margin: 0;
     background: #fff;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
 
-  :global(html.print-stock-in #div_print) {
-    position: absolute;
-    inset: 0;
+  .no-print {
+    display: none !important;
+  }
+
+  .stock-in-print-page {
+    min-height: 0;
+    padding: 0;
+    background: #fff;
+  }
+
+  .stock-in-print-area {
     width: 100%;
     margin: 0;
   }
 
-  :global(html.print-stock-in .stock-in-print-doc) {
+  .stock-in-print-doc {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 0;
+    height: auto;
+    overflow: visible;
     box-shadow: none;
     margin: 0;
-    padding: 0 6mm 8mm;
-    min-height: 280mm;
+    padding: 5mm 6mm;
+    break-after: auto;
+    page-break-after: auto;
   }
 
-  :global(html.print-stock-in .stock-in-print-doc:last-child) {
-    page-break-after: auto;
+  .stock-in-print-doc-manual {
+    min-height: 0;
+    height: auto;
+    overflow: visible;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .stock-in-print-doc + .stock-in-print-doc {
+    break-before: page;
+    page-break-before: always;
   }
 }
 </style>

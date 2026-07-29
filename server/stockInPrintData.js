@@ -19,6 +19,13 @@ function number(value) {
   return Number.isFinite(n) ? n : 0
 }
 
+/** 打印数量展示：最多三位小数，去末尾 0（如 80.000→80，54.540→54.54） */
+function formatPrintQtyText(value) {
+  const n = number(value)
+  const fixed = (Math.round(n * 1000) / 1000).toFixed(3)
+  return fixed.replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '')
+}
+
 function serializeValue(value) {
   return value instanceof Date ? value.toISOString() : coerceScalarValue(value)
 }
@@ -98,7 +105,7 @@ export function normalizeStockInPrintLine(row = {}, index = 0) {
   const qty = number(line.kcao03)
   line.seq = index + 1
   line.kcao03 = qty
-  line.quantityText = qty.toFixed(2)
+  line.quantityText = formatPrintQtyText(qty)
   line.colorText = lineColorText(line)
   line.reference = text(line.reference ?? line.Reference)
   line.Describe = text(line.Describe ?? line.describe ?? line.info)
@@ -115,7 +122,7 @@ export function buildStockInPrintDocument({ header, lines, printMode, index, tot
     pageIndex: index,
     pageTotal: total,
     totalQty,
-    totalQtyText: totalQty.toFixed(2),
+    totalQtyText: formatPrintQtyText(totalQty),
     makerName: text(makerName),
   }
 }

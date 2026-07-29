@@ -170,7 +170,15 @@
 |----------|--------|-----------------|
 | 角色管理 | `NEW_UB_ERP_System_role` | `GET/POST/PUT/DELETE /api/roles` 统一读取和维护新系统角色表；列表按 `pass`、`del` 与 `Status` 切换启用/回收站视图，角色名称、说明及 `Permissions` 均以此表为准。旧表 `UB_ERP_System_role` 可与本表同时保留，但角色模块不会再读取或写入旧表。 |
 | 操作员、登录与权限 | `UB_ERP_User` + `NEW_UB_ERP_System_role` | `UB_ERP_User.RoleID` 按 `RoleID` 关联新角色表，登录返回 `RoleName`、`Permissions` 与 `truename`（库列 `UB_ERP_User.truename`，供装饰首页欢迎语）；路由、菜单、按钮和接口权限统一使用 `NEW_UB_ERP_System_role.Permissions`。登录后默认落点 `/home`（侧栏隐藏、不进标签）。新表须具备当前角色模块使用的 `RoleID/RoleName/Description/pass/del/Status/Permissions` 等字段，且 `RoleID` 与用户表的关联数据一致。 |
-| 操作审计与数据库配置 | `NEW_UB_ERP_System_role` | 角色新增、修改、删除、恢复、权限保存的操作日志目标表更新为新表；系统数据库配置的“系统角色权限表”登记新表名。`Sys_Roles` 是独立兼容表，本模块不使用。 |
+| 操作审计与数据库配置 | `NEW_UB_ERP_System_role` | 角色新增、修改、删除、恢复、权限保存由中央白名单日志写入 `UB_Date_ERP_Operation_log`，目标表 `code=NEW_UB_ERP_System_role`；系统数据库配置的“系统角色权限表”登记新表名。`Sys_Roles` 是独立兼容表，本模块不使用。 |
+
+## 全局操作日志
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|----------|--------|-----------------|
+| 正式操作日志 | `UB_Date_ERP_Operation_log` | 全项目采用“业务事务日志 + 中央白名单补漏”；策略由 `server/action_map.js` 分类为 `business`、`central`、`ignore`，中央中间件只记录成功的已登记写接口，未知写接口不自动记录并由覆盖测试拦截。 |
+| 日志公共字段 | `UB_Date_ERP_Operation_log` | `act_name/act_info/uname/utruename/code/systemcode/ip/addtime`；`code` 写实际业务主表，`systemcode` 可可靠取得时写入；`act_info` 仅保留可读中文业务摘要，不保存完整请求 JSON、密码、核心密钥、邮件密码、Token 或上传内容。 |
+| 遗留日志表 | `Sys_OperationLogs` | 测试遗留，不再作为正式来源，项目写入和日志页面均使用 `UB_Date_ERP_Operation_log`。 |
 
 ## 系统内核 · 系统EMAIL发送配置
 

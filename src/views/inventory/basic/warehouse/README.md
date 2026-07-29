@@ -14,7 +14,7 @@
 - 参管人员：`GET .../user-options`（`UB_ERP_User`：`del=0` `pass=1`）；保存 `ename`（`Usercode` 分号串）+ `etname`；列表批量解析姓名，禁止 N+1。
 - **出入库联动（2026-07）**：`ename` 同时作为入库单/出库单「仓库」下拉与保存权限依据——只有参管名单里的账号能看见并选用该仓；**空参管仓对任何人都不可选**；逻辑在 `server/warehouseManagerAccess.js`，候选接口与保存共用。
 - 导出：前端 ExcelJS 导出**当前页列表**（权限 `export`）。
-- 操作日志：经 `operationAuditMiddleware` 写入 `UB_Date_ERP_Operation_log`。
+- 操作日志：新增、修改、审核、反审、批量审核、删除、恢复登记为中央白名单，经 `operationAuditMiddleware` 写入 `UB_Date_ERP_Operation_log`。
 
 ## 权限（按钮级）
 

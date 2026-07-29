@@ -1,10 +1,11 @@
 /**
  * v1.1.1+：全局操作审计中间件
  * - 准备阶段：DELETE/PUT 员工前读库，生成可读中文详情（挂到 req 上）
- * - 完成阶段：POST/PUT/DELETE 且 HTTP 200 后异步写入 UB_Date_ERP_Operation_log
+ * - 完成阶段：central 白名单的 POST/PUT/DELETE 在 HTTP 2xx 后异步写入 UB_Date_ERP_Operation_log
  */
 import { getPool, sql } from './db.js'
-import { resolveAuditActionAndTable } from './action_map.js'
+import { resolveAuditActionAndTable, resolveOperationAuditPolicy } from './action_map.js'
+import { getRequestIp } from './requestIp.js'
 import {
   buildPurchaseQuotationPutDiffChinese,
   fetchPurchaseQuotationHeaderFullForAudit,
@@ -15,18 +16,10 @@ import {
   fetchOutsourcingQuotationHeaderFullForAudit,
   fetchOutsourcingQuotationSnapshotForAudit,
 } from './outsourcingQuotationHandlers.js'
+import { INV_BOM_MASTER_FROM } from './bomTables.js'
 
 export { resolveAuditActionAndTable } from './action_map.js'
-
-/** @param {import('express').Request} req */
-export function getRequestIp(req) {
-  const forwarded = String(req.headers?.['x-forwarded-for'] ?? '').trim()
-  if (forwarded) {
-    return forwarded.split(',')[0].trim()
-  }
-  const candidate = req.ip || req.socket?.remoteAddress || req.connection?.remoteAddress || ''
-  return String(candidate).replace(/^::ffff:/, '').trim()
-}
+export { getRequestIp } from './requestIp.js'
 
 const HR_STAFF_TABLE = (() => {
   const t = String(process.env.HR_STAFF_TABLE ?? 'UB_ERP_Hr_staff').trim()
@@ -151,6 +144,75 @@ export function redactBodyForOperationAudit(body) {
 }
 
 const MAX_CONTENT_LEN = 2000
+const SAFE_IDENTIFIER_KEYS = [
+  'systemcode',
+  'code',
+  'id',
+  'orderId',
+  'order_id',
+  'pi',
+  'piNo',
+  'pi_no',
+  'bill_no',
+  'doc_no',
+  'dh',
+  'djbh',
+  'cgaa01',
+  'wxaa01',
+  'quotation_code',
+  'RoleID',
+]
+
+function firstMeaningfulValue(source, keys = SAFE_IDENTIFIER_KEYS) {
+  if (!source || typeof source !== 'object') return ''
+  for (const key of keys) {
+    const value = source[key]
+    if (value === null || value === undefined) continue
+    const text = String(value).trim()
+    if (text) return text
+  }
+  return ''
+}
+
+function getSafeRequestIdentifier(req) {
+  const body = req.body && typeof req.body === 'object' ? req.body : {}
+  const header = body.header && typeof body.header === 'object' ? body.header : {}
+  const params = req.params && typeof req.params === 'object' ? req.params : {}
+  const query = req.query && typeof req.query === 'object' ? req.query : {}
+  const direct = firstMeaningfulValue(body) || firstMeaningfulValue(header) || firstMeaningfulValue(params)
+  if (direct) return direct
+  const queryValue = firstMeaningfulValue(query)
+  if (queryValue) return queryValue
+  const pathTail = String(req.path || '').split('/').filter(Boolean).at(-1) || ''
+  if (/^(audit|unaudit|approve|unapprove|restore|hard-delete|soft-delete|permanent)$/.test(pathTail)) {
+    return ''
+  }
+  try {
+    return decodeURIComponent(pathTail)
+  } catch {
+    return pathTail
+  }
+}
+
+function buildSafeFallbackContent(action, req) {
+  if (String(req.path || '') === '/api/users/change-password') return '修改个人密码'
+  const identifier = getSafeRequestIdentifier(req)
+  const body = req.body && typeof req.body === 'object' ? req.body : {}
+  const counts = []
+  for (const [key, value] of Object.entries(body)) {
+    if (Array.isArray(value)) counts.push(`${key} ${value.length} 条`)
+  }
+  const details = []
+  if (identifier) details.push(`业务标识：${identifier}`)
+  if (counts.length) details.push(`影响数据：${counts.slice(0, 3).join('，')}`)
+  return details.length ? `${action}成功（${details.join('；')}）` : `${action}成功`
+}
+
+function getAuditSystemcode(req) {
+  const body = req.body && typeof req.body === 'object' ? req.body : {}
+  const header = body.header && typeof body.header === 'object' ? body.header : {}
+  return firstMeaningfulValue(body, ['systemcode']) || firstMeaningfulValue(header, ['systemcode'])
+}
 
 /**
  * 列表展示用：空值统一为「空」
@@ -179,6 +241,128 @@ function meaningfulStr(v) {
  */
 function operatorDisplayName(user) {
   return String(user?.userName ?? user?.userCode ?? '未知').trim() || '未知'
+}
+
+function decodeBomSystemcode(value) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
+}
+
+function getBomMasterSystemcodesForAudit(method, path, req) {
+  const body = req.body && typeof req.body === 'object' ? req.body : {}
+  const params = req.params && typeof req.params === 'object' ? req.params : {}
+  const set = new Set()
+  const push = (value) => {
+    const systemcode = decodeBomSystemcode(value)
+    if (systemcode) set.add(systemcode)
+  }
+
+  if (Array.isArray(body.systemcodes)) {
+    body.systemcodes.slice(0, 200).forEach(push)
+  }
+  push(body.systemcode)
+  push(params.systemcode)
+
+  if (method === 'DELETE') {
+    const match = /^\/api\/inventory\/bom\/systemcode\/([^/]+)(?:\/permanent)?\/?$/.exec(path)
+    if (match) push(match[1])
+  }
+  return [...set]
+}
+
+function isBomMasterCentralRoute(method, path) {
+  return (
+    (method === 'POST' &&
+      (path === '/api/inventory/bom' ||
+        path === '/api/inventory/bom/save-main' ||
+        path === '/api/bom/usage-calc' ||
+        path === '/api/bom/usage-calc-legacy' ||
+        path === '/api/bom/usage-calc-batch')) ||
+    (method === 'PUT' &&
+      (path === '/api/inventory/bom' ||
+        path === '/api/inventory/bom/audit' ||
+        path === '/api/inventory/bom/audit-batch' ||
+        path === '/api/inventory/bom/unaudit' ||
+        path === '/api/inventory/bom/restore')) ||
+    (method === 'DELETE' && /^\/api\/inventory\/bom\/systemcode\/[^/]+(?:\/permanent)?\/?$/.test(path))
+  )
+}
+
+async function fetchBomMasterSnapshotsForAudit(pool, systemcodes) {
+  const codes = Array.isArray(systemcodes) ? systemcodes.filter(Boolean).slice(0, 200) : []
+  if (!codes.length) return {}
+
+  const request = pool.request()
+  const parameters = codes.map((systemcode, index) => {
+    const name = `bomSc${index}`
+    request.input(name, sql.NVarChar(100), systemcode)
+    return `@${name}`
+  })
+  const result = await request.query(`
+    SELECT
+      LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) AS systemcode,
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(b.kcaa01, N'')))) AS kcaa01
+    FROM ${INV_BOM_MASTER_FROM} AS b
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(b.systemcode, N'')))) IN (${parameters.join(', ')})
+  `)
+  return Object.fromEntries(
+    (result.recordset ?? [])
+      .filter((row) => String(row?.systemcode ?? '').trim())
+      .map((row) => [String(row.systemcode).trim(), {
+        systemcode: String(row.systemcode).trim(),
+        kcaa01: String(row.kcaa01 ?? '').trim(),
+      }]),
+  )
+}
+
+function findBomMasterSnapshot(req, systemcode) {
+  const map = req.__auditBomMasterBySystemcode
+  if (!map || typeof map !== 'object') return null
+  const target = String(systemcode ?? '').trim()
+  if (target && map[target]) return map[target]
+  return Object.values(map).find((row) => String(row?.systemcode ?? '').trim() === target) ?? null
+}
+
+/**
+ * BOM 主档日志统一显示业务编码 kcaa01，避免向操作日志展示内部 systemcode。
+ */
+export function buildBomMasterOperationChineseContent(user, method, path, req) {
+  if (!isBomMasterCentralRoute(method, path)) return ''
+  const body = req.body && typeof req.body === 'object' ? req.body : {}
+  const systemcodes = getBomMasterSystemcodesForAudit(method, path, req)
+  const codes = systemcodes
+    .map((systemcode) => String(findBomMasterSnapshot(req, systemcode)?.kcaa01 ?? '').trim())
+    .filter(Boolean)
+  if (!codes.length && (path === '/api/inventory/bom' || path === '/api/inventory/bom/save-main')) {
+    const newCode = String(body.kcaa01 ?? '').trim()
+    if (newCode) codes.push(newCode)
+  }
+  if (!codes.length) return ''
+
+  const action =
+    method === 'POST' && (path === '/api/inventory/bom' || path === '/api/inventory/bom/save-main')
+      ? '新增了'
+      : method === 'PUT' && path === '/api/inventory/bom'
+        ? '编辑了'
+        : method === 'PUT' && (path === '/api/inventory/bom/audit' || path === '/api/inventory/bom/audit-batch')
+          ? codes.length > 1 ? '批量审核了' : '审核了'
+          : method === 'PUT' && path === '/api/inventory/bom/unaudit'
+            ? '反审了'
+            : method === 'PUT' && path === '/api/inventory/bom/restore'
+              ? '恢复了'
+              : method === 'DELETE' && /\/permanent\/?$/.test(path)
+                ? '彻底删除了'
+                : method === 'DELETE'
+                  ? '删除了'
+                  : codes.length > 1
+                    ? '批量一键运算了'
+                    : '一键运算了'
+  return `${operatorDisplayName(user)}${action}编码「${codes.join('、')}」`
 }
 
 /**
@@ -603,9 +787,17 @@ export function createOperationAuditPrepareMiddleware() {
     if (!path.startsWith('/api/') || path === '/api/login' || path === '/api/health') {
       return next()
     }
+    if (resolveOperationAuditPolicy(method, path, req.body).mode !== 'central') return next()
 
     try {
       const pool = await getPool()
+
+      if (isBomMasterCentralRoute(method, path)) {
+        req.__auditBomMasterBySystemcode = await fetchBomMasterSnapshotsForAudit(
+          pool,
+          getBomMasterSystemcodesForAudit(method, path, req),
+        )
+      }
 
       // === 供应商资料：审核/反审/恢复/删除/彻底删除/编辑前读库补全编码与名称 ===
       if (
@@ -1134,57 +1326,11 @@ export function createOperationAuditPrepareMiddleware() {
         req.__auditDeptBatchLabels = labels.join('、')
       }
     } catch (err) {
-      console.warn('[操作审计准备] 读库失败（将回退为 JSON 快照）：', err?.message ?? err)
+      console.warn('[操作审计准备] 读库失败（将使用安全业务摘要）：', err?.message ?? err)
     }
 
     next()
   }
-}
-
-/**
- * 外协订单写接口已在业务事务内写 UB_Date_ERP_Operation_log，
- * 全局审计不再补第二行。
- * @param {string} method
- * @param {string} path
- */
-function isAssistOrderBusinessLoggedWriteRoute(method, path) {
-  if (method === 'POST' && path === '/api/assist-order') return true
-  if (method === 'PUT' && /^\/api\/assist-order\/\d+$/.test(path)) return true
-  if (method === 'POST' && /^\/api\/assist-order\/\d+\/(audit|unaudit|close|unclose|restore)$/.test(path)) {
-    return true
-  }
-  if (method === 'DELETE' && /^\/api\/assist-order\/\d+(\/hard)?$/.test(path)) return true
-  return false
-}
-
-/**
- * 派工单写接口已在业务代码里写入 UB_Date_ERP_Operation_log。
- * 全局审计跳过，避免同一个按钮产生两行日志。
- * @param {string} method
- * @param {string} path
- */
-function isDispatchOrderBusinessLoggedWriteRoute(method, path) {
-  if (method === 'POST' && path === '/api/dispatch-order') return true
-  if (method === 'PUT' && /^\/api\/dispatch-order\/\d+$/.test(path)) return true
-  if (method === 'POST' && /^\/api\/dispatch-order\/\d+\/(audit|unaudit|restore)$/.test(path)) return true
-  if (method === 'DELETE' && /^\/api\/dispatch-order\/\d+(\/hard)?$/.test(path)) return true
-  return false
-}
-
-function isStockInBusinessLoggedWriteRoute(method, path) {
-  if (method === 'POST' && path === '/api/stock-in') return true
-  if (method === 'PUT' && /^\/api\/stock-in\/\d+$/.test(path)) return true
-  if (method === 'POST' && /^\/api\/stock-in\/\d+\/(audit|unaudit|review|unreview|restore)$/.test(path)) return true
-  if (method === 'DELETE' && /^\/api\/stock-in\/\d+(\/hard)?$/.test(path)) return true
-  return false
-}
-
-function isStockOutBusinessLoggedWriteRoute(method, path) {
-  if (method === 'POST' && path === '/api/stock-out') return true
-  if (method === 'PUT' && /^\/api\/stock-out\/\d+$/.test(path)) return true
-  if (method === 'POST' && /^\/api\/stock-out\/\d+\/(audit|unaudit|restore)$/.test(path)) return true
-  if (method === 'DELETE' && /^\/api\/stock-out\/\d+(\/hard)?$/.test(path)) return true
-  return false
 }
 
 /**
@@ -1208,18 +1354,15 @@ export function createOperationAuditMiddleware(deps) {
     if (!path.startsWith('/api/')) {
       return next()
     }
+    const initialPolicy = resolveOperationAuditPolicy(req.method, path, req.body)
+    if (initialPolicy.mode !== 'central') return next()
 
     res.on('finish', () => {
       try {
         const method = String(req.method || '').toUpperCase()
-        if (!['POST', 'PUT', 'DELETE'].includes(method)) return
-        if (res.statusCode !== 200) return
-
-        if (path === '/api/login' || path === '/api/health') return
-        if (isAssistOrderBusinessLoggedWriteRoute(method, path)) return
-        if (isDispatchOrderBusinessLoggedWriteRoute(method, path)) return
-        if (isStockInBusinessLoggedWriteRoute(method, path)) return
-        if (isStockOutBusinessLoggedWriteRoute(method, path)) return
+        const policy = resolveOperationAuditPolicy(method, path, req.body)
+        if (policy.mode !== 'central') return
+        if (res.statusCode < 200 || res.statusCode >= 300) return
 
         const user = getCurrentUserFromReq(req)
         if (!user) return
@@ -1227,7 +1370,10 @@ export function createOperationAuditMiddleware(deps) {
         const { action, targetTable } = resolveAuditActionAndTable(method, path)
 
         let content = ''
-        if (method === 'POST' && path === '/api/supply-chain/suppliers') {
+        const bomContent = buildBomMasterOperationChineseContent(user, method, path, req)
+        if (bomContent) {
+          content = bomContent
+        } else if (method === 'POST' && path === '/api/supply-chain/suppliers') {
           const op = operatorDisplayName(user)
           const code = displayCell(req.body?.s_code)
           const name = displayCell(req.body?.s_name)
@@ -1763,12 +1909,7 @@ export function createOperationAuditMiddleware(deps) {
           const { name, code } = req.__auditDeleteDept
           content = `${op}删除了部门/岗位「${displayCell(name)}」（编码：${displayCell(code)}）`
         } else {
-          const snap = redactBodyForOperationAudit(req.body)
-          try {
-            content = JSON.stringify(snap)
-          } catch {
-            content = String(snap)
-          }
+          content = buildSafeFallbackContent(action, req)
         }
 
         if (content.length > MAX_CONTENT_LEN) {
@@ -1780,13 +1921,13 @@ export function createOperationAuditMiddleware(deps) {
             await writeOperationLogAsync({
               uname: String(user.userCode ?? '').trim() || null,
               utruename:
-                String(user.userName ?? '').trim() ||
                 String(user.auditTruename ?? '').trim() ||
+                String(user.truename ?? '').trim() ||
                 String(user.userCode ?? '').trim() ||
                 null,
               action,
               code: targetTable || 'ERP',
-              systemcode: '',
+              systemcode: getAuditSystemcode(req),
               content,
               ip: getRequestIp(req) || null,
             })

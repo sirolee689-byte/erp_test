@@ -14,6 +14,7 @@ export const DEFAULT_UNKNOWN_TARGET_TABLE = 'ERP'
  *   path: PathMatcher,
  *   action: string,
  *   targetTable: string,
+ *   auditPolicy?: 'central' | 'business' | 'ignore',
  * }} OperationAuditRouteRule
  */
 
@@ -329,6 +330,12 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
     path: '/api/paper-pattern/import/delete-bom-tree',
     action: '纸格导入按主BOM物理删除UB_ERP_Bom_000与UB_ERP_Bom_parts',
     targetTable: 'UB_ERP_Bom_000',
+  },
+  {
+    method: 'POST',
+    path: '/api/paper-pattern/import/commit-bom000',
+    action: '正式导入纸格BOM',
+    targetTable: 'UB_ERP_Bom_000,UB_ERP_Bom_parts',
   },
   { method: 'GET', path: /^\/api\/inventory\/bom\/.+$/, action: '查看BOM主档详情', targetTable: 'UB_ERP_Bom_000' },
 
@@ -787,10 +794,28 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
  * @param {PathMatcher} matcher
  * @param {string} path
  */
-function pathMatches(matcher, path) {
+export function pathMatches(matcher, path) {
   const p = String(path || '')
-  if (matcher instanceof RegExp) return matcher.test(p)
+  if (matcher instanceof RegExp) {
+    matcher.lastIndex = 0
+    return matcher.test(p)
+  }
   return matcher === p
+}
+
+/**
+ * @param {string} method
+ * @param {string} path
+ * @returns {OperationAuditRouteRule|null}
+ */
+export function resolveAuditRouteRule(method, path) {
+  const m = String(method || '').toUpperCase()
+  const p = String(path || '')
+  for (const rule of OPERATION_AUDIT_ROUTE_RULES) {
+    if (String(rule.method || '').toUpperCase() !== m) continue
+    if (pathMatches(rule.path, p)) return rule
+  }
+  return null
 }
 
 /**
@@ -800,13 +825,93 @@ function pathMatches(matcher, path) {
  * @returns {{ action: string, targetTable: string }}
  */
 export function resolveAuditActionAndTable(method, path) {
+  const rule = resolveAuditRouteRule(method, path)
+  if (rule) return { action: rule.action, targetTable: rule.targetTable }
+  return { action: DEFAULT_UNKNOWN_ACTION, targetTable: DEFAULT_UNKNOWN_TARGET_TABLE }
+}
+
+const WRITE_METHODS = new Set(['POST', 'PUT', 'DELETE'])
+
+/** 已在业务事务或处理器中写日志，中央层必须跳过，避免重复。 */
+const BUSINESS_LOGGED_RULES = [
+  { method: 'PUT', path: '/api/system/kernel/mail-config' },
+  { method: 'PUT', path: '/api/system/kernel/print-config' },
+  { method: 'PUT', path: '/api/system/kernel/database-config' },
+  { method: 'POST', path: '/api/assist-order' },
+  { method: 'PUT', path: /^\/api\/assist-order\/\d+$/ },
+  { method: 'POST', path: /^\/api\/assist-order\/\d+\/(audit|unaudit|close|unclose|restore)$/ },
+  { method: 'DELETE', path: /^\/api\/assist-order\/\d+(\/hard)?$/ },
+  { method: 'POST', path: '/api/buy-order' },
+  { method: 'PUT', path: /^\/api\/buy-order\/\d+$/ },
+  { method: 'POST', path: /^\/api\/buy-order\/\d+\/(audit|unaudit|close|unclose|restore)$/ },
+  { method: 'DELETE', path: /^\/api\/buy-order\/\d+(\/hard)?$/ },
+  { method: 'POST', path: '/api/dispatch-order' },
+  { method: 'PUT', path: /^\/api\/dispatch-order\/\d+$/ },
+  { method: 'POST', path: /^\/api\/dispatch-order\/\d+\/(audit|unaudit|restore)$/ },
+  { method: 'DELETE', path: /^\/api\/dispatch-order\/\d+(\/hard)?$/ },
+  { method: 'POST', path: '/api/stock-in' },
+  { method: 'PUT', path: /^\/api\/stock-in\/\d+$/ },
+  { method: 'POST', path: /^\/api\/stock-in\/\d+\/(audit|unaudit|review|unreview|restore)$/ },
+  { method: 'DELETE', path: /^\/api\/stock-in\/\d+(\/hard)?$/ },
+  { method: 'POST', path: '/api/stock-out' },
+  { method: 'PUT', path: /^\/api\/stock-out\/\d+$/ },
+  { method: 'POST', path: /^\/api\/stock-out\/\d+\/(audit|unaudit|restore)$/ },
+  { method: 'DELETE', path: /^\/api\/stock-out\/\d+(\/hard)?$/ },
+  { method: 'POST', path: '/api/supply-chain/purchase-quotations' },
+  { method: 'PUT', path: '/api/supply-chain/purchase-quotations' },
+  { method: 'PUT', path: '/api/supply-chain/purchase-quotations/unaudit' },
+  { method: 'DELETE', path: /^\/api\/supply-chain\/purchase-quotations\/[^/]+(\/permanent)?$/ },
+  { method: 'POST', path: '/api/users' },
+  { method: 'PUT', path: '/api/users' },
+  { method: 'PUT', path: '/api/users/resume' },
+  { method: 'DELETE', path: /^\/api\/users\/\d+$/ },
+  { method: 'PUT', path: /^\/api\/inventory\/bom\/parts\/.+$/ },
+  { method: 'POST', path: '/api/inventory/bom/save-parts' },
+  { method: 'POST', path: '/api/inventory/bom/propagate-master' },
+  { method: 'PUT', path: /^\/api\/hr\/staff\/leave\/.+$/ },
+  { method: 'POST', path: '/api/hr/dormitory/electric/settle' },
+  { method: 'POST', path: '/api/dorm/delete-electric' },
+]
+
+/** 使用 POST 承载查询、校验、预览或临时上传，不属于业务数据变更。 */
+const IGNORED_WRITE_RULES = [
+  { method: 'POST', path: '/api/login' },
+  { method: 'POST', path: '/api/stock-in/surplus-batch-prices' },
+  { method: 'POST', path: '/api/stock-out/other-batch-prices' },
+  { method: 'POST', path: '/api/buy-order/batch-add-prices' },
+  { method: 'POST', path: '/api/supply-chain/purchase-quotations/excel-import/materials' },
+  { method: 'POST', path: '/api/customs-declaration/preview' },
+  { method: 'POST', path: /^\/api\/paper-pattern\/(upload|import\/upload)$/ },
+  { method: 'POST', path: '/api/paper-pattern/import/save-mapping' },
+  { method: 'POST', path: '/api/paper-pattern/check-material' },
+  { method: 'POST', path: '/api/paper-pattern/material-bom-fields' },
+]
+
+function matchesPolicyRule(rule, method, path) {
+  return String(rule.method || '').toUpperCase() === method && pathMatches(rule.path, path)
+}
+
+/**
+ * @param {string} method
+ * @param {string} path
+ * @param {any} [body]
+ * @returns {{ mode: 'central'|'business'|'ignore'|'unknown', rule: OperationAuditRouteRule|null }}
+ */
+export function resolveOperationAuditPolicy(method, path, body = undefined) {
   const m = String(method || '').toUpperCase()
   const p = String(path || '')
-  for (const rule of OPERATION_AUDIT_ROUTE_RULES) {
-    if (String(rule.method || '').toUpperCase() !== m) continue
-    if (pathMatches(rule.path, p)) {
-      return { action: rule.action, targetTable: rule.targetTable }
-    }
+  const routeRule = resolveAuditRouteRule(m, p)
+  if (!WRITE_METHODS.has(m)) return { mode: 'ignore', rule: routeRule }
+  if (body?.dryRun === true || String(body?.dryRun ?? '').toLowerCase() === 'true') {
+    return { mode: 'ignore', rule: routeRule }
   }
-  return { action: DEFAULT_UNKNOWN_ACTION, targetTable: DEFAULT_UNKNOWN_TARGET_TABLE }
+  if (IGNORED_WRITE_RULES.some((rule) => matchesPolicyRule(rule, m, p))) {
+    return { mode: 'ignore', rule: routeRule }
+  }
+  if (BUSINESS_LOGGED_RULES.some((rule) => matchesPolicyRule(rule, m, p))) {
+    return { mode: 'business', rule: routeRule }
+  }
+  if (routeRule?.auditPolicy) return { mode: routeRule.auditPolicy, rule: routeRule }
+  if (routeRule) return { mode: 'central', rule: routeRule }
+  return { mode: 'unknown', rule: null }
 }

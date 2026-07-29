@@ -26,6 +26,7 @@ import {
   mapBom000ExtendedSnapshotRow,
   SALES_ORDER_LINE_BOM000_EXTENDED_COLUMNS,
 } from './salesOrderLineBom000Snapshot.js'
+import { getRequestIp } from './requestIp.js'
 
 const HEADER_FROM = `dbo.[${SALES_ORDER_HEADER_TABLE}]`
 const LINE_TABLE = 'UB_ERP_Sales_order_list'
@@ -94,9 +95,7 @@ export function buildSalesOrderGuid() {
 
 /** @param {import('express').Request} req */
 export function getClientIpFromReq(req) {
-  const forwarded = String(req.headers?.['x-forwarded-for'] ?? '').trim()
-  if (forwarded) return forwarded.split(',')[0].trim()
-  return String(req.ip || req.socket?.remoteAddress || '').trim()
+  return getRequestIp(req)
 }
 
 /**

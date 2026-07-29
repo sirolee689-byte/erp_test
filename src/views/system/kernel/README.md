@@ -63,7 +63,7 @@
 - 核心密钥只在保存接口里校验，前端不保存、不写死，也不写入业务表。
 - 系统 EMAIL 的邮箱密码使用后端环境变量 `ERP_MAIL_CRYPTO_KEY` 做 AES-256-GCM 可逆加密，落库格式以 `enc:v1:` 开头。
 - 权限路径统一走 `system/kernel/erp-core`：读取需要 `view`，保存需要 `edit`。
-- 保存成功后写入 `UB_Date_ERP_Operation_log`；日志不记录核心密钥和邮箱密码。
+- 保存成功后由各内核业务处理器写入 `UB_Date_ERP_Operation_log`，中央补漏策略标记为 `business`，避免重复；日志不记录核心密钥和邮箱密码。打印图片上传单独走中央白名单，只记录上传动作，不记录文件内容。
 
 ## 已知边界
 

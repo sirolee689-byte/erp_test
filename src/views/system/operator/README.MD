@@ -28,6 +28,7 @@
 - [x] **软删除**：PUT `/api/users` body 含 `op: 'soft_delete'`；`del=1` + `deltime`；`act_info`「编码删除！操作员编码…」
 - [x] **恢复**：PUT `/api/users/resume`（回收站 → `del=0`）
 - [x] **禁止物理删**：旧版+v2 下 DELETE `/api/users/:id` 返回 400，勿用
+- [x] **修改个人密码**：PUT `/api/users/change-password`；中央日志只记录“修改个人密码”，不记录新旧密码或 Token
 
 ### 4. 模块开发标准（v1.0.4 最终版）
 > 这一段是“以后开发类似模块照着做”的标准，避免你每次都从头想一遍。

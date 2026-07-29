@@ -19,6 +19,8 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:3001',
         changeOrigin: true,
+        // 将浏览器访问者 IP 转发给 API；API 只接受可信代理传入的地址。
+        xfwd: true,
       },
     },
   },

@@ -40,8 +40,8 @@ function resolveTrueName(user, payload, uname) {
   return (
     trimString(payload.utruename) ||
     trimString(payload.userTrueName) ||
-    trimString(user?.userName) ||
     trimString(user?.auditTruename) ||
+    trimString(user?.truename) ||
     trimString(payload.userName) ||
     uname
   )
@@ -118,7 +118,7 @@ export async function writeLog(req, action, details, options = {}) {
   }
 
   const uname = trimString(user?.userCode) || trimString(user?.auditUserName) || trimString(user?.userName)
-  const utruename = trimString(user?.userName) || trimString(user?.auditTruename) || uname
+  const utruename = trimString(user?.auditTruename) || trimString(user?.truename) || uname
 
   await writeOperationLog(pool, {
     action,

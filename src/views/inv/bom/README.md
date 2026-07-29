@@ -152,3 +152,8 @@
 - **独立页新增/编辑底栏（2026-07）**：`bom-data-window?mode=create|edit` 时，「关闭 / 重置（仅新增）/ 保存主档 / 保存配件明细」固定在弹窗底栏（`el-dialog` `#footer`），无需滚动即可见；内嵌页仍用面板顶栏 `.bom-page-panel-header`。DIY：`index.vue` 编辑弹窗 `#footer` 与全局样式 `.bom-edit-dialog--standalone`。
 - **列表行右键（2026-07）**：在「管理BOM资料」主列表（含 `mode=manage` 干净独立页）、详情/独立页内「配件明细」「BOM用量表运算」「成本BOM用量表」、编辑弹窗「配件明细」等表格行上右键，菜单项「在新标签页中打开」与对应操作列按钮同效果（干净独立页）；**开启「显示未审核」且当前行未审时，主列表右键打开 `mode=edit` 编辑独立页**（含添加/删除配件、保存主档等），已审或默认已审列表仍为 `mode=detail` 只读详情。无 `view`/`edit` 权限或无编码时不弹自定义菜单（无编码时菜单项灰显）。通用组件 `ErpListRowContextMenu.vue`；主列表 `resolveBomListRowContextMenuMode` / `onBomListRowContextMenu`，详情子表 `onBomDetailPartsRowContextMenu` / `onBomUsageOrCostRowContextMenu` / `onBomEditPartsRowContextMenu`。
 - 独立页里的「成本BOM用量表」按表格内容自然增高；行数少时合计紧跟明细，不再把表体强行撑满整屏，行数多时仍保留最大高度和滚动显示。
+
+## 操作日志
+
+- BOM 主档新增、修改、审核、反审、删除、恢复和用量运算由中央白名单写入 `UB_Date_ERP_Operation_log`。
+- 配件明细保存和主档资料传播保留现有业务日志并标记为 `business`，中央层跳过，避免一项操作出现两条日志。

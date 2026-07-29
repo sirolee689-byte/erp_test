@@ -407,7 +407,7 @@
       </div>
       <div v-loading="editLoading" class="detail-wrap">
         <el-tabs v-model="editActiveTab" @tab-change="onEditTabChange">
-          <el-tab-pane label="主表" name="header">
+          <el-tab-pane label="订单基础资料" name="header">
             <el-form
               label-width="108px"
               class="so-edit-form"
@@ -500,7 +500,7 @@
               </div>
             </el-form>
           </el-tab-pane>
-          <el-tab-pane label="明细" name="lines">
+          <el-tab-pane label="销售明细" name="lines">
             <el-alert
               v-if="editDetailLocked"
               title="该订单已审核，需先反审后才能修改明细并保存。"
@@ -636,7 +636,7 @@
               <el-table-column label="版本" prop="version" width="88" show-overflow-tooltip />
             </el-table>
           </el-tab-pane>
-          <el-tab-pane label="PI BOM" name="piBom">
+          <el-tab-pane label="PI_BOM" name="piBom">
             <el-alert
               v-if="editDetailLocked"
               title="该订单已审核，需先反审后才能修改 PI BOM。"
@@ -752,7 +752,12 @@
       </div>
     </section>
 
-    <MaterialSelector v-model="materialVisible" multiple @batch-confirm="onMaterialsPicked" />
+    <MaterialSelector
+      v-model="materialVisible"
+      multiple
+      initial-category-flag1="成品"
+      @batch-confirm="onMaterialsPicked"
+    />
   </div>
 </template>
 

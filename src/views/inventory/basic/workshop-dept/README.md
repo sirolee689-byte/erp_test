@@ -14,7 +14,7 @@
 
 ## 操作日志
 
-由 `operationAuditMiddleware` 写入 **`UB_Date_ERP_Operation_log`**，`act_info` 为可读中文（前端不传日志内容）：
+新增、审核、反审、删除、恢复、彻底删除登记为中央白名单，由 `operationAuditMiddleware` 写入 **`UB_Date_ERP_Operation_log`**，`act_info` 为可读中文（前端不传日志内容）：
 
 - 新增：`录入成功,等待审核！车间与部门编码：[编码]，车间/部门名称：[名称]`
 - 审核：`申请通过审核！车间与部门编码：[编码]，车间/部门名称：[名称]`

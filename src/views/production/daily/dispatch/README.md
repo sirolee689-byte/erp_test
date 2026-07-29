@@ -52,7 +52,7 @@
 - 真实库里派工单主表和明细表都有 `pass`，但没有 `passuid` / `passuname`；主表也没有 `delid`。
 - 审核、反审核、删除现在会先看真实字段，字段存在才写入；所以反审核不会再因为 `Invalid column name 'passuname'` 弹错。
 - 删除仍会写当前库存在的 `delname`、`deltruename`、`deltime`。
-- 派工单新增、修改、审核、反审核、删除、恢复、彻底删除都由业务代码写入一条 `UB_Date_ERP_Operation_log`；全局自动审计已停用，避免同一个操作出现两行日志。
+- 派工单新增、修改、审核、反审核、删除、恢复、彻底删除都由业务代码写入一条 `UB_Date_ERP_Operation_log`；这些接口在中央策略中标记为 `business`，中间件会跳过，避免同一个操作出现两行日志。
 
 ## 第一版不做
 

@@ -149,6 +149,11 @@ const props = defineProps({
   /** 批量模式：多选 + 确认添加 */
   multiple: { type: Boolean, default: false },
   initialKeyword: { type: String, default: '' },
+  /**
+   * 打开弹窗时按 UB_ERP_Bom_code.flag1 默认选中分类（如「成品」）；
+   * 空则仍为「全部分类」。仅影响打开瞬间，用户可再改。
+   */
+  initialCategoryFlag1: { type: String, default: '' },
   /** 全屏铺满：表体吃满中间，分页钉底（BOM 配件明细「添加配件」） */
   fullscreen: { type: Boolean, default: false },
 })
@@ -222,6 +227,14 @@ async function loadBomCodeCategoryOptions() {
   } catch {
     bomCodeCategoryOptions.value = []
   }
+}
+
+/** 按 flag1 名称解析默认分类 id；找不到则空（全部分类） */
+function resolveInitialBomCodeId() {
+  const name = String(props.initialCategoryFlag1 ?? '').trim()
+  if (!name) return ''
+  const hit = bomCodeCategoryOptions.value.find((opt) => opt.flag1 === name)
+  return hit?.id ?? ''
 }
 
 function onSizeChange() {
@@ -428,10 +441,14 @@ async function onConfirmBatch() {
 
 watch(
   () => props.modelValue,
-  (open) => {
+  async (open) => {
     if (open) {
       keywordKw.value = String(props.initialKeyword ?? '').trim()
-      searchQuery.bom_code_id = ''
+      // 分类选项可能尚未加载完；先拉齐再按 flag1 落默认值
+      if (!bomCodeCategoryOptions.value.length) {
+        await loadBomCodeCategoryOptions()
+      }
+      searchQuery.bom_code_id = resolveInitialBomCodeId()
       searchQuery.bom_cut = 0
       page.value = 1
       pageSize.value = props.multiple ? 20 : 10

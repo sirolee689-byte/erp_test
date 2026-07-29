@@ -52,7 +52,7 @@
 | GET | `/api/sales-order/:id/pi-bom?kcaa01=` | view | 无 `kcaa01`：款列表；有：树 + flat |
 | PUT | `/api/sales-order/:id/pi-bom` | edit | body `{ kcaa01, lines: [{ id, kcac04, kcac05?, Describe? }] }` |
 
-操作日志：`server/action_map.js` 登记各路由 `act_name`；HTTP 200 后由 `operationAuditMiddleware` 经 `operationLogWriter` 写入 **`UB_Date_ERP_Operation_log`**（与上表路由一一对应）。
+操作日志：销售订单写接口在 `server/action_map.js` 登记为中央白名单；成功且确实完成业务请求后由 `operationAuditMiddleware` 经 `operationLogWriter` 写入 **`UB_Date_ERP_Operation_log`**。失败请求不记录，请求体不作为 JSON 原文写入。
 
 > 审计三字段（与 `CONTEXT.md` 第三节一致，服务端 `resolveActorAuditTripletFromReq`）：`uid`=`UserID`，`uname`=`UserName`，`utruename`=`truename`（按登录 `usercode` 查库）。禁止把 `usercode` 写入 `uname`，禁止用工牌显示名写入 `utruename`。
 
@@ -127,9 +127,9 @@
 
 | Tab | 能力 |
 |-----|------|
-| 主表 | PI 号（新建可填）、销售客户、币别、日期、小数点配置、运算状态；布局左对齐分行（参考派工单） |
-| 明细 | 工具栏对齐采购订单：`删除选定明细` / `删除全部明细` / `批量添加`（原「增行」），其后保留 `批量同步 BOM`；「选择」列橙钮标记待删行（`_lineMarked` 不入库），删行仅内存、点保存才落库；选材合并同码、编辑数量/单价、同步 BOM；维护用量走顶部 **PI BOM** 页签（明细行不再放「PI BOM」按钮）；选材带入 `kcaa06` 客款号、`remark` 备注、`kcaa10` 组别、`kcaa09` 工厂款号、`version` 版本；数量和单价为纯输入框；备注只读快照；列顺序：选择、序号、操作（仅编辑已保存单显示「同步 BOM」）、编码、数量、单价、金额、客款号、备注、用料名称(中文)、组别、工厂款号、版本；只读数量/单价/金额去尾 0（`formatErpQty/Price/MoneyDisplay`）；**2026-07-23** 工具栏高度/字号 DIY：`--so-line-toolbar-btn-height` / `--so-line-toolbar-btn-font-size`（默认 36px / 16px） |
-| PI BOM | 按款树表编辑用量/损耗/备注 |
+| 订单基础资料 | PI 号（新建可填）、销售客户、币别、日期、小数点配置、运算状态；布局左对齐分行（参考派工单） |
+| 销售明细 | 工具栏对齐采购订单：`删除选定明细` / `删除全部明细` / `批量添加`（原「增行」），其后保留 `批量同步 BOM`；「选择」列橙钮标记待删行（`_lineMarked` 不入库），删行仅内存、点保存才落库；选材合并同码、编辑数量/单价、同步 BOM；维护用量走顶部 **PI_BOM** 页签（明细行不再放「PI BOM」按钮）；选材带入 `kcaa06` 客款号、`remark` 备注、`kcaa10` 组别、`kcaa09` 工厂款号、`version` 版本；数量和单价为纯输入框；备注只读快照；列顺序：选择、序号、操作（仅编辑已保存单显示「同步 BOM」）、编码、数量、单价、金额、客款号、备注、用料名称(中文)、组别、工厂款号、版本；只读数量/单价/金额去尾 0（`formatErpQty/Price/MoneyDisplay`）；**批量添加**打开时分类默认「成品」（`MaterialSelector` 的 `initialCategoryFlag1`）；**2026-07-23** 工具栏高度/字号 DIY：`--so-line-toolbar-btn-height` / `--so-line-toolbar-btn-font-size`（默认 36px / 16px） |
+| PI_BOM | 按款树表编辑用量/损耗/备注 |
 
 > 物料单不再放在销售订单详情/编辑 Tab 内展示。销售订单仍负责「一键运算」，但入口只在销售订单列表操作列；运算后的明细/汇总统一到生产管理 → 统计分析 → 物料单查看。
 
@@ -138,7 +138,7 @@
 - 页面顶部为 **管理销售订单 / 销售订单添加** 双模式；默认进入管理列表。
 - 管理列表工具栏不再放「新增销售订单」按钮，新增入口统一使用顶部 **销售订单添加**。
 - **销售订单添加** 在当前页面整页显示新增表单，不再使用新增弹窗，也不新开浏览器页（不使用 `target="_blank"`）。
-- 行内 **编辑** 进入与新增同一套整页表单；**查看**（2026-07）同样复用该整页表单（主表 / 明细 / PI BOM 三页签），全程只读；无保存、批量添加、同步 BOM、删除明细；明细无行内「PI BOM」按钮，用量树在 **PI BOM** 页签浏览。
+- 行内 **编辑** 进入与新增同一套整页表单；**查看**（2026-07）同样复用该整页表单（订单基础资料 / 销售明细 / PI_BOM 三页签），全程只读；无保存、批量添加、同步 BOM、删除明细；明细无行内「PI BOM」按钮，用量树在 **PI_BOM** 页签浏览。
 - **标题行操作钮（2026-07）**：对齐采购订单添加——「取消 / 保存」或查看态「返回列表」放在「新增/编辑/查看销售订单」标题行右侧，不再使用底栏。**2026-07-23** 表单头 DIY：标题字号 `--so-form-head-title-font-size`；按钮高度/字号 `--so-form-head-btn-height` / `--so-form-head-btn-font-size`（默认 18px / 36px / 16px）。
 - **基础资料输入高度**（2026-07-23）：单行输入对齐出库单，DIY `--so-base-input-height`；备注 DIY `--so-remark-input-height`。
 - 新增表单初始化时，PI 号默认填 `PI-`，小数位数默认 `6`；编辑/查看打开时强制拉取完整详情回填主表与明细（PI 号只读展示真实值）；展开行预取明细时不再把「空主表」写入详情缓存，避免编辑读到空表单。
@@ -146,8 +146,7 @@
 - 主表新增 `PO号` 输入框；保存时写入主表字段 `UB_ERP_Sales_order.xsaj06`。
 - 客户保存时写入 `xsaj05 = UB_ERP_System_sales_customer.s_code`；客户名称仍写入 `kehu` 快照。
 - 币别下拉显示为 `001,人民币`、`002,美元` 这类格式；新增时默认选中接口真实返回的 `002,美元`；保存时写入 `xsaj07 = UB_ERP_System_currency.id`，币别名称仍写入 `rmb` 快照。
-- 新增保存自动生成 `GUID`，并同步写入 `systemcode`；`syscode` 与 `d_code` 保存为空值，`type` 固定写 `1`。
-- PI 号查重时机：**输入框失焦即校验**（`GET /api/sales-order/check-pi`）；点击保存前后端都会再做一次兜底校验，避免并发撞号。
+- 新增保存自动生成 `GUID`，并同步写入 `systemcode`；`syscode` 与 `d_code` 保存为空值，`type` 固定写 `1`。- PI 号查重时机：**输入框失焦即校验**（`GET /api/sales-order/check-pi`）；点击保存前后端都会再做一次兜底校验，避免并发撞号。
 - 新增表单默认客户不写死假选项：打开时调用 `GET /api/supply-chain/customers/list?pass=1&keyword=PQD`，仅当接口返回真实存在的 `s_code=7001` 且 `s_name=PQD` 记录时，才默认选中该客户。
 - 新增明细行时，数量和单价默认显示 `0`，输入框不强制显示固定小数位；保存仍走原字段，不改写入规则。
 - 新增保存仍走现有 `POST /api/sales-order`；保存成功后返回管理列表并刷新当前列表。

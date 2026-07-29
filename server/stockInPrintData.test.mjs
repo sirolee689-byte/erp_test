@@ -45,9 +45,16 @@ describe('stock-in print data', () => {
       info: '亮枪',
     }, 0)
     assert.equal(line.seq, 1)
-    assert.equal(line.quantityText, '11.00')
+    assert.equal(line.quantityText, '11')
     assert.equal(line.colorText, '(CFL) 亮枪色')
     assert.equal(line.Describe, '亮枪')
+  })
+
+  test('normalizeStockInPrintLine trims trailing zeros up to 3 decimals', () => {
+    assert.equal(normalizeStockInPrintLine({ kcao03: 80 }, 0).quantityText, '80')
+    assert.equal(normalizeStockInPrintLine({ kcao03: 54.54 }, 0).quantityText, '54.54')
+    assert.equal(normalizeStockInPrintLine({ kcao03: 54.5401 }, 0).quantityText, '54.54')
+    assert.equal(normalizeStockInPrintLine({ kcao03: 0.5 }, 0).quantityText, '0.5')
   })
 
   test('fetchStockInPrintDocuments queries headers by kcan01 and keeps p_sum order', async () => {

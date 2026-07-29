@@ -90,10 +90,11 @@ describe('stock-out print pagination', () => {
     assert.match(source, /\.stock-out-print-sign\s*\{[\s\S]*margin-top:\s*\d+px\s*;/i)
   })
 
-  test('keeps current natural pagination and last-block sign behavior', () => {
+  test('shows the sign on every print block and the total on the last block only', () => {
     const source = readFileSync(new URL('./print.vue', import.meta.url), 'utf8')
     assert.match(source, /rowsPerPage\s*=\s*ref\(['"]{2}\)/)
-    assert.match(source, /<footer\s+v-if="doc\.showTotal"\s+class="stock-out-print-sign"/)
+    assert.match(source, /<footer\s+class="stock-out-print-sign"/)
+    assert.doesNotMatch(source, /<footer\s+v-if="doc\.showTotal"/)
     assert.match(source, /<tr\s+v-if="doc\.showTotal"\s+class="stock-out-print-total"/)
   })
 })

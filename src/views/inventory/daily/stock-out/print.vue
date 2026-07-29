@@ -82,9 +82,15 @@
                 <td class="num">{{ line.quantityText }}</td>
                 <td>{{ blank(line.Describe) }}</td>
               </tr>
+              <!-- 合计行：颜色列写「合计」；单位+数量合并显示合计数量；前面各格留空 -->
               <tr v-if="doc.showTotal" class="stock-out-print-total">
-                <td colspan="7">合计</td>
-                <td class="num">{{ doc.totalQtyText }}</td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td>合计</td>
+                <td class="num" colspan="2">{{ doc.totalQtyText }}</td>
                 <td></td>
               </tr>
             </template>
@@ -99,14 +105,18 @@
                 <td class="num">{{ line.quantityText }}</td>
               </tr>
               <tr v-if="doc.showTotal" class="stock-out-print-total">
-                <td colspan="6">合计</td>
-                <td class="num">{{ doc.totalQtyText }}</td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td>合计</td>
+                <td class="num" colspan="2">{{ doc.totalQtyText }}</td>
               </tr>
             </template>
           </tbody>
         </table>
 
-        <footer v-if="doc.showTotal" class="stock-out-print-sign">
+        <footer class="stock-out-print-sign">
           <span>制表人：{{ blank(doc.makerName) }}</span>
           <span>仓库：{{ blank(doc.header.ck || doc.header.kcap06) }}</span>
           <span>领料人：</span>
@@ -397,7 +407,7 @@ onMounted(loadPrintData)
 }
 
 .stock-out-print-table .col-seq {
-  width: 44px;
+  width: 25px;
 }
 
 .stock-out-print-table .col-ref {
@@ -410,15 +420,15 @@ onMounted(loadPrintData)
 
 /* DIY：打印「颜色」列固定宽 — print.vue .col-color */
 .stock-out-print-table .col-color {
-  width: 110px;
+  width: 80px;
 }
 
 .stock-out-print-table .col-unit {
-  width: 50px;
+  width: 35px;
 }
 
 .stock-out-print-table .col-qty {
-  width: 50px;
+  width: 60px;
 }
 
 .stock-out-print-table .num {

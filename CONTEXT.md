@@ -61,14 +61,14 @@
 | 正式日志表 | `UB_Date_ERP_Operation_log` |
 | 遗留表 | `Sys_OperationLogs` 为测试遗留，**不再**作为正式来源 |
 | 统一写入口 | `server/operationLogWriter.js`：`writeOperationLog(poolOrTx, payload)` / `writeLog(req, action, details, options)` |
-| 自动审计 | 已停用。2026-06-16 起，新增/修改/删除/审核/反审等操作由各模块业务代码自行写入；历史映射见 `server/action_map.js` |
-| 模块手写 | 外协订单等事务内日志见 `server/assistOrderOperationLog.js` |
+| 写入策略 | 混合模式：采购单、外协订单、派工单、入库单、出库单、系统内核等保留业务事务/处理器日志；缺失模块由 `operationAuditMiddleware` 按 `action_map.js` 中央白名单补漏；`business`/`central`/`ignore` 三类策略防止重复和误记只读 POST |
+| 模块手写 | 外协订单等事务内日志见 `server/assistOrderOperationLog.js`；中央日志失败只在服务端报错，不回滚已成功业务，事务内强一致日志保持原样 |
 | 字段形态 | 旧系统口径：`act_name`（动作中文名）、`act_info`（可读中文详情，最长 500 字） |
 | `code` | 被操作的物理表名（如 `UB_ERP_Stocks_colorcode`、`UB_Date_ERP_Assist_order`） |
 | `systemcode` | 被操作业务单据的系统编码（无则空） |
 | `uname` / `utruename` | 操作人登录账号 / 真实姓名（从登录态取，禁止前端覆盖） |
-| `ip` | 请求 IP（`getRequestIp`） |
-| 文案要求 | `act_info` 须为**可读中文短句**；禁止把 JSON 原样当正式业务文案（中间件对 body 脱敏后 stringify 仅作兜底） |
+| `ip` | 请求 IP（统一由 `server/requestIp.js` 获取）；开发环境 Vite 转发真实访问者地址，后端默认只信任本机回环代理。通过本机局域网地址打开页面时记录局域网 IPv4；通过 `localhost` 打开时只能记录回环地址。服务器存在多层代理时用 `ERP_TRUST_PROXY` 明确信任范围，禁止无条件信任客户端提交的 `X-Forwarded-For` |
+| 文案要求 | `act_info` 须为**可读中文短句**；禁止把请求 JSON 原样写入，中央兜底只提取业务编码、单号和数组影响条数；密码、核心密钥、邮件密码、Token、上传内容禁止入日志 |
 
 各模块 `act_name` / `act_info` 具体文案允许按业务逐条调整；外协订单定稿见下文「操作日志（外协订单文案，已定）」。
 
@@ -79,9 +79,8 @@
 | **usercode** | 本账号**登录账号**（操作人账号）；全表唯一；与 `username` 同步 |
 | **truename** | 本账号**真实姓名**（界面「姓名」） |
 | **uname** | **创建本账号的人**的 **`truename`**（创建人真实姓名，不是登录账号） |
-| **utruename** | （若库中存在）与操作员模块审计约定一致；**不等于**业务表里的「操作人真实姓名」列语义，以操作员模块实现为准 |
 
-**登录**：令牌 `userCode` = `usercode`；业务表 `uname` / `utruename` 应对 `UserName` / `truename`（查库键仍为 `usercode`）。
+**登录**：令牌 `userCode` = `usercode`；操作日志的 `uname` / `utruename` 应对 `usercode` / `truename`（查库键仍为 `usercode`）。
 
 ### 状态位约定
 | 字段 | 值 | 含义 |

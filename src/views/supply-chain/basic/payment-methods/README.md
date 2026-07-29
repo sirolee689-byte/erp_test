@@ -58,5 +58,5 @@
 
 - 落库表：`UB_Date_ERP_Operation_log`
 - 动作映射：`server/action_map.js`
-- 自动写入：`server/operationAuditMiddleware.js` → `server/operationLogWriter.js`
+- 中央白名单写入：`server/operationAuditMiddleware.js` → `server/operationLogWriter.js`；仅成功写操作记录，避免查询和失败请求进入日志
 - 文案要求：软删与彻底删除必须区分；编辑会记录关键字段差异（名称/天数/备注）。

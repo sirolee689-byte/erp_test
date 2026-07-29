@@ -2888,6 +2888,8 @@ async function handleInventoryBomPartsPut(req, res) {
       return
     }
     const bomHeadKcaa01 = String(head.kcaa01 ?? '').trim() || systemcode
+    const auditActor = getActorAuditTripletFromReq(req)
+    const auditOperator = String(auditActor.utruename ?? auditActor.uname ?? '未知').trim() || '未知'
 
     const partColset = await getInvBomPartsColumnSet(pool)
     const delColKind = await getInvBomPartsDelColumnKind(pool)
@@ -3169,7 +3171,7 @@ async function handleInventoryBomPartsPut(req, res) {
           await writeLog(
             req,
             '彻底删除BOM配件',
-            `[彻底删除]了BOM配件，BOM系统编码：[${row.systemcode}]，移除配件编码：[${row.kcaa01}]`,
+            `${auditOperator}彻底删除了编码「${bomHeadKcaa01}」的配件「${row.kcaa01}」`,
             { targetTable: 'UB_ERP_Bom_parts' },
           )
         } catch (logErr) {
@@ -3182,7 +3184,7 @@ async function handleInventoryBomPartsPut(req, res) {
           await writeLog(
             req,
             '更新BOM配件用量',
-            `[更新]了配件用量，BOM：[${bomHeadKcaa01}]，配件：[${u.part}]，用量：[${u.qty}]，损耗：[${u.loss}]`,
+            `${auditOperator}编辑了编码「${bomHeadKcaa01}」的配件「${u.part}」，用量「${u.qty}」，损耗「${u.loss}」`,
             { targetTable: 'UB_ERP_Bom_parts' },
           )
         } catch (logErr) {
@@ -3195,7 +3197,7 @@ async function handleInventoryBomPartsPut(req, res) {
           await writeLog(
             req,
             '同步BOM配件属性',
-            `[同步]了BOM配件属性，主BOM：[${s.master}]，配件：[${s.part}]，已同步kcaa01-kcaa35共35个字段。`,
+            `${auditOperator}编辑了编码「${s.master || bomHeadKcaa01}」的配件「${s.part}」，已同步基础资料属性。`,
             { targetTable: 'UB_ERP_Bom_parts' },
           )
         } catch (logErr) {

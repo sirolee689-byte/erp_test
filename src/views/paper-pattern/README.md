@@ -25,3 +25,8 @@
 
 - 正式导入成功会登记 `UB_ERP_System_uplod_file`（`filename` 为导入时刻时间戳， `truefilename` 为原始文件名）。
 - ERP 比对规则：展示层对编码做首尾 trim、中间连续空白压成单空格，比对键为全小写，与库内 `kcaa01` 经 `LOWER+LTRIM+RTRIM` 后匹配（兼容大小写与多余空格）。
+
+## 操作日志
+
+- 正式导入和“删除解析 BOM”成功后由中央白名单写入 `UB_Date_ERP_Operation_log`。
+- 上传、保存映射、物料校验和字段核验属于临时或只读操作，标记为 `ignore`，不写操作日志，也不记录上传内容。

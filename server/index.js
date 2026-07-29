@@ -20,10 +20,18 @@ import { createApiPermissionGate } from './apiPermissionGate.js'
 import { serializePermissionsForStore } from './permissions.js'
 import { migrateRolePermissionsToUnaudit } from './rolePermissionUnauditMigration.js'
 import {
+  createOperationAuditMiddleware,
+  createOperationAuditPrepareMiddleware,
   getRequestIp,
 } from './operationAuditMiddleware.js'
+import { resolveTrustProxySetting } from './requestIp.js'
 import { getActorAuditFromReq, getActorAuditTripletFromReq } from './businessAuditFields.js'
-import { configureOperationLogWriter, writeLog, OPERATION_LOG_FROM } from './operationLogWriter.js'
+import {
+  configureOperationLogWriter,
+  writeLog,
+  writeOperationLog,
+  OPERATION_LOG_FROM,
+} from './operationLogWriter.js'
 import {
   getSysUsersColumnsMeta,
   getSysUsersColumnSet,
@@ -106,6 +114,7 @@ dotenv.config()
 dotenv.config({ path: path.resolve(__dirname, '../.env') })
 
 const app = express()
+app.set('trust proxy', resolveTrustProxySetting(process.env.ERP_TRUST_PROXY))
 const systemKernelImageDir = path.resolve(
   process.env.ERP_PRINT_IMAGE_DIR || path.resolve(__dirname, '../public/system-kernel-images'),
 )
@@ -128,8 +137,21 @@ app.use(express.json({ limit: '20mb' }))
 app.use((req, res, next) => createApiPermissionGate({ getCurrentUserFromReq })(req, res, next))
 
 /**
- * 2026-06-16：全局自动审计已停用；操作日志由各模块业务代码自行写入。
+ * 操作日志采用混合策略：
+ * - 已有事务内日志的接口由业务模块负责；
+ * - action_map 明确标记为 central 的接口由中央中间件补漏；
+ * - 中央日志失败只报服务端错误，不回滚已经成功的业务请求。
  */
+app.use(createOperationAuditPrepareMiddleware())
+app.use(
+  createOperationAuditMiddleware({
+    getCurrentUserFromReq,
+    writeOperationLogAsync: async (payload) => {
+      const pool = await getPool()
+      await writeOperationLog(pool, payload)
+    },
+  }),
+)
 
 /**
  * 简易登录态（后端内存版）

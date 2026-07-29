@@ -102,3 +102,8 @@
 
 - `src/views/system/hr_department_design.md`
 - `src/views/system/hr_staff_design.md`
+
+## 操作日志
+
+- 部门/岗位和员工档案的新增、修改、审核、反审、批量审核、删除、恢复等成功写操作由中央白名单写入 `UB_Date_ERP_Operation_log`。
+- 员工离职保留业务处理器日志并标记为 `business`，中央层不重复写；失败请求和只读核验不记录。

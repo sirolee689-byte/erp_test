@@ -45,7 +45,7 @@ ALTER TABLE dbo.[UB_ERP_Stocks_unit] ADD deltime NVARCHAR(50) NULL;
 
 ## 操作日志
 
-新增/审核/反审/删除/恢复由 `operationAuditMiddleware` 写入 **`UB_Date_ERP_Operation_log`**，`act_info` 为可读中文。
+新增、审核、反审、删除、恢复、彻底删除登记为中央白名单，由 `operationAuditMiddleware` 写入 **`UB_Date_ERP_Operation_log`**，失败请求不记录。
 
 ## 已知问题 / 下一步
 

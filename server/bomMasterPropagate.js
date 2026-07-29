@@ -2,6 +2,7 @@
  * BOM 主档「一键更新」：按物料编码将 UB_ERP_Bom_000 最新基础资料批量写回 UB_ERP_Bom_parts / UB_ERP_Bom_cost 引用行（不改用量）
  */
 import sql from 'mssql'
+import { getActorAuditTripletFromReq } from './businessAuditFields.js'
 import { getBomCostColumnSet } from './bomCostEnrichFromBom000.js'
 import {
   BOM_COST_FROM,
@@ -13,6 +14,11 @@ import {
 } from './bomTables.js'
 
 export { BOM_PARTS_KCAA_SYNC_NAMES } from './bomTables.js'
+
+export function buildBomMasterPropagateLogContent(actor, materialCode, partsUpdated, costUpdated) {
+  const operator = String(actor?.utruename ?? actor?.uname ?? '未知').trim() || '未知'
+  return `${operator}一键更新了编码「${String(materialCode ?? '').trim()}」，同步配件明细 ${partsUpdated} 条、成本运算缓存 ${costUpdated} 条（用量未改、未重算）。`
+}
 
 /** UB_ERP_Bom_cost 一键更新可覆盖列（不含用量、树父级、运算键） */
 const BOM_COST_PROPAGATE_SPECS = [
@@ -304,10 +310,11 @@ export async function handlePostBomMasterPropagate(req, res, deps) {
 
     if (writeLogFn) {
       try {
+        const actor = getActorAuditTripletFromReq(req)
         await writeLogFn(
           req,
           'BOM主档一键更新',
-          `[一键更新]物料编码：[${materialCode}]，同步配件明细 ${partsUpdated} 条、成本运算缓存 ${costUpdated} 条（用量未改、未重算）。`,
+          buildBomMasterPropagateLogContent(actor, materialCode, partsUpdated, costUpdated),
           { targetTable: 'UB_ERP_Bom_parts' },
         )
       } catch (logErr) {
