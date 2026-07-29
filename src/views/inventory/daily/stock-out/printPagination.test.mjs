@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { describe, test } from 'node:test'
 import {
   buildStockOutPrintBlocks,
@@ -58,10 +59,41 @@ describe('stock-out print pagination', () => {
     assert.equal(secondDocBlocks.at(-1).pageLabel, '3/3页')
   })
 
+  test('splits C26072802 equivalent 8 rows into 2 pages at 4 rows per page', () => {
+    const blocks = buildStockOutPrintBlocks([
+      makeDoc(8, { header: { systemcode: 'C-26072802', kcap01: 'C26072802' } }),
+    ], '4')
+
+    assert.equal(blocks.length, 2)
+    assert.deepEqual(blocks.map((block) => block.lines.length), [4, 4])
+    assert.deepEqual(blocks.map((block) => block.pageLabel), ['1/2页', '2/2页'])
+    assert.deepEqual(blocks.map((block) => block.showTotal), [false, true])
+  })
+
   test('uses the same split logic for detail and summary print modes', () => {
     const detailBlocks = buildStockOutPrintBlocks([makeDoc(5, { printMode: '1' })], '2')
     const summaryBlocks = buildStockOutPrintBlocks([makeDoc(5, { printMode: '2' })], '2')
     assert.deepEqual(detailBlocks.map((block) => block.lines.length), [2, 2, 1])
     assert.deepEqual(summaryBlocks.map((block) => block.lines.length), [2, 2, 1])
+  })
+
+  test('uses fixed 215mm by 139mm paper without a trailing blank page', () => {
+    const source = readFileSync(new URL('./print.vue', import.meta.url), 'utf8')
+
+    assert.match(source, /@page\s*\{[\s\S]*size:\s*215mm\s+139mm\s*;[\s\S]*margin:\s*0\s*;/i)
+    assert.match(source, /\.stock-out-print-doc\s*\{[\s\S]*width:\s*215mm\s*;[\s\S]*min-height:\s*139mm\s*;/i)
+    assert.match(source, /@media\s+print\s*\{[\s\S]*\.stock-out-print-doc\s*\{[\s\S]*min-height:\s*0\s*;[\s\S]*height:\s*auto\s*;[\s\S]*overflow:\s*visible\s*;/i)
+    assert.match(source, /\.stock-out-print-doc\s*\+\s*\.stock-out-print-doc\s*\{[\s\S]*break-before:\s*page\s*;[\s\S]*page-break-before:\s*always\s*;/i)
+    assert.doesNotMatch(source, /page-break-after:\s*always\s*;/i)
+    assert.doesNotMatch(source, /setTimeout\s*\(\s*cleanup\s*,\s*3000\s*\)/i)
+    assert.doesNotMatch(source, /print-stock-out/i)
+    assert.match(source, /\.stock-out-print-sign\s*\{[\s\S]*margin-top:\s*\d+px\s*;/i)
+  })
+
+  test('keeps current natural pagination and last-block sign behavior', () => {
+    const source = readFileSync(new URL('./print.vue', import.meta.url), 'utf8')
+    assert.match(source, /rowsPerPage\s*=\s*ref\(['"]{2}\)/)
+    assert.match(source, /<footer\s+v-if="doc\.showTotal"\s+class="stock-out-print-sign"/)
+    assert.match(source, /<tr\s+v-if="doc\.showTotal"\s+class="stock-out-print-total"/)
   })
 })

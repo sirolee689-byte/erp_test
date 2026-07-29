@@ -16,6 +16,8 @@ const KCAA_COLS = Array.from({ length: 35 }, (_, i) => `kcaa${String(i + 1).padS
 
 /** 生产领料批量：出库数量三位小数 */
 export const PRODUCTION_ISSUE_QTY_PRECISION = 3
+/** 生产领料需求内部累计精度：先累计再按展示精度出值，避免 0.001 误差 */
+const PRODUCTION_ISSUE_DEMAND_ACCUM_PRECISION = 6
 
 function text(v) {
   return String(v ?? '').trim()
@@ -80,7 +82,8 @@ export function aggregateProductionIssueMaterialRows(rows, scak03) {
     mergeKey: entry.mergeKey,
     childKcaa01: entry.kcaa01,
     unitUsageSum: entry.unitUsageSum,
-    dispatchDemandQty: round(entry.unitUsageSum * dispatchQty, PRODUCTION_ISSUE_QTY_PRECISION),
+    // 业务口径：先保留高精度供后续同料汇总，最终展示层再统一保留 3 位
+    dispatchDemandQty: round(entry.unitUsageSum * dispatchQty, PRODUCTION_ISSUE_DEMAND_ACCUM_PRECISION),
     snapshot: entry.snapshot,
     expandSource: 'pi_cost_production',
   }))

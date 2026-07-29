@@ -152,6 +152,7 @@ const kernelItems = [
   { label: '系统EMAIL设定', route: '/system/kernel/erp-core' },
   { label: '打印设定', active: true, route: '/system/kernel/print-setting' },
   { label: '数据库配置', route: '/system/kernel/database-config' },
+  { label: '数据关联', route: '/system/kernel/data-relations' },
 ]
 
 const emptyForm = {

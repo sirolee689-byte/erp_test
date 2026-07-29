@@ -19,7 +19,7 @@ describe('buyOrderSaveLogic', () => {
   })
 
   test('applies number type to purchase type defaults and locks', () => {
-    assert.deepEqual(resolveBuyOrderTypeOptions('ZY'), { defaultType: '1', allowedTypes: ['1', '2'] })
+    assert.deepEqual(resolveBuyOrderTypeOptions('ZY'), { defaultType: '1', allowedTypes: ['0', '1', '2'] })
     assert.deepEqual(resolveBuyOrderTypeOptions('PO'), { defaultType: '2', allowedTypes: ['2'] })
     assert.deepEqual(resolveBuyOrderTypeOptions('2026'), { defaultType: '2', allowedTypes: ['0', '1', '2'] })
   })

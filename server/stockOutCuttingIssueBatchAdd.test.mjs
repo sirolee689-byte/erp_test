@@ -41,6 +41,29 @@ describe('stockOutCuttingIssueBatchAdd', () => {
     assert.equal(b.sourceDemandQty, 10)
   })
 
+  test('开料需求先按六位累计，最终三位数量与物料单一致', () => {
+    const rows = [
+      { kcaa01: 'BN-0001/580', kcac06: 0.010768, temp: 150 },
+      { kcaa01: 'BN-0001/580', kcac06: 0.005121, temp: 150 },
+      { kcaa01: 'BN-0001/580', kcac06: 0.005325, temp: 80 },
+      { kcaa01: 'BN-0001/580', kcac06: 0.00665, temp: 80 },
+      { kcaa01: 'BN-0001/580', kcac06: 0.002014, temp: 100 },
+      { kcaa01: 'BN-0001/580', kcac06: 0.00434, temp: 100 },
+      { kcaa01: 'BN-0001/580', kcac06: 0.00798, temp: 200 },
+      { kcaa01: 'BN-0001/580', kcac06: 0.004097, temp: 200 },
+    ]
+
+    const [line] = aggregateCuttingIssueRows(rows)
+    assert.equal(line.sourceDemandQty, 6.39215)
+    const caps = resolveProductionIssueDualQtyCaps({
+      sourceDemandQty: line.sourceDemandQty,
+      piDemandQty: 6.392,
+      warehouseActualQty: 100,
+    })
+    assert.equal(caps.sourceDemandQty, 6.392)
+    assert.equal(caps.stillNeedQty, 6.392)
+  })
+
   test('buildCuttingIssueSourceLineCode 合成 kcaq02', () => {
     assert.equal(buildCuttingIssueSourceLineCode('BN-0001/-'), 'CUT|BN-0001/-')
   })

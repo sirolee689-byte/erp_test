@@ -109,7 +109,8 @@
         <footer v-if="doc.showTotal" class="stock-in-print-sign">
           <span>制表人：{{ blank(doc.makerName) }}</span>
           <span>仓库：{{ blank(doc.header.ck || doc.header.kcan06) }}</span>
-          <span>经手人：{{ blank(doc.header.kcan07) }}</span>
+          <span>收发人：</span>
+          <span>进账人：</span>
         </footer>
       </article>
     </section>
@@ -296,6 +297,8 @@ onMounted(loadPrintData)
   margin: 0 auto 18px;
   page-break-after: always;
   font-size: 12px;
+  display: flex;
+  flex-direction: column;
 }
 
 .stock-in-print-doc:last-child {
@@ -418,9 +421,10 @@ onMounted(loadPrintData)
 
 .stock-in-print-sign {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 18px;
-  margin-top: 18px;
+  margin-top: auto;
+  padding-top: 18px;
   font-size: 13px;
 }
 
@@ -452,6 +456,7 @@ onMounted(loadPrintData)
     box-shadow: none;
     margin: 0;
     padding: 0 6mm 8mm;
+    min-height: 280mm;
   }
 
   :global(html.print-stock-in .stock-in-print-doc:last-child) {

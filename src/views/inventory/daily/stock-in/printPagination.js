@@ -30,7 +30,9 @@ export function buildStockInPrintBlocks(docs, rowsPerPageValue) {
       chunkTotal: 1,
       showTotal: true,
       manualPageBreak: false,
-      pageLabel: `${docIndexText(doc, index)}-${docTotalText(doc, list.length)} Pages`,
+      // 自然分页受浏览器纸张和边距影响，打印前无法得出可靠物理页数；
+      // 入库打印这里沿用单据维度页码，与出库单保持同口径展示。
+      pageLabel: `${docIndexText(doc, index)}/${docTotalText(doc, list.length)}页`,
     }))
   }
 
@@ -52,7 +54,7 @@ export function buildStockInPrintBlocks(docs, rowsPerPageValue) {
         chunkTotal: chunks.length,
         showTotal: pageNo === chunks.length,
         manualPageBreak: true,
-        pageLabel: `(${pageNo})-(${docIndexText(doc, index)}) Pages`,
+        pageLabel: `${pageNo}/${chunks.length}页`,
       }
     })
   })

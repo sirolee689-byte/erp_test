@@ -757,6 +757,9 @@ const formTab = ref('base')
 const paperNoInputRef = ref(null)
 const prevWorkshopCode = ref('')
 
+// 生产类入库只允许选择业务指定的车间；名称仍由车间主档返回。
+const PRODUCTION_WORKSHOP_CODES = ['01', '02', '03', '04', '06', '07', '0901', '0902', 'c']
+
 const sourceDialog = reactive({
   visible: false,
   loading: false,
@@ -1506,7 +1509,11 @@ async function applyProductionInboundWarehouseDefault() {
 async function loadRelatedParties(keyword = '') {
   if (isFreeType.value) return
   const res = await axios.get('/api/stock-in/related-party-options', { params: { inboundType: form.inboundType, keyword } })
-  relatedParties.value = res.data?.data?.list || []
+  const all = res.data?.data?.list || []
+  const byCode = new Map(all.map((row) => [String(row?.code ?? '').trim().toLowerCase(), row]))
+  relatedParties.value = isWorkshopPickType.value
+    ? PRODUCTION_WORKSHOP_CODES.map((code) => byCode.get(code.toLowerCase())).filter(Boolean)
+    : all
   return relatedParties.value
 }
 
@@ -1534,6 +1541,7 @@ async function loadSourceDialogAssistSuppliers(keyword = '') {
 
 function ensureWorkshopOptionVisible() {
   if (!isWorkshopPickType.value || !form.relatedPartyCode) return
+  if (!formReadOnly.value && !PRODUCTION_WORKSHOP_CODES.some((code) => code.toLowerCase() === String(form.relatedPartyCode).trim().toLowerCase())) return
   if (relatedParties.value.some((p) => p.code === form.relatedPartyCode)) return
   relatedParties.value.unshift({ code: form.relatedPartyCode, name: form.relatedPartyName || form.relatedPartyCode })
 }

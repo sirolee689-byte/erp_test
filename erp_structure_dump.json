@@ -55,6 +55,12 @@
             "title": "数据库配置",
             "permissionPath": "system/kernel/erp-core",
             "hideInMenu": true
+          },
+          {
+            "name": "data-relations",
+            "title": "数据关联",
+            "permissionPath": "system/kernel/erp-core",
+            "hideInMenu": true
           }
         ]
       }
@@ -237,6 +243,10 @@
           {
             "name": "flow-ledger",
             "title": "材料流水账"
+          },
+          {
+            "name": "material-preparation",
+            "title": "材料备料表"
           },
           {
             "name": "stock-io-stats",

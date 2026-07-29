@@ -23,6 +23,9 @@
       </el-button>
       <el-button @click="resetSelection">全部重选</el-button>
       <el-button @click="closeWindow">关闭</el-button>
+      <el-button :type="showUnselectableRows ? 'primary' : 'info'" plain @click="toggleShowUnselectableRows">
+        显示不可选
+      </el-button>
       <span class="stock-out-pi-batch-selected">已选：{{ selectedCount }} 条</span>
     </section>
 
@@ -41,14 +44,15 @@
               <col class="col-material-code" />
               <col class="col-material-name" />
               <col class="col-material-spec" />
-              <col class="col-color" />
-              <col class="col-unit" />
-              <col class="col-num" />
-              <col class="col-num" />
+              <col class="col-num col-issued" />
               <col class="col-num" />
               <col class="col-num col-issueable" />
               <col class="col-num" />
+              <col class="col-num" />
+              <col class="col-num" />
               <col class="col-pending-out" />
+              <col class="col-color" />
+              <col class="col-unit" />
             </colgroup>
             <thead>
               <tr>
@@ -57,14 +61,15 @@
                 <th class="col-material-code">需要领料材料编码</th>
                 <th class="col-material-name">材料名称</th>
                 <th class="col-material-spec">规格</th>
-                <th class="col-color">颜色</th>
-                <th class="col-unit">单位</th>
+                <th class="col-num col-issued">已出库数量</th>
+                <th class="col-num">需出库数量</th>
+                <th class="col-num col-issueable">还需出库数量</th>
                 <th class="col-num">库存账存数</th>
                 <th class="col-num">物料未审出库数</th>
                 <th class="col-num">实际库存</th>
-                <th class="col-num col-issueable">还需出库数量</th>
-                <th class="col-num">需出库数量</th>
                 <th class="col-pending-out">未审出库情况</th>
+                <th class="col-color">颜色</th>
+                <th class="col-unit">单位</th>
               </tr>
             </thead>
             <tbody>
@@ -88,13 +93,12 @@
                 <td class="col-material-code"><div class="pi-batch-cell-text">{{ row.kcaa01 || '-' }}</div></td>
                 <td class="col-material-name"><div class="pi-batch-cell-text">{{ row.kcaa02 || '-' }}</div></td>
                 <td class="col-material-spec"><div class="pi-batch-cell-text">{{ row.kcaa03 || '-' }}</div></td>
-                <td class="col-color">{{ row.kcaa11 || '-' }}</td>
-                <td class="col-unit">{{ row.kcaa04 || '-' }}</td>
+                <td class="col-num col-issued">{{ formatOutboundQtyDisplay(row.sourceApprovedOutQty) }}</td>
+                <td class="col-num">{{ formatOutboundQtyDisplay(row.sourceDemandQty) }}</td>
+                <td class="col-num col-issueable">{{ formatOutboundQtyDisplay(row.stillNeedQty) }}</td>
                 <td class="col-num col-book">{{ formatNum(row.warehouseBookQty) }}</td>
                 <td class="col-num col-pending">{{ formatNum(row.warehousePendingOutQty) }}</td>
                 <td class="col-num" :class="actualQtyClass(row)">{{ formatNum(row.warehouseDisplayActualQty ?? row.warehouseActualQty) }}</td>
-                <td class="col-num col-issueable">{{ formatOutboundQtyDisplay(row.stillNeedQty) }}</td>
-                <td class="col-num">{{ formatOutboundQtyDisplay(row.sourceDemandQty) }}</td>
                 <td class="col-pending-out">
                   <template v-if="pendingOutboundDisplay(row.pendingOutboundText)">
                     <div class="pending-out-line">未审数量:{{ pendingOutboundDisplay(row.pendingOutboundText).qty }}</div>
@@ -103,6 +107,8 @@
                   </template>
                   <template v-else>-</template>
                 </td>
+                <td class="col-color">{{ row.kcaa11 || '-' }}</td>
+                <td class="col-unit">{{ row.kcaa04 || '-' }}</td>
               </tr>
             </tbody>
           </table>
@@ -169,6 +175,7 @@ const closeHint = ref('')
 const piCostHint = ref('')
 const batchMode = ref('dispatch')
 const submitted = ref(false)
+const showUnselectableRows = ref(true)
 
 const outboundType = ref('4')
 const batchWindowTitle = computed(() => {
@@ -182,7 +189,11 @@ const selectedCount = computed(() => pickedKeys.value.size)
 /** 本地按材料编码模糊筛 */
 const filteredRows = computed(() => {
   const kw = String(keyword.value ?? '').trim().toLowerCase()
-  const list = allRowsCache.value
+  const list = allRowsCache.value.filter((row) => {
+    if (showUnselectableRows.value) return true
+    // 关闭「显示不可选」时，隐藏操作按钮为不可点的行。
+    return row.selectable || isPicked(row)
+  })
   if (!kw) return list
   return list.filter((row) => String(row.kcaa01 ?? '').toLowerCase().includes(kw))
 })
@@ -321,6 +332,11 @@ function refreshAllRows() {
 
 function queryAll() {
   keyword.value = ''
+  page.value = 1
+}
+
+function toggleShowUnselectableRows() {
+  showUnselectableRows.value = !showUnselectableRows.value
   page.value = 1
 }
 
@@ -505,6 +521,8 @@ onMounted(() => {
 .stock-out-pi-batch-table td.col-unit { white-space: nowrap; vertical-align: middle; }
 .col-action { width: 90px; text-align: center; }
 .col-num { width: 72px; text-align: right; }
+.stock-out-pi-batch-table th.col-issued,
+.stock-out-pi-batch-table td.col-issued { width: 88px; }
 .col-color { width: 56px; }
 .col-unit { width: 48px; }
 .stock-out-pi-batch-table th.col-dispatch-source,

@@ -205,6 +205,31 @@
 | 边界 | - | 本表只保存表名说明元数据，不参与业务 SQL 表名替换；真实表名迁移需要单独做白名单和逐模块改造 |
 | 密钥与日志 | `UB_Date_ERP_Operation_log` | ERP 内核所有功能共用 `ERP_CORE_CONFIG_KEY`；保存成功写操作日志，日志不记录核心密钥 |
 
+## 系统内核 · 数据关联
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|----------|--------|-----------------|
+| 只读数据流目录 | - | 页面 `/system/kernel/data-relations`；接口 `GET /api/system/kernel/data-relations`；目录由后端代码内置，不新增配置表、不查询具体订单数据 |
+| 销售订单保存 | `UB_ERP_Sales_order`、`UB_ERP_Sales_order_list`、`UB_ERP_Bom_Sales`、`UB_ERP_Bom_Sales_list` | 订单主从正常保存；PI BOM 仅按新增款、删款做条件性对齐，已有在单款不从主 BOM 自动覆盖 |
+| 保存/同步 PI BOM | `UB_ERP_Bom_Sales`、`UB_ERP_Bom_Sales_list`、`UB_ERP_Sales_order` | 保存 PI BOM 只改配件用量字段；同步 BOM 只替换选中款；两者均标未运算，但当下不删除旧 `UB_ERP_Bom_pi_cost` |
+| 一键运算 | `UB_ERP_Bom_pi_cost`、`UB_ERP_Bom_pi_consumption`、`UB_ERP_Sales_order` | 只读当前 PI BOM 生成物料结果；汇总表存在时同步重建；散件自用量只写 `pi_cost` |
+| 采购订单保存 | `UB_ERP_Buy_order`、`UB_ERP_Buy_order_list`、`UB_ERP_Buy_order_money`、`UB_ERP_Bom_buy_order`、`UB_ERP_Bom_buy_order_list` | 主表新增/更新；采购明细、额外费用和采购 BOM 主从快照按采购单号整批重写；已有采购入库的明细禁止删除或修改数量 |
+| 采购订单审核 | `UB_ERP_Buy_order`、`UB_ERP_Buy_order_list` | 校验采购单状态和有效明细后，将主表 `pass` 更新为 `1` |
+| 采购订单反审 | `UB_ERP_Buy_order`、`UB_ERP_Bom_buy_order`、`UB_ERP_Buy_order_sp`、`UB_ERP_Stocks_Storage` | 反审原因写 `UB_ERP_Buy_order_sp`，`oid` 取该采购单最新 BOM 快照 id，之后将主表 `pass` 恢复为 `0`；已有采购入库当前不阻止反审 |
+| 入库单保存 | `UB_ERP_Stocks_Storage`、`UB_ERP_Stocks_Storage_list`、`UB_ERP_Stocks_Warehouse`、`UB_ERP_Bom_000` | 主表新增/更新，明细整单替换；有有效明细自动写主从 `pass=1`，空明细保存 `pass=0` 草稿；仓库和 BOM 物料快照在保存时校验 |
+| 入库单来源校验 | `UB_ERP_Buy_order`、`UB_ERP_assist_order`、`UB_ERP_Dispatch_order`、`UB_ERP_Sales_order` | 按入库类型校验来源头表已审核、未删除、未结案且关联方匹配；保存不反写来源表，来源单号写 `kcan04`，来源明细键写 `kcao02` |
+| 入库单审核/反审核 | `UB_ERP_Stocks_Storage`、`UB_ERP_Stocks_Storage_list` | 主从表 `pass` 同步更新；审核要求至少一条未删除、物料编码非空且 `kcao03>0` 的有效明细；已审核且未删除的入库数量才进入库存统计 |
+| 入库单复核/反复核 | `UB_ERP_Stocks_Storage`、`UB_ERP_Stocks_Storage_list` | 主从表 `sp_flag` 同步更新；复核锁定单据但不改变 `pass` 和库存数量 |
+| 出库单保存 | `UB_ERP_Stocks_out`、`UB_ERP_Stocks_out_list`、`UB_ERP_Stocks_Warehouse`、`UB_ERP_Bom_000` | 主表新增/更新，明细整单替换并固定保存为 `pass=0`；保存阶段不回写来源单据，空明细草稿可保存但不能审核 |
+| 出库单审核/反审核 | `UB_ERP_Stocks_out`、`UB_ERP_Stocks_out_list` | 主从表 `pass` 同步更新；审核、反审核和操作日志在同一事务内；审核后才进入正式出库库存统计 |
+| 出库来源数量回写 | `UB_ERP_Buy_order_list`、`UB_ERP_assist_order_list`、`UB_ERP_Dispatch_order_list`、`UB_ERP_Sales_order_list` | 按 `kcap03` 类型和明细 `kcaq02` 聚合：审核增加、反审核扣回 `kcak07/wxak08/scak04/scak05/xsak06`；扣回最低为 0；盘亏、其他、计划外和补数等未映射类型不回写 |
+| 外协单保存 | `UB_ERP_assist_order`、`UB_ERP_assist_order_list`、`UB_ERP_assist_order_money`、`UB_ERP_Bom_Sales`、`UB_ERP_Bom_Sales_list`、`UB_ERP_Bom_000` | 主表新增/更新，明细和额外费用整单替换；PI 外协优先读取 PI BOM 快照，明细关联键最终取 `UB_ERP_Bom_000.GUID`；不直接生成入库或出库 |
+| 外协单审核/反审 | `UB_ERP_assist_order` | 只更新主表 `pass`；当前不检查明细数量、不批量更新明细 `pass`，也不修改已有外协入库或领料出库 |
+| 外协单结案/反结案 | `UB_ERP_assist_order` | 只更新主表 `closed`；结案要求已审核，反结案不自动反审；当前主表更新与操作日志未放在同一事务 |
+| 派工单保存 | `UB_ERP_Dispatch_order`、`UB_ERP_Dispatch_order_list`、`UB_ERP_Stocks_workshop`、`UB_ERP_Sales_order`、`UB_ERP_Sales_order_list` | 校验车间和销售订单可派数量后保存派工主从表；编辑整单替换明细；未审核派工也占用可派数量；不回写销售订单、不写库存 |
+| 派工单审核/反审核 | `UB_ERP_Dispatch_order`、`UB_ERP_Dispatch_order_list` | 主从表 `pass` 同步更新，空明细不能审核；不创建生产领料或生产入库；当前主表、明细和操作日志未放在同一事务 |
+| 权限与边界 | - | 读取需要 `system/kernel/erp-core:view`；不是数据库外键图、实时数据追踪或自动 SQL 扫描 |
+
 ### 出库单批量打印（2026-06-30）
 
 | 业务功能 | 物理表 | 关键字段 / 说明 |
@@ -346,6 +371,15 @@
 | 业务功能 | 物理表 | 关键字段 / 说明 |
 |---|---|---|
 | 类别多选筛选 | `UB_ERP_Stocks_material` + `UB_ERP_Stocks_Storage_list` | `GET /api/stock-stats/category-options` 返回已审核、未删除分类，按 `px/code` 排序，支持按分类编码或分类名称模糊搜索，并用 SQL Server 2008 R2 兼容的 `ROW_NUMBER()` 分页（默认每页 10 条）。`GET /api/stock-stats/report` 将多分类编码参数化写入会话临时表 `#selectedCategory`，入库侧按 `l.kcaa05` 精确匹配任意已选分类；不按 BOM `kcaa05` 或类别名称模糊筛选。 |
+
+## 材料备料表 · 库存统计分析
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|---|---|---|
+| PI 候选 | `UB_ERP_Sales_order` | `GET /api/material-preparation/pi-options`；只取 `del=0/pass=1`，只按 `xsaj01` 模糊查询，SQL Server 2008 R2 `ROW_NUMBER()` 分页，默认每页 10 条。 |
+| 物料单备料 | `UB_ERP_Bom_pi_cost` + `UB_ERP_Sales_order_list` | `GET /api/material-preparation/report`；PI 集合参数化写入请求级 `#selectedPi`；只取 `pi_cost.del=0/isok=1/kcaa12=1`；数量=`SUM(kcac06 * temp)`，`temp` 空或非法按 1，不重复乘 `xsak03`。分 PI 模式按材料和 PI 横向汇总；分配件模式按 `PI + pq产品编码 + 材料编码 + top_kcaa02配件名称` 汇总，每个不同 `top_kcaa02` 动态生成数量列，合计为各配件列之和。 |
+| 出库单备料 | `UB_ERP_Stocks_out` + `UB_ERP_Stocks_out_list` | 主表 `del=0/pass=1`，明细 `del=0/kcaa12=1`，不限制 `kcap03`；PI 按 `kcap04` 或 `kcap08` 匹配；数量直接汇总 `kcaq03`。先汇总 `PI + 材料` 再关联 BOM 分配比例，避免 BOM 多行放大实际出库。 |
+| 类别、颜色和输出 | `UB_ERP_Stocks_material` + `UB_ERP_Stocks_colorcode` + `UB_ERP_System_Head` | 分类按 `code=kcaa05`，颜色按 `code=kcaa11`；分配件保留 6 位小数，最后配件承接尾差，无有效配件需求进入“未匹配配件”；打印抬头读取 `UB_ERP_System_Head`；权限为 `inventory/analysis/material-preparation:view/export`。 |
 
 ## 供应链 · 供应商资料
 

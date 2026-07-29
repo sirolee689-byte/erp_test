@@ -56,7 +56,7 @@
           <el-option label="订单外协" value="1" />
           <el-option label="订单外发" value="2" />
         </el-select>
-        <span v-permission="'print'" class="assist-print-selected">已选择 {{ printSelectedCount }} 条</span>
+        <span v-permission="'print'" v-if="printSelectedCount > 0" class="assist-print-selected">已选择：{{ printSelectedCount }}条记录进行打印</span>
         <el-button v-permission="'print'" :disabled="printSelectedCount === 0" @click="openSelectedPrint('0')">打印外协订单（外协格式）</el-button>
       </div>
       <div class="assist-filter-row erp-filter-row">
@@ -950,6 +950,7 @@ function onReset() {
   filters.showUnaudited = false
   filters.showAll = false
   filters.recycled = false
+  printSelectedOrderNos.value = []
   page.value = 1
   loadData()
 }
@@ -1780,7 +1781,7 @@ onUnmounted(() => {
 }
 
 .assist-print-selected {
-  color: var(--el-text-color-secondary);
+  color: var(--el-color-primary);
   font-size: 13px;
   white-space: nowrap;
 }

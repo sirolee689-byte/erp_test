@@ -951,8 +951,8 @@ function formatNow() {
 
 function formatQty(value) {
   const n = Number(value)
-  if (!Number.isFinite(n)) return '0.000'
-  return n.toFixed(3)
+  if (!Number.isFinite(n)) return '0'
+  return formatErpQtyDisplay(n, '0')
 }
 
 function formatLoss(value) {
@@ -2024,7 +2024,7 @@ function onPrintMaterialSheet() {
 }
 .col-num {
   /* 用量 / 合计 / 单物料合计 共用列宽 */
-  width: 49px;
+  width: 70px;
 }
 .col-loss {
   /* 损耗列独立宽度（与 .col-num 分开，可单独改） */

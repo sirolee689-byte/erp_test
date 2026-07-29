@@ -141,6 +141,9 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'PUT' && path === '/api/system/kernel/database-config') {
     return { menuPath: 'system/kernel/erp-core', action: 'edit' }
   }
+  if (m === 'GET' && path === '/api/system/kernel/data-relations') {
+    return { menuPath: 'system/kernel/erp-core', action: 'view' }
+  }
 
   /* v1.0.8：人力资源 — 部门资料（菜单 path与 erp_structure_dump 一致：hr/files/department） */
   if (m === 'GET' && path === '/api/hr/departments') {
@@ -969,6 +972,16 @@ export function matchApiPermissionRule(method, path, body, params) {
     ].includes(path)
   ) {
     return { menuPath: 'inventory/analysis/flow-ledger', action: 'view' }
+  }
+  if (
+    m === 'GET' &&
+    [
+      '/api/material-preparation/print-header',
+      '/api/material-preparation/pi-options',
+      '/api/material-preparation/report',
+    ].includes(path)
+  ) {
+    return { menuPath: 'inventory/analysis/material-preparation', action: 'view' }
   }
   if (
     m === 'GET' &&

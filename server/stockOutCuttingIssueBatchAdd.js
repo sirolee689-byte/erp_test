@@ -29,6 +29,8 @@ const PI_COST_FROM = 'dbo.[UB_ERP_Bom_pi_cost]'
 
 /** 旧系统开料部车间编码 */
 export const CUTTING_WORKSHOP_CODE = '04'
+/** 需求量先按 6 位累计，最终批量行再统一保留 3 位，避免逐行舍入产生 0.001 误差 */
+const CUTTING_ISSUE_DEMAND_ACCUM_PRECISION = 6
 
 const KCAA_COLS = Array.from({ length: 35 }, (_, i) => `kcaa${String(i + 1).padStart(2, '0')}`)
 
@@ -84,14 +86,17 @@ export function aggregateCuttingIssueRows(piCostRows) {
     if (!prev) {
       map.set(code, {
         childKcaa01: code,
-        sourceDemandQty: round(demand, PRODUCTION_ISSUE_QTY_PRECISION),
+        sourceDemandQty: round(demand, CUTTING_ISSUE_DEMAND_ACCUM_PRECISION),
         snapshot: row,
         t_kcaa01: text(row?.t_kcaa01),
         top_kcaa01: text(row?.top_kcaa01),
       })
       continue
     }
-    prev.sourceDemandQty = round(prev.sourceDemandQty + demand, PRODUCTION_ISSUE_QTY_PRECISION)
+    prev.sourceDemandQty = round(
+      prev.sourceDemandQty + demand,
+      CUTTING_ISSUE_DEMAND_ACCUM_PRECISION,
+    )
   }
   return [...map.values()]
 }

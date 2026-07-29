@@ -45,6 +45,8 @@ function round(n, p = 4) {
   const m = 10 ** p
   return Math.round((toNumber(n) + Number.EPSILON) * m) / m
 }
+/** 生产领料需出库内部累计精度：合并前先保留 6 位，最终统一按 3 位展示/业务计算 */
+const PRODUCTION_ISSUE_DEMAND_ACCUM_PRECISION = 6
 
 function delActiveSql(alias) {
   return `ISNULL(${alias}.[del], N'0') IN (N'', N'0')`
@@ -572,7 +574,8 @@ function mapProductionIssueLineRow(row, ctx) {
   const warehousePendingOutQty = round(stock.pendingOutQty ?? 0, PRODUCTION_ISSUE_QTY_PRECISION)
   const warehouseActualQty = round(stock.actualQty ?? 0, PRODUCTION_ISSUE_QTY_PRECISION)
 
-  const sourceDemandQty = round(row.dispatchDemandQty, PRODUCTION_ISSUE_QTY_PRECISION)
+  // 业务口径：先高精度累计，再在同料合并后统一保留 3 位
+  const sourceDemandQty = round(row.dispatchDemandQty, PRODUCTION_ISSUE_DEMAND_ACCUM_PRECISION)
   const sourceApprovedOutQty = round(sourceOutbound.approvedQty, PRODUCTION_ISSUE_QTY_PRECISION)
   const sourcePendingOutQty = round(sourceOutbound.pendingQty, PRODUCTION_ISSUE_QTY_PRECISION)
   const piDemandQty = toNumber(ctx.piDemandMap?.get(materialCode))
@@ -662,7 +665,7 @@ export function __aggregateProductionIssueRowsByMaterialForTest(rows, selectedSe
     }
     existing.sourceDemandQty = round(
       toNumber(existing.sourceDemandQty) + toNumber(row.sourceDemandQty ?? row.dispatchDemandQty),
-      PRODUCTION_ISSUE_QTY_PRECISION,
+      PRODUCTION_ISSUE_DEMAND_ACCUM_PRECISION,
     )
     existing.dispatchDemandQty = existing.sourceDemandQty
     existing.__dispatchCodes.push(text(row.dispatchKcaa01))

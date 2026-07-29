@@ -52,6 +52,7 @@
           height="540"
           empty-text="暂无数据库配置"
         >
+          <el-table-column type="index" label="序号" width="72" align="center" />
           <el-table-column label="数据库名称" prop="tableName" min-width="240">
             <template #default="{ row }">
               <code class="table-name">{{ row.tableName }}</code>
@@ -123,6 +124,7 @@ const kernelItems = [
   { label: '系统EMAIL设定', route: '/system/kernel/erp-core' },
   { label: '打印设定', route: '/system/kernel/print-setting' },
   { label: '数据库配置', active: true, route: '/system/kernel/database-config' },
+  { label: '数据关联', route: '/system/kernel/data-relations' },
 ]
 
 const formRef = ref()

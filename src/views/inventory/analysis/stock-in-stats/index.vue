@@ -281,7 +281,7 @@ const inboundTypeOptions = [
 ]
 
 const baseColumns = [
-  { key: 'auditStatus', label: '审核状态', width: 90 },
+  { key: 'auditStatus', label: '状态', width: 90 },
   { key: 'receiptNo', label: '单号', minWidth: 150 },
   { key: 'sourceOrderNo', label: '关联单号', minWidth: 140 },
   { key: 'inboundDate', label: '日期', width: 120, format: 'date' },

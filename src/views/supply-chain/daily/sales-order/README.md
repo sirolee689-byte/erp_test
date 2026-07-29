@@ -56,6 +56,19 @@
 
 > 审计三字段（与 `CONTEXT.md` 第三节一致，服务端 `resolveActorAuditTripletFromReq`）：`uid`=`UserID`，`uname`=`UserName`，`utruename`=`truename`（按登录 `usercode` 查库）。禁止把 `usercode` 写入 `uname`，禁止用工牌显示名写入 `utruename`。
 
+## ERP 内核数据关联
+
+系统内核 → ERP 内核 → 数据关联第一版展示本模块四项核心写库动作，目录由后端代码维护，页面只读：
+
+| 业务动作 | 主要读取 | 主要写入与条件 |
+|----------|----------|--------------|
+| 新增/编辑保存 | 订单主从、客户、币别、主 BOM、已有 PI BOM | 保存订单主从；仅新增款/删款对齐 `UB_ERP_Bom_Sales*`；货品集合、数量变化或同步后再保存时才删除旧 `UB_ERP_Bom_pi_cost` |
+| 保存 PI BOM | 订单主从、PI BOM 主从 | 只更新 `UB_ERP_Bom_Sales_list.kcac04/kcac05/Describe` 并标未运算；当下不删除 `pi_cost` |
+| 同步 BOM | 订单主从、`UB_ERP_Bom_000`、`UB_ERP_Bom_parts`、分类规则 | 仅替换选中款的 `UB_ERP_Bom_Sales*` 并标未运算；当下不删除 `pi_cost` |
+| 一键运算 | 订单主从、PI BOM、分类及材料规则 | 重写目标范围 `UB_ERP_Bom_pi_cost`；汇总表存在时重建 `UB_ERP_Bom_pi_consumption`；更新订单运算状态 |
+
+该页面不代替本 README 和 `CONTEXT.md` 的业务定稿；数据流变化时三处必须同步更新。
+
 ## 推荐操作顺序（新人调通）
 
 1. **列表** `GET /list` → **详情** `GET /:id`

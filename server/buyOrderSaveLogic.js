@@ -27,7 +27,7 @@ function tailNumber(code, prefix) {
 
 export function resolveBuyOrderTypeOptions(numberType) {
   const raw = text(numberType)
-  if (raw.toUpperCase() === 'ZY') return { defaultType: '1', allowedTypes: ['1', '2'] }
+  if (raw.toUpperCase() === 'ZY') return { defaultType: '1', allowedTypes: ['0', '1', '2'] }
   if (raw.toUpperCase() === 'PO') return { defaultType: '2', allowedTypes: ['2'] }
   return { defaultType: '2', allowedTypes: ['0', '1', '2'] }
 }

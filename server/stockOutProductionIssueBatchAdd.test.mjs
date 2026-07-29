@@ -372,6 +372,77 @@ describe('stockOutProductionIssueBatchAdd', () => {
     assert.equal(merged[0].issueableQty, 0)
   })
 
+  test('__aggregateProductionIssueRowsByMaterialForTest 需出库先汇总再保留3位，避免0.001误差', () => {
+    const rows = [
+      {
+        kcaa01: 'BN-0001/580',
+        sourceDemandQty: 0.6354,
+        dispatchDemandQty: 0.6354,
+        warehouseActualQty: 100,
+        scak02: 'g1',
+        dispatchKcaa01: 'PQ-2789D1/N',
+        sourceApprovedOutQty: 0,
+        sourcePendingOutQty: 0,
+        warehouseBookQty: 100,
+        warehousePendingOutQty: 0,
+        kcaa02: '料A',
+        materialSnapshot: { kcaa02: '料A' },
+      },
+      {
+        kcaa01: 'BN-0001/580',
+        sourceDemandQty: 0.958,
+        dispatchDemandQty: 0.958,
+        warehouseActualQty: 100,
+        scak02: 'g2',
+        dispatchKcaa01: 'PQ-2818B1/N',
+        sourceApprovedOutQty: 0,
+        sourcePendingOutQty: 0,
+        warehouseBookQty: 100,
+        warehousePendingOutQty: 0,
+        kcaa02: '料A',
+        materialSnapshot: { kcaa02: '料A' },
+      },
+      {
+        kcaa01: 'BN-0001/580',
+        sourceDemandQty: 2.38335,
+        dispatchDemandQty: 2.38335,
+        warehouseActualQty: 100,
+        scak02: 'g3',
+        dispatchKcaa01: 'PQ-3402A1/N',
+        sourceApprovedOutQty: 0,
+        sourcePendingOutQty: 0,
+        warehouseBookQty: 100,
+        warehousePendingOutQty: 0,
+        kcaa02: '料A',
+        materialSnapshot: { kcaa02: '料A' },
+      },
+      {
+        kcaa01: 'BN-0001/580',
+        sourceDemandQty: 2.4154,
+        dispatchDemandQty: 2.4154,
+        warehouseActualQty: 100,
+        scak02: 'g4',
+        dispatchKcaa01: 'PQ-3733B1/N',
+        sourceApprovedOutQty: 0,
+        sourcePendingOutQty: 0,
+        warehouseBookQty: 100,
+        warehousePendingOutQty: 0,
+        kcaa02: '料A',
+        materialSnapshot: { kcaa02: '料A' },
+      },
+    ]
+    const ctx = {
+      piNo: 'PI-4168',
+      sourceOutboundMap: new Map([['BN-0001/580', { approvedQty: 0, pendingQty: 0 }]]),
+      sourcePendingDocMap: new Map(),
+      piDemandMap: new Map([['BN-0001/580', 999]]),
+      piIssuedMap: new Map([['BN-0001/580', 0]]),
+    }
+    const merged = __aggregateProductionIssueRowsByMaterialForTest(rows, new Set(), ctx)
+    assert.equal(merged.length, 1)
+    assert.equal(merged[0].sourceDemandQty, 6.392)
+  })
+
   test('__aggregateProductionIssueRowsByMaterialForTest PI已被其他车间领满时不可选', () => {
     const rows = [
       {

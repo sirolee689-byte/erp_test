@@ -239,15 +239,8 @@ function printPage() {
     ElMessage.warning('暂无可打印数据')
     return
   }
-  document.documentElement.classList.add('print-stock-out')
-  const cleanup = () => {
-    document.documentElement.classList.remove('print-stock-out')
-    window.removeEventListener('afterprint', cleanup)
-  }
-  window.addEventListener('afterprint', cleanup)
   setTimeout(() => {
     window.print()
-    setTimeout(cleanup, 3000)
   }, 50)
 }
 
@@ -293,13 +286,25 @@ onMounted(loadPrintData)
   margin: 0 auto;
 }
 
+/* 统一纸面：宽 215mm × 高 139mm；自然分页用 min-height，内容多可高于一页 */
 .stock-out-print-doc {
+  box-sizing: border-box;
+  width: 215mm;
+  min-height: 139mm;
   background: #fff;
   color: #000;
-  padding: 18px 18px 22px;
+  padding: 5mm 6mm;
   margin: 0 auto 18px;
-  page-break-after: always;
   font-size: 12px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+/* 手工「N行一页」：每块固定一张纸，超出裁切避免浏览器再拆页 */
+.stock-out-print-doc-manual {
+  height: 139mm;
+  overflow: hidden;
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
 
 .stock-out-print-doc:last-child {
@@ -425,46 +430,68 @@ onMounted(loadPrintData)
   font-weight: 700;
 }
 
+/* DIY：签名栏字号/上间距 — 紧跟表格，不贴页底 */
 .stock-out-print-sign {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 18px;
-  margin-top: 18px;
+  margin-top: 10px;
   font-size: 13px;
+  page-break-inside: avoid;
+}
+
+@page {
+  size: 215mm 139mm;
+  margin: 0;
 }
 
 @media print {
-  :global(html.print-stock-out body *) {
-    visibility: hidden;
-  }
-
-  :global(html.print-stock-out #div_print),
-  :global(html.print-stock-out #div_print *) {
-    visibility: visible;
-  }
-
-  :global(html.print-stock-out body) {
+  :global(body) {
     margin: 0;
     background: #fff;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
 
-  :global(html.print-stock-out #div_print) {
-    position: absolute;
-    inset: 0;
+  .no-print {
+    display: none !important;
+  }
+
+  .stock-out-print-page {
+    min-height: 0;
+    padding: 0;
+    background: #fff;
+  }
+
+  .stock-out-print-area {
     width: 100%;
     margin: 0;
   }
 
-  :global(html.print-stock-out .stock-out-print-doc) {
+  .stock-out-print-doc {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 0;
+    height: auto;
+    overflow: visible;
     box-shadow: none;
     margin: 0;
-    padding: 0 6mm 8mm;
+    padding: 5mm 6mm;
+    break-after: auto;
+    page-break-after: auto;
   }
 
-  :global(html.print-stock-out .stock-out-print-doc:last-child) {
-    page-break-after: auto;
+  .stock-out-print-doc-manual {
+    min-height: 0;
+    height: auto;
+    overflow: visible;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .stock-out-print-doc + .stock-out-print-doc {
+    break-before: page;
+    page-break-before: always;
   }
 }
 </style>

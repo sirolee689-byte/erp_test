@@ -369,12 +369,9 @@ const editId = ref(null)
 const viewId = ref(null)
 const form = reactive(defaultForm())
 const lines = ref([])
-const FIXED_WORKSHOPS = [
-  { code: '03', name: '包装部' },
-  { code: '04', name: '开料部' },
-  { code: '0901', name: '车缝车间' },
-]
-const workshops = ref(FIXED_WORKSHOPS)
+// 派工单仅允许从业务指定的生产车间中选择；名称始终以车间主档为准。
+const DISPATCH_WORKSHOP_CODES = ['01', '02', '03', '04', '06', '07', '0901', '0902', 'c']
+const workshops = ref([])
 const goodsVisible = ref(false)
 const goodsLoading = ref(false)
 const goodsList = ref([])
@@ -577,6 +574,20 @@ function newOrder() {
 function onWorkshopChange(code) {
   const picked = workshops.value.find((w) => w.code === code)
   form.workshopName = picked?.name || ''
+}
+
+async function loadWorkshops() {
+  try {
+    const res = await axios.get('/api/dispatch-order/workshop-options')
+    const all = res.data?.data?.list ?? []
+    const byCode = new Map(all.map((row) => [String(row?.code ?? '').trim().toLowerCase(), row]))
+    workshops.value = DISPATCH_WORKSHOP_CODES
+      .map((code) => byCode.get(code.toLowerCase()))
+      .filter(Boolean)
+  } catch (err) {
+    workshops.value = []
+    ElMessage.error(err?.response?.data?.msg || '读取生产车间失败')
+  }
 }
 
 function onTypeChange() {
@@ -890,6 +901,7 @@ function saveSelectedGoods() {
 }
 
 onMounted(() => {
+  loadWorkshops()
   loadList()
 })
 </script>

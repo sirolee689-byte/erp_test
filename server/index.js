@@ -62,11 +62,13 @@ import { registerStockMovementStatsRoutes } from './stockMovementStatsHandlers.j
 import { registerStockIoStatsRoutes } from './stockIoStatsHandlers.js'
 import { registerProductionIssueStatsRoutes } from './productionIssueStatsHandlers.js'
 import { registerMaterialFlowLedgerRoutes } from './materialFlowLedgerHandlers.js'
+import { registerMaterialPreparationRoutes } from './materialPreparationHandlers.js'
 import { registerPurchaseOrderStatusRoutes } from './purchaseOrderStatusHandlers.js'
 import { registerHistoryPriceQueryRoutes } from './historyPriceQueryHandlers.js'
 import { registerSystemMailConfigRoutes } from './systemMailConfigHandlers.js'
 import { registerSystemPrintConfigRoutes } from './systemPrintConfigHandlers.js'
 import { registerSystemDatabaseConfigRoutes } from './systemDatabaseConfigHandlers.js'
+import { registerSystemDataRelationRoutes } from './systemDataRelationHandlers.js'
 import { registerBomRoutes } from './bom/registerBomRoutes.js'
 import { registerPiTraceRoutes } from './piTraceHandlers.js'
 import { registerCustomsDeclarationRoutes } from './customsDeclarationHandlers.js'
@@ -12149,11 +12151,13 @@ registerStockMovementStatsRoutes(app, { getPool })
 registerStockIoStatsRoutes(app, { getPool })
 registerProductionIssueStatsRoutes(app, { getPool })
 registerMaterialFlowLedgerRoutes(app, { getPool })
+registerMaterialPreparationRoutes(app, { getPool })
 registerPurchaseOrderStatusRoutes(app, { getPool })
 registerHistoryPriceQueryRoutes(app, { getPool })
 registerSystemMailConfigRoutes(app, { getPool })
 registerSystemPrintConfigRoutes(app, { getPool })
 registerSystemDatabaseConfigRoutes(app, { getPool })
+registerSystemDataRelationRoutes(app)
 registerPiBomDataRoutes(app, { getPool })
 registerPiTraceRoutes(app, { getPool })
 registerCustomsDeclarationRoutes(app, { getPool })

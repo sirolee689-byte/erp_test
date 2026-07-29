@@ -62,6 +62,7 @@
           <template v-if="!recycled">
             <div class="buy-filter-divider buy-filter-divider--print erp-filter-divider" aria-hidden="true" />
             <div class="buy-print-actions">
+              <span v-if="printSelectedCount > 0" class="buy-print-selected-hint">已选择：{{ printSelectedCount }}条记录进行打印</span>
               <el-select v-model="printMode" size="small" class="buy-print-select" aria-label="打印方式">
                 <el-option label="明细打印" value="1" />
                 <el-option label="汇总打印" value="2" />
@@ -393,7 +394,13 @@
                 <div class="buy-basic-field">
                   <span class="buy-basic-label buy-basic-label--required">采购单号</span>
                   <el-form-item prop="buyOrderNo">
-                    <el-input v-model="form.header.buyOrderNo" class="buy-basic-input buy-basic-input--doc" :readonly="pageMode === 'edit' || isReadonlyForm" />
+                    <el-input
+                      v-model="form.header.buyOrderNo"
+                      class="buy-basic-input buy-basic-input--doc"
+                      :readonly="pageMode === 'edit' || isReadonlyForm"
+                      @focus="onBuyOrderNoFocus"
+                      @blur="onBuyOrderNoBlur"
+                    />
                   </el-form-item>
                 </div>
                 <div class="buy-basic-field">
@@ -832,6 +839,7 @@ const activeBatchSessionId = ref('')
 const printMode = ref('1')
 const printLanguage = ref('1')
 const printSelectedOrderNos = ref(new Set())
+const printSelectedCount = computed(() => printSelectedOrderNos.value.size)
 
 const isFormPanel = computed(() => pageMode.value === 'create' || pageMode.value === 'edit' || pageMode.value === 'view')
 const isReadonlyForm = computed(() => pageMode.value === 'view')
@@ -941,7 +949,7 @@ function resolveNewLineDeliveryDate(rowDate) {
 
 const buyTypeOptions = computed(() => {
   if (form.header.numberType === 'PO') return [{ label: '请购采购', value: '2' }]
-  if (form.header.numberType === 'ZY') return [{ label: '订单采购', value: '1' }, { label: '请购采购', value: '2' }]
+  if (form.header.numberType === 'ZY') return [{ label: '其他采购', value: '0' }, { label: '订单采购', value: '1' }, { label: '请购采购', value: '2' }]
   return [{ label: '其他采购', value: '0' }, { label: '订单采购', value: '1' }, { label: '请购采购', value: '2' }]
 })
 
@@ -1068,7 +1076,6 @@ async function loadList() {
     if (data.code !== 200) throw new Error(data.msg)
     rows.value = data.data.list || []
     page.total = data.data.total || 0
-    reconcilePrintSelection()
     prefetchExpandDetails(rows.value)
   } catch (err) {
     ElMessage.error(err?.response?.data?.msg || err.message || '读取采购单列表失败')
@@ -1082,6 +1089,7 @@ function resetFilters() {
   filterSuppliers.value = []
   showUnaudited.value = false
   recycled.value = false
+  printSelectedOrderNos.value = new Set()
   page.page = 1
   loadList()
 }
@@ -1158,6 +1166,82 @@ async function chooseNumberType(type) {
   else form.header.buyType = '2'
   const { data } = await axios.get('/api/buy-order/suggest-doc-no', { params: { numberType: type, saveDate: form.header.buyDate } })
   form.header.buyOrderNo = data.data?.suggested || ''
+}
+function parseDocNoTail(docNo) {
+  const text = String(docNo ?? '').trim()
+  const match = text.match(/^(.*?)(\d+)$/)
+  if (!match) return null
+  return { prefix: match[1], digits: match[2] }
+}
+function plusOneDocNo(docNo) {
+  const parsed = parseDocNoTail(docNo)
+  if (!parsed) return ''
+  const next = String(Number(parsed.digits) + 1).padStart(parsed.digits.length, '0')
+  return `${parsed.prefix}${next}`
+}
+async function checkBuyOrderNoAvailable(options = {}) {
+  const { code = form.header.buyOrderNo, silent = false } = options
+  const textCode = String(code ?? '').trim()
+  if (!textCode) return null
+  try {
+    const { data } = await axios.get('/api/buy-order/check-doc-no', { params: { buyOrderNo: textCode } })
+    const available = Boolean(data?.data?.available)
+    const message = String(data?.data?.message ?? data?.msg ?? '').trim()
+    if (!silent) {
+      if (available) ElMessage.success('采购单号可以使用')
+      else ElMessage.warning(message || '采购单号已存在')
+    }
+    return { available, message }
+  } catch (err) {
+    if (!silent) ElMessage.error(err?.response?.data?.msg || err?.message || '检测采购单号失败')
+    return null
+  }
+}
+/** 前端占用校验：若单号被占用则自动顺延 +1（最多尝试 30 次） */
+async function ensureBuyOrderNoAvailableWithAutoIncrement(options = {}) {
+  const { silent = false } = options
+  if (pageMode.value !== 'create') return true
+  let currentCode = String(form.header.buyOrderNo ?? '').trim()
+  if (!currentCode) return false
+  for (let i = 0; i < 30; i += 1) {
+    const checked = await checkBuyOrderNoAvailable({ code: currentCode, silent: true })
+    if (!checked) return false
+    if (checked.available) {
+      if (currentCode !== String(form.header.buyOrderNo ?? '').trim()) {
+        form.header.buyOrderNo = currentCode
+        if (!silent) ElMessage.warning(`采购单号已被占用，已自动顺延为：${currentCode}`)
+      } else if (!silent) {
+        ElMessage.success('采购单号可以使用')
+      }
+      return true
+    }
+    const nextCode = plusOneDocNo(currentCode)
+    if (!nextCode || nextCode === currentCode) break
+    currentCode = nextCode
+  }
+  const { data } = await axios.get('/api/buy-order/suggest-doc-no', { params: { numberType: form.header.numberType, saveDate: form.header.buyDate } })
+  const suggested = String(data?.data?.suggested ?? '').trim()
+  if (suggested && suggested !== String(form.header.buyOrderNo ?? '').trim()) {
+    form.header.buyOrderNo = suggested
+    if (!silent) ElMessage.warning(`采购单号已被占用，已自动顺延为：${suggested}`)
+  }
+  const finalChecked = await checkBuyOrderNoAvailable({ code: form.header.buyOrderNo, silent: true })
+  if (finalChecked?.available) {
+    if (!silent) ElMessage.success('采购单号可以使用')
+    return true
+  }
+  if (!silent) ElMessage.warning('采购单号冲突，请手工调整后重试')
+  return false
+}
+async function onBuyOrderNoFocus() {
+  if (pageMode.value !== 'create') return
+  if (String(form.header.buyOrderNo ?? '').trim()) return
+  await chooseNumberType(form.header.numberType || 'ZY')
+}
+async function onBuyOrderNoBlur() {
+  if (pageMode.value !== 'create') return
+  if (!String(form.header.buyOrderNo ?? '').trim()) return
+  await ensureBuyOrderNoAvailableWithAutoIncrement()
 }
 async function openPiDialog() {
   syncSelectedPisFromReference()
@@ -1848,6 +1932,13 @@ async function saveOrder() {
   }
   if (!form.lines.length) return ElMessage.warning('请至少添加一条采购明细')
   if (form.lines.some((x) => !(Number(x.quantity) > 0))) return ElMessage.warning('采购明细数量必须大于0')
+  const docNoOk = await ensureBuyOrderNoAvailableWithAutoIncrement({ silent: true })
+  if (!docNoOk) {
+    activeTab.value = 'header'
+    await nextTick()
+    ElMessage.warning('采购单号已冲突，请确认后再保存')
+    return
+  }
   saving.value = true
   try {
     recalcAll()
@@ -1915,15 +2006,6 @@ function printKey(row) {
   return String(row?.buyOrderNo ?? row?.kcaj01 ?? '').trim()
 }
 
-function reconcilePrintSelection() {
-  const visibleKeys = new Set((rows.value || []).map((row) => printKey(row)).filter(Boolean))
-  const next = new Set()
-  for (const key of printSelectedOrderNos.value) {
-    if (visibleKeys.has(key)) next.add(key)
-  }
-  printSelectedOrderNos.value = next
-}
-
 function isPrintSelected(row) {
   const key = printKey(row)
   return !!key && printSelectedOrderNos.value.has(key)
@@ -1942,7 +2024,7 @@ function togglePrintSelect(row) {
 }
 
 function openSelectedPrint() {
-  const selected = (rows.value || []).filter((row) => isPrintSelected(row)).map((row) => printKey(row))
+  const selected = Array.from(printSelectedOrderNos.value).filter(Boolean)
   if (!selected.length) {
     ElMessage.warning('请选择需要打印的单据')
     return
@@ -2397,6 +2479,11 @@ onUnmounted(() => {
 }
 .buy-print-select {
   width: 132px;
+}
+.buy-print-selected-hint {
+  color: var(--el-color-primary);
+  font-size: 13px;
+  white-space: nowrap;
 }
 .buy-filter-switch {
   display: inline-flex;

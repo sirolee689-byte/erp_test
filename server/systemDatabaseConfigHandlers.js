@@ -6,6 +6,16 @@ import { writeLog } from './operationLogWriter.js'
 const DATABASE_CONFIG_FROM = 'dbo.[UB_ERP_System_Database_Config]'
 const DATABASE_CONFIG_TABLE = 'UB_ERP_System_Database_Config'
 
+// 已停用或当前项目没有实际业务读写的兼容遗留表，不进入“数据库配置”业务清单。
+const HIDDEN_UNUSED_TABLE_NAMES = new Set([
+  'ub_erp_stock_stats_snapshot',
+  'ub_erp_stock_stats_snapshot_line',
+  'inv_stockin',
+  'sys_operationlogs',
+  'sys_roles',
+  'sys_users',
+])
+
 const DEFAULT_TABLE_CONFIGS = [
   ['UB_ERP_System_Database_Config', '系统数据库配置表'],
   ['UB_ERP_System_mail', '系统邮件发送配置'],
@@ -63,12 +73,6 @@ const DEFAULT_TABLE_CONFIGS = [
   ['UB_ERP_Hr_room_use', '宿舍入住记录表'],
   ['UB_ERP_System_currency', '系统币别配置表'],
   ['UB_ERP_System_uplod_file', '系统上传文件表'],
-  ['Inv_StockIn', '新库存入库兼容表'],
-  ['Sys_OperationLogs', '新系统操作日志兼容表'],
-  ['Sys_Roles', '新系统角色兼容表'],
-  ['Sys_Users', '新系统用户兼容表'],
-  ['UB_ERP_Stock_stats_snapshot', '库存统计快照主表'],
-  ['UB_ERP_Stock_stats_snapshot_line', '库存统计快照明细表'],
 ].map(([tableName, purpose], index) => ({
   tableName,
   purpose,
@@ -121,6 +125,10 @@ function normalizeTableName(value) {
   return tableName
 }
 
+function isVisibleDatabaseConfigTable(tableName) {
+  return !HIDDEN_UNUSED_TABLE_NAMES.has(String(tableName ?? '').trim().toLowerCase())
+}
+
 export function getDefaultDatabaseConfigs() {
   return DEFAULT_TABLE_CONFIGS.map((item) => ({ ...item }))
 }
@@ -148,7 +156,7 @@ function mergeConfigs(savedRows = []) {
   })
   for (const row of savedRows) {
     const tableName = normalizeTableName(row?.table_name)
-    if (!tableName || used.has(tableName.toLowerCase())) continue
+    if (!tableName || !isVisibleDatabaseConfigTable(tableName) || used.has(tableName.toLowerCase())) continue
     merged.push({
       systemcode: text(row?.systemcode) || buildSystemDatabaseConfigSystemcode(),
       tableName,
@@ -221,7 +229,7 @@ function normalizePayloadRows(rows) {
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i]
     const tableName = normalizeTableName(row?.tableName ?? row?.table_name)
-    if (!tableName) continue
+    if (!tableName || !isVisibleDatabaseConfigTable(tableName)) continue
     const key = tableName.toLowerCase()
     if (seen.has(key)) continue
     seen.add(key)

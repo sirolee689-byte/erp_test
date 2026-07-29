@@ -35,6 +35,7 @@
           <template v-if="!showRecycle">
             <div class="stock-filter-divider stock-filter-divider--print erp-filter-divider" aria-hidden="true" />
             <div class="stock-print-actions">
+              <span v-if="printSelectedCount > 0" class="stock-print-selected-hint">已选择：{{ printSelectedCount }}条记录进行打印</span>
               <el-select v-model="printMode" size="small" class="stock-print-mode" aria-label="打印类型">
                 <el-option label="打印汇总" value="2" />
                 <el-option label="打印明细" value="1" />
@@ -985,6 +986,7 @@ const stockOutActionsColWidth = computed(() => getErpTableActionsColWidthByRows(
 
 const printMode = ref('2')
 const printSelectedSystemcodes = ref(new Set())
+const printSelectedCount = computed(() => printSelectedSystemcodes.value.size)
 const listTableRef = ref(null)
 const linesTableRef = ref(null)
 const expandedRowKeys = ref([])
@@ -1000,6 +1002,8 @@ const viewId = ref(null)
 const suggestedNo = ref('')
 const warehouseOptions = ref([])
 const relatedPartyOptions = ref([])
+// 生产类出库只允许选择业务指定的车间；名称仍由车间主档返回。
+const PRODUCTION_WORKSHOP_CODES = ['01', '02', '03', '04', '06', '07', '0901', '0902', 'c']
 /** 其他出库：关联单位输入框展示值（下拉候选 + 手填文本） */
 const otherOutboundRelatedPartyInput = ref('')
 const filterRelatedParties = ref([])
@@ -1134,6 +1138,10 @@ const relatedPartyLabel = computed(() => {
   return '关联单位'
 })
 
+function isProductionWorkshopType(type = form.outboundType) {
+  return ['4', '5', '7', '8'].includes(String(type ?? ''))
+}
+
 /** 其他出库关联单位为销售客户，选项格式：编码,名称 */
 function formatRelatedPartyOptionLabel(item) {
   const code = String(item?.code ?? '').trim()
@@ -1147,6 +1155,7 @@ function ensureRelatedPartyOptionSeed() {
   const code = String(form.relatedPartyCode ?? '').trim()
   const name = String(form.relatedPartyName ?? '').trim()
   if (!code && !name) return
+  if (isProductionWorkshopType() && pageMode.value !== 'view' && !PRODUCTION_WORKSHOP_CODES.some((item) => item.toLowerCase() === code.toLowerCase())) return
   if (!relatedPartyOptions.value.some((item) => item.code === code)) {
     relatedPartyOptions.value = [{ code, name }, ...relatedPartyOptions.value]
   }
@@ -1557,7 +1566,6 @@ async function loadList() {
     list.value = data?.data?.list || []
     pager.total = Number(data?.data?.total || 0)
     expandedRowKeys.value = []
-    reconcilePrintSelection()
     expandPrefetch.prefetch(list.value)
   } catch (err) {
     ElMessage.error(err?.response?.data?.msg || err.message || '读取出库单列表失败')
@@ -2253,7 +2261,11 @@ function handleFilterRelatedPartyFocus() {
 async function fetchRelatedParties(keyword = '') {
   if (form.outboundType === '9') return
   const { data } = await axios.get('/api/stock-out/related-party-options', { params: { outboundType: form.outboundType, keyword } })
-  relatedPartyOptions.value = data?.data?.list || []
+  const all = data?.data?.list || []
+  const byCode = new Map(all.map((row) => [String(row?.code ?? '').trim().toLowerCase(), row]))
+  relatedPartyOptions.value = isProductionWorkshopType()
+    ? PRODUCTION_WORKSHOP_CODES.map((code) => byCode.get(code.toLowerCase())).filter(Boolean)
+    : all
   ensureRelatedPartyOptionSeed()
 }
 
@@ -2321,15 +2333,6 @@ function printKey(row) {
   return String(row?.systemcode ?? row?.systemCode ?? '').trim()
 }
 
-function reconcilePrintSelection() {
-  const visibleKeys = new Set((list.value || []).map((row) => printKey(row)).filter(Boolean))
-  const next = new Set()
-  for (const key of printSelectedSystemcodes.value) {
-    if (visibleKeys.has(key)) next.add(key)
-  }
-  printSelectedSystemcodes.value = next
-}
-
 function isPrintSelected(row) {
   const key = printKey(row)
   return !!key && printSelectedSystemcodes.value.has(key)
@@ -2348,7 +2351,7 @@ function togglePrintSelect(row) {
 }
 
 function openSelectedPrint() {
-  const selected = (list.value || []).filter((row) => isPrintSelected(row)).map((row) => printKey(row))
+  const selected = Array.from(printSelectedSystemcodes.value).filter(Boolean)
   if (!selected.length) {
     ElMessage.warning('请先选择要打印的出库单')
     return
@@ -3320,6 +3323,11 @@ onUnmounted(() => {
 }
 .stock-print-mode {
   width: 112px;
+}
+.stock-print-selected-hint {
+  color: var(--el-color-primary);
+  font-size: 13px;
+  white-space: nowrap;
 }
 /* 与入库单一致：列表/添加/转向物料查询内容区不加外框线，避免「套一层卡片」 */
 .erp-section {

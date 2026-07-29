@@ -1,26 +1,24 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import {
-  buildSystemDatabaseConfigSystemcode,
-  formatSystemDatabaseConfigTimestamp,
-  getDefaultDatabaseConfigs,
-} from './systemDatabaseConfigHandlers.js'
+import { getDefaultDatabaseConfigs } from './systemDatabaseConfigHandlers.js'
 
-describe('数据库配置工具', () => {
-  test('默认清单包含关键业务表', () => {
-    const names = getDefaultDatabaseConfigs().map((item) => item.tableName)
-    assert.ok(names.includes('UB_ERP_Sales_order'))
-    assert.ok(names.includes('UB_ERP_Stocks_Storage'))
-    assert.ok(names.includes('UB_ERP_System_Database_Config'))
+describe('数据库配置表清单', () => {
+  test('已停用快照表和未使用兼容表不出现在默认业务清单', () => {
+    const names = new Set(getDefaultDatabaseConfigs().map((row) => row.tableName.toLowerCase()))
+    for (const name of [
+      'ub_erp_stock_stats_snapshot',
+      'ub_erp_stock_stats_snapshot_line',
+      'inv_stockin',
+      'sys_operationlogs',
+      'sys_roles',
+      'sys_users',
+    ]) {
+      assert.equal(names.has(name), false)
+    }
   })
 
-  test('核心编码使用年月日开头并限制在 50 位内', () => {
-    const code = buildSystemDatabaseConfigSystemcode(new Date('2026-07-06T08:09:10'))
-    assert.match(code, /^20260706/)
-    assert.ok(code.length <= 50)
-  })
-
-  test('时间格式兼容 SQL Server 2008 R2 字符串写入', () => {
-    assert.equal(formatSystemDatabaseConfigTimestamp(new Date('2026-07-06T08:09:10')), '2026-07-06 08:09:10')
+  test('默认清单保留连续排序序号', () => {
+    const rows = getDefaultDatabaseConfigs()
+    assert.deepEqual(rows.map((row) => row.sortOrder), rows.map((_row, index) => index + 1))
   })
 })

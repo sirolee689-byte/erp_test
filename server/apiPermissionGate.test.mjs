@@ -67,6 +67,15 @@ describe('审核与反审权限拆分', () => {
   })
 })
 
+describe('matchApiPermissionRule - 系统内核数据关联', () => {
+  test('GET只读目录沿用ERP内核view权限', () => {
+    assert.deepEqual(
+      matchApiPermissionRule('GET', '/api/system/kernel/data-relations', {}, {}),
+      { menuPath: 'system/kernel/erp-core', action: 'view' },
+    )
+  })
+})
+
 describe('matchApiPermissionRule — BOM 资料', () => {
   test('POST /api/bom/usage-calc → inv/bom 或 bom-data 的 edit', () => {
     const rule = matchApiPermissionRule('POST', '/api/bom/usage-calc', {}, {})
@@ -244,6 +253,21 @@ describe('matchApiPermissionRule - 出入库统计表', () => {
     ]) {
       assert.deepEqual(matchApiPermissionRule('GET', path, {}, {}), {
         menuPath: 'inventory/analysis/stock-movement-stats',
+        action: 'view',
+      })
+    }
+  })
+})
+
+describe('matchApiPermissionRule - 材料备料表', () => {
+  test('材料备料表接口走库存统计分析材料备料表 view 权限', () => {
+    for (const path of [
+      '/api/material-preparation/print-header',
+      '/api/material-preparation/pi-options',
+      '/api/material-preparation/report',
+    ]) {
+      assert.deepEqual(matchApiPermissionRule('GET', path, {}, {}), {
+        menuPath: 'inventory/analysis/material-preparation',
         action: 'view',
       })
     }
