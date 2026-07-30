@@ -505,7 +505,7 @@ describe('assistOrderHandlers', () => {
                 ],
               }
             }
-            if (/FROM\s+dbo\.\[UB_ERP_User\]\s+AS\s+u/i.test(sqlText)) {
+            if (/FROM\s+dbo\.\[New_UB_ERP_User\]\s+AS\s+u/i.test(sqlText)) {
               return { recordset: [{ userId: 42, userName: 'u01', truename: 'operator01' }] }
             }
             return { recordset: [] }

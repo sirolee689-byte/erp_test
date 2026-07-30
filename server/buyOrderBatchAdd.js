@@ -18,7 +18,7 @@ const BUY_OFFER_FROM = 'dbo.[UB_ERP_Buy_offer]'
 const BUY_OFFER_LINE_FROM = 'dbo.[UB_ERP_Buy_offer_list]'
 const STOCK_IN_FROM = 'dbo.[UB_ERP_Stocks_Storage]'
 const STOCK_IN_LINE_FROM = 'dbo.[UB_ERP_Stocks_Storage_list]'
-const MATERIAL_CATEGORY_FROM = 'dbo.[UB_ERP_Stocks_material]'
+const MATERIAL_CATEGORY_FROM = 'dbo.[New_UB_ERP_Stocks_material]'
 const CURRENCY_FROM = 'dbo.[UB_ERP_Finance_currency]'
 
 const KCAA_FIELDS = Array.from({ length: 35 }, (_, i) => `kcaa${String(i + 1).padStart(2, '0')}`)

@@ -34,7 +34,7 @@
 - **基础资料输入高度**（2026-07-23）：单行输入对齐出库单，DIY `--dispatch-base-input-height`；备注 DIY `--dispatch-remark-input-height`；**不改**派工类型按钮。
 - 批量选货：`GET /api/dispatch-order/goods-options`，从已审核、未删除、未关闭的销售订单明细选货。
 - 审核/反审核：`POST /api/dispatch-order/:id/audit`、`POST /api/dispatch-order/:id/unaudit`，主表和明细状态一起更新；**空明细不允许审核**（后端拦截）。
-- 删除/回收站：普通删除只把主表 `del` 改为 `1`；回收站支持恢复和彻底删除，彻底删除会物理删除主表和明细，且仅 `UB_ERP_User.is_admin=1` 的超级管理员可执行。
+- 删除/回收站：普通删除只把主表 `del` 改为 `1`；回收站支持恢复和彻底删除，彻底删除会物理删除主表和明细，且仅 `New_UB_ERP_User.is_admin=1` 的超级管理员可执行。
 
 ## 关键业务规则
 

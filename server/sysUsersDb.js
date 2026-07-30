@@ -1,5 +1,5 @@
 /**
- * UB_ERP_User 物理表兼容层：
+ * New_UB_ERP_User 物理表兼容层：
  * - ERP 标准列：UserID、UserCode、UserName、Password、Status、RoleID、CreatedAt…
  * - 旧系统列：UserID（业务主键，优先）、uid（人事关联/审计：常对应 UB_ERP_Hr_staff.id 或记录操作者）、usercode、username、
  *   password、is_admin、uname、utruename、info 等
@@ -57,7 +57,7 @@ export async function getSysUsersColumnsMeta(pool) {
     const r = await pool.request().query(`
       SELECT COLUMN_NAME AS n, CHARACTER_MAXIMUM_LENGTH AS maxLen
       FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'UB_ERP_User'
+      WHERE TABLE_SCHEMA = N'dbo' AND TABLE_NAME = N'New_UB_ERP_User'
     `)
     const exactByLower = new Map()
     const maxLenByLower = new Map()
@@ -108,7 +108,7 @@ export function clipNvarcharForColumn(value, maxLen) {
 }
 
 /**
- * 按登录账号 usercode 查 UB_ERP_User.truename（业务表 utruename/uptruename 等审计姓名）
+ * 按登录账号 usercode 查 New_UB_ERP_User.truename（业务表 utruename/uptruename 等审计姓名）
  * @param {import('mssql').ConnectionPool | null | undefined} pool
  * @param {string | null | undefined} usercode
  * @returns {Promise<string | null>}
@@ -155,7 +155,7 @@ export async function resolveSysUsersAuditTripletByUsercode(pool, usercode) {
     .input('auditUsercode', sql.NVarChar(80), code)
     .query(`
     SELECT TOP (1) ${selects.join(',\n      ')}
-    FROM dbo.[UB_ERP_User] AS u
+    FROM dbo.[New_UB_ERP_User] AS u
     WHERE LTRIM(RTRIM(CAST(ISNULL(u.${qUsercode}, N'') AS NVARCHAR(100)))) = @auditUsercode
   `)
   const row = r.recordset?.[0]
@@ -169,7 +169,7 @@ export async function resolveSysUsersAuditTripletByUsercode(pool, usercode) {
 }
 
 /**
- * 按 UB_ERP_User 主键查 is_admin（入库单彻底删除等超级管理员门禁用）
+ * 按 New_UB_ERP_User 主键查 is_admin（入库单彻底删除等超级管理员门禁用）
  * @param {import('mssql').ConnectionPool | null | undefined} pool
  * @param {number | string | null | undefined} userId
  * @returns {Promise<boolean>}
@@ -183,7 +183,7 @@ export async function resolveSysUserIsAdminByUserId(pool, userId) {
   if (!qIsAdmin || !qPk) return false
   const r = await pool.request().input('UserID', sql.Int, id).query(`
     SELECT TOP (1) CAST(u.${qIsAdmin} AS INT) AS is_admin
-    FROM dbo.[UB_ERP_User] AS u
+    FROM dbo.[New_UB_ERP_User] AS u
     WHERE u.${qPk} = @UserID
   `)
   return Number(r.recordset?.[0]?.is_admin) === 1
@@ -205,7 +205,7 @@ export async function ensureSysUsersPasswordColumnWiden(pool, metaIn = null) {
   const col = bracketIdent(exact)
   if (!col) return meta
   await pool.request().query(`
-    ALTER TABLE dbo.[UB_ERP_User] ALTER COLUMN ${col} NVARCHAR(${SYS_USERS_PASSWORD_COLUMN_TARGET_LEN}) NULL
+    ALTER TABLE dbo.[New_UB_ERP_User] ALTER COLUMN ${col} NVARCHAR(${SYS_USERS_PASSWORD_COLUMN_TARGET_LEN}) NULL
   `)
   invalidateSysUsersColumnsMeta()
   return getSysUsersColumnsMeta(pool)
@@ -294,7 +294,7 @@ function isDelDisabledValue(raw) {
 }
 
 /**
- * UB_ERP_User 是否禁止登录：优先看 del（'1'/1/true=禁用），无 del 列时再看 Status（0=禁用）。
+ * New_UB_ERP_User 是否禁止登录：优先看 del（'1'/1/true=禁用），无 del 列时再看 Status（0=禁用）。
  * @param {Record<string, unknown>} userRow 登录查询结果行
  * @param {Set<string>} colset 小写列名
  */
@@ -311,7 +311,7 @@ export function isSysUserRowLoginDisabled(userRow, colset) {
 /**
  * 供 API 权限闸门：取出用于 parseRolePermissions 的原始字符串（可能为 NULL）
  * @param {import('mssql').ConnectionPool} pool
- * @param {number} userId UB_ERP_User.UserID（或极旧库 uid）
+ * @param {number} userId New_UB_ERP_User.UserID（或极旧库 uid）
  */
 export async function fetchSysUserPermissionSource(pool, userId) {
   const meta = await getSysUsersColumnsMeta(pool)
@@ -336,8 +336,8 @@ export async function fetchSysUserPermissionSource(pool, userId) {
         SELECT TOP (1)
           ${isAdminExpr} AS is_admin,
           CAST(r.Permissions AS NVARCHAR(MAX)) AS Permissions
-        FROM dbo.[UB_ERP_User] AS u
-        LEFT JOIN dbo.[NEW_UB_ERP_System_role] AS r ON r.RoleID = u.${qRoleId}
+        FROM dbo.[New_UB_ERP_User] AS u
+        LEFT JOIN dbo.[New_UB_ERP_System_role] AS r ON r.RoleID = u.${qRoleId}
         WHERE u.${qPk} = @UserID
         ${delActiveSql}
       `)
@@ -348,7 +348,7 @@ export async function fetchSysUserPermissionSource(pool, userId) {
     }
     const r = await req.query(`
       SELECT TOP (1) ${isAdminExpr} AS is_admin
-      FROM dbo.[UB_ERP_User] AS u
+      FROM dbo.[New_UB_ERP_User] AS u
       WHERE u.${qPk} = @UserID
       ${delActiveSql}
     `)
@@ -363,8 +363,8 @@ export async function fetchSysUserPermissionSource(pool, userId) {
     : ''
   const r = await req.query(`
     SELECT TOP (1) r.Permissions AS Permissions
-    FROM dbo.[UB_ERP_User] AS u
-    INNER JOIN dbo.[NEW_UB_ERP_System_role] AS r ON r.RoleID = u.RoleID
+    FROM dbo.[New_UB_ERP_User] AS u
+    INNER JOIN dbo.[New_UB_ERP_System_role] AS r ON r.RoleID = u.RoleID
     WHERE u.UserID = @UserID AND u.Status = 1 AND r.Status = 1
     ${delActiveErp}
   `)
@@ -394,7 +394,7 @@ export function sysUsersPasswordExpr(meta) {
 }
 
 /**
- * 旧版 UB_ERP_User 仅支持登录/只读列表；拦截本 ERP 的写接口
+ * 旧版 New_UB_ERP_User 仅支持登录/只读列表；拦截本 ERP 的写接口
  * @param {import('mssql').ConnectionPool} pool
  * @param {import('express').Response} res
  * @returns {Promise<boolean>} true 表示已响应 400，调用方应 return
@@ -407,7 +407,7 @@ export async function rejectLegacySysUsersCrud(pool, res) {
   res.status(400).json({
     code: 400,
     msg:
-      '当前为旧系统 UB_ERP_User 结构（uid/username/usercode 等），不支持在本页新增、编辑或删除用户；请在原系统或人事侧维护后刷新。',
+      '当前为旧系统 New_UB_ERP_User 结构（uid/username/usercode 等），不支持在本页新增、编辑或删除用户；请在原系统或人事侧维护后刷新。',
     data: null,
   })
   return true

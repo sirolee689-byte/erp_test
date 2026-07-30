@@ -36,7 +36,7 @@
 
 - 基础行由入库和出库两侧并集生成：`UB_ERP_Stocks_Storage / UB_ERP_Stocks_Storage_list` 与 `UB_ERP_Stocks_out / UB_ERP_Stocks_out_list` 均按 `kcaa01 + 仓库编码 + 仓库名称` 分组后合并。
 - 展示字段再按物料编码反查 `UB_ERP_Bom_000` 最新有效记录补齐。
-- 类别名称通过 `UB_ERP_Stocks_material.code = kcaa05` 关联。
+- 类别名称通过 `New_UB_ERP_Stocks_material.code = kcaa05` 关联。
 - 颜色名称通过 `UB_ERP_Stocks_colorcode.code = kcaa11` 关联。
 - `实存数量`、`可用数量` 均按 `帐存数量 - 未审核出库数量`。
 - `入库未审数量` 按旧系统兼容口径只判断主表 `pass=0`，暂不额外补 `del=0`。
@@ -61,5 +61,5 @@
 ## 2026-07-15 类别多选
 
 - 查询弹窗的物料类别使用“多选”打开分类窗口，确认后仅回填类别名称；“重选”只清空类别条件。
-- 分类候选取 `UB_ERP_Stocks_material` 的 `del=0/pass=1` 记录，按 `px`、`code` 排序；选择窗口默认每页 10 条，支持按分类编码或分类名称模糊搜索，跨页选择状态保留。
+- 分类候选取 `New_UB_ERP_Stocks_material` 的 `del=0/pass=1` 记录，按 `px`、`code` 排序；选择窗口默认每页 10 条，支持按分类编码或分类名称模糊搜索，跨页选择状态保留。
 - 报表把已选编码写入会话临时表 `#selectedCategory`，按入库明细 `UB_ERP_Stocks_Storage_list.kcaa05` 过滤入库基础和入库汇总；不再按 BOM 分类模糊匹配，出库仍按入库基础物料完整扣减。

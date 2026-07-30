@@ -11,7 +11,7 @@ import {
 } from './stockInSurplusBatchAdd.js'
 
 const BOM_FROM = 'dbo.[UB_ERP_Bom_000]'
-const MATERIAL_CAT_FROM = 'dbo.[UB_ERP_Stocks_material]'
+const MATERIAL_CAT_FROM = 'dbo.[New_UB_ERP_Stocks_material]'
 const STOCK_IN_FROM = 'dbo.[UB_ERP_Stocks_Storage]'
 const STOCK_IN_LINE_FROM = 'dbo.[UB_ERP_Stocks_Storage_list]'
 const STOCK_OUT_FROM = 'dbo.[UB_ERP_Stocks_out]'

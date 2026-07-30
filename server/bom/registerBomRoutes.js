@@ -42,7 +42,7 @@ import { handlePostBomMasterPropagate } from '../bomMasterPropagate.js'
 import { markCurrentBomCostStale } from '../bomCostImpactScope.js'
 
 const BOM_UNIT_CHANGE_FROM = 'dbo.[UB_ERP_Stocks_unit_change]'
-const BOM_MATERIAL_FROM = 'dbo.[UB_ERP_Stocks_material]'
+const BOM_MATERIAL_FROM = 'dbo.[New_UB_ERP_Stocks_material]'
 const BOM_STOCKS_WORKSHOP_FROM = 'dbo.[UB_ERP_Stocks_workshop]'
 const SYS_SUPPLIER_FROM = 'dbo.[UB_ERP_System_supplier]'
 const BOM_SALES_LIST_FROM = 'dbo.[UB_ERP_Bom_Sales_list]'
@@ -687,7 +687,7 @@ function buildInvBomListMasterSelectLines(colset) {
 }
 
 /**
- * BOM 审计姓名：优先 UB_ERP_User.truename，无列或无值时回退登录态姓名
+ * BOM 审计姓名：优先 New_UB_ERP_User.truename，无列或无值时回退登录态姓名
  * @param {import('mssql').ConnectionPool} pool
  * @param {{ uidInt: number | null, utruename: string | null }} actor
  */
@@ -701,7 +701,7 @@ async function resolveSysUsersTruenameForBomAudit(pool, actor) {
   if (!qTruename || !qPk) return fallback
   const r = await pool.request().input('bomAuditUid', sql.Int, uidInt).query(`
     SELECT TOP (1) LTRIM(RTRIM(CONVERT(nvarchar(100), ISNULL(u.${qTruename}, N'')))) AS truename
-    FROM dbo.[UB_ERP_User] AS u
+    FROM dbo.[New_UB_ERP_User] AS u
     WHERE u.${qPk} = @bomAuditUid
   `)
   const tn = String(r.recordset?.[0]?.truename ?? '').trim()
@@ -4112,7 +4112,7 @@ app.get('/api/inventory/bom/:id/brief', async (req, res) => {
 /**
  * BOM 主档详情（基础资料步骤）：仅选取约定列，不查询 kcaa16
  * GET /api/inventory/bom/:id — :id 为 kcaa01（URL 编码，支持含 / 的编码）
- * - LEFT JOIN UB_ERP_Stocks_material：kcaa05=code，带出 categoryName；分类展示名称
+ * - LEFT JOIN New_UB_ERP_Stocks_material：kcaa05=code，带出 categoryName；分类展示名称
  * - LEFT JOIN UB_ERP_Stocks_colorcode：kcaa11=code，带出 colorName；颜色展示为“编码,名称”
  * - LEFT JOIN UB_ERP_Stocks_workshop：kcaa15=code，workshopName；workshop_display 为「编码, 名称」
  * - unit_conversion：采购/报价与使用的转换方向（po_to_use 等）及转换率；sale_price、kcaa34_display；kpname 开票名称

@@ -3,7 +3,7 @@ import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
  * 后端 API 服务入口
  * 目标：
  * - 连接 SQL Server
- * - 提供 UB_ERP_User 查询接口给前端页面使用
+ * - 提供 New_UB_ERP_User 查询接口给前端页面使用
  */
 import express from 'express'
 import cors from 'cors'
@@ -233,7 +233,7 @@ async function assertWritableRoleId(pool, roleIdRaw) {
   }
   const chk = await pool.request().input('RoleID', sql.Int, roleId).query(`
     SELECT TOP (1) RoleID
-    FROM dbo.[NEW_UB_ERP_System_role]
+    FROM dbo.[New_UB_ERP_System_role]
     WHERE RoleID = @RoleID AND Status = 1
   `)
   if (!chk.recordset?.[0]) {
@@ -387,7 +387,7 @@ app.get('/api/sys/logs', async (req, res) => {
 })
 
 /**
- * 角色分页列表（NEW_UB_ERP_System_role）
+ * 角色分页列表（New_UB_ERP_System_role）
  * v1.0.7：角色管理页 + 操作员下拉框共用本接口
  * - 查询参数：page、pageSize、pass（1=启用视图 / 0=回收站）、keyword（模糊匹配 RoleName、Description）
  *   - 兼容旧前端：仍接受 status 参数，并映射到 pass
@@ -427,7 +427,7 @@ app.get('/api/roles', async (req, res) => {
 
     const totalResult = await totalRequest.query(`
       SELECT COUNT(1) AS total
-      FROM dbo.[NEW_UB_ERP_System_role] AS r
+      FROM dbo.[New_UB_ERP_System_role] AS r
       ${whereSql}
     `)
     const total = Number(totalResult.recordset?.[0]?.total ?? 0)
@@ -450,7 +450,7 @@ app.get('/api/roles', async (req, res) => {
           r.pass,
           r.Status,
           r.Permissions
-        FROM dbo.[NEW_UB_ERP_System_role] AS r
+        FROM dbo.[New_UB_ERP_System_role] AS r
         ${whereSql}
         ORDER BY r.RoleID ASC
         OFFSET @offset ROWS
@@ -492,7 +492,7 @@ app.get('/api/roles', async (req, res) => {
             r.Status,
             r.Permissions,
             ROW_NUMBER() OVER (ORDER BY r.RoleID ASC) AS rn
-          FROM dbo.[NEW_UB_ERP_System_role] AS r
+          FROM dbo.[New_UB_ERP_System_role] AS r
           ${whereSql}
         ) t
         WHERE t.rn BETWEEN @startRow AND @endRow
@@ -508,7 +508,7 @@ app.get('/api/roles', async (req, res) => {
 })
 
 /**
- * 新增角色（写入 NEW_UB_ERP_System_role，默认启用）
+ * 新增角色（写入 New_UB_ERP_System_role，默认启用）
  */
 app.post('/api/roles', async (req, res) => {
   try {
@@ -542,7 +542,7 @@ app.post('/api/roles', async (req, res) => {
     let result
     try {
       result = await request.query(`
-        INSERT INTO dbo.[NEW_UB_ERP_System_role] (RoleName, Description, pass, Status, Permissions, uid, uname, utruename, addtime)
+        INSERT INTO dbo.[New_UB_ERP_System_role] (RoleName, Description, pass, Status, Permissions, uid, uname, utruename, addtime)
         OUTPUT
           INSERTED.RoleID,
           INSERTED.RoleName,
@@ -569,7 +569,7 @@ app.post('/api/roles', async (req, res) => {
         res.status(400).json({ code: 400, msg: '角色名称已存在，请勿重复添加', data: null })
         return
       }
-      console.error('写入 NEW_UB_ERP_System_role 失败（POST /api/roles）：', dbErr)
+      console.error('写入 New_UB_ERP_System_role 失败（POST /api/roles）：', dbErr)
       res.status(500).json({ code: 500, msg: '数据库写入失败，请联系管理员', data: null })
       return
     }
@@ -623,7 +623,7 @@ app.put('/api/roles', async (req, res) => {
       request.input('pass', sql.NVarChar(1), '0')
       request.input('Status', sql.Int, 0)
       const result = await request.query(`
-        UPDATE dbo.[NEW_UB_ERP_System_role]
+        UPDATE dbo.[New_UB_ERP_System_role]
         SET
           pass = @pass,
           Status = @Status,
@@ -672,7 +672,7 @@ app.put('/api/roles', async (req, res) => {
     let result
     try {
       result = await request.query(`
-        UPDATE dbo.[NEW_UB_ERP_System_role]
+        UPDATE dbo.[New_UB_ERP_System_role]
         SET
           RoleName = @RoleName,
           Description = @Description,
@@ -706,7 +706,7 @@ app.put('/api/roles', async (req, res) => {
         res.status(400).json({ code: 400, msg: '角色名称已存在，请更换名称', data: null })
         return
       }
-      console.error('更新 NEW_UB_ERP_System_role 失败（PUT /api/roles）：', dbErr)
+      console.error('更新 New_UB_ERP_System_role 失败（PUT /api/roles）：', dbErr)
       res.status(500).json({ code: 500, msg: '数据库写入失败，请联系管理员', data: null })
       return
     }
@@ -753,7 +753,7 @@ app.put('/api/roles/resume', async (req, res) => {
     request.input('now', sql.NVarChar(50), nowStr)
 
     const result = await request.query(`
-      UPDATE dbo.[NEW_UB_ERP_System_role]
+      UPDATE dbo.[New_UB_ERP_System_role]
       SET
         pass = @pass,
         Status = @Status,
@@ -792,7 +792,7 @@ app.put('/api/roles/resume', async (req, res) => {
 })
 
 /**
- * 仅更新角色的菜单权限（NEW_UB_ERP_System_role.Permissions：JSON 对象或兼容旧版数组，序列化后入库）
+ * 仅更新角色的菜单权限（New_UB_ERP_System_role.Permissions：JSON 对象或兼容旧版数组，序列化后入库）
  */
 app.put('/api/roles/permissions', async (req, res) => {
   try {
@@ -826,7 +826,7 @@ app.put('/api/roles/permissions', async (req, res) => {
     request.input('now', sql.NVarChar(50), nowStr)
 
     const result = await request.query(`
-      UPDATE dbo.[NEW_UB_ERP_System_role]
+      UPDATE dbo.[New_UB_ERP_System_role]
       SET
         Permissions = @Permissions,
         uid = @uid,
@@ -875,7 +875,7 @@ app.delete('/api/roles/:id', async (req, res) => {
 
     const pool = await getPool()
     const q1 = await pool.request().input('RoleID', sql.Int, roleId).query(`
-      SELECT TOP (1) pass, Status FROM dbo.[NEW_UB_ERP_System_role] WHERE RoleID = @RoleID
+      SELECT TOP (1) pass, Status FROM dbo.[New_UB_ERP_System_role] WHERE RoleID = @RoleID
     `)
     const row = q1.recordset?.[0]
     if (!row) {
@@ -893,7 +893,7 @@ app.delete('/api/roles/:id', async (req, res) => {
     let cnt = 0
     if (!suMeta.legacyLayout) {
       const q2 = await pool.request().input('RoleID', sql.Int, roleId).query(`
-        SELECT COUNT(1) AS cnt FROM dbo.[UB_ERP_User] WHERE RoleID = @RoleID
+        SELECT COUNT(1) AS cnt FROM dbo.[New_UB_ERP_User] WHERE RoleID = @RoleID
       `)
       cnt = Number(q2.recordset?.[0]?.cnt ?? 0)
     }
@@ -903,7 +903,7 @@ app.delete('/api/roles/:id', async (req, res) => {
     }
 
     const del = await pool.request().input('RoleID', sql.Int, roleId).query(`
-      DELETE FROM dbo.[NEW_UB_ERP_System_role] WHERE RoleID = @RoleID
+      DELETE FROM dbo.[New_UB_ERP_System_role] WHERE RoleID = @RoleID
     `)
     const affected = Number(del.rowsAffected?.[0] ?? 0)
     if (affected === 0) {
@@ -950,7 +950,7 @@ app.post('/api/login', async (req, res) => {
 
     // 关键：获取数据库连接池
     const pool = await getPool()
-    // 每次登录重读 UB_ERP_User 列清单，避免 INFORMATION_SCHEMA 变更或缓存导致 del/Status 误判
+    // 每次登录重读 New_UB_ERP_User 列清单，避免 INFORMATION_SCHEMA 变更或缓存导致 del/Status 误判
     invalidateSysUsersColumnsMeta()
     const meta = await getSysUsersColumnsMeta(pool)
     const userColset = meta.set
@@ -994,11 +994,11 @@ app.post('/api/login', async (req, res) => {
       const roleIdSel =
         legacyOperatorV2 && qRoleId ? `u.${qRoleId}` : `CAST(NULL AS INT)`
       const rolesJoin =
-        legacyOperatorV2 && qRoleId ? `LEFT JOIN dbo.[NEW_UB_ERP_System_role] AS r ON r.RoleID = u.${qRoleId}` : ''
+        legacyOperatorV2 && qRoleId ? `LEFT JOIN dbo.[New_UB_ERP_System_role] AS r ON r.RoleID = u.${qRoleId}` : ''
       if (!qEntityPk || !qUidForStaff || !qUsercode || !qUsername || !qPassword) {
         res.status(500).json({
           code: 500,
-          msg: '登录失败：UB_ERP_User 旧表缺少主键列（UserID/uid）、uid（人事关联）、usercode、username 或 password 列',
+          msg: '登录失败：New_UB_ERP_User 旧表缺少主键列（UserID/uid）、uid（人事关联）、usercode、username 或 password 列',
           data: null,
         })
         return
@@ -1021,7 +1021,7 @@ app.post('/api/login', async (req, res) => {
           CAST(${permSql} AS NVARCHAR(MAX)) AS Permissions,
           ${legacyTruenameSel}
           s.[name] AS StaffDisplayName
-        FROM dbo.[UB_ERP_User] AS u
+        FROM dbo.[New_UB_ERP_User] AS u
         ${rolesJoin}
         LEFT JOIN ${meta.hrStaffFrom} AS s ON s.[id] = u.${qUidForStaff}
         WHERE u.${qUsername} = @LoginId OR u.${qUsercode} = @LoginId
@@ -1033,7 +1033,7 @@ app.post('/api/login', async (req, res) => {
       if (!qLogin || !qPwd) {
         res.status(500).json({
           code: 500,
-          msg: '登录失败：UB_ERP_User 缺少登录账号列（UserName）或密码列（password），请检查表结构',
+          msg: '登录失败：New_UB_ERP_User 缺少登录账号列（UserName）或密码列（password），请检查表结构',
           data: null,
         })
         return
@@ -1059,8 +1059,8 @@ app.post('/api/login', async (req, res) => {
         ? `CAST(u.${qIsAdminErp} AS INT) AS IsAdmin,`
         : 'CAST(0 AS INT) AS IsAdmin,'
       const joinRoles = userColset.has('roleid')
-        ? `LEFT JOIN dbo.[NEW_UB_ERP_System_role] AS r ON r.RoleID = u.${meta.qb('roleid')}`
-        : `LEFT JOIN dbo.[NEW_UB_ERP_System_role] AS r ON 1 = 0`
+        ? `LEFT JOIN dbo.[New_UB_ERP_System_role] AS r ON r.RoleID = u.${meta.qb('roleid')}`
+        : `LEFT JOIN dbo.[New_UB_ERP_System_role] AS r ON 1 = 0`
       result = await request.query(`
         SELECT TOP (1)
           ${selUserId},
@@ -1076,7 +1076,7 @@ app.post('/api/login', async (req, res) => {
           r.Permissions AS Permissions,
           ${erpTruenameSel}
           CAST(N'' AS NVARCHAR(100)) AS StaffDisplayName
-        FROM dbo.[UB_ERP_User] AS u
+        FROM dbo.[New_UB_ERP_User] AS u
         ${joinRoles}
         WHERE u.${qLogin} = @LoginId
       `)
@@ -1091,7 +1091,7 @@ app.post('/api/login', async (req, res) => {
       return
     }
 
-    // 2) 校验账号是否被禁用：UB_ERP_User.del='1' 为禁用；无 del 列时用 Status=0（见 sysUsersDb.isSysUserRowLoginDisabled）
+    // 2) 校验账号是否被禁用：New_UB_ERP_User.del='1' 为禁用；无 del 列时用 Status=0（见 sysUsersDb.isSysUserRowLoginDisabled）
     if (isSysUserRowLoginDisabled(userRow, userColset)) {
       res.status(403).json({ code: 403, msg: '账号已被禁用，请联系管理员', data: null })
       return
@@ -1129,7 +1129,7 @@ app.post('/api/login', async (req, res) => {
       auditTruename: String(userRow.AuditTruename ?? ''),
       // 界面显示名：优先人事档案姓名
       userName: String(userRow.StaffDisplayName ?? userRow.UserName ?? ''),
-      // UB_ERP_User.is_admin：超级管理员（入库单彻底删除等）
+      // New_UB_ERP_User.is_admin：超级管理员（入库单彻底删除等）
       isAdmin: isAdminFlag,
       is_admin: isAdminFlag ? 1 : 0,
       // v1.0.7：附带角色，便于后续把接口鉴权与角色打通（当前仍以 token 为主）
@@ -1157,12 +1157,12 @@ app.post('/api/login', async (req, res) => {
           is_admin: isAdminFlag ? 1 : 0,
           isAdmin: isAdminFlag,
           IsAdmin: isAdminFlag ? 1 : 0,
-          // v1.0.7：菜单权限 JSON 字符串（与 NEW_UB_ERP_System_role.Permissions 一致）；NULL 表示未配置，前端按「不限制」处理
+          // v1.0.7：菜单权限 JSON 字符串（与 New_UB_ERP_System_role.Permissions 一致）；NULL 表示未配置，前端按「不限制」处理
           Permissions:
             userRow.Permissions != null && userRow.Permissions !== undefined
               ? String(userRow.Permissions)
               : null,
-          // 欢迎首页等展示用：UB_ERP_User.truename（库列经 qb 读出为 AuditTruename）
+          // 欢迎首页等展示用：New_UB_ERP_User.truename（库列经 qb 读出为 AuditTruename）
           truename: String(userRow.AuditTruename ?? '').trim(),
         },
       },
@@ -1177,7 +1177,7 @@ app.post('/api/login', async (req, res) => {
       res.status(500).json({
         code: 500,
         msg:
-          '登录失败：数据库缺少 NEW_UB_ERP_System_role.Permissions 列。请在 SQL Server 执行迁移脚本 scripts/migrations/sqlserver_v1.0.7_rbac_phase1.txt 中第 7 段（ALTER TABLE添加 NVARCHAR(MAX)），然后重试。',
+          '登录失败：数据库缺少 New_UB_ERP_System_role.Permissions 列。请在 SQL Server 执行迁移脚本 scripts/migrations/sqlserver_v1.0.7_rbac_phase1.txt 中第 7 段（ALTER TABLE添加 NVARCHAR(MAX)），然后重试。',
         data: null,
       })
       return
@@ -1187,7 +1187,7 @@ app.post('/api/login', async (req, res) => {
 })
 
 /**
- * 查看单条操作员（v1.1.9：旧版 UB_ERP_User + del/pass 时 JOIN 人事/角色）
+ * 查看单条操作员（v1.1.9：旧版 New_UB_ERP_User + del/pass 时 JOIN 人事/角色）
  */
 app.get('/api/users/:id', async (req, res) => {
   try {
@@ -1299,9 +1299,9 @@ app.get('/api/users', async (req, res) => {
     const pool = await getPool()
     const meta = await getSysUsersColumnsMeta(pool)
 
-    // 旧系统 UB_ERP_User：uid/username/usercode 等，只读列表映射为前端字段
+    // 旧系统 New_UB_ERP_User：uid/username/usercode 等，只读列表映射为前端字段
     if (meta.legacyLayout) {
-      // v1.1.9：含 del+pass 时列表改为 Usercode→UB_ERP_Hr_staff.code、RoleID→NEW_UB_ERP_System_role，仅 ROW_NUMBER 分页
+      // v1.1.9：含 del+pass 时列表改为 Usercode→UB_ERP_Hr_staff.code、RoleID→New_UB_ERP_System_role，仅 ROW_NUMBER 分页
       if (isOperatorUsersV2(meta)) {
         try {
           const r = await queryOperatorUsersPage(pool, meta, {
@@ -1343,7 +1343,7 @@ app.get('/api/users', async (req, res) => {
       const kwCond = hasKeyword
         ? ` AND (u.${qUsercode} LIKE @key OR u.${qUsername} LIKE @key OR s.[name] LIKE @key)`
         : ''
-      const baseFrom = `FROM dbo.[UB_ERP_User] AS u
+      const baseFrom = `FROM dbo.[New_UB_ERP_User] AS u
         LEFT JOIN ${meta.hrStaffFrom} AS s ON s.[id] = u.${qUidForStaff}`
       const whereLegacy = `WHERE ${statusCond}${kwCond}`
       const orderExpr = meta.set.has('createdat')
@@ -1465,8 +1465,8 @@ app.get('/api/users', async (req, res) => {
 
     const totalResult = await totalRequest.query(`
       SELECT COUNT(1) AS total
-      FROM dbo.[UB_ERP_User] AS u
-      LEFT JOIN dbo.[NEW_UB_ERP_System_role] AS r ON u.RoleID = r.RoleID
+      FROM dbo.[New_UB_ERP_User] AS u
+      LEFT JOIN dbo.[New_UB_ERP_System_role] AS r ON u.RoleID = r.RoleID
       ${whereSql}
     `)
 
@@ -1517,8 +1517,8 @@ app.get('/api/users', async (req, res) => {
           u.CreatedAt,
           u.RoleID,
           r.RoleName AS RoleName
-        FROM dbo.[UB_ERP_User] AS u
-        LEFT JOIN dbo.[NEW_UB_ERP_System_role] AS r ON u.RoleID = r.RoleID
+        FROM dbo.[New_UB_ERP_User] AS u
+        LEFT JOIN dbo.[New_UB_ERP_System_role] AS r ON u.RoleID = r.RoleID
         ${whereSql}
         ORDER BY u.CreatedAt DESC
         OFFSET @offset ROWS
@@ -1575,8 +1575,8 @@ app.get('/api/users', async (req, res) => {
             u.RoleID,
             r.RoleName AS RoleName,
             ROW_NUMBER() OVER (ORDER BY u.CreatedAt DESC) AS rn
-          FROM dbo.[UB_ERP_User] AS u
-          LEFT JOIN dbo.[NEW_UB_ERP_System_role] AS r ON u.RoleID = r.RoleID
+          FROM dbo.[New_UB_ERP_User] AS u
+          LEFT JOIN dbo.[New_UB_ERP_System_role] AS r ON u.RoleID = r.RoleID
           ${whereSql}
         ) t
         WHERE t.rn BETWEEN @startRow AND @endRow
@@ -1648,7 +1648,7 @@ app.put('/api/users/resume', async (req, res) => {
 
     // 关键：把 Status 更新为 1，并返回更新后的关键字段
     const result = await request.query(`
-      UPDATE dbo.[UB_ERP_User]
+      UPDATE dbo.[New_UB_ERP_User]
       SET Status = @Status
       OUTPUT INSERTED.UserID, INSERTED.UserCode, INSERTED.UserName, INSERTED.Status, INSERTED.CreatedAt, INSERTED.RoleID
       WHERE UserID = @UserID
@@ -1666,7 +1666,7 @@ app.put('/api/users/resume', async (req, res) => {
       const rn = await pool
         .request()
         .input('RoleID', sql.Int, Number(updated.RoleID))
-        .query(`SELECT TOP (1) RoleName FROM dbo.[NEW_UB_ERP_System_role] WHERE RoleID = @RoleID`)
+        .query(`SELECT TOP (1) RoleName FROM dbo.[New_UB_ERP_System_role] WHERE RoleID = @RoleID`)
       roleName = rn.recordset?.[0]?.RoleName ?? null
     }
 
@@ -1742,7 +1742,7 @@ app.put('/api/users/change-password', async (req, res) => {
       SELECT TOP (1)
         ${acExpr} AS UserCode,
         ${pwExpr} AS Password
-      FROM dbo.[UB_ERP_User] AS u
+      FROM dbo.[New_UB_ERP_User] AS u
       WHERE ${acExpr} = @UserCode
     `)
 
@@ -1778,7 +1778,7 @@ app.put('/api/users/change-password', async (req, res) => {
     updateReq.input('NewPassword', sql.NVarChar(200), String(pwdResolved.stored))
 
     const updateResult = await updateReq.query(`
-      UPDATE dbo.[UB_ERP_User]
+      UPDATE dbo.[New_UB_ERP_User]
       SET ${pwColBare} = @NewPassword
       WHERE ${acColBare} = @UserCode
     `)
@@ -1840,7 +1840,7 @@ app.delete('/api/users/:id', async (req, res) => {
     checkReq.input('UserID', sql.Int, userId)
     const check = await checkReq.query(`
       SELECT TOP (1) UserID, Status
-      FROM dbo.[UB_ERP_User]
+      FROM dbo.[New_UB_ERP_User]
       WHERE UserID = @UserID
     `)
     const row = check.recordset?.[0]
@@ -1859,7 +1859,7 @@ app.delete('/api/users/:id', async (req, res) => {
     const delReq = pool.request()
     delReq.input('UserID', sql.Int, userId)
     const del = await delReq.query(`
-      DELETE FROM dbo.[UB_ERP_User]
+      DELETE FROM dbo.[New_UB_ERP_User]
       WHERE UserID = @UserID
     `)
 
@@ -1882,7 +1882,7 @@ app.delete('/api/users/:id', async (req, res) => {
  *
  * 需求：
  * - 接收：UserCode（工号）、UserName（姓名）、Password（密码）、RoleID（角色，v1.0.7）
- * - 写入：UB_ERP_User
+ * - 写入：New_UB_ERP_User
  * - 默认：Status = 1（启用），CreatedAt = 当前时间
  *
  * 安全说明（非常重要）：
@@ -1915,7 +1915,7 @@ app.post('/api/users', async (req, res) => {
 
     const { UserCode, UserName, Password, RoleID } = body
 
-    // 关键：旧版 UB_ERP_User 做最基础的后端校验，避免插入空数据
+    // 关键：旧版 New_UB_ERP_User 做最基础的后端校验，避免插入空数据
     if (!String(UserCode || '').trim()) {
       res.status(400).json({ code: 400, msg: 'UserCode 不能为空', data: null })
       return
@@ -1955,7 +1955,7 @@ app.post('/api/users', async (req, res) => {
     try {
       // 关键：插入数据，并通过 OUTPUT 返回插入后的关键字段
       result = await request.query(`
-        INSERT INTO dbo.[UB_ERP_User] (UserCode, UserName, Password, Status, CreatedAt, RoleID)
+        INSERT INTO dbo.[New_UB_ERP_User] (UserCode, UserName, Password, Status, CreatedAt, RoleID)
         OUTPUT INSERTED.UserID, INSERTED.UserCode, INSERTED.UserName, INSERTED.Status, INSERTED.CreatedAt, INSERTED.RoleID
         VALUES (@UserCode, @UserName, @Password, 1, GETDATE(), @RoleID)
       `)
@@ -2001,7 +2001,7 @@ app.post('/api/users', async (req, res) => {
       const rn = await pool
         .request()
         .input('RoleID', sql.Int, Number(created.RoleID))
-        .query(`SELECT TOP (1) RoleName FROM dbo.[NEW_UB_ERP_System_role] WHERE RoleID = @RoleID`)
+        .query(`SELECT TOP (1) RoleName FROM dbo.[New_UB_ERP_System_role] WHERE RoleID = @RoleID`)
       roleName = rn.recordset?.[0]?.RoleName ?? null
     }
 
@@ -2100,7 +2100,7 @@ app.put('/api/users', async (req, res) => {
 
       // 关键：更新并返回更新后的关键字段（方便前端确认改成功了）
       const result = await request.query(`
-        UPDATE dbo.[UB_ERP_User]
+        UPDATE dbo.[New_UB_ERP_User]
         SET Status = @Status
         OUTPUT INSERTED.UserID, INSERTED.UserCode, INSERTED.UserName, INSERTED.Status, INSERTED.CreatedAt, INSERTED.RoleID
         WHERE UserID = @UserID
@@ -2118,7 +2118,7 @@ app.put('/api/users', async (req, res) => {
         const rn = await pool
           .request()
           .input('RoleID', sql.Int, Number(updated.RoleID))
-          .query(`SELECT TOP (1) RoleName FROM dbo.[NEW_UB_ERP_System_role] WHERE RoleID = @RoleID`)
+          .query(`SELECT TOP (1) RoleName FROM dbo.[New_UB_ERP_System_role] WHERE RoleID = @RoleID`)
         roleName = rn.recordset?.[0]?.RoleName ?? null
       }
 
@@ -2169,7 +2169,7 @@ app.put('/api/users', async (req, res) => {
     // 关键：根据是否要改密码，拼两种 UPDATE（注意：仍然是参数化，不存在注入风险）
     const sqlText = shouldUpdatePassword
       ? `
-        UPDATE dbo.[UB_ERP_User]
+        UPDATE dbo.[New_UB_ERP_User]
         SET
           UserCode = @UserCode,
           UserName = @UserName,
@@ -2179,7 +2179,7 @@ app.put('/api/users', async (req, res) => {
         WHERE UserID = @UserID
       `
       : `
-        UPDATE dbo.[UB_ERP_User]
+        UPDATE dbo.[New_UB_ERP_User]
         SET
           UserCode = @UserCode,
           UserName = @UserName,
@@ -2203,7 +2203,7 @@ app.put('/api/users', async (req, res) => {
       const rn = await pool
         .request()
         .input('RoleID', sql.Int, Number(updated.RoleID))
-        .query(`SELECT TOP (1) RoleName FROM dbo.[NEW_UB_ERP_System_role] WHERE RoleID = @RoleID`)
+        .query(`SELECT TOP (1) RoleName FROM dbo.[New_UB_ERP_System_role] WHERE RoleID = @RoleID`)
       roleName = rn.recordset?.[0]?.RoleName ?? null
     }
 
@@ -2217,7 +2217,7 @@ app.put('/api/users', async (req, res) => {
 })
 
 /**
- * 获取 UB_ERP_User 列表
+ * 获取 New_UB_ERP_User 列表
  *
  * 重要说明（避免 SQL 注入）：
  * - 本接口不拼接用户输入到 SQL 字符串中
@@ -2228,9 +2228,9 @@ app.get('/api/sys-users', async (req, res) => {
     const pool = await getPool()
 
     // 说明：
-    // - 这里先用 SELECT * 简化展示（你已经创建了 UB_ERP_User 表）
+    // - 这里先用 SELECT * 简化展示（你已经创建了 New_UB_ERP_User 表）
     // - 生产建议明确列名，并按业务字段排序/分页
-    const result = await pool.request().query('SELECT * FROM dbo.[UB_ERP_User]')
+    const result = await pool.request().query('SELECT * FROM dbo.[New_UB_ERP_User]')
 
     res.json({
       ok: true,
@@ -2238,10 +2238,10 @@ app.get('/api/sys-users', async (req, res) => {
     })
   } catch (err) {
     // 详细错误只写到服务端日志，前端返回可读信息，避免泄露敏感连接信息
-    console.error('查询 UB_ERP_User 失败：', err)
+    console.error('查询 New_UB_ERP_User 失败：', err)
     res.status(500).json({
       ok: false,
-      message: '读取 UB_ERP_User 失败，请检查数据库连接配置与表是否存在。',
+      message: '读取 New_UB_ERP_User 失败，请检查数据库连接配置与表是否存在。',
       // 开发排错用：不建议在生产环境开启
       ...(String(process.env.DEBUG_API ?? 'false').toLowerCase() === 'true'
         ? {
@@ -3327,8 +3327,8 @@ async function fetchBomUnitChangeById(pool, idRaw) {
   return r.recordset?.[0] ?? null
 }
 
-/** 库存基本资料：材料分类（物理表 UB_ERP_Stocks_material；主键 id） */
-const BOM_MATERIAL_FROM = 'dbo.[UB_ERP_Stocks_material]'
+/** 库存基本资料：材料分类（物理表 New_UB_ERP_Stocks_material；主键 id） */
+const BOM_MATERIAL_FROM = 'dbo.[New_UB_ERP_Stocks_material]'
 
 /**
  * 按主键 id 读取材料分类一行（不区分在册/删除，供审核/删除校验）
@@ -4880,11 +4880,11 @@ app.put('/api/hr/staff/leave/:id', async (req, res) => {
       })
       return
     }
-    // 旧版 UB_ERP_User 可能无 is_active：跳过账号封禁，不拦截离职主流程
+    // 旧版 New_UB_ERP_User 可能无 is_active：跳过账号封禁，不拦截离职主流程
     if (!userColset.has('is_active') && !userMeta.legacyLayout) {
       res.status(400).json({
         code: 400,
-        msg: 'UB_ERP_User 表缺少 is_active 字段，请先执行迁移：npm run migrate:hr-staff-leave-fields',
+        msg: 'New_UB_ERP_User 表缺少 is_active 字段，请先执行迁移：npm run migrate:hr-staff-leave-fields',
         data: null,
       })
       return
@@ -4925,7 +4925,7 @@ app.put('/api/hr/staff/leave/:id', async (req, res) => {
           const qEntity = getSysUsersEntityPkQb(userMeta)
           const userCheck = await tx.request().input('sid', sql.Int, staffId).query(`
             SELECT TOP (1) u.${qEntity} AS UserID, u.${qUsercode} AS UserCode, u.${qUsername} AS UserName
-            FROM dbo.[UB_ERP_User] AS u
+            FROM dbo.[New_UB_ERP_User] AS u
             WHERE u.${qUid} = @sid
           `)
           userRow = userCheck.recordset?.[0]
@@ -4936,7 +4936,7 @@ app.put('/api/hr/staff/leave/:id', async (req, res) => {
           .input('v', sql.NVarChar(50), staffCode)
           .query(`
             SELECT TOP (1) u.UserID, u.UserCode, u.UserName
-            FROM dbo.[UB_ERP_User] AS u
+            FROM dbo.[New_UB_ERP_User] AS u
             WHERE u.UserCode = @v
             ORDER BY u.UserID DESC
           `)
@@ -4971,7 +4971,7 @@ app.put('/api/hr/staff/leave/:id', async (req, res) => {
           updUser = await tx.request().input('sid', sql.Int, staffId).query(`
             UPDATE u
             SET u.${qIsActive} = 0
-            FROM dbo.[UB_ERP_User] AS u
+            FROM dbo.[New_UB_ERP_User] AS u
             WHERE u.${qUid} = @sid
           `)
         } else {
@@ -4981,14 +4981,14 @@ app.put('/api/hr/staff/leave/:id', async (req, res) => {
             .query(`
               UPDATE u
               SET u.is_active = 0
-              FROM dbo.[UB_ERP_User] AS u
+              FROM dbo.[New_UB_ERP_User] AS u
               WHERE u.UserCode = @v
             `)
         }
         const affected = Number(updUser?.rowsAffected?.[0] ?? 0)
         if (affected <= 0) {
           await tx.rollback()
-          res.status(500).json({ code: 500, msg: '封禁账号失败：未更新到 UB_ERP_User 记录', data: null })
+          res.status(500).json({ code: 500, msg: '封禁账号失败：未更新到 New_UB_ERP_User 记录', data: null })
           return
         }
       }
@@ -9922,7 +9922,7 @@ app.delete('/api/inventory/unit-conversion/:id/permanent', async (req, res) => {
 })
 
 /**
- * 库存基本资料：材料分类分页列表（物理表 UB_ERP_Stocks_material；SQL Server 2008 R2：ROW_NUMBER）
+ * 库存基本资料：材料分类分页列表（物理表 New_UB_ERP_Stocks_material；SQL Server 2008 R2：ROW_NUMBER）
  * GET /api/inventory/material-category/list
  * - 在册：`del` 在册 + `pass`；回收站 `recycled=1` 仅 `del=1`；keyword 对 code/name/customs_code 参数化 LIKE
  * - 排序：`id DESC`

@@ -98,7 +98,7 @@ const SALES_ORDER_ACTIONS = [
       { tableName: 'UB_ERP_Bom_Sales_list', purpose: 'PI销售BOM配件表', detail: '作为一键运算的 BOM 树唯一来源。' },
       { tableName: 'UB_ERP_Bom_code', purpose: 'BOM分类编码表', detail: '读取整款、散件和隐藏结构前缀规则。' },
       { tableName: 'UB_ERP_Bom_000', purpose: 'BOM物料主档', detail: '补充物料快照及排序分类编码。' },
-      { tableName: 'UB_ERP_Stocks_material', purpose: '材料分类表', detail: '按材料分类补充物料单 px 排序。' },
+      { tableName: 'New_UB_ERP_Stocks_material', purpose: '材料分类表', detail: '按材料分类补充物料单 px 排序。' },
       { tableName: 'UB_ERP_Bom_pi_cost', purpose: 'PI物料明细结果表', detail: '判断已有运算结果；部分重算时用于重建整单汇总。' },
     ],
     writes: [

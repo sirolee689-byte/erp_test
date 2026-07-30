@@ -854,7 +854,7 @@
 
     <el-dialog v-model="cuttingIssueConfigDialog.visible" title="开料出库配置" width="720px" destroy-on-close>
       <p class="cutting-config-desc">
-        勾选纳入开料部（车间 04）生产领料批量添加的物料分类；对应物理表字段 <code>UB_ERP_Stocks_material.cutting_issue</code>。
+        勾选纳入开料部（车间 04）生产领料批量添加的物料分类；对应物理表字段 <code>New_UB_ERP_Stocks_material.cutting_issue</code>。
       </p>
       <el-alert
         v-if="cuttingIssueConfigDialog.errorMsg"

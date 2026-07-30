@@ -2,7 +2,7 @@
 
 ## 已完成功能
 
-- 列表：`GET /api/inventory/material-category/list`，物理表 **`UB_ERP_Stocks_material`**（旧表名 `Bom_material`）；`ROW_NUMBER()` 分页（SQL Server 2008 R2）；默认 **每页 20**、按 **`id` 降序**。
+- 列表：`GET /api/inventory/material-category/list`，物理表 **`New_UB_ERP_Stocks_material`**（旧表名 `Bom_material`）；`ROW_NUMBER()` 分页（SQL Server 2008 R2）；默认 **每页 20**、按 **`id` 降序**。
 - 搜索：关键字对 **`code` / `name` / `customs_code`** 参数化 `LIKE`（防注入）。
 - 默认视图：**`pass=1`（已审核）**；「显示未审核」查询 **`pass=0`**（与回收站互斥）。
 - 回收站：**`recycled=1`** 仅 **`del=1`**；支持同一关键字搜索；操作 **恢复**。
@@ -30,19 +30,19 @@
 ### Navicat：缺列补齐（列已存在则跳过该句）
 
 ```sql
-ALTER TABLE dbo.[UB_ERP_Stocks_material] ADD uid INT NULL;
-ALTER TABLE dbo.[UB_ERP_Stocks_material] ADD uname NVARCHAR(50) NULL;
-ALTER TABLE dbo.[UB_ERP_Stocks_material] ADD utruename NVARCHAR(50) NULL;
-ALTER TABLE dbo.[UB_ERP_Stocks_material] ADD addtime NVARCHAR(50) NULL;
-ALTER TABLE dbo.[UB_ERP_Stocks_material] ADD edittime NVARCHAR(50) NULL;
-ALTER TABLE dbo.[UB_ERP_Stocks_material] ADD deltime NVARCHAR(50) NULL;
+ALTER TABLE dbo.[New_UB_ERP_Stocks_material] ADD uid INT NULL;
+ALTER TABLE dbo.[New_UB_ERP_Stocks_material] ADD uname NVARCHAR(50) NULL;
+ALTER TABLE dbo.[New_UB_ERP_Stocks_material] ADD utruename NVARCHAR(50) NULL;
+ALTER TABLE dbo.[New_UB_ERP_Stocks_material] ADD addtime NVARCHAR(50) NULL;
+ALTER TABLE dbo.[New_UB_ERP_Stocks_material] ADD edittime NVARCHAR(50) NULL;
+ALTER TABLE dbo.[New_UB_ERP_Stocks_material] ADD deltime NVARCHAR(50) NULL;
 ```
 
 开料出库开关（2026-06-25，列已存在则跳过）：
 
 ```sql
 -- 见 scripts/migrations/sqlserver_stock_out_cutting_issue_flag.txt
-ALTER TABLE dbo.[UB_ERP_Stocks_material] ADD cutting_issue NVARCHAR(20) NULL;
+ALTER TABLE dbo.[New_UB_ERP_Stocks_material] ADD cutting_issue NVARCHAR(20) NULL;
 ```
 
 ## 权限（按钮级）

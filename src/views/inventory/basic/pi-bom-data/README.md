@@ -36,7 +36,7 @@
 - **PI_BOM树形交互（2026-07）**：原生表 + ▶/▼；默认只显示顶层；点三角或编码整支全开；工具条「展开全部 / 关闭全部」。销售订单「转向物料查询」弹窗内「PI-BOM树形」同步同口径。
 - **编辑**：`/inventory/basic/pi-bom-data-window?mode=edit&orderId=…&kcaa01=…`（挂 `PiBomEditorPanel`，2 标签：基础资料 + 配件明细）；基础资料点「保存主档」写入 `UB_ERP_Bom_Sales`；配件明细点「保存配件明细」写入 `UB_ERP_Bom_Sales_list`。
 - 编辑页配件行点 **编辑配件**：再开一层原生新页 `mode=parts-edit`（无侧栏）；下层页基础资料只读，配件明细可维护；继续下钻仍用「编辑配件」新页。进入编辑后，单位用量、损耗率、单价、备注默认可直接改，无需逐行点「编辑」。缺订单 ID 或编码时不跳转并中文提示。
-- `分类` 显示 `UB_ERP_Stocks_material.name`，通过销售订单明细快照 `kcaa05` 匹配 `UB_ERP_Stocks_material.code`（旧表名 `Bom_material`）。
+- `分类` 显示 `New_UB_ERP_Stocks_material.name`，通过销售订单明细快照 `kcaa05` 匹配 `New_UB_ERP_Stocks_material.code`（旧表名 `Bom_material`）。
 
 ## 数据来源
 
@@ -52,14 +52,14 @@
 | 客户款号 | `UB_ERP_Sales_order_list.kcaa06` |
 | 组别 | `UB_ERP_Sales_order_list.kcaa10` |
 | 单位 | `UB_ERP_Sales_order_list.kcaa04` |
-| 分类 | `UB_ERP_Stocks_material.name` |
+| 分类 | `New_UB_ERP_Stocks_material.name` |
 | 工厂款号 | `UB_ERP_Sales_order_list.kcaa09` |
 
 ## 查看详情数据来源
 
 | 标签页 | 来源 |
 |---|---|
-| 基础资料 | `UB_ERP_Bom_Sales`，按 `sid = PI号`、`kcaa01 = 编码` 查询；LEFT JOIN `UB_ERP_Stocks_material`（分类名）、`UB_ERP_Stocks_colorcode`（颜色名）、`UB_ERP_Stocks_workshop`（车间）、`UB_ERP_System_supplier`（供应商名称）；前端用 `BomBasicForm` 只读展示（与 BOM 查看详情一致） |
+| 基础资料 | `UB_ERP_Bom_Sales`，按 `sid = PI号`、`kcaa01 = 编码` 查询；LEFT JOIN `New_UB_ERP_Stocks_material`（分类名）、`UB_ERP_Stocks_colorcode`（颜色名）、`UB_ERP_Stocks_workshop`（车间）、`UB_ERP_System_supplier`（供应商名称）；前端用 `BomBasicForm` 只读展示（与 BOM 查看详情一致） |
 | 配件明细 | `UB_ERP_Bom_Sales_list`，按 `sid = PI号`、`KCAC01 = 基础资料.systemcode` 查询当前成品直接子件 |
 | PI_BOM树形 | `UB_ERP_Bom_Sales_list`，按 `kcac01` 父级键与 `systemcode/kcac02` 子级键展开；前端原生三角树（默认顶层，整支展开） |
 | 成本BOM用量表 | `UB_ERP_Bom_pi_cost`，按 `sid = PI号`、`pq = 编码` 查询已运算行 |

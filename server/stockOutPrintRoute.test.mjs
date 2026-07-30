@@ -28,10 +28,10 @@ function createPool() {
           return this
         },
         async query(sqlText) {
-          if (/INFORMATION_SCHEMA\.COLUMNS/i.test(sqlText) && /UB_ERP_User/i.test(sqlText)) {
+          if (/INFORMATION_SCHEMA\.COLUMNS/i.test(sqlText) && /New_UB_ERP_User/i.test(sqlText)) {
             return { recordset: [{ n: 'UserID' }, { n: 'usercode' }, { n: 'username' }, { n: 'truename' }] }
           }
-          if (/FROM dbo\.\[UB_ERP_User\]/i.test(sqlText)) {
+          if (/FROM dbo\.\[New_UB_ERP_User\]/i.test(sqlText)) {
             return { recordset: [{ userId: 7, userName: 'stockout01', truename: '出库制表员' }] }
           }
           if (/UB_ERP_System_Head/i.test(sqlText)) return { recordset: [{ logo: '' }] }
@@ -46,7 +46,7 @@ function createPool() {
 }
 
 describe('stock-out print route', () => {
-  test('resolves UB_ERP_User.truename for makerName when the token has no true name', async () => {
+  test('resolves New_UB_ERP_User.truename for makerName when the token has no true name', async () => {
     invalidateSysUsersColumnsMeta()
     const routes = {}
     const app = {

@@ -4,7 +4,7 @@ import { likeTextExpr, safeDecimalExpr } from './buyOrderSqlSafe.js'
 const HEADER_FROM = 'dbo.[UB_ERP_Sales_order]'
 const LINE_FROM = 'dbo.[UB_ERP_Sales_order_list]'
 const BOM_CODE_FROM = 'dbo.[UB_ERP_Bom_code]'
-const MATERIAL_FROM = 'dbo.[UB_ERP_Stocks_material]'
+const MATERIAL_FROM = 'dbo.[New_UB_ERP_Stocks_material]'
 const CURRENCY_FROM = 'dbo.[UB_ERP_Finance_currency]'
 const PAGE_SIZES = new Set([10, 25, 50, 100, 200, 300, 500])
 

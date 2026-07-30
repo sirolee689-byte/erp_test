@@ -72,7 +72,7 @@ function parsePageParams(query = {}, { defaultPageSize = 10, maxPageSize = ERP_M
 async function getActor(pool, req) {
   const triplet = await getActorAuditTripletFromReq(pool, req)
   const base = { ...(req.user ?? req.session?.user ?? {}), ...triplet }
-  // 彻底删除等门禁读 UB_ERP_User.is_admin；登录令牌未必带该字段，按主键实时查库
+  // 彻底删除等门禁读 New_UB_ERP_User.is_admin；登录令牌未必带该字段，按主键实时查库
   const uid = triplet.uidInt ?? base.userId ?? base.UserID
   const isAdmin = await resolveSysUserIsAdminByUserId(pool, uid)
   return { ...base, is_admin: isAdmin ? 1 : 0, isAdmin }

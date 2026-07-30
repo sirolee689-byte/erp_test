@@ -253,7 +253,7 @@ describe('buyOrderBatchAdd', () => {
     assert.match(sqlText, /UB_ERP_Buy_offer_list/)
     assert.match(sqlText, /UB_ERP_Buy_order_list/)
     assert.match(sqlText, /UB_ERP_Stocks_Storage_list/)
-    assert.match(sqlText, /UB_ERP_Stocks_material/)
+    assert.match(sqlText, /New_UB_ERP_Stocks_material/)
     assert.match(sqlText, /UB_ERP_Finance_currency/)
     assert.match(sqlText, /AS \[categoryName\]/)
     assert.match(sqlText, /AS \[quoteCurrencyName\]/)

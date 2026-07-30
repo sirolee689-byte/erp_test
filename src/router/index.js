@@ -347,7 +347,7 @@ router.beforeEach((to) => {
     return true
   }
 
-  // v1.0.7：已登录访问具体页时，用 NEW_UB_ERP_System_role.Permissions 与目标 path 比对
+  // v1.0.7：已登录访问具体页时，用 New_UB_ERP_System_role.Permissions 与目标 path 比对
   const model = getPermissionModelFromStorage()
   const permissionPath = to.meta?.permissionPath || to.path
   if (!isRouteAllowed(permissionPath, model)) {

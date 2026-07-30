@@ -100,14 +100,14 @@ export function buildFilesizeSearchSqlFragment(keyword) {
 }
 
 /**
- * 上传者展示：优先 UB_ERP_User.truename（按 f.uid 关联），无匹配时回退 f.truename
+ * 上传者展示：优先 New_UB_ERP_User.truename（按 f.uid 关联），无匹配时回退 f.truename
  * @param {import('./sysUsersDb.js').SysUsersColumnsMeta} userMeta
  */
 export function buildPaperPatternUploaderSql(userMeta) {
   const qPk = getSysUsersEntityPkQb(userMeta)
   const qTruename = userMeta.qb('truename')
   const joinSql = qPk
-    ? `LEFT JOIN dbo.[UB_ERP_User] AS su ON LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(f.uid, N'')))) <> N''
+    ? `LEFT JOIN dbo.[New_UB_ERP_User] AS su ON LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(f.uid, N'')))) <> N''
         AND LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(f.uid, N'')))) = LTRIM(RTRIM(CONVERT(nvarchar(50), ISNULL(su.${qPk}, N''))))`
     : ''
   const suTruenameExpr = qTruename

@@ -1,5 +1,5 @@
 /**
- * 开料出库配置：UB_ERP_Stocks_material.cutting_issue
+ * 开料出库配置：New_UB_ERP_Stocks_material.cutting_issue
  * 用法：node scripts/run-migration-sqlserver_stock_out_cutting_issue_flag.mjs
  */
 import dotenv from 'dotenv'
@@ -31,12 +31,12 @@ async function main() {
     const check = await pool.request().query(`
       SELECT COLUMN_NAME, DATA_TYPE
       FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_NAME = N'UB_ERP_Stocks_material' AND COLUMN_NAME = N'cutting_issue'
+      WHERE TABLE_NAME = N'New_UB_ERP_Stocks_material' AND COLUMN_NAME = N'cutting_issue'
     `)
     console.log('列核对：', check.recordset)
     const cnt = await pool.request().query(`
       SELECT COUNT(*) AS n
-      FROM dbo.[UB_ERP_Stocks_material]
+      FROM dbo.[New_UB_ERP_Stocks_material]
       WHERE LTRIM(RTRIM(ISNULL(CONVERT(nvarchar(20), cutting_issue), N'0'))) = N'1'
     `)
     console.log('cutting_issue=1 分类数：', cnt.recordset?.[0]?.n)

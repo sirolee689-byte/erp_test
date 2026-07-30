@@ -5,7 +5,7 @@
 ## 1. 环境要求
 
 - 便携 Node：`E:\ERP_TEST\.tools\node\`（系统 PATH 无 Node 时用这个）
-- SQL Server 已就绪；`.env` 中 `DB_DATABASE` 须含 `NEW_UB_ERP_System_role`（当前为 `UB_ERP_V2.0`）
+- SQL Server 已就绪；`.env` 中 `DB_DATABASE` 须含 `New_UB_ERP_System_role`（当前为 `UB_ERP_V2.0`）
 - 本机 **29** 端口：须先停 IIS 站点 **Ministock**（与 ERP 二选一）
 
 ## 2. 首次 / 重新部署

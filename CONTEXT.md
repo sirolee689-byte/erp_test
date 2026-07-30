@@ -26,7 +26,7 @@
 
 ### 超级管理员与物理删除（全局规则）
 
-- `UB_ERP_User.is_admin=1` 是唯一的超级管理员判断依据；角色的 `Permissions` 只决定菜单和普通操作权限。
+- `New_UB_ERP_User.is_admin=1` 是唯一的超级管理员判断依据；角色的 `Permissions` 只决定菜单和普通操作权限。
 - 回收站中的物理删除（现有 `/permanent`、`/hard`、`/hard-delete` 及宿舍入住申请删除接口）必须由服务端按当前登录用户主键实时查询 `is_admin=1` 后执行；角色拥有 `delete` 不代表可以物理删除。
 - 前端只用登录时保存的 `is_admin` 隐藏“彻底删除”按钮，不能替代后端门禁；变更身份后需重新登录。
 
@@ -36,12 +36,12 @@
 
 ### 审计字段（业务表：UB_ERP_Bom_000、UB_ERP_Bom_parts、颜色编码等）
 
-记录**本条业务数据**的录入/修改人，与 `UB_ERP_User` 上「创建人」列不是同一套语义。
+记录**本条业务数据**的录入/修改人，与 `New_UB_ERP_User` 上「创建人」列不是同一套语义。
 
-| 字段 | 说明 | 与 UB_ERP_User 的对应 |
+| 字段 | 说明 | 与 New_UB_ERP_User 的对应 |
 |---|---|---|
 | uid | 当前操作人 ID | `UserID` |
-| uname | 当前操作人**登录账号列** | `UserName`（物理列常为 `username`；**不是** `usercode`、**不是** `UB_ERP_User.uname` 创建人列） |
+| uname | 当前操作人**登录账号列** | `UserName`（物理列常为 `username`；**不是** `usercode`、**不是** `New_UB_ERP_User.uname` 创建人列） |
 | utruename | 当前操作人**真实姓名** | `truename`（按当前登录 `usercode` 查库；禁止用工牌显示名 / 令牌 `userName`） |
 | addtime | 录入时间（nvarchar 业务时间串） | — |
 | edittime | 修改时间 | — |
@@ -50,7 +50,7 @@
 **修改人（仅部分主档 UPDATE）**：`UB_ERP_Bom_000.uptruename` = 保存时当前操作人的 **`truename`**（同样按登录 **`usercode`** 查库）。
 
 > 实现：`server/businessAuditFields.js` 的 `getActorAuditTripletFromReq`（令牌）与 `resolveActorAuditTripletFromReq`（按 `usercode` 查库覆盖）。登录令牌另存 `auditUserName` / `auditTruename`，界面显示名仍用 `userName`（可含人事 `StaffDisplayName`）。
-> 经典易错点：勿把 **`usercode`** 写入业务表 `uname`；勿把 **`UB_ERP_User.uname`**（创建人姓名）当成当前操作人；`utruename` 必须落 **`truename`**。
+> 经典易错点：勿把 **`usercode`** 写入业务表 `uname`；勿把 **`New_UB_ERP_User.uname`**（创建人姓名）当成当前操作人；`utruename` 必须落 **`truename`**。
 
 ### 操作日志（全系统，已定）
 
@@ -72,7 +72,7 @@
 
 各模块 `act_name` / `act_info` 具体文案允许按业务逐条调整；外协订单定稿见下文「操作日志（外协订单文案，已定）」。
 
-### 操作员表 UB_ERP_User（列名勿与业务表审计列混用）
+### 操作员表 New_UB_ERP_User（列名勿与业务表审计列混用）
 
 | 列 / 概念 | 说明 |
 |---|---|
@@ -89,19 +89,19 @@
 | pass | '1' | 已审核（锁定，禁止编辑删除）|
 | del | '0' | 正常在册 |
 | del | '1' | 已逻辑删除 |
-| UB_ERP_User.del | '0'或空 | 账号启用，可登录 |
-| UB_ERP_User.del | '1' | 账号禁用，不可登录 |
+| New_UB_ERP_User.del | '0'或空 | 账号启用，可登录 |
+| New_UB_ERP_User.del | '1' | 账号禁用，不可登录 |
 
 > 前后端传递审核状态统一使用 pass 作为键名，禁止用 status 或 isAudited。
 
-### 操作员（UB_ERP_User）
+### 操作员（New_UB_ERP_User）
 
 | 概念 | 说明 |
 |---|---|
 | **新增操作员** | 管理员只填登录账号、姓名、角色；**不在表单录入初始密码** |
 | **初始密码** | 系统固定为 `123`，**一律 bcrypt** 写入 `password`；列宽不足时 API **自动扩列**至 `NVARCHAR(200)`（亦可用 `docs/sql/sys_users_password_widen.sql`）；**不限制**用户设置的多长明文密码；`is_first_login=1` 表示须首次登录改密 |
 | **列表** | 在册默认 `del=0` 且 `pass=1`；可开关查 `pass=0`；禁用为 `del=1`，默认列表不显示 |
-| **登录账号** | 对应 **`UB_ERP_User.usercode`**，全表唯一；冲突提示「登录账号「xxx」已存在，请更换」；保存时与 `username` 同步 |
+| **登录账号** | 对应 **`New_UB_ERP_User.usercode`**，全表唯一；冲突提示「登录账号「xxx」已存在，请更换」；保存时与 `username` 同步 |
 | **编辑操作员** | **本模块已审核（pass=1）仍可编辑**（例外于全局已审锁）；密码框留空表示不修改密码 |
 
 ---
@@ -273,7 +273,7 @@
 
 | 列 | 用途 |
 |---|---|
-| `truename` | 登记快照；列表「上传者」展示优先 `UB_ERP_User.truename`（按 `uid` 关联，无匹配时回退本列） |
+| `truename` | 登记快照；列表「上传者」展示优先 `New_UB_ERP_User.truename`（按 `uid` 关联，无匹配时回退本列） |
 | `addtime` | 上传时间 `nvarchar`（展示/搜索） |
 | `truefilename` | 用户上传原始文件名（展示/搜索） |
 | `filename` | 服务器存储文件名（下载候选） |
@@ -417,7 +417,7 @@
 **pi_cost 落库规则**：销售订单一键运算使用 BOM 资料**一键运算（旧）**的 `flattenBomPartsCostUsageFlatForLegacyBomCost`：`CUT-` 中间层参与路径逐层乘算；其余隐藏前缀、跳过成品根行、**平铺不合并**规则不变。**不再**按 `UB_ERP_Bom_Sales_list.id` 二次去重。隐藏前缀里普通 `RP-` 材料必须写入，仅 `RP-PQ` 结构行不写入。PI BOM 须先 **同步 BOM**（按旧系统口径重建 list：查到几条写几条，过滤 `UB_ERP_Bom_code.flag5 + '-'` 结构行但保留 `CUT-` 和 `RP-`，其中 `RP-PQ` 仍过滤），否则脏数据会导致 `pi_cost` 行数与 BOM 旧运算结果不一致。实现：`server/salesOrderCalculateService.js`。
 **pi_cost 专用字段**（不改用量行数）：`top_kcaa01/02` = PI BOM **第一层**（成品头直下）且命中 **UB_ERP_Bom_code** `flag5`（排除 id=3 OUT、id=12 CUT）的节点作为子树锚点，其下全部子件（含裁片下 `RP-*` 等材料）**继承**该锚点；**深层**命中 `flag5` 不新建锚点（避免 `RP-0030/-` 误写自身）。**散件单**（直接 BOM、非整款 BAG/TAG 子树）第一层即散件本身时，`top_kcaa01` 可为自身。`t_kcaa01/02` = 直接父编码/名称（父即锚点时留空）；`t_kcaa03~11/14/15/25~27` = 直接父行 `UB_ERP_Bom_Sales_list` 同名 `kcaa*`（树父节点复制，与 pi_cost 自身 `kcaa*` 子件字段分开）；`temp` = 该款销售明细 `UB_ERP_Sales_order_list.xsak03`（同 `pq` 下各行相同）；`isok=1`、`pass='1'`、`kcac07=0`、`kcac08=kcac06+kcac07`、`kcaa07/08=0`。`UB_ERP_Bom_cost.top_kcaa01` 仍为直接父，**勿混用**。
 **入口与审核**：销售订单 **一键运算** 只放在销售订单列表第一列「操作」中（含纯散件单）；查看弹窗与编辑页不再放运算入口。已审核与未审核订单都可以执行；回收站订单不可操作。
-**PX 规则**：销售订单一键运算写 `UB_ERP_Bom_pi_cost.px`，规则照 BOM 资料：子件 `kcaa01` 精确匹配 `UB_ERP_Bom_000.kcaa01` 取 `kcaa05`，再匹配 `UB_ERP_Stocks_material.code`（旧表名 `Bom_material`）取 `px`；找不到则 `px` 留空。
+**PX 规则**：销售订单一键运算写 `UB_ERP_Bom_pi_cost.px`，规则照 BOM 资料：子件 `kcaa01` 精确匹配 `UB_ERP_Bom_000.kcaa01` 取 `kcaa05`，再匹配 `New_UB_ERP_Stocks_material.code`（旧表名 `Bom_material`）取 `px`；找不到则 `px` 留空。
 
 **物料单查看入口**：销售订单仍负责点击「一键运算」生成物料单；生成后的结果统一在 **生产管理 → 统计分析 → 物料单** 查看，页面分为 **物料单统计表（明细）** 与 **物料单统计表（汇总）**。销售订单详情/编辑页不再内嵌物料单 Tab。
 
@@ -498,7 +498,7 @@
 
 ### 操作人与审计（已定）
 
-与第三节「审计字段」及采购报价一致（**禁止**把 `UB_ERP_User.uname` 当作当前登录账号）：
+与第三节「审计字段」及采购报价一致（**禁止**把 `New_UB_ERP_User.uname` 当作当前登录账号）：
 
 | 时机 | 写入（列存在则落库） |
 |---|---|
@@ -872,7 +872,7 @@
 - 入库单回收站只处理已软删除的待审核单据。
 - 入库单第一版提供财务复核入口：须已审核（`pass=1`）方可复核；复核将 `sp_flag` 置 `1` 并锁定单据（禁止编辑、反审核、删除）；新建默认 `sp_flag=0`。
 - 入库单第一版要提供批量添加明细：按采购单、外协单、派工单、销售订单等关联单据带出可入库明细；批量添加只读取上游单据，不反写上游已入库数量。
-- **采购入库批量添加（已定稿 2026-06-22）**：打开独立新窗口；数据来自 `UB_ERP_Buy_order_list` 联主表；数量池按采购明细 `kcak02`（BOM `systemcode`）共享；需入数量扣除已审/未审入库并加回退货；可超量上限按物料分类 `UB_ERP_Stocks_material.stocks_in` 浮动率计算，结果 `max(0, …)`；编辑时汇总排除当前入库单；`UB_ERP_User.is_admin=1` 可在界面强制选择已满行；保存校验入库数量不得超过 `kcao031` 或需入数量。本期不做超订量表 `UB_ERP_Buy_order_stocks_max`；供应商特殊豁免（如 PQD 7001）不硬编码，留「超量入库配置」下期实现。
+- **采购入库批量添加（已定稿 2026-06-22）**：打开独立新窗口；数据来自 `UB_ERP_Buy_order_list` 联主表；数量池按采购明细 `kcak02`（BOM `systemcode`）共享；需入数量扣除已审/未审入库并加回退货；可超量上限按物料分类 `New_UB_ERP_Stocks_material.stocks_in` 浮动率计算，结果 `max(0, …)`；编辑时汇总排除当前入库单；`New_UB_ERP_User.is_admin=1` 可在界面强制选择已满行；保存校验入库数量不得超过 `kcao031` 或需入数量。本期不做超订量表 `UB_ERP_Buy_order_stocks_max`；供应商特殊豁免（如 PQD 7001）不硬编码，留「超量入库配置」下期实现。
 - **外协退料批量添加（已定稿 2026-06-22）**：独立新窗口、两层表；明细来自外协成品下 **BOM 配件**（`UB_ERP_Bom_parts` 展开），不是外协订单明细行；带回 `kcao03=0`、`kcao031=100000`；配件单价用 `UB_ERP_Finance_currency.bom_rate`（非 `rate`）；已选去重 `systemcode + 成品 kcaa01`（`pm`，仅前端）；**`Customer_supply` 落库为整型**，批量添加界面用 `customerSupplyLabel` 显示是/否。
 - **生产入库批量添加（已定稿 2026-06-22，2026-06-23 补强）**：独立新窗口；数据来自 `UB_ERP_Dispatch_order_list` 联主表；打开前列表前先校验主表（未删除、已审核、未结案、`scaj05` 与车间一致；`dispatchSystemcode` 有值才校验 `systemcode`）；校验失败子窗口报错关窗；数量池按派工明细 `scak02`；可入数量 `tempx` 扣除已审/未审生产入库，**不扣返工出库**，**允许显示负数**；可超量上限 `max(0, tempx+浮动率)`；关联键 `kcan04=派工单号`、`kcao02=scak02`；带回单价/金额/税点均为 0；选择仅看 `tempx>0`，无管理员豁免；保存校验不得超过 `kcao031`。
 - **生产退料（已定稿 2026-06-22，**2026-06-22 重定稿：改关联生产领料出库单**）**：新单据不再以派工单为关联来源，而以**生产领料类出库单**为来源（出库类型 `kcap03` ∈ `4` 生产领料、`7` 生产领料（计划外）、`8` 生产领料（补数））；基础资料【选择】弹窗展示**出库单头 + 出库单明细**；无对应领料出库单则**不能**做生产退料，用户改选其他入库类型；可退数量上限**仅按出库单行**（该行已出量减已对该行退料量），不与派工明细池取 min；历史旧单 `kcan04` 仍按派工单展示，不做迁移。实现待开发；此前「关联派工单」口径见 ADR-0002「被取代」说明。
@@ -933,7 +933,7 @@
 - 已审核出库单不能直接删除，必须先反审核回待审核后才能删除。
 - 出库单回收站只处理已软删除的待审核单据。
 - 出库单权限动作沿用新系统模型：`view` 控制列表、详情和打印，`add` 控制新增，`edit` 控制待审核单据编辑，`audit` 控制审核和反审核，`delete` 控制软删除和恢复，`price` 控制价格字段，`export` 预留给后续真实导出。
-- 出库单彻底删除仅超级管理员可操作，不仅靠 `delete` 权限开放；服务端按 `UB_ERP_User.is_admin=1` **实时查库**判定（与入库单一致），不依赖登录令牌是否带 `is_admin`。
+- 出库单彻底删除仅超级管理员可操作，不仅靠 `delete` 权限开放；服务端按 `New_UB_ERP_User.is_admin=1` **实时查库**判定（与入库单一致），不依赖登录令牌是否带 `is_admin`。
 - 出库单明细必须从库存或对应来源单据选择，不允许手工随便录入无来源物料；用户只能修改允许编辑的数量、价格、备注等字段。
 - 其他出库和盘亏出库必须从当前仓库有可用库存的物料中选择；采购退货、外协领料、外协退货、生产领料、生产返修、成品出库的明细必须来自对应关联来源。
 - 出库单保存时服务端必须重新校验来源和库存可用数量，不能只依赖前端批量添加页面限制。

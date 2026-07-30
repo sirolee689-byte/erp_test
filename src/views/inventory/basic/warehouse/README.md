@@ -11,7 +11,7 @@
 - 审核 / 反审：`PUT .../audit`、`PUT .../unaudit`（body `{ systemcode }`）；写 `pass` + `passuid`/`passuname`。
 - 批量审核：`PUT .../audit-batch`，将全部 `del=0 AND pass=0` 一次审为 `pass=1`；二次确认并提示处理数量。
 - 逻辑删除 / 恢复：`DELETE .../:systemcode`（已审禁止）、`PUT .../restore`；不做彻底删除、不做打印、**不做 Excel 导入**。
-- 参管人员：`GET .../user-options`（`UB_ERP_User`：`del=0` `pass=1`）；保存 `ename`（`Usercode` 分号串）+ `etname`；列表批量解析姓名，禁止 N+1。
+- 参管人员：`GET .../user-options`（`New_UB_ERP_User`：`del=0` `pass=1`）；保存 `ename`（`Usercode` 分号串）+ `etname`；列表批量解析姓名，禁止 N+1。
 - **出入库联动（2026-07）**：`ename` 同时作为入库单/出库单「仓库」下拉与保存权限依据——只有参管名单里的账号能看见并选用该仓；**空参管仓对任何人都不可选**；逻辑在 `server/warehouseManagerAccess.js`，候选接口与保存共用。
 - 导出：前端 ExcelJS 导出**当前页列表**（权限 `export`）。
 - 操作日志：新增、修改、审核、反审、批量审核、删除、恢复登记为中央白名单，经 `operationAuditMiddleware` 写入 `UB_Date_ERP_Operation_log`。

@@ -11,7 +11,7 @@ import { getActorAuditTripletFromReq } from './businessAuditFields.js'
 import { getRequestIp } from './operationAuditMiddleware.js'
 
 const WH_FROM = 'dbo.[UB_ERP_Stocks_warehouse]'
-const USER_FROM = 'dbo.[UB_ERP_User]'
+const USER_FROM = 'dbo.[New_UB_ERP_User]'
 const AUDIT_LOCK_MSG = '该记录已审核锁定，请反审后再操作'
 
 function escapeSqlLikePattern(s) {

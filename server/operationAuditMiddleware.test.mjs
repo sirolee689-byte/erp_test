@@ -195,7 +195,7 @@ describe('operationAuditMiddleware hybrid policy', () => {
     )
   })
 
-  test('central log writes UB_ERP_User.truename into the audit utruename field', async () => {
+  test('central log writes New_UB_ERP_User.truename into the audit utruename field', async () => {
     const calls = await runAuditMiddleware({
       method: 'POST',
       path: '/api/inventory/color-code',

@@ -60,7 +60,7 @@
 - **字段（需迁移）**：
   - `UB_ERP_Hr_staff.status`：`nvarchar(20)`，默认 `在职`；离职后为 `离职`
   - `UB_ERP_Hr_staff.leave_date`：`datetime`，离职时写入当前时间
-  - `UB_ERP_User.is_active`：`int`，默认 `1`；离职时置 `0`（账号封禁）
+  - `New_UB_ERP_User.is_active`：`int`，默认 `1`；离职时置 `0`（账号封禁）
 - **迁移脚本**：
   - SQL：`docs/sql/sqlserver_v1.1.2_hr_staff_leave_fields.txt`
   - 命令：`npm run migrate:hr-staff-leave-fields`

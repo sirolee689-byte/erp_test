@@ -1313,7 +1313,7 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'inventory/basic/unit-conversion', action: 'delete' }
   }
 
-  /* 材料分类 UB_ERP_Stocks_material（须先于其它 inventory 泛化规则） */
+  /* 材料分类 New_UB_ERP_Stocks_material（须先于其它 inventory 泛化规则） */
   if (m === 'GET' && path === '/api/inventory/material-category/list') {
     return {
       anyOf: [

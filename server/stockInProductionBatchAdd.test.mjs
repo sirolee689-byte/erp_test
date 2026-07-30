@@ -49,14 +49,14 @@ function fakePool(headerRow, options = {}) {
             }
             return { recordset: [] }
           }
-          if (/INFORMATION_SCHEMA\.COLUMNS/i.test(sqlText) && /UB_ERP_Stocks_material/i.test(sqlText)) {
+          if (/INFORMATION_SCHEMA\.COLUMNS/i.test(sqlText) && /New_UB_ERP_Stocks_material/i.test(sqlText)) {
             return { recordset: [{ col: 'cutting_issue' }] }
           }
           if (/UB_ERP_Dispatch_order/i.test(sqlText) && /TOP 1/i.test(sqlText)) {
             if (options.headerMissing) return { recordset: [] }
             return { recordset: [header] }
           }
-          if (/UB_ERP_Stocks_material/i.test(sqlText) && /cutting_issue/i.test(sqlText)) {
+          if (/New_UB_ERP_Stocks_material/i.test(sqlText) && /cutting_issue/i.test(sqlText)) {
             return { recordset: [{ code: 'CAT01' }] }
           }
           if (/UB_ERP_Dispatch_order_list/i.test(sqlText) && /scak02/i.test(sqlText) && !/WITH base AS/i.test(sqlText) && !/COUNT\(1\)/i.test(sqlText)) {

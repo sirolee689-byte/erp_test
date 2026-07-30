@@ -74,10 +74,10 @@
       />
 
       <!--
-        UB_ERP_User 数据表展示（Element Plus 表格）
+        New_UB_ERP_User 数据表展示（Element Plus 表格）
         说明：
         - 后端接口：GET /api/users
-        - 后端从 SQL Server 的 UB_ERP_User 表查询数据（server/index.js）
+        - 后端从 SQL Server 的 New_UB_ERP_User 表查询数据（server/index.js）
         - 前端通过 axios 请求 /api/users（Vite 会把 /api 代理到本地后端端口）
         - 接口统一返回：{ code: 200, msg: 'success', list: [...], total: 123 }
       -->
@@ -212,7 +212,7 @@
       数据流说明（从网页到数据库）：
       1) 用户点“新增/编辑”，前端把（空数据/旧数据）放入 createForm（这一步就叫“回显”）
       2) 用户点“确定”，前端把表单数据通过 axios 发给后端
-      3) 后端根据接口（POST=新增 / PUT=编辑）写入 SQL Server 的 UB_ERP_User 表
+      3) 后端根据接口（POST=新增 / PUT=编辑）写入 SQL Server 的 New_UB_ERP_User 表
       4) 保存成功后：关闭弹窗 + 刷新表格 + 弹提示
     -->
     <el-dialog
@@ -228,17 +228,17 @@
         label-width="90px"
         status-icon
       >
-        <!-- 登录账号：UB_ERP_User.username → 接口字段 Username -->
+        <!-- 登录账号：New_UB_ERP_User.username → 接口字段 Username -->
         <el-form-item label="登录账号" prop="UserName">
           <el-input v-model="createForm.UserName" placeholder="用于登录的账号" clearable />
         </el-form-item>
 
-        <!-- 姓名：UB_ERP_User.truename -->
+        <!-- 姓名：New_UB_ERP_User.truename -->
         <el-form-item label="姓名" prop="Truename">
           <el-input v-model="createForm.Truename" placeholder="真实姓名（truename）" clearable />
         </el-form-item>
 
-        <!-- v1.0.7：角色（RoleID 写入 UB_ERP_User，对应 NEW_UB_ERP_System_role） -->
+        <!-- v1.0.7：角色（RoleID 写入 New_UB_ERP_User，对应 New_UB_ERP_System_role） -->
         <el-form-item label="角色" prop="RoleID">
           <el-select v-model="createForm.RoleID" placeholder="请选择角色" style="width: 100%" clearable>
             <el-option
@@ -332,7 +332,7 @@ const { onErpListRowContextMenu } = useErpListRowContextMenu()
 
 /**
  * 页面状态
- * - users：表格数据（来自 UB_ERP_User）
+ * - users：表格数据（来自 New_UB_ERP_User）
  * - loading：加载状态
  * - errorMessage：错误提示（用于页面内展示）
  */
@@ -422,11 +422,11 @@ const createForm = ref({
   UserID: undefined,
   UserCode: '',
   UserName: '',
-  /** 姓名：对应库 UB_ERP_User.truename */
+  /** 姓名：对应库 New_UB_ERP_User.truename */
   Truename: '',
   Password: '',
   is_admin: 0,
-  // v1.0.7：外键 RoleID → NEW_UB_ERP_System_role
+  // v1.0.7：外键 RoleID → New_UB_ERP_System_role
   RoleID: undefined,
 })
 
@@ -534,7 +534,7 @@ function defaultRoleIdForCreate() {
 }
 
 /**
- * 加载角色列表（与 NEW_UB_ERP_System_role 同步）
+ * 加载角色列表（与 New_UB_ERP_System_role 同步）
  */
 async function loadRoles() {
   try {
@@ -554,12 +554,12 @@ async function loadRoles() {
 }
 
 /**
- * 从后端读取 UB_ERP_User
+ * 从后端读取 New_UB_ERP_User
  * 数据流说明（从数据库到网页）：
  * 1) 浏览器加载本页面后触发 onMounted
  * 2) loadUsers 使用 axios 请求 GET /api/users
  * 3) Vite 开发服务器将 /api 代理到后端（vite.config.js）
- * 4) 后端 /api/users 连接 SQL Server，查询 UB_ERP_User 表并返回 {code,msg,data}
+ * 4) 后端 /api/users 连接 SQL Server，查询 New_UB_ERP_User 表并返回 {code,msg,data}
  * 5) 前端拿到 data 数组后赋值给 users，el-table 自动渲染到页面
  */
 async function loadUsers() {
@@ -607,7 +607,7 @@ async function loadUsers() {
     }
 
     if (users.value.length === 0) {
-      ElMessage.info('UB_ERP_User 暂无数据')
+      ElMessage.info('New_UB_ERP_User 暂无数据')
     }
   } catch (e) {
     // 典型原因：
@@ -712,7 +712,7 @@ async function submitCreateForm() {
       if (isErpSuperAdmin()) {
         payload.is_admin = createForm.value.is_admin
       }
-      // 登录账号写入 UB_ERP_User.usercode（与 username 同步，后端校验全表唯一）
+      // 登录账号写入 New_UB_ERP_User.usercode（与 username 同步，后端校验全表唯一）
       const loginAccount = String(createForm.value.UserName ?? '').trim()
       payload.UserCode = loginAccount
       if (!isEdit) {

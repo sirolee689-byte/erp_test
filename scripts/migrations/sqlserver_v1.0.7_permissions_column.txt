@@ -1,12 +1,12 @@
 /*
-  ERP_TEST v1.0.7 — NEW_UB_ERP_System_role 增加 Permissions（菜单 path JSON 数组）
+  ERP_TEST v1.0.7 — New_UB_ERP_System_role 增加 Permissions（菜单 path JSON 数组）
   - 列类型：NVARCHAR(MAX)，存 JSON，如 ["system/operator","canteen"] 或 ["*"] 表示全部
   - NULL：应用层视为「未限制」，兼容旧数据（登录后仍能看到全部菜单）
 */
 
-IF COL_LENGTH('dbo.NEW_UB_ERP_System_role', 'Permissions') IS NULL
+IF COL_LENGTH('dbo.New_UB_ERP_System_role', 'Permissions') IS NULL
 BEGIN
-  ALTER TABLE dbo.NEW_UB_ERP_System_role ADD Permissions NVARCHAR(MAX) NULL;
+  ALTER TABLE dbo.New_UB_ERP_System_role ADD Permissions NVARCHAR(MAX) NULL;
 END;
 
-PRINT N'v1.0.7：NEW_UB_ERP_System_role.Permissions 列已就绪（可为 NULL）。';
+PRINT N'v1.0.7：New_UB_ERP_System_role.Permissions 列已就绪（可为 NULL）。';

@@ -1,5 +1,5 @@
 /**
- * 操作员管理（旧版 UB_ERP_User + del/pass）：姓名取本表 truename；JOIN dbo.[NEW_UB_ERP_System_role]；编辑/反审/软删与规则 16 日志
+ * 操作员管理（旧版 New_UB_ERP_User + del/pass）：姓名取本表 truename；JOIN dbo.[New_UB_ERP_System_role]；编辑/反审/软删与规则 16 日志
  */
 import { sql } from './db.js'
 import { getActorAuditTripletFromReq } from './businessAuditFields.js'
@@ -34,7 +34,7 @@ function passAsIntExpr(qPass) {
   END`
 }
 
-/** 列表/日志展示用姓名：UB_ERP_User.truename（列不存在时为空串） */
+/** 列表/日志展示用姓名：New_UB_ERP_User.truename（列不存在时为空串） */
 function truenameSelectExpr(qTruename) {
   return qTruename
     ? `CAST(ISNULL(u.${qTruename}, N'') AS NVARCHAR(100)) AS truename`
@@ -61,7 +61,7 @@ export async function fetchOperatorRowContext(pool, meta, userId) {
         u.${qUsername} AS LoginName,
         u.${qUsercode} AS UsercodeVal,
         ${truenameSelectExpr(qTruename)}
-      FROM dbo.[UB_ERP_User] AS u
+      FROM dbo.[New_UB_ERP_User] AS u
       WHERE u.${qPk} = @id
     `)
   const row = r.recordset?.[0]
@@ -96,12 +96,12 @@ function buildOperatorSelectCols(meta, qPk, qUsercode, qUsername, qPass, qRoleId
 function buildOperatorFromJoin(meta, qRoleId) {
   return qRoleId
     ? `
-    FROM dbo.[UB_ERP_User] AS u
-    LEFT JOIN dbo.[NEW_UB_ERP_System_role] AS r ON u.${qRoleId} = r.RoleID
+    FROM dbo.[New_UB_ERP_User] AS u
+    LEFT JOIN dbo.[New_UB_ERP_System_role] AS r ON u.${qRoleId} = r.RoleID
   `
     : `
-    FROM dbo.[UB_ERP_User] AS u
-    LEFT JOIN dbo.[NEW_UB_ERP_System_role] AS r ON 1=0
+    FROM dbo.[New_UB_ERP_User] AS u
+    LEFT JOIN dbo.[New_UB_ERP_System_role] AS r ON 1=0
   `
 }
 
@@ -212,7 +212,7 @@ async function assertWritableRoleIdLocal(pool, roleIdRaw) {
     return { ok: false, msg: 'RoleID 不合法（必须是正整数）' }
   }
   const chk = await pool.request().input('RoleID', sql.Int, roleId).query(`
-    SELECT TOP (1) RoleID FROM dbo.[NEW_UB_ERP_System_role] WHERE RoleID = @RoleID AND Status = 1
+    SELECT TOP (1) RoleID FROM dbo.[New_UB_ERP_System_role] WHERE RoleID = @RoleID AND Status = 1
   `)
   if (!chk.recordset?.[0]) return { ok: false, msg: '角色不存在或已禁用' }
   return { ok: true, roleId }
@@ -254,7 +254,7 @@ async function assertNotLastSuperAdmin(pool, meta, userId) {
     SELECT
       SUM(CASE WHEN LTRIM(RTRIM(CAST(ISNULL(u.${qIsAdmin}, N'') AS NVARCHAR(20)))) = N'1'${activeClause} THEN 1 ELSE 0 END) AS adminTotal,
       MAX(CASE WHEN u.${qPk} = @id AND LTRIM(RTRIM(CAST(ISNULL(u.${qIsAdmin}, N'') AS NVARCHAR(20)))) = N'1'${activeClause} THEN 1 ELSE 0 END) AS targetIsAdmin
-    FROM dbo.[UB_ERP_User] AS u
+    FROM dbo.[New_UB_ERP_User] AS u
   `)
   const row = r.recordset?.[0] ?? {}
   if (isLastSuperAdmin(row)) {
@@ -273,7 +273,7 @@ function usercodeDuplicateMsg(usercode) {
 }
 
 /**
- * 校验 UB_ERP_User.usercode 全表唯一（编辑时排除当前主键）
+ * 校验 New_UB_ERP_User.usercode 全表唯一（编辑时排除当前主键）
  * @param {import('mssql').ConnectionPool} pool
  * @param {import('./sysUsersDb.js').SysUsersColumnsMeta} meta
  * @param {string} usercode
@@ -296,7 +296,7 @@ async function assertOperatorUsercodeUnique(pool, meta, usercode, excludeUserId 
 
   const r = await req.query(`
     SELECT TOP (1) u.${qPk} AS UserID
-    FROM dbo.[UB_ERP_User] AS u
+    FROM dbo.[New_UB_ERP_User] AS u
     WHERE LTRIM(RTRIM(CAST(ISNULL(u.${qUsercode}, N'') AS NVARCHAR(100)))) = @usercode
     ${excludeSql}
   `)
@@ -307,7 +307,7 @@ async function assertOperatorUsercodeUnique(pool, meta, usercode, excludeUserId 
 }
 
 /**
- * 新增（旧版 UB_ERP_User 动态列）
+ * 新增（旧版 New_UB_ERP_User 动态列）
  */
 export async function insertOperatorUserLegacy(pool, meta, req, body, hashPassword) {
   const qPk = getSysUsersEntityPkQb(meta)
@@ -398,7 +398,7 @@ export async function insertOperatorUserLegacy(pool, meta, req, body, hashPasswo
   }
 
   const sqlText = `
-    INSERT INTO dbo.[UB_ERP_User] (${insertColList.join(', ')})
+    INSERT INTO dbo.[New_UB_ERP_User] (${insertColList.join(', ')})
     OUTPUT INSERTED.${bareIdent(qPk)} AS UserID
     VALUES (${insertValList.join(', ')})
   `
@@ -421,7 +421,7 @@ export async function insertOperatorUserLegacy(pool, meta, req, body, hashPasswo
     const ctx = await fetchOperatorRowContext(pool, meta, Number(newId))
     const displayName = ctx?.truename ?? truenameRaw
     const content = `录入成功,等待审核！操作员账号：${username}，姓名：${displayName}`
-    await writeLog(req, '新增操作员', content, { targetTable: 'UB_ERP_User' })
+    await writeLog(req, '新增操作员', content, { targetTable: 'New_UB_ERP_User' })
     return { data: { UserID: newId, Usercode: usercode, Username: username } }
   } catch (dbErr) {
     const mapped = mapSqlServerWriteError(dbErr, { hint: '新增操作员' })
@@ -489,7 +489,7 @@ export async function putOperatorUser(pool, meta, req, body, hashPassword) {
     const r = await upd.query(`
       UPDATE u
       SET ${sets.join(', ')}
-      FROM dbo.[UB_ERP_User] AS u
+      FROM dbo.[New_UB_ERP_User] AS u
       WHERE u.${qPk} = @id AND ${delActiveWhere} AND ${passNotOneWhere}
     `)
     const n = Number(r.rowsAffected?.[0] ?? 0)
@@ -497,7 +497,7 @@ export async function putOperatorUser(pool, meta, req, body, hashPassword) {
       return { error: { status: 400, json: { code: 400, msg: '审核失败：记录不存在、已禁用或已是已审核状态', data: null } } }
     }
     const ctx = await fetchOperatorRowContext(pool, meta, userId)
-    await writeLog(req, '修改操作员', stateChangeLogContent(ctx), { targetTable: 'UB_ERP_User' })
+    await writeLog(req, '修改操作员', stateChangeLogContent(ctx), { targetTable: 'New_UB_ERP_User' })
     return { data: await getOperatorUserDetail(pool, meta, userId) }
   }
 
@@ -518,7 +518,7 @@ export async function putOperatorUser(pool, meta, req, body, hashPassword) {
     const r = await upd.query(`
       UPDATE u
       SET ${sets.join(', ')}
-      FROM dbo.[UB_ERP_User] AS u
+      FROM dbo.[New_UB_ERP_User] AS u
       WHERE u.${qPk} = @id AND ${delActiveWhere} AND ${passIsOneWhere}
     `)
     const n = Number(r.rowsAffected?.[0] ?? 0)
@@ -526,7 +526,7 @@ export async function putOperatorUser(pool, meta, req, body, hashPassword) {
       return { error: { status: 400, json: { code: 400, msg: '反审失败：记录不存在、已禁用或未审核状态', data: null } } }
     }
     const ctx = await fetchOperatorRowContext(pool, meta, userId)
-    await writeLog(req, '修改操作员', stateChangeLogContent(ctx), { targetTable: 'UB_ERP_User' })
+    await writeLog(req, '修改操作员', stateChangeLogContent(ctx), { targetTable: 'New_UB_ERP_User' })
     return { data: await getOperatorUserDetail(pool, meta, userId) }
   }
 
@@ -550,13 +550,13 @@ export async function putOperatorUser(pool, meta, req, body, hashPassword) {
     const r = await upd.query(`
       UPDATE u
       SET ${sets.join(', ')}
-      FROM dbo.[UB_ERP_User] AS u
+      FROM dbo.[New_UB_ERP_User] AS u
       WHERE u.${qPk} = @id AND (LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'' OR LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'0')
     `)
     const n = Number(r.rowsAffected?.[0] ?? 0)
     if (n === 0) return { error: { status: 400, json: { code: 400, msg: '禁用失败：仅允许禁用在册记录', data: null } } }
     const ctx = await fetchOperatorRowContext(pool, meta, userId)
-    await writeLog(req, '修改操作员', stateChangeLogContent(ctx), { targetTable: 'UB_ERP_User' })
+    await writeLog(req, '修改操作员', stateChangeLogContent(ctx), { targetTable: 'New_UB_ERP_User' })
     return { data: { UserID: userId } }
   }
 
@@ -627,13 +627,13 @@ export async function putOperatorUser(pool, meta, req, body, hashPassword) {
     const r = await upd.query(`
       UPDATE u
       SET ${sets2.join(', ')}
-      FROM dbo.[UB_ERP_User] AS u
+      FROM dbo.[New_UB_ERP_User] AS u
       WHERE u.${qPk} = @id AND (LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'' OR LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'0')
     `)
     const n = Number(r.rowsAffected?.[0] ?? 0)
     if (n === 0) return { error: { status: 404, json: { code: 404, msg: '未找到在册用户', data: null } } }
     const ctx = await fetchOperatorRowContext(pool, meta, userId)
-    await writeLog(req, '修改操作员', stateChangeLogContent(ctx), { targetTable: 'UB_ERP_User' })
+    await writeLog(req, '修改操作员', stateChangeLogContent(ctx), { targetTable: 'New_UB_ERP_User' })
     return { data: await getOperatorUserDetail(pool, meta, userId) }
   } catch (dbErr) {
     const mapped = mapSqlServerWriteError(dbErr, { hint: '修改操作员' })
@@ -678,12 +678,12 @@ export async function restoreOperatorUserDel(pool, meta, req, userId) {
   const r = await upd.query(`
     UPDATE u
     SET ${sets2.join(', ')}
-    FROM dbo.[UB_ERP_User] AS u
+    FROM dbo.[New_UB_ERP_User] AS u
     WHERE u.${qPk} = @id AND LTRIM(RTRIM(ISNULL(u.${qDel}, N''))) = N'1'
   `)
   const n = Number(r.rowsAffected?.[0] ?? 0)
   if (n === 0) return { error: { status: 400, json: { code: 400, msg: '恢复失败：该记录不在回收站', data: null } } }
 
-  await writeLog(req, '恢复操作员', stateChangeLogContent(ctx0), { targetTable: 'UB_ERP_User' })
+  await writeLog(req, '恢复操作员', stateChangeLogContent(ctx0), { targetTable: 'New_UB_ERP_User' })
   return { data: await getOperatorUserDetail(pool, meta, userId) }
 }

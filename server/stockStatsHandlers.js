@@ -6,7 +6,7 @@ import { safeDecimalExpr } from './buyOrderSqlSafe.js'
 import { fetchStockStatsPrintHeader } from './stockStatsPrintHeader.js'
 
 const WAREHOUSE_FROM = 'dbo.[UB_ERP_Stocks_Warehouse]'
-const MATERIAL_FROM = 'dbo.[UB_ERP_Stocks_material]'
+const MATERIAL_FROM = 'dbo.[New_UB_ERP_Stocks_material]'
 const COLOR_FROM = 'dbo.[UB_ERP_Stocks_colorcode]'
 const BOM_FROM = 'dbo.[UB_ERP_Bom_000]'
 const STORAGE_HEADER = 'dbo.[UB_ERP_Stocks_Storage]'

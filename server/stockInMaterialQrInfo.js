@@ -8,7 +8,7 @@ const STOCK_OUT_FROM = 'dbo.[UB_ERP_Stocks_out]'
 const STOCK_OUT_LINE_FROM = 'dbo.[UB_ERP_Stocks_out_list]'
 const BOM_FROM = 'dbo.[UB_ERP_Bom_000]'
 const COLOR_FROM = 'dbo.[UB_ERP_Stocks_colorcode]'
-const MATERIAL_CAT_FROM = 'dbo.[UB_ERP_Stocks_material]'
+const MATERIAL_CAT_FROM = 'dbo.[New_UB_ERP_Stocks_material]'
 const BUY_FROM = 'dbo.[UB_ERP_Buy_order]'
 const BUY_LINE_FROM = 'dbo.[UB_ERP_Buy_order_list]'
 

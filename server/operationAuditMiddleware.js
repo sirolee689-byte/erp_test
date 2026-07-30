@@ -40,10 +40,10 @@ const HR_LEGACY_DEPT_FROM = `dbo.[${HR_LEGACY_DEPT_TABLE}]`
 const BOM_COLORCODE_FROM = 'dbo.[UB_ERP_Stocks_colorcode]'
 const BOM_UNIT_FROM = 'dbo.[UB_ERP_Stocks_unit]'
 const BOM_UNIT_CHANGE_FROM = 'dbo.[UB_ERP_Stocks_unit_change]'
-const BOM_MATERIAL_FROM = 'dbo.[UB_ERP_Stocks_material]'
+const BOM_MATERIAL_FROM = 'dbo.[New_UB_ERP_Stocks_material]'
 const BOM_STOCKS_WORKSHOP_FROM = 'dbo.[UB_ERP_Stocks_workshop]'
 const STOCKS_WAREHOUSE_FROM = 'dbo.[UB_ERP_Stocks_warehouse]'
-const SYS_ROLES_FROM = 'dbo.[NEW_UB_ERP_System_role]'
+const SYS_ROLES_FROM = 'dbo.[New_UB_ERP_System_role]'
 const SYS_SUPPLIER_FROM = 'dbo.[UB_ERP_System_supplier]'
 const SYS_SETTLEMENT_METHOD_FROM = 'dbo.[UB_ERP_System_settlement_method]'
 const SYS_SALES_CUSTOMER_FROM = 'dbo.[UB_ERP_System_sales_customer]'
@@ -1186,7 +1186,7 @@ export function createOperationAuditPrepareMiddleware() {
         }
       }
 
-      // 材料分类 UB_ERP_Stocks_material
+      // 材料分类 New_UB_ERP_Stocks_material
       if (method === 'DELETE' && /^\/api\/inventory\/material-category\/\d+(\/permanent)?$/.test(path)) {
         const idStr = path.slice('/api/inventory/material-category/'.length).replace(/\/permanent$/, '')
         const id = Number(idStr)

@@ -13,7 +13,7 @@
 
 ## 数据口径
 
-- 数据来源：`UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list`、`UB_ERP_Stocks_out` + `UB_ERP_Stocks_out_list`、`UB_ERP_Bom_000`、`UB_ERP_Stocks_material`、`UB_ERP_Stocks_colorcode`。
+- 数据来源：`UB_ERP_Stocks_Storage` + `UB_ERP_Stocks_Storage_list`、`UB_ERP_Stocks_out` + `UB_ERP_Stocks_out_list`、`UB_ERP_Bom_000`、`New_UB_ERP_Stocks_material`、`UB_ERP_Stocks_colorcode`。
 - 主表要求 `del=0/pass=1`；明细要求 `del=0`，不按明细 `pass` 过滤，保持与库存统计表“账存数量”口径一致。
 - 日期按自然日：开始日 `00:00:00` 到结束日次日 `00:00:00` 之前。
 - 行来源先从已审核入库/出库流水聚合出 `仓库 + kcaa01`，再反查最新有效物料资料、分类和颜色。

@@ -114,7 +114,7 @@
   - **混单**（整款 + 散件）：先算整款，**同请求**再写散件自用量；全部明细有 `pi_cost` 后标 **已运算**。整单运算与部分重算（`syncedKcaa01`）只要含散件都会自动补散件。
 - **散件自用量口径**（由一键运算串联，或兼容接口 `POST /:id/add-spare-usage`）：**仅**对散件明细写 `UB_ERP_Bom_pi_cost` 自用量行（`pq`=散件自身、`kcac04=1`、`kcac06=1`、`top_kcaa01`=自身、`temp`=该款 `xsak03`；其余扩展字段照 `UB_ERP_Bom_000` enrich）；**不写** `pi_consumption`。
 - **一键运算与散件**：整款运算范围仍 **排除散件明细**；散件在同请求内由 `writeSalesOrderSparePiCostInTx` 补写。实现：`server/salesOrderCalculateService.js` / `server/salesOrderSpareUsageService.js`。
-- **一键运算 PX**：`UB_ERP_Bom_pi_cost.px` 照 BOM 资料规则补入，子件 `kcaa01` → `UB_ERP_Bom_000.kcaa05` → `UB_ERP_Stocks_material.code` → `UB_ERP_Stocks_material.px`；无匹配则留空。
+- **一键运算 PX**：`UB_ERP_Bom_pi_cost.px` 照 BOM 资料规则补入，子件 `kcaa01` → `UB_ERP_Bom_000.kcaa05` → `New_UB_ERP_Stocks_material.code` → `New_UB_ERP_Stocks_material.px`；无匹配则留空。
 - **已审**（`pass='1'`）：禁止保存订单、PI BOM PUT、同步 BOM、软删、彻底删；但允许在列表执行一键运算
 
 ## 主 BOM 门禁（保存 vs 同步）

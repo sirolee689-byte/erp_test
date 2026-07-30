@@ -9,7 +9,7 @@ import { resolveSysUserIsAdminByUserId } from './sysUsersDb.js'
 import { fetchStockStatsPrintHeader } from './stockStatsPrintHeader.js'
 
 const WAREHOUSE_FROM = 'dbo.[UB_ERP_Stocks_Warehouse]'
-const MATERIAL_CATEGORY_FROM = 'dbo.[UB_ERP_Stocks_material]'
+const MATERIAL_CATEGORY_FROM = 'dbo.[New_UB_ERP_Stocks_material]'
 const BOM_FROM = 'dbo.[UB_ERP_Bom_000]'
 const STOCK_OUT_HEADER_FROM = 'dbo.[UB_ERP_Stocks_out]'
 const STOCK_OUT_LINE_FROM = 'dbo.[UB_ERP_Stocks_out_list]'

@@ -116,7 +116,7 @@ describe('进销存统计报表 SQL 口径', () => {
     })
     const sqlText = buildReportSql(q)
     assert.match(sqlText, /UB_ERP_Bom_000/i)
-    assert.match(sqlText, /UB_ERP_Stocks_material/i)
+    assert.match(sqlText, /New_UB_ERP_Stocks_material/i)
     assert.match(sqlText, /UB_ERP_Stocks_colorcode/i)
     assert.match(sqlText, /previousUnitPrice/i)
     assert.match(sqlText, /TOP \(1\)/i)

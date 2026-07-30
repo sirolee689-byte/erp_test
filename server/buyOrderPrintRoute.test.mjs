@@ -31,7 +31,7 @@ function createPool() {
         },
         async query(sqlText) {
           queries.push({ sqlText, inputs: { ...inputs } })
-          if (/INFORMATION_SCHEMA\.COLUMNS/i.test(sqlText) && /UB_ERP_User/i.test(sqlText)) {
+          if (/INFORMATION_SCHEMA\.COLUMNS/i.test(sqlText) && /New_UB_ERP_User/i.test(sqlText)) {
             return {
               recordset: [
                 { n: 'UserID', maxLen: null },
@@ -41,7 +41,7 @@ function createPool() {
               ],
             }
           }
-          if (/FROM dbo\.\[UB_ERP_User\]/i.test(sqlText)) {
+          if (/FROM dbo\.\[New_UB_ERP_User\]/i.test(sqlText)) {
             return { recordset: [{ userId: 7, userName: 'buyer01', truename: '采购员张三' }] }
           }
           if (/UB_ERP_System_Head/i.test(sqlText)) {
@@ -89,7 +89,7 @@ function createPool() {
 }
 
 describe('buy-order print route', () => {
-  test('GET /api/buy-order/print-data resolves UB_ERP_User.truename for makerName', async () => {
+  test('GET /api/buy-order/print-data resolves New_UB_ERP_User.truename for makerName', async () => {
     invalidateSysUsersColumnsMeta()
     const routes = {}
     const app = {

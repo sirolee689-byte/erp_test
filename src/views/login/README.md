@@ -1,7 +1,7 @@
 # 登录模块（`views/login`）v1.0.7
 
 ### 1. 这个功能是干嘛的？（大白话）
-- **目的**：让“操作员账号”（`UB_ERP_User`）可以登录 ERP 后台页面。
+- **目的**：让“操作员账号”（`New_UB_ERP_User`）可以登录 ERP 后台页面。
 - **效果**：
   - 你没有登录就直接访问后台地址（比如 `/system/operator`）会被拦截并跳回登录页。
   - 你登录成功后，会自动进入后台首页，或者回到你刚才想去的页面。
@@ -14,7 +14,7 @@
 - **可调样式**：`src/views/login/index.vue` 里 `.login-page` 的 `--login-*` 变量。
 
 ### 2. 数据库关联（你最关心的表）
-- **表名**：`UB_ERP_User`
+- **表名**：`New_UB_ERP_User`
 - **旧系统物理表（兼容）**：若存在列 `uid`（主键，对应 `UB_ERP_Hr_staff.id`）、`username`（登录账号）、`usercode`（账号编码）、`password`、`is_admin` 等，且无 `UserID` 列，则后端按「旧表布局」识别：`is_admin=1` 视为超级管理员（菜单全通）；登录匹配 `username` 或 `usercode`；人事档案姓名通过 `uid` 左联 `UB_ERP_Hr_staff`。
 - **本登录用到的字段（ERP 标准表）**
   - `UserName`：登录框按本列匹配
@@ -106,7 +106,7 @@
 
 ### 8. 小白操作清单（改完怎么验证）
 - **第 1 步：确认数据库有账号**
-  - 用 Navicat/SSMS 看一下 `UB_ERP_User` 是否有一条 `Status=1` 的记录
+  - 用 Navicat/SSMS 看一下 `New_UB_ERP_User` 是否有一条 `Status=1` 的记录
   - 记住它的 `UserName` 和 `Password`
 - **第 2 步：启动后端**
   - 如果你改了 `server/index.js`，需要重启后端服务

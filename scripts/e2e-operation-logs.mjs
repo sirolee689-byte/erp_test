@@ -201,11 +201,11 @@ async function verifyDatabaseAuditRow() {
       .input('UserCode', sql.NVarChar(50), userCode)
       .query(
         `SELECT TOP (1) CAST(u.UserID AS NVARCHAR(50)) AS UserID, u.UserName, u.UserCode
-         FROM dbo.UB_ERP_User AS u
+         FROM dbo.New_UB_ERP_User AS u
          WHERE u.UserCode = @UserCode`,
       )
     const urow = userR.recordset?.[0]
-    assert(urow, `未在 UB_ERP_User 找到工号：${userCode}`)
+    assert(urow, `未在 New_UB_ERP_User 找到工号：${userCode}`)
 
     const logR = await pool.request().query(`
       SELECT TOP (1)

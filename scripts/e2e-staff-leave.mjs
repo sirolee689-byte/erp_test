@@ -122,7 +122,7 @@ async function main() {
     await page.screenshot({ path: outAfter, fullPage: true })
     console.log('已截图（离职后）：', outAfter)
 
-    // SQL 证明截图：查询 UB_ERP_Hr_staff 与 UB_ERP_User
+    // SQL 证明截图：查询 UB_ERP_Hr_staff 与 New_UB_ERP_User
     const cfg = {
       server: process.env.DB_SERVER,
       database: process.env.DB_DATABASE,
@@ -144,11 +144,11 @@ async function main() {
       let user = { recordset: [] }
       try {
         user = await req.query(
-          'SELECT TOP (3) * FROM dbo.UB_ERP_User WHERE UserCode = @c OR UserName = @c ORDER BY UserID DESC',
+          'SELECT TOP (3) * FROM dbo.New_UB_ERP_User WHERE UserCode = @c OR UserName = @c ORDER BY UserID DESC',
         )
       } catch {
         user = await req.query(
-          'SELECT TOP (3) * FROM dbo.UB_ERP_User WHERE usercode = @c OR username = @c ORDER BY uid DESC',
+          'SELECT TOP (3) * FROM dbo.New_UB_ERP_User WHERE usercode = @c OR username = @c ORDER BY uid DESC',
         )
       }
       const html = `
@@ -159,7 +159,7 @@ async function main() {
         </style></head><body>
           <h2>SQL 验证结果（工号=${leaveStaffCode}）</h2>
           <pre>UB_ERP_Hr_staff: ${JSON.stringify(staff.recordset?.[0] ?? null, null, 2)}</pre>
-          <pre>UB_ERP_User: ${JSON.stringify(user.recordset?.[0] ?? null, null, 2)}</pre>
+          <pre>New_UB_ERP_User: ${JSON.stringify(user.recordset?.[0] ?? null, null, 2)}</pre>
         </body></html>
       `
       const proofPage = await browser.newPage()

@@ -51,7 +51,7 @@ const STOCK_IN = 'dbo.[UB_ERP_Stocks_Storage]'
 const STOCK_IN_LINE = 'dbo.[UB_ERP_Stocks_Storage_list]'
 const WORKSHOP = 'dbo.[UB_ERP_Stocks_workshop]'
 const WAREHOUSE = 'dbo.[UB_ERP_Stocks_Warehouse]'
-const MATERIAL_CAT = 'dbo.[UB_ERP_Stocks_material]'
+const MATERIAL_CAT = 'dbo.[New_UB_ERP_Stocks_material]'
 
 async function resolveWorkshopByName(pool, name = CUSTOMS_WORKSHOP_NAME) {
   const r = await pool

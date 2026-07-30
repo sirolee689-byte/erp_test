@@ -1,10 +1,10 @@
 /**
- * 开料出库配置：材料分类 UB_ERP_Stocks_material.cutting_issue 开关（超级管理员维护）。
+ * 开料出库配置：材料分类 New_UB_ERP_Stocks_material.cutting_issue 开关（超级管理员维护）。
  */
 import { sql } from './db.js'
 import { nvarcharTextExpr } from './buyOrderSqlSafe.js'
 
-const MATERIAL_CAT_FROM = 'dbo.[UB_ERP_Stocks_material]'
+const MATERIAL_CAT_FROM = 'dbo.[New_UB_ERP_Stocks_material]'
 
 const MISSING_COLUMN_MSG =
   '材料分类表缺少 cutting_issue 字段，请先执行 scripts/migrations/sqlserver_stock_out_cutting_issue_flag.txt 迁移脚本后再使用开料出库配置。'
@@ -18,7 +18,7 @@ async function fetchMaterialColumnSet(pool) {
   const r = await pool.request().query(`
     SELECT LOWER(LTRIM(RTRIM(COLUMN_NAME))) AS col
     FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_NAME = N'UB_ERP_Stocks_material'
+    WHERE TABLE_NAME = N'New_UB_ERP_Stocks_material'
   `)
   return new Set((r.recordset ?? []).map((row) => text(row.col).toLowerCase()).filter(Boolean))
 }
