@@ -12194,6 +12194,25 @@ registerOutsourcingQuotationRoutes(app, {
   getActorAuditTripletFromReq,
 })
 
+/**
+ * 生产部署：托管 Vite 构建产物（dist），同一端口同时提供页面与 /api。
+ * - 开发时通常没有 dist，此段不生效，仍用 Vite 5173 + 接口 3001。
+ * - Vue Router 为 history 模式，非 /api 且非静态文件的 GET 回退 index.html。
+ */
+const distDir = path.resolve(__dirname, '../dist')
+const distIndexHtml = path.join(distDir, 'index.html')
+if (fs.existsSync(distIndexHtml)) {
+  app.use(express.static(distDir))
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next()
+    const p = String(req.path || '')
+    if (p.startsWith('/api') || p.startsWith(systemKernelImageUrlPrefix)) return next()
+    res.sendFile(distIndexHtml, (err) => {
+      if (err) next(err)
+    })
+  })
+}
+
 // 可选：优雅关闭（例如 Ctrl+C）
 process.on('SIGINT', async () => {
   try {
@@ -12204,6 +12223,7 @@ process.on('SIGINT', async () => {
 })
 
 const port = process.env.PORT ? Number(process.env.PORT) : 3001
+const host = String(process.env.HOST || '').trim() || '0.0.0.0'
 async function startServer() {
   try {
     const migration = await migrateRolePermissionsToUnaudit(await getPool())
@@ -12214,9 +12234,12 @@ async function startServer() {
     return
   }
 
-  app.listen(port, () => {
+  app.listen(port, host, () => {
   const bootAt = new Date().toISOString()
-  console.log(`API 服务已启动：http://localhost:${port}`)
+  console.log(`API 服务已启动：http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`)
+  if (fs.existsSync(distIndexHtml)) {
+    console.log(`[生产静态页] 已托管 dist → http://192.168.1.33:${port}`)
+  }
   console.log(`User-Add-AuditStandard-v1.1.9 ${bootAt}`)
   console.log(`[启动指纹] bootAt=${bootAt}`)
   console.log(`Dorm-Electric-FlatUI-v1.1.5-Active ${bootAt}`)
