@@ -256,7 +256,11 @@ function printPage() {
 }
 
 function goBack() {
-  window.history.back()
+  window.close()
+  // 非脚本打开的标签页可能被浏览器拒绝关闭，关闭失败后再回退来源页。
+  setTimeout(() => {
+    if (!window.closed) window.history.back()
+  }, 100)
 }
 
 onMounted(loadPrintData)

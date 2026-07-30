@@ -8,6 +8,8 @@
     "dev:all": "concurrently -k -n vite,api -c cyan,magenta \"npm run dev\" \"npm run dev:server:watch\"",
     "build": "vite build",
     "preview": "vite preview",
+    "start": "node server/index.js",
+    "build:start": "npm run build && npm run start",
     "gen:views": "node scripts/generate-views.mjs",
     "dev:server": "node server/index.js",
     "dev:server:watch": "nodemon --watch server --ext js,mjs,json --exec \"node server/index.js\"",
