@@ -73,6 +73,17 @@
           @select="onPickMatch"
         />
       </el-form-item>
+      <el-form-item label="密钥" required>
+        <el-input
+          v-model="form.key"
+          show-password
+          clearable
+          maxlength="200"
+          placeholder="请输入核心密钥"
+          style="width: 100%"
+          @keyup.enter="onExecute"
+        />
+      </el-form-item>
       <el-form-item label=" ">
         <el-button type="primary" :loading="running" @click="onExecute">立即执行</el-button>
         <el-button :disabled="running" @click="onReset">重置</el-button>
@@ -96,6 +107,7 @@ const defaultForm = () => ({
   sourceCode: '',
   targetCode: '',
   matchDescribe: '',
+  key: '',
 })
 
 const form = reactive(defaultForm())
@@ -237,6 +249,7 @@ function buildPayload(dryRun = false) {
     sourceCode: String(form.sourceCode ?? '').trim(),
     targetCode: String(form.targetCode ?? '').trim(),
     matchDescribe: String(form.matchDescribe ?? '').trim(),
+    key: String(form.key ?? '').trim(),
     dryRun,
   }
 }
@@ -256,6 +269,10 @@ function validateForm() {
   }
   if (String(form.sourceCode ?? '').trim() === String(form.targetCode ?? '').trim()) {
     ElMessage.warning('物料源编码与目标物料编码不能相同')
+    return false
+  }
+  if (!String(form.key ?? '').trim()) {
+    ElMessage.warning('核心密钥不能为空')
     return false
   }
   return true

@@ -2613,13 +2613,16 @@ app.post('/api/bom/usage-calc-batch', async (req, res) => {
 })
 
 /**
- * BOM 用量表：GET /api/bom/tree?systemcode=xxx
- * - 若 UB_ERP_Bom_cost 已有 pq+sid 缓存：hasCache=true，直接返回 UB_ERP_Bom_cost，不递归 UB_ERP_Bom_parts、不平铺 flatCostUsageRaw
- * - 否则：hasCache=false，递归树 data + flatCostUsageRaw（legacy 平铺预览，与一键/详情/批量落库同口径；首次落库用 POST /api/bom/usage-calc-legacy）
+ * BOM 用量表：GET /api/bom/tree?systemcode=xxx[&preferTree=1]
+ * - 默认：若 UB_ERP_Bom_cost 已有 pq+sid 缓存，hasCache=true，直接返回 UB_ERP_Bom_cost，不递归 UB_ERP_Bom_parts
+ * - preferTree=1：强制只读树预览（跳过缓存直读），返回递归树 data + flatCostUsageRaw（legacy 口径），不写库
+ * - 无缓存时：hasCache=false，递归树 data + flatCostUsageRaw（legacy 平铺预览，与一键/详情/批量落库同口径；首次落库用 POST /api/bom/usage-calc-legacy）
  */
 app.get('/api/bom/tree', async (req, res) => {
   try {
     const systemcode = String(req.query?.systemcode ?? '').trim()
+    const preferTreeRaw = String(req.query?.preferTree ?? '').trim().toLowerCase()
+    const preferTreeOnly = preferTreeRaw === '1' || preferTreeRaw === 'true' || preferTreeRaw === 'yes'
     const emptyPayload = {
       success: false,
       msg: '',
@@ -2649,7 +2652,7 @@ app.get('/api/bom/tree', async (req, res) => {
       .query(`SELECT COUNT_BIG(*) AS c FROM ${BOM_COST_FROM} WHERE pq = @pq AND sid = @sid`)
     const cacheCount = Number(cntRs.recordset?.[0]?.c ?? 0)
 
-    if (cacheCount > 0) {
+    if (cacheCount > 0 && !preferTreeOnly) {
       const selBc = await pool
         .request()
         .input('pq', sql.NVarChar(300), pq)

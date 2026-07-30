@@ -60,6 +60,14 @@ describe('purchase-order index static UI contract', () => {
     assert.match(source, /pageMode !== 'view'.*saveOrder|v-if="pageMode !== 'view'"/)
   })
 
+  test('purchase-order detail keeps the supplier snapshot label and create always starts a new document', () => {
+    assert.match(source, /function ensureCurrentSupplierOption\(header\)/)
+    assert.match(source, /const name = String\(header\?\.kehu \?\? ''\)\.trim\(\)/)
+    assert.match(source, /ensureCurrentSupplierOption\(h1\)/)
+    assert.match(source, /async function switchToCreate\(\) \{[\s\S]*?resetFormData\(\)[\s\S]*?chooseNumberType\('ZY'\)/)
+    assert.doesNotMatch(source, /const preserveDraft/)
+  })
+
   test('purchase-order line tax defaults to 0.13 when tax-included', () => {
     assert.match(source, /resolveLineTax/)
     assert.match(source, /DEFAULT_TAX_RATE = 0\.13/)

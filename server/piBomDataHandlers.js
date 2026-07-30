@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 /**
  * 库存基本资料：PI_BOM资料。
@@ -903,6 +904,24 @@ async function assertBom000TargetMaterialExists(pool, targetKcaa01) {
   return { ok: true, target, kcaa02: String(row.kcaa02 ?? '').trim() }
 }
 
+/** 与系统内核共用：校验 body.key 是否等于 .env 的 ERP_CORE_CONFIG_KEY */
+export function assertErpCoreConfigKey(coreKey) {
+  const expected = String(process.env.ERP_CORE_CONFIG_KEY ?? '').trim()
+  if (!expected) {
+    return { ok: false, status: 500, msg: '核心密钥未配置，请在 .env 中设置 ERP_CORE_CONFIG_KEY' }
+  }
+  const given = String(coreKey ?? '').trim()
+  if (!given) {
+    return { ok: false, status: 400, msg: '核心密钥不能为空' }
+  }
+  const expectedBuf = Buffer.from(expected)
+  const givenBuf = Buffer.from(given)
+  if (expectedBuf.length !== givenBuf.length || !crypto.timingSafeEqual(expectedBuf, givenBuf)) {
+    return { ok: false, status: 403, msg: '核心密钥错误，已阻止保存' }
+  }
+  return { ok: true }
+}
+
 function bindPiBomReplaceFilterInputs(req, { piNo, pqCode, sourceCode, matchDescribe, hasPq }) {
   req.input('pi', sql.NVarChar(200), piNo)
   req.input('source', sql.NVarChar(300), sourceCode)
@@ -1661,6 +1680,12 @@ export function registerPiBomDataRoutes(app, { getPool }) {
   app.post('/api/inventory/pi-bom-data/replace-material', async (req, res) => {
     let tx = null
     try {
+      const keyCheck = assertErpCoreConfigKey(req.body?.key)
+      if (!keyCheck.ok) {
+        res.status(keyCheck.status).json({ code: keyCheck.status, msg: keyCheck.msg, data: null })
+        return
+      }
+
       const pool = await getPool()
       const piNo = String(req.body?.piNo ?? '').trim()
       const pqCode = String(req.body?.pqCode ?? '').trim()

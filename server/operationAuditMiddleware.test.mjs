@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events'
 import { describe, test } from 'node:test'
 import {
   buildBomMasterOperationChineseContent,
+  buildSalesOrderOperationLogContent,
   createOperationAuditMiddleware,
 } from './operationAuditMiddleware.js'
 
@@ -250,5 +251,39 @@ describe('BOM 主档操作日志文案', () => {
       }),
       '张三批量一键运算了编码「PQ-3311A1/N、PQ-3312A1/N」',
     )
+  })
+})
+
+describe('销售订单操作日志文案', () => {
+  const user = { auditTruename: '张三', userName: '登录账号' }
+  const request = {
+    body: {},
+    params: { id: '4173' },
+    __auditSalesOrderById: { 4173: { id: 4173, piNo: 'PI-4173B' } },
+  }
+  const base = 'PI号:PI-4173B，IP：192.168.1.19，操作时间：2026-06-25 18:11:43操作者：张三'
+
+  test('所有销售订单主操作都使用 PI、IP、时间和真实操作人', () => {
+    const scenarios = [
+      ['POST', '/api/sales-order', '录入成功,等待审核！'],
+      ['POST', '/api/sales-order/4173/approve', '审核成功！'],
+      ['POST', '/api/sales-order/4173/unapprove', '反审成功！'],
+      ['POST', '/api/sales-order/4173/soft-delete', '删除成功！'],
+      ['POST', '/api/sales-order/4173/hard-delete', '彻底删除成功！'],
+      ['POST', '/api/sales-order/4173/calculate', '一键运算成功！'],
+    ]
+
+    for (const [method, path, prefix] of scenarios) {
+      assert.equal(
+        buildSalesOrderOperationLogContent(user, method, path, {
+          ...request,
+          body: path === '/api/sales-order' ? { header: { piNo: 'PI-4173B' } } : {},
+        }, {
+          ip: '192.168.1.19',
+          time: '2026-06-25 18:11:43',
+        }),
+        `${prefix}${base}`,
+      )
+    }
   })
 })

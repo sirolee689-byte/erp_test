@@ -446,6 +446,39 @@ export function clearWorkbenchPayload() {
 }
 
 /**
+ * 智能校验页按 fileId 重载解析树时，保留导入页已经填写的 Material 损耗。
+ * 只按 Material 分组回填该输入值，不用 session 覆盖当前 Excel 的其它解析数据。
+ * @param {any[]} materials
+ * @param {string} [fileId]
+ */
+export function mergeWorkbenchMaterialWastageIntoMaterials(materials, fileId) {
+  const payload = readWorkbenchPayload()
+  const fid = String(fileId ?? '').trim()
+  if (!payload || (payload.fileId && fid && payload.fileId !== fid) || !Array.isArray(materials)) {
+    return false
+  }
+
+  const payloadByGroup = new Map()
+  for (const item of payload.materials || []) {
+    const groupNo = String(item?.groupNo ?? '').trim()
+    if (groupNo) payloadByGroup.set(groupNo, item)
+  }
+
+  let changed = false
+  for (let index = 0; index < materials.length; index++) {
+    const material = materials[index]
+    const groupNo = String(material?.groupNo ?? '').trim()
+    const cached = payloadByGroup.get(groupNo) || payload.materials?.[index]
+    if (!cached || !Object.prototype.hasOwnProperty.call(cached, 'wastageFraction')) continue
+    if (material.wastageFraction !== cached.wastageFraction) {
+      material.wastageFraction = cached.wastageFraction
+      changed = true
+    }
+  }
+  return changed
+}
+
+/**
  * 将智能校验页改码写回 parseResult（Material 按 groupNo+colorNo → codesByColor；Accessory 按 seqNo+colorNo）
  * @param {{ materials?: any[], accessories?: any[] }} parseResult
  * @returns {boolean} 是否有字段变更
@@ -453,7 +486,7 @@ export function clearWorkbenchPayload() {
 export function applyWorkbenchEditsToParseResult(parseResult) {
   const payload = readWorkbenchPayload()
   if (!payload || !parseResult) return false
-  let changed = false
+  let changed = mergeWorkbenchMaterialWastageIntoMaterials(parseResult.materials)
 
   const payloadMatByKey = new Map()
   for (const m of payload.materials || []) {

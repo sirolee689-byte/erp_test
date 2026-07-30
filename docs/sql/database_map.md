@@ -26,6 +26,7 @@
 | BOM MOQ查询 | `UB_ERP_Bom_pi_cost` + `UB_ERP_Sales_order_list` + `UB_ERP_Sales_order` + `UB_ERP_Stocks_colorcode` + `UB_ERP_Buy_order` + `UB_ERP_Buy_order_list` | `GET /api/inv/bom/moq/list`；输入编码必填，按 `pi_cost.kcaa01=@code OR pi_cost.kcaa11=@code` 精确匹配，且仅统计 `del=0`、`isok=1`。默认 `showAll=0` 时会过滤 `sid` 后缀 `-DECR/-CP`；`showAll=1` 显示全部。先按 `sid+pq+kcaa01+temp+kcaa11` 汇总 `SUM(kcac06)`，再批量准备销售单、颜色、当前 PI 采购价和最近采购价后组装结果，避免逐行重复查采购单。单价优先当前 PI 对应采购价（`bo.kcaj04=sid`），无则回退该物料最近采购价；金额=`totalUsage × 有效单价`。结果按 `sid desc` 分页，默认 10 条/页，底部返回全量结果的「总用量合计、金额合计」。 |
 | BOM配件明细搭配 | `UB_ERP_Bom_parts` | `GET/PUT /api/inventory/bom/parts/:systemcode`：界面「搭配」列读写 `Describe`（`nvarchar(100)`）；「说明/备注」仍为 `remark`；搭配列在说明/备注左侧；一键运算树已读 `Describe` 写入成本用量表。 |
 | PI_BOM资料查看基础资料 | `UB_ERP_Bom_Sales` + `New_UB_ERP_Stocks_material` + `UB_ERP_Stocks_colorcode` + `UB_ERP_Stocks_workshop` + `UB_ERP_System_supplier` | `GET /api/inventory/pi-bom-data/detail` 的 `basic`：按 `sid=PI`、`kcaa01=成品编码` 取主档；JOIN 分类名/颜色名/车间名/供应商名；衍生客供、采购/外协/自产勾选、保税、小数点配置、转换方式等；前端复用 BOM 同款 `BomBasicForm`（readonly）1:1 展示，PI号仅在独立窗标题。 |
+| PI_BOM物料批量替换 | `UB_ERP_Bom_Sales_list` + `UB_ERP_Bom_000` + `UB_ERP_Sales_order` | `POST /api/inventory/pi-bom-data/replace-material`：body 须带与 ERP 内核共用的核心密钥 `key`（校验 `ERP_CORE_CONFIG_KEY`）；只读 `Bom_000` 取目标物料，更新 `Bom_Sales_list` 匹配行（`sid`+源 `kcaa01`，可选 `pkcaa01`；`Describe` 精确匹配，留空只命中搭配为空的行）；同步物料快照列；不改树键/用量/`Describe`/主档/`pi_cost`；支持 `dryRun:true` 预检；执行后销售订单标未运算。操作日志不记录核心密钥。 |
 
 ## 入库单 · 生产入库批量添加
 

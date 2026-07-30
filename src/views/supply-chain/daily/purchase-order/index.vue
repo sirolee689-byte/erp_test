@@ -1125,6 +1125,20 @@ async function loadSuppliers(keyword = '') {
   const { data } = await axios.get('/api/buy-order/supplier-options', { params: { keyword } })
   suppliers.value = data.data?.list || []
 }
+function ensureCurrentSupplierOption(header) {
+  const code = String(header?.kcaj05 ?? '').trim()
+  const name = String(header?.kehu ?? '').trim()
+  if (!code) return
+
+  const current = suppliers.value.find((item) => String(item?.code ?? '').trim() === code)
+  if (current) {
+    if (!String(current.name ?? '').trim() && name) current.name = name
+    return
+  }
+
+  // 历史采购单的供应商可能已不在前 100 条候选内，仍优先显示单据保存时的名称快照。
+  suppliers.value.unshift({ code, name })
+}
 async function loadCurrencies() {
   const { data } = await axios.get('/api/buy-order/currency-options')
   currencies.value = data.data?.list || []
@@ -1326,23 +1340,13 @@ function switchToManage() {
 
 async function switchToCreate() {
   if (pageMode.value === 'create') return
-  const preserveDraft =
-    createPanelInitialized.value &&
-    pageMode.value !== 'edit' &&
-    pageMode.value !== 'view'
-
   pageMode.value = 'create'
   editId.value = null
   viewId.value = null
   activeTab.value = 'header'
-
-  if (!preserveDraft) {
-    resetFormData()
-    await Promise.all([loadSuppliers(), loadCurrencies(), loadMaterials(), loadFees()])
-    await chooseNumberType('ZY')
-  } else if (!createPanelInitialized.value) {
-    await Promise.all([loadSuppliers(), loadCurrencies(), loadMaterials(), loadFees()])
-  }
+  resetFormData()
+  await Promise.all([loadSuppliers(), loadCurrencies(), loadMaterials(), loadFees()])
+  await chooseNumberType('ZY')
   createPanelInitialized.value = true
 }
 
@@ -1585,6 +1589,7 @@ function hydrateForm(data) {
     remark: h1.remark || '',
     decimalPlaces: Number(h1.decimal ?? 4),
   })
+  ensureCurrentSupplierOption(h1)
   selectedPis.value = String(form.header.referenceNo || '').split(',').filter(Boolean)
   const refPi = String(form.header.referenceNo || '').split(',')[0].trim()
   if (refPi) {

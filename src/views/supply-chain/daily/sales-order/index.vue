@@ -604,6 +604,7 @@
                     v-else
                     v-model="row.orderQty"
                     :min="0"
+                    :value-on-clear="null"
                     :disabled="editDetailLocked"
                     :controls="false"
                     style="width: 100%"
@@ -989,7 +990,7 @@ const headerForm = reactive({
   remark: '',
   decimalPlaces: 2,
 })
-/** @type {import('vue').Ref<{ kcaa01: string, orderQty: number, unitPrice: number, remark?: string, customerStyleNo?: string, materialNameCn?: string, groupName?: string, factoryStyleNo?: string, version?: string }[]>} */
+/** @type {import('vue').Ref<{ kcaa01: string, orderQty: number | null, unitPrice: number, remark?: string, customerStyleNo?: string, materialNameCn?: string, groupName?: string, factoryStyleNo?: string, version?: string }[]>} */
 const lineRows = ref([])
 const currencyOptions = ref([])
 const customerOptions = ref([])
@@ -1568,7 +1569,8 @@ function onMaterialsPicked(payloads) {
     if (lineRows.value.some((x) => x.kcaa01 === code)) continue
     lineRows.value.push({
       kcaa01: code,
-      orderQty: 0,
+      // 数量默认空，避免输入时前面多带一个 0；单价仍默认 0
+      orderQty: null,
       unitPrice: 0,
       remark: String(m.remark ?? ''),
       customerStyleNo: String(m.kcaa06 ?? ''),

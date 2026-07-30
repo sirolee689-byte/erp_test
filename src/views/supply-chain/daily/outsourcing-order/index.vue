@@ -977,6 +977,20 @@ async function fetchSupplierOptions(keyword = '') {
   }
 }
 
+function ensureCurrentSupplierOption(header) {
+  const code = String(header?.supplierCode ?? '').trim()
+  const name = String(header?.supplierName ?? '').trim()
+  if (!code) return
+
+  const current = supplierOptions.value.find((item) => String(item?.code ?? '').trim() === code)
+  if (current) {
+    if (!String(current.name ?? '').trim() && name) current.name = name
+    return
+  }
+
+  supplierOptions.value.unshift({ code, name })
+}
+
 async function fetchCurrencyOptions() {
   const res = await axios.get('/api/assist-order/currency-options')
   const body = res.data ?? {}
@@ -1103,6 +1117,7 @@ async function applyDetailToEditForm(data) {
       .map((line, index) => normalizeLine(line, index)),
     fees: padFeesToFixedRows(data?.fees),
   })
+  ensureCurrentSupplierOption(h)
   renumberLines()
   const refNo = String(editForm.referenceNo ?? '').trim()
   editForm.referenceOrderId = refNo ? await resolveOrderIdByPi(refNo) : null

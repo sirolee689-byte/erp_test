@@ -140,6 +140,7 @@ import { normalizeErpCodeDisplay, erpCodeLookupKey } from '@/utils/paperPatternE
 import {
   buildSmartCheckFingerprint,
   expandMaterialRowsForSmartCheck,
+  mergeWorkbenchMaterialWastageIntoMaterials,
   mergeMaterialCheckRowsIntoMaterials,
   mergeWorkbenchIntoImportPageSession,
   readWorkbenchPayload,
@@ -504,6 +505,7 @@ async function loadFromFileId() {
       return
     }
     const colorNos = Array.isArray(data.mainBom?.colorNos) ? data.mainBom.colorNos : []
+    mergeWorkbenchMaterialWastageIntoMaterials(data.materials, fileId.value)
     hydrateFromPayload(data.materials, data.accessories, colorNos)
   } catch (e) {
     const msg =

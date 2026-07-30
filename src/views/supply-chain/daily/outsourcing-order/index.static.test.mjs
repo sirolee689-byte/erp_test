@@ -15,6 +15,12 @@ describe('outsourcing-order index static UI contract', () => {
     assert.match(formSource, /readonly:\s*\{\s*type:\s*Boolean/)
   })
 
+  test('detail keeps the historical supplier name when it is outside the option list', () => {
+    assert.match(source, /function ensureCurrentSupplierOption\(header\)/)
+    assert.match(source, /const name = String\(header\?\.supplierName \?\? ''\)\.trim\(\)/)
+    assert.match(source, /ensureCurrentSupplierOption\(h\)/)
+  })
+
   test('opens two standalone print formats from the selected order-number queue', () => {
     assert.doesNotMatch(source, /openBatchPrint/)
     assert.doesNotMatch(source, /assist-print-dialog/)

@@ -111,6 +111,15 @@ describe('matchApiPermissionRule — BOM 资料', () => {
   })
 })
 
+describe('matchApiPermissionRule — 纸格资料导入', () => {
+  test('清理未正式导入的临时 Excel 沿用纸格导入新增权限', () => {
+    assert.deepEqual(
+      matchApiPermissionRule('POST', '/api/paper-pattern/import/discard-upload', {}, {}),
+      { menuPath: 'paper-pattern/import', action: 'add' },
+    )
+  })
+})
+
 describe('matchApiPermissionRule — 采购报价', () => {
   test('POST 新增 → add', () => {
     const rule = matchApiPermissionRule('POST', '/api/supply-chain/purchase-quotations', {}, {})

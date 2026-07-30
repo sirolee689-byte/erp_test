@@ -1429,6 +1429,9 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'POST' && path === '/api/paper-pattern/import/upload') {
     return { menuPath: 'paper-pattern/import', action: 'add' }
   }
+  if (m === 'POST' && path === '/api/paper-pattern/import/discard-upload') {
+    return { menuPath: 'paper-pattern/import', action: 'add' }
+  }
   if (m === 'POST' && path === '/api/paper-pattern/upload') {
     return { menuPath: 'paper-pattern/import', action: 'add' }
   }

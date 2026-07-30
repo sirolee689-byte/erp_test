@@ -17,6 +17,7 @@ import {
   fetchOutsourcingQuotationSnapshotForAudit,
 } from './outsourcingQuotationHandlers.js'
 import { INV_BOM_MASTER_FROM } from './bomTables.js'
+import { SALES_ORDER_HEADER_TABLE } from './salesOrderListQuery.js'
 
 export { resolveAuditActionAndTable } from './action_map.js'
 export { getRequestIp } from './requestIp.js'
@@ -47,6 +48,7 @@ const SYS_ROLES_FROM = 'dbo.[New_UB_ERP_System_role]'
 const SYS_SUPPLIER_FROM = 'dbo.[UB_ERP_System_supplier]'
 const SYS_SETTLEMENT_METHOD_FROM = 'dbo.[UB_ERP_System_settlement_method]'
 const SYS_SALES_CUSTOMER_FROM = 'dbo.[UB_ERP_System_sales_customer]'
+const SALES_ORDER_FROM = `dbo.[${SALES_ORDER_HEADER_TABLE}]`
 
 const SENSITIVE_KEY_HINTS = ['password', 'token', 'authorization', 'secret', 'credential']
 
@@ -131,7 +133,10 @@ export function redactBodyForOperationAudit(body) {
   for (const [k, v] of Object.entries(body)) {
     const lk = String(k).toLowerCase()
     const sensitive =
-      SENSITIVE_KEY_HINTS.some((h) => lk.includes(h)) || lk === 'pwd' || lk.endsWith('password')
+      SENSITIVE_KEY_HINTS.some((h) => lk.includes(h)) ||
+      lk === 'pwd' ||
+      lk === 'key' ||
+      lk.endsWith('password')
     if (sensitive) {
       out[k] = '***'
     } else if (v && typeof v === 'object') {
@@ -363,6 +368,76 @@ export function buildBomMasterOperationChineseContent(user, method, path, req) {
                     ? '批量一键运算了'
                     : '一键运算了'
   return `${operatorDisplayName(user)}${action}编码「${codes.join('、')}」`
+}
+
+function getSalesOrderIdForAudit(req, path) {
+  const id = Number(req.params?.id ?? /^\/api\/sales-order\/(\d+)\//.exec(path)?.[1] ?? 0)
+  return Number.isInteger(id) && id > 0 ? id : null
+}
+
+function isSalesOrderPrimaryCentralRoute(method, path) {
+  return (
+    (method === 'POST' && path === '/api/sales-order') ||
+    (method === 'PUT' && /^\/api\/sales-order\/\d+$/.test(path)) ||
+    (method === 'POST' && /^\/api\/sales-order\/\d+\/(approve|unapprove|soft-delete|restore|hard-delete|calculate)$/.test(path))
+  )
+}
+
+async function fetchSalesOrderSnapshotForAudit(pool, id) {
+  if (!id) return null
+  const result = await pool.request().input('id', sql.Int, id).query(`
+    SELECT TOP 1
+      CAST(h.id AS int) AS id,
+      LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(h.xsaj01, N'')))) AS piNo
+    FROM ${SALES_ORDER_FROM} AS h
+    WHERE h.id = @id
+  `)
+  const row = result.recordset?.[0] ?? null
+  if (!row) return null
+  return { id: Number(row.id ?? id), piNo: String(row.piNo ?? '').trim() }
+}
+
+function formatSalesOrderOperationTime(value) {
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  const date = value instanceof Date ? value : new Date()
+  const pad2 = (part) => String(part).padStart(2, '0')
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`
+}
+
+function getSalesOrderOperatorName(user) {
+  return String(user?.auditTruename ?? user?.truename ?? user?.userName ?? user?.userCode ?? '未知').trim() || '未知'
+}
+
+/**
+ * 销售订单沿用旧系统可读日志口径：PI、IP、操作时间、操作者都写进 act_info。
+ */
+export function buildSalesOrderOperationLogContent(user, method, path, req, options = {}) {
+  if (!isSalesOrderPrimaryCentralRoute(method, path)) return ''
+  const id = getSalesOrderIdForAudit(req, path)
+  const body = req.body && typeof req.body === 'object' ? req.body : {}
+  const snapshot = id ? req.__auditSalesOrderById?.[id] : null
+  const piNo = String(snapshot?.piNo ?? body.header?.piNo ?? '').trim()
+  if (!piNo) return ''
+
+  const prefix =
+    method === 'POST' && path === '/api/sales-order'
+      ? '录入成功,等待审核！'
+      : method === 'PUT'
+        ? '编辑成功！'
+        : /\/unapprove$/.test(path)
+          ? '反审成功！'
+          : /\/approve$/.test(path)
+            ? '审核成功！'
+            : /\/soft-delete$/.test(path)
+              ? '删除成功！'
+              : /\/hard-delete$/.test(path)
+                ? '彻底删除成功！'
+                : /\/restore$/.test(path)
+                  ? '恢复成功！'
+                  : '一键运算成功！'
+  const ip = String(options.ip ?? getRequestIp(req) ?? '').trim() || '未知'
+  const time = formatSalesOrderOperationTime(options.time)
+  return `${prefix}PI号:${piNo}，IP：${ip}，操作时间：${time}操作者：${getSalesOrderOperatorName(user)}`
 }
 
 /**
@@ -797,6 +872,13 @@ export function createOperationAuditPrepareMiddleware() {
           pool,
           getBomMasterSystemcodesForAudit(method, path, req),
         )
+      }
+      if (isSalesOrderPrimaryCentralRoute(method, path)) {
+        const id = getSalesOrderIdForAudit(req, path)
+        if (id) {
+          const snapshot = await fetchSalesOrderSnapshotForAudit(pool, id)
+          if (snapshot) req.__auditSalesOrderById = { [id]: snapshot }
+        }
       }
 
       // === 供应商资料：审核/反审/恢复/删除/彻底删除/编辑前读库补全编码与名称 ===
@@ -1371,8 +1453,11 @@ export function createOperationAuditMiddleware(deps) {
 
         let content = ''
         const bomContent = buildBomMasterOperationChineseContent(user, method, path, req)
+        const salesOrderContent = buildSalesOrderOperationLogContent(user, method, path, req)
         if (bomContent) {
           content = bomContent
+        } else if (salesOrderContent) {
+          content = salesOrderContent
         } else if (method === 'POST' && path === '/api/supply-chain/suppliers') {
           const op = operatorDisplayName(user)
           const code = displayCell(req.body?.s_code)

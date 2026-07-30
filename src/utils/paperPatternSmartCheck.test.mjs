@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   ERP_WORKBENCH_STORAGE,
+  mergeWorkbenchMaterialWastageIntoMaterials,
   readWorkbenchPayload,
   saveWorkbenchPayload,
 } from './paperPatternSmartCheck.js'
@@ -38,6 +39,30 @@ test('workbench payload keeps the current fileId', () => {
     accessories: [{ seqNo: 'A' }],
     colorNos: ['N'],
   })
+})
+
+test('按当前 fileId 重载智能校验资料时保留已填写的 Material 损耗', () => {
+  globalThis.sessionStorage = makeStorage()
+  saveWorkbenchPayload({
+    fileId: 'file-2',
+    materials: [
+      { groupNo: '10', wastageFraction: 0.2432 },
+      { groupNo: '11', wastageFraction: null },
+    ],
+    accessories: [],
+    colorNos: ['N'],
+  })
+  const materials = [
+    { groupNo: '10', wastageFraction: null },
+    { groupNo: '11', wastageFraction: 0.05 },
+  ]
+
+  assert.equal(mergeWorkbenchMaterialWastageIntoMaterials(materials, 'file-2'), true)
+  assert.deepEqual(materials, [
+    { groupNo: '10', wastageFraction: 0.2432 },
+    { groupNo: '11', wastageFraction: null },
+  ])
+  assert.equal(mergeWorkbenchMaterialWastageIntoMaterials(materials, 'other-file'), false)
 })
 
 test('old workbench payload without fileId remains readable', () => {

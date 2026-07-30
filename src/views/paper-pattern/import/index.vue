@@ -1240,9 +1240,13 @@ function goSmartCheck() {
   }
   try {
     persistImportPageSession()
+    const snapshot = cloneParseResultForSessionSnapshot(
+      parseResult.value,
+      materialPreviewRows.value,
+    )
     saveWorkbenchPayload({
       fileId: parseFileId.value,
-      materials: parseResult.value.materials || [],
+      materials: snapshot?.materials || parseResult.value.materials || [],
       accessories: parseResult.value.accessories || [],
       colorNos: smartCheckColorNos.value,
     })
@@ -1528,6 +1532,23 @@ async function resetToFreshImportPage() {
   }
 }
 
+/** 放弃当前解析时同步删除服务器 UUID 临时文件；已正式归档文件不走这里。 */
+async function discardCurrentParseTemporaryFile() {
+  const fid = String(parseFileId.value ?? '').trim()
+  if (!fid) return true
+  try {
+    const res = await axios.post('/api/paper-pattern/import/discard-upload', { fileId: fid })
+    if (!res?.data?.success) {
+      throw new Error(String(res?.data?.message || '清理临时 Excel 失败'))
+    }
+    return true
+  } catch (e) {
+    const msg = e?.response?.data?.message || e?.message || '清理临时 Excel 失败'
+    ElMessage.error(`${msg}；为避免遗留临时文件，暂未切换到新资料`)
+    return false
+  }
+}
+
 async function onClearParseData() {
   if (!canClearParseData.value) return
   try {
@@ -1539,6 +1560,7 @@ async function onClearParseData() {
   } catch {
     return
   }
+  if (!(await discardCurrentParseTemporaryFile())) return
   await resetToFreshImportPage()
   ElMessage.success('已清除解析数据，请重新选择 Excel 文件')
 }
@@ -1548,6 +1570,10 @@ async function onUploadParse() {
   errorMessage.value = ''
   commitRestoreNotice.value = ''
   uploading.value = true
+  if (!(await discardCurrentParseTemporaryFile())) {
+    uploading.value = false
+    return
+  }
   resetParseStateOnly()
   try {
     const fd = new FormData()

@@ -1031,18 +1031,10 @@
                   <el-button
                     type="primary"
                     :loading="bomUsageTreeLoading"
-                    :disabled="!bomSystemcode || bomUsageTreeLoading || bomUsageHasCache"
+                    :disabled="!bomSystemcode || bomUsageTreeLoading"
                     @click="onBomUsageTableCalc()"
                   >
                     运算
-                  </el-button>
-                  <el-button
-                    type="warning"
-                    :loading="bomUsageTreeLoading"
-                    :disabled="!bomSystemcode || bomUsageTreeLoading || !bomUsageHasCache"
-                    @click="onBomUsageTableCalc({ recalc: true })"
-                  >
-                    重新运算
                   </el-button>
                   <el-button
                     :disabled="!bomSystemcode || bomUsageTreeLoading"
@@ -1133,8 +1125,8 @@
                     v-else-if="!bomUsageTreeLoading && !bomUsageTreeError"
                     :description="
                       bomUsageHasCache
-                        ? '当前为缓存模式：未加载 UB_ERP_Bom_parts 树形表；需要树形请点「重新运算」'
-                        : '已加载 DFS 树形（无 UB_ERP_Bom_cost 缓存）；点「运算」写入库后可改为缓存直读'
+                        ? '当前显示的是 UB_ERP_Bom_cost 缓存结果；点「运算」可切换为树形预览'
+                        : '已加载 DFS 树形预览；「运算」仅刷新树形，不写入 UB_ERP_Bom_cost'
                     "
                     :image-size="72"
                   />
@@ -1195,7 +1187,7 @@
                       <el-table-column label="用量" width="93" align="right">
                         <template #default="{ row }">{{ formatQty(row.yl) }}</template>
                       </el-table-column>
-                      <el-table-column label="损耗" width="56" align="right">
+                      <el-table-column label="损耗" width="93" align="right">
                         <template #default="{ row }">{{ formatLossRate(row.loss_rate) }}</template>
                       </el-table-column>
                       <el-table-column label="合计" width="93" align="right">
@@ -2491,18 +2483,10 @@ function applyBomUsageCalcResult(body, systemcode) {
   recomputeBomCostUsageDisplay()
 }
 
-/**
- * 详情「运算/重新运算」与列表「一键运算」同口径：CUT 中间层倍率参与下层乘算。
- * @param {string} systemcode @param {string[]} hidePrefixes
- */
-async function postBomUsageCalcApi(systemcode, hidePrefixes) {
+/** 列表「一键运算」：写库口径不变，仍走 legacy 写入接口。 */
+async function postBomListUsageCalcApi(systemcode, hidePrefixes) {
   const res = await axios.post('/api/bom/usage-calc-legacy', { systemcode, hidePrefixes })
   return res.data
-}
-
-/** 列表「一键运算」：与详情运算同接口同口径 */
-async function postBomListUsageCalcApi(systemcode, hidePrefixes) {
-  return postBomUsageCalcApi(systemcode, hidePrefixes)
 }
 
 function clearBomUsageCalcResultOnError() {
@@ -2514,28 +2498,19 @@ function clearBomUsageCalcResultOnError() {
   recomputeBomCostUsageDisplay()
 }
 
-/** @param {{ recalc?: boolean }} opts recalc=true：已有缓存时全量重算并覆盖落库 */
-async function onBomUsageTableCalc(opts = {}) {
-  const recalc = !!opts.recalc
+/**
+ * 详情「运算」仅做树形预览刷新（不写 UB_ERP_Bom_cost）。
+ */
+async function onBomUsageTableCalc() {
   if (!bomSystemcode.value) {
     ElMessage.warning('主档缺少 systemcode，无法运算')
-    return
-  }
-  if (recalc && !bomUsageHasCache.value) {
-    ElMessage.warning('当前无 UB_ERP_Bom_cost 缓存，请先点击「运算」写入')
-    return
-  }
-  if (!recalc && bomUsageHasCache.value) {
-    ElMessage.info('当前已有运算缓存，请使用「重新运算」覆盖，或「刷新」仅重新读取')
     return
   }
   const code = String(bomBasic.value?.kcaa01 ?? detailTitleCode.value ?? '').trim()
   try {
     await ElMessageBox.confirm(
-      recalc
-        ? `【物料编码 ${code || '当前 BOM'}】已有运算结果，将按配件明细递归重新运算并覆盖。CUT- 中间层数量会参与下层逐层乘算，是否继续？`
-        : `将对【物料编码 ${code || '当前 BOM'}】按配件明细递归运算并写入 UB_ERP_Bom_cost。CUT- 中间层数量会参与下层逐层乘算，是否继续？`,
-      recalc ? '确认重新运算' : '确认运算',
+      `将按【物料编码 ${code || '当前 BOM'}】配件明细加载树形预览（只读，不写入 UB_ERP_Bom_cost），是否继续？`,
+      '确认运算',
       {
         type: 'warning',
         confirmButtonText: '确定',
@@ -2548,21 +2523,26 @@ async function onBomUsageTableCalc(opts = {}) {
   bomUsageTreeLoading.value = true
   bomUsageTreeError.value = ''
   try {
-    const hidePrefixes = normalizeBomCostHidePrefixes(BOM_COST_BUILTIN_HIDE_PREFIXES)
-    const body = await postBomUsageCalcApi(bomSystemcode.value, hidePrefixes)
+    const res = await axios.get('/api/bom/tree', {
+      params: { systemcode: bomSystemcode.value, preferTree: 1 },
+    })
+    const body = res.data
     if (!body?.success) {
-      const msg = String(body?.msg ?? 'UB_ERP_Bom_cost写入失败')
+      const msg = String(body?.msg ?? '树形预览加载失败')
       bomUsageTreeError.value = msg
       clearBomUsageCalcResultOnError()
       ElMessage.error(msg)
       return
     }
-    applyBomUsageCalcResult(body, bomSystemcode.value)
-    const total = Number(body.total ?? 0)
-    ElMessage.success(
-      `${recalc ? '重新运算' : '运算'}完成；UB_ERP_Bom_cost ${Number.isFinite(total) ? total : 0} 条`,
-    )
-    detailActiveTab.value = 'costBomUsage'
+    lastBomUsageFetchSystemcode.value = String(bomSystemcode.value ?? '').trim()
+    bomUsageHasCache.value = false
+    bomUsageTreeError.value = ''
+    bomUsageTreeData.value = Array.isArray(body?.data) ? body.data : []
+    bomCostUsageRawRows.value = Array.isArray(body?.flatCostUsageRaw) ? body.flatCostUsageRaw : []
+    bomUsageExpandedIds.value = new Set()
+    bomUsageSelectedId.value = null
+    recomputeBomCostUsageDisplay()
+    ElMessage.success('运算完成：已刷新树形预览（未写入 UB_ERP_Bom_cost）')
   } catch (e) {
     const msg = String(e?.response?.data?.msg ?? e?.message ?? '网络错误')
     bomUsageTreeError.value = msg
@@ -3967,7 +3947,8 @@ function onEditMaterialPicked(payload) {
 }
 
 /** GET /api/bom/tree：缓存直读或 DFS 预览（不写入） */
-async function loadBomUsageTreeOrCache(force = false) {
+async function loadBomUsageTreeOrCache(force = false, opts = {}) {
+  const preferTreeOnly = !!opts.preferTreeOnly
   const sc = String(bomSystemcode.value ?? '').trim()
   if (!sc || !detailVisible.value) return
   const usageTabs = new Set(['usageCalc', 'costBomUsage'])
@@ -3978,7 +3959,8 @@ async function loadBomUsageTreeOrCache(force = false) {
   bomUsageTreeLoading.value = true
   bomUsageTreeError.value = ''
   try {
-    const res = await axios.get('/api/bom/tree', { params: { systemcode: sc } })
+    const params = preferTreeOnly ? { systemcode: sc, preferTree: 1 } : { systemcode: sc }
+    const res = await axios.get('/api/bom/tree', { params })
     const body = res.data
     if (!body?.success) {
       const msg = String(body?.msg ?? '读取失败')
@@ -3993,7 +3975,7 @@ async function loadBomUsageTreeOrCache(force = false) {
     bomUsageTreeError.value = ''
     bomUsageExpandedIds.value = new Set()
     bomUsageSelectedId.value = null
-    if (body.hasCache) {
+    if (body.hasCache && !preferTreeOnly) {
       bomUsageHasCache.value = true
       bomCostUsageRawRows.value = mapBomCostApiRowsToCostUsageRawRows(body.UB_ERP_Bom_cost)
       bomUsageTreeData.value = []

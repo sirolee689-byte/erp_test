@@ -1933,7 +1933,6 @@ async function openQuotePanel(row, mode) {
     basicForm.decimalPlaces = Number.isFinite(decNum) ? Math.trunc(decNum) : 4
     currencyCode.value = resolveCurrencyCodeFromHeader(header)
 
-    supplierOptions.value = []
     dialogHeaderPass.value = String(lineField(header, 'pass') ?? row.pass ?? '').trim() || '0'
     lineRows.value = lines.map((raw) => {
       const x = { ...raw }

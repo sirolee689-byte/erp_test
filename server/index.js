@@ -91,6 +91,10 @@ import {
   ensurePaperPatternImportTmpDir,
   handlePaperPatternImportPreviewGet,
 } from './paperPatternImportPreview.js'
+import {
+  handlePostPaperPatternImportDiscardUpload,
+  pruneExpiredPaperPatternTemporaryUploads,
+} from './paperPatternImportTemporaryFile.js'
 import { handleGetPaperPatternImportFilesList } from './paperPatternImportFilesList.js'
 import { handleGetPaperPatternImportFileDownload } from './paperPatternImportFileDownload.js'
 import { getPaperPatternDownloadRoot, getPaperPatternUploadDir } from './paperPatternFilePaths.js'
@@ -11989,6 +11993,11 @@ app.delete('/api/dorm/delete-checkin', async (req, res) => {
 
 /** 纸格资料导入：临时目录（不写 UB_ERP_Bom_000 等业务表） */
 ensurePaperPatternImportTmpDir()
+try {
+  pruneExpiredPaperPatternTemporaryUploads()
+} catch (e) {
+  console.error('[paper-pattern-import-temp] 启动时清理临时文件失败：', e)
+}
 
 const paperPatternImportUpload = multer({
   storage: multer.diskStorage({
@@ -12144,6 +12153,7 @@ app.post('/api/paper-pattern/upload', (req, res) => {
 })
 
 app.get('/api/paper-pattern/import/preview', handlePaperPatternImportPreviewGet)
+app.post('/api/paper-pattern/import/discard-upload', handlePostPaperPatternImportDiscardUpload)
 app.get('/api/paper-pattern/import/mapping', handleGetPaperPatternMapping)
 app.post('/api/paper-pattern/import/save-mapping', handleSavePaperPatternMapping)
 app.get('/api/paper-pattern/import/validate', handlePaperPatternImportValidateGet)
