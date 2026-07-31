@@ -64,7 +64,7 @@ describe('applyAssistOrderLifecycleAction', () => {
       pool,
       id: 9,
       action: 'audit',
-      actor: { trueName: '张三' },
+      actor: { trueName: '张三', ip: '192.168.1.19' },
     })
 
     assert.equal(result.ok, true)
@@ -75,6 +75,7 @@ describe('applyAssistOrderLifecycleAction', () => {
     assert.equal(logCall.inputs.act_name, '审核')
     assert.match(logCall.inputs.act_info, /WX26060902/)
     assert.equal(logCall.inputs.act_user, '张三')
+    assert.equal(logCall.inputs.ip, '192.168.1.19')
   })
   test('unaudits an audited active order and writes standard operation log action', async () => {
     const pool = createMockPool({

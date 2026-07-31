@@ -217,6 +217,14 @@
             </template>
             <template v-else>
               <el-button type="info" plain @click.stop="openView(row)">查看</el-button>
+              <el-button
+                v-permission="'print'"
+                plain
+                :type="isPrintSelected(row) ? 'primary' : 'default'"
+                @click.stop="togglePrintSelect(row)"
+              >
+                {{ isPrintSelected(row) ? '已选择' : '打印选择' }}
+              </el-button>
               <template v-if="!isAudited(row)">
                 <el-button
                   type="primary"
@@ -269,14 +277,6 @@
                   反结案
                 </el-button>
               </template>
-              <el-button
-                v-permission="'print'"
-                plain
-                :type="isPrintSelected(row) ? 'primary' : 'default'"
-                @click.stop="togglePrintSelect(row)"
-              >
-                {{ isPrintSelected(row) ? '已选择' : '打印选择' }}
-              </el-button>
             </template>
           </ErpTableActions>
         </template>
@@ -490,6 +490,7 @@ function getAssistOrderRowActionLabels(row) {
   if (filters.recycled) return ['恢复', isErpSuperAdmin() ? '彻底删除' : false]
 
   const labels = ['查看']
+  if (hasPageAction(model, menuPath, 'print')) labels.push(isPrintSelected(row) ? '已选择' : '打印选择')
   if (!isAudited(row)) {
     // 编辑/删除按钮模板未加 v-permission，始终渲染（仅按 canEdit/canDelete 置灰）
     labels.push('编辑')
@@ -500,7 +501,6 @@ function getAssistOrderRowActionLabels(row) {
     if (canClose(row)) labels.push('结案')
     if (canUnclose(row)) labels.push('反结案')
   }
-  if (hasPageAction(model, menuPath, 'print')) labels.push(isPrintSelected(row) ? '已选择' : '打印选择')
   return labels
 }
 
@@ -671,8 +671,11 @@ function dateForInput(value) {
 
 function normalizeLine(row = {}, index = 0) {
   return {
+    id: Number(row.id ?? 0) || null,
     seq: index + 1,
     _lineMarked: false,
+    bomSystemCode: String(row.bomSystemCode ?? row.wxak02 ?? ''),
+    systemcode: String(row.systemcode ?? ''),
     piNo: String(row.piNo ?? ''),
     product: String(row.product ?? ''),
     kcaa01: String(row.kcaa01 ?? ''),
@@ -687,6 +690,8 @@ function normalizeLine(row = {}, index = 0) {
     kcaa11: String(row.kcaa11 ?? ''),
     version: String(row.version ?? ''),
     customerSupply: String(row.customerSupply ?? ''),
+    inboundLocked: Boolean(row.inboundLocked === true || String(row.inboundLocked ?? '') === '1'),
+    inboundQty: Number(row.inboundQty ?? 0),
     wxak03: Number(row.wxak03 ?? row.orderQty ?? 0),
     wxak04: Number(row.wxak04 ?? 0),
     wxak041: Number(row.wxak041 ?? 0),

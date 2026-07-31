@@ -1,46 +1,27 @@
-# 人力资源 — 部门资料模块设计（接管旧系统表）
+# 人力资源 · 部门资料
 
-## 1. 物理表
+## 数据与关联
 
-- 物理表名由环境变量 **`HR_LEGACY_DEPT_TABLE`** 指定，**默认 `UB_ERP_Hr_department`**（仅字母数字下划线，防 SQL 拼接注入）。
-- **严禁**在应用层改名：接口 JSON 与下列列名一致（小写键）。
+- 表：`UB_ERP_Hr_department`（可用 `.env` 的 `HR_LEGACY_DEPT_TABLE` 覆盖）。
+- `systemcode`：部门唯一 GUID，也是员工关联键；新增时由服务端生成，编辑不得修改。
+- `code`：部门编码；`name`：部门名称；两者仅在未删除部门中唯一。
+- `manager`、`remark`：负责人、备注。
+- `pass`：`'0'` 未审核，`'1'` 已审核；已审核记录须反审后才可编辑或删除。
+- `del`：软删除位；回收站仅显示 `del='1'` 的未审核部门。
+- 员工表 `UB_ERP_Hr_staff` 同时保存 `in_bm=部门名称`、`in_bm_systemcode=部门 systemcode`；为不影响仍按编码读取的历史报表，同时保存 `join_department=部门编码`。
 
-| 列名 | 说明 |
-|------|------|
-| `code` | 部门编码（业务主键；新增由服务端按整表最大数字 code +1 生成） |
-| `name` | 名称 |
-| `manager` | 负责人（历史列；新增写入为 NULL，界面已改为备注） |
-| `remark` | 备注（`nvarchar(500)`，迁移脚本添加） |
-| `addtime` / `edittime` / `deltime` / `intime` | 时间（旧表均为 nvarchar，按字符串读写） |
-| `del` | 逻辑删除：`''`/`NULL`/`'0'` 为在册；删除操作置 `'1'` |
-| `flag` | 标志位：**仅列表展示**，默认不参与 WHERE |
-| `info` / `systemcode`等 | 随 SELECT 返回，不在本页表单中编辑 |
-| `pass` | 审核状态：**`'1'` = 已审核**（锁定改删），**`'0'` 或空 = 未审核** |
-| `passid` / `passuname` / `passuid` / `passutruename` / `passtime` | 审核人及时间；审核时写入，`passutruename` 用当前登录用户姓名 |
-| `uploadtime` / `ip` | 原样返回 |
-| `delid` / `delname` / `deltruename` | 逻辑删除时写入当前操作者 |
+## 页面与接口
 
-## 2. 接口（`server/index.js`）
+- 页面：`src/views/hr/files/department/index.vue`，使用“管理部门资料 / 部门资料添加”切换；列表操作列固定在左侧，并使用视口底部横向滚动条。
+- 列表：状态、部门编码、部门名称、负责人、备注、操作时间；单关键词匹配编码、名称、负责人、备注。
+- 接口：
+  - `GET /api/hr/departments?page&pageSize&keyword&pass&recycle`
+  - `POST /api/hr/departments`：`code`、`name`、`manager`、`remark`
+  - `PUT /api/hr/departments`：须带 `systemcode`，可编辑编码、名称、负责人、备注
+  - `PUT /api/hr/departments/audit|unaudit|restore`
+  - `DELETE /api/hr/departments/:systemcode`：仅软删除；若有在职员工按 `in_bm_systemcode` 关联则拒绝。
+- 所有写操作由 ERP 中央操作日志记录；写入人、时间、IP 由服务端当前登录态取得。
 
-`data.list` 中每条对象均含上表全部键（缺省为 `null`），**字段名小写**。
+## 不做
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/hr/departments` | `page`（默认1）、`pageSize`（**默认20**）、`keyword`（模糊 **`name`、`code`**）；仅 `del` 在册行；返回 `{ list, total }` |
-| POST | `/api/hr/departments` | body：`name`，可选 `remark`、`ParentID`（岗位必填）；**`code` 服务端自增**；`pass=N'0'`,`del=N'0'`，`addtime`/`edittime` 填当前时间字符串 |
-| PUT | `/api/hr/departments` | body：`code`,`name`，可选 `remark`、`ParentID`；**`pass='1'` 禁止** |
-| PUT | `/api/hr/departments/audit` | body：`{ code }` |
-| PUT | `/api/hr/departments/unaudit` | body：`{ code }` |
-| DELETE | `/api/hr/departments/:code` | **逻辑删除**（非物理 DELETE） |
-
-## 3. 权限
-
-见 `rbac_design.md` §6；`DELETE` 路径参数为 **字符串 code**。
-
-## 4. 前端
-
-`src/views/hr/files/department/index.vue`：`row-key="code"`；`pass === '1'` 时禁用编辑/删除；审核/反审带确认框。
-
-## 5. 与 `UB_ERP_Hr_department` 迁移脚本
-
-`docs/sql/sqlserver_v1.0.8_hr_departments.txt` 可为空库建 **`UB_ERP_Hr_department`**；若表已存在且列结构为旧系统（`code`/`name`/`pass` 等），直接设默认表名即可。其它表名用 **`HR_LEGACY_DEPT_TABLE`** 覆盖。备注列见 **`docs/sql/sqlserver_v1.1.0_hr_departments_add_remark.txt`**（`npm run migrate:hr-departments-remark`）。
+不维护 ParentID 部门树、岗位树、打印、导入及物理删除。

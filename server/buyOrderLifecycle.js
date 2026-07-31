@@ -117,15 +117,15 @@ async function insertReverseReason(pool, row, reason, actor) {
   `)
 }
 
-function actionLogName(action) {
+export function getBuyOrderLifecycleActionLogName(action) {
   return {
-    audit: '审核',
-    unaudit: '反审',
-    close: '结案',
-    unclose: '反结案',
-    delete: '删除',
-    restore: '恢复',
-    'hard-delete': '彻底删除',
+    audit: '审核采购单',
+    unaudit: '反审采购单',
+    close: '结案采购单',
+    unclose: '反结案采购单',
+    delete: '删除采购单',
+    restore: '恢复采购单',
+    'hard-delete': '彻底删除采购单',
   }[action] ?? action
 }
 
@@ -192,11 +192,12 @@ export async function applyBuyOrderLifecycleAction({ pool, id, action, actor = {
   }
 
   await writeBuyOrderOperationLog(pool, {
-    actName: actionLogName(action),
+    actName: getBuyOrderLifecycleActionLogName(action),
     info: buildBuyOrderLogInfo({ orderNo: row.buyOrderNo, referenceNo: row.referenceNo, actor, reason }),
     actor,
     orderNo: row.buyOrderNo,
     systemCode: row.systemCode,
+    ip: actor?.ip || '',
   })
-  return { ok: true, msg: `${actionLogName(action)}成功`, id, buyOrderNo: row.buyOrderNo }
+  return { ok: true, msg: `${getBuyOrderLifecycleActionLogName(action)}成功`, id, buyOrderNo: row.buyOrderNo }
 }

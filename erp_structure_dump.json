@@ -303,6 +303,10 @@
             "title": "部门资料"
           },
           {
+            "name": "position",
+            "title": "岗位资料"
+          },
+          {
             "name": "employee-files",
             "title": "员工档案资料"
           }
@@ -322,7 +326,7 @@
           },
           {
             "name": "electric-report",
-            "title": "宿舍电费情况统计报表"
+            "title": "宿舍电费情况表"
           }
         ]
       },

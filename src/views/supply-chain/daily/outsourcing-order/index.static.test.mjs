@@ -99,4 +99,11 @@ describe('outsourcing-order index static UI contract', () => {
     assert.match(source, /toggleWarehouseDetail\(line, 'outbound'\)/)
     assert.match(source, /bom-data-window\?mode=detail&code=/)
   })
+
+  test('edit form locks quantities for detail lines with inbound records', () => {
+    assert.match(source, /id:\s*Number\(row\.id/)
+    assert.match(source, /inboundLocked:\s*Boolean\([\s\S]*row\.inboundLocked/)
+    assert.match(formSource, /:disabled="row\.inboundLocked"/)
+    assert.match(formSource, /row\.inboundLocked[\s\S]*已入库，数量锁定/)
+  })
 })

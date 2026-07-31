@@ -9,7 +9,7 @@ import {
 } from './assistOrderSaveLogic.js'
 import { formatSalesOrderAuditTime } from './salesOrderPiBom.js'
 import { getRequestIp } from './operationAuditMiddleware.js'
-import { rewriteAssistOrderLines } from './assistOrderLineSave.js'
+import { normalizeAssistOrderLines, rewriteAssistOrderLines } from './assistOrderLineSave.js'
 import { rewriteAssistOrderFees } from './assistOrderFeeSave.js'
 import {
   buildAssistOrderLogInfo,
@@ -18,8 +18,15 @@ import {
 import { ASSIST_ORDER_HEADER_TABLE } from './assistOrderListQuery.js'
 
 const HEADER_FROM = `dbo.[${ASSIST_ORDER_HEADER_TABLE}]`
+const LINE_FROM = 'dbo.[UB_ERP_assist_order_list]'
+const STOCK_IN_FROM = 'dbo.[UB_ERP_Stocks_Storage]'
+const STOCK_IN_LINE_FROM = 'dbo.[UB_ERP_Stocks_Storage_list]'
 const SUPPLIER_FROM = 'dbo.[UB_ERP_System_supplier]'
 const CURRENCY_FROM = 'dbo.[UB_ERP_Finance_currency]'
+
+function text(value) {
+  return String(value ?? '').trim()
+}
 
 function activeWhere(alias) {
   return `(ISNULL(${alias}.[del], N'') = N'' OR ${alias}.[del] = N'0')`
@@ -27,6 +34,82 @@ function activeWhere(alias) {
 
 function auditedWhere(alias) {
   return `LTRIM(RTRIM(ISNULL(${alias}.[pass], N''))) = N'1'`
+}
+
+function qtySame(left, right) {
+  const a = Number(left)
+  const b = Number(right)
+  return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= 0.000001
+}
+
+function lineIdentity(line) {
+  const id = Number(line?.id)
+  return {
+    id: Number.isInteger(id) && id > 0 ? id : null,
+    systemCode: text(line?.bomSystemCode ?? line?.wxak02 ?? line?.systemCode ?? line?.systemcode),
+    materialCode: text(line?.kcaa01),
+  }
+}
+
+export function validateLockedAssistOrderLineQuantities({ oldLines = [], newLines = [] } = {}) {
+  const normalizedNew = normalizeAssistOrderLines(newLines)
+  const newById = new Map()
+  const newBySystemCode = new Map()
+  const newByMaterialCode = new Map()
+  ;(Array.isArray(newLines) ? newLines : []).forEach((raw, index) => {
+    const merged = { ...raw, ...(normalizedNew[index] ?? {}) }
+    const identity = lineIdentity(merged)
+    if (identity.id) newById.set(identity.id, merged)
+    if (identity.systemCode && !newBySystemCode.has(identity.systemCode)) newBySystemCode.set(identity.systemCode, merged)
+    if (identity.materialCode && !newByMaterialCode.has(identity.materialCode)) newByMaterialCode.set(identity.materialCode, merged)
+  })
+
+  for (const oldLine of Array.isArray(oldLines) ? oldLines : []) {
+    if (!(oldLine?.inboundLocked === true || String(oldLine?.inboundLocked ?? '') === '1')) continue
+    const identity = lineIdentity(oldLine)
+    const next = identity.id
+      ? newById.get(identity.id)
+      : (identity.systemCode && newBySystemCode.get(identity.systemCode)) ||
+        (identity.materialCode && newByMaterialCode.get(identity.materialCode))
+    const label = identity.materialCode || identity.systemCode || identity.id || '已入库明细'
+    if (!next) return `材料 ${label} 已有入库记录，不允许删除该外协明细`
+    if (!qtySame(oldLine.wxak03, next.wxak03)) return `材料 ${label} 已有入库记录，不允许修改外协数量`
+  }
+  return null
+}
+
+async function fetchLockedAssistOrderLines(pool, orderNo) {
+  const result = await pool.request().input('orderNo', sql.NVarChar(200), orderNo).query(`
+    SELECT
+      l.[id],
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[wxak02], N'')))) AS bomSystemCode,
+      LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[systemcode], N'')))) AS systemcode,
+      LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N'')))) AS kcaa01,
+      ISNULL(l.[wxak03], 0) AS wxak03,
+      CASE WHEN EXISTS (
+        SELECT 1
+        FROM ${STOCK_IN_FROM} AS s
+        INNER JOIN ${STOCK_IN_LINE_FROM} AS il
+          ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[kcan01], N'')))) =
+             LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(il.[kcao01], N''))))
+         AND (ISNULL(il.[del], N'') = N'' OR il.[del] = N'0')
+        WHERE (ISNULL(s.[del], N'') = N'' OR s.[del] = N'0')
+          AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[kcan04], N'')))) = @orderNo
+          AND LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(s.[kcan03], N'')))) = N'2'
+          AND (
+            LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(il.[kcaa01], N'')))) =
+              LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(l.[kcaa01], N''))))
+            OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(il.[kcao02], N'')))) =
+              LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[wxak02], N''))))
+            OR LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(il.[kcao02], N'')))) =
+              LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[systemcode], N''))))
+          )
+      ) THEN N'1' ELSE N'0' END AS inboundLocked
+    FROM ${LINE_FROM} AS l
+    WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[wxak01], N'')))) = @orderNo
+      AND (ISNULL(l.[del], N'') = N'' OR l.[del] = N'0')
+  `)
+  return result.recordset ?? []
 }
 
 function datePrefix(saveDate) {
@@ -278,6 +361,11 @@ export async function updateAssistOrder(opts) {
   })
   const valErr = validateAssistOrderHeader(header)
   if (valErr) return { ok: false, status: 400, msg: valErr }
+  const lockedErr = validateLockedAssistOrderLineQuantities({
+    oldLines: await fetchLockedAssistOrderLines(pool, row.assistOrderNo),
+    newLines: body?.lines ?? [],
+  })
+  if (lockedErr) return { ok: false, status: 400, msg: lockedErr }
   const supplier = await resolveSupplier(pool, header.supplierCode)
   if (!supplier.ok) return { ok: false, status: 400, msg: supplier.msg }
   const currency = await resolveCurrency(pool, header.currencyCode)

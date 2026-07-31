@@ -6,7 +6,10 @@ import {
   formatAssistOrderDeliveryDate,
   resolveAssistOrderPiValue,
 } from './assistOrderSaveLogic.js'
-import { checkAssistOrderNoAvailable } from './assistOrderSaveService.js'
+import {
+  checkAssistOrderNoAvailable,
+  validateLockedAssistOrderLineQuantities,
+} from './assistOrderSaveService.js'
 
 function mockPoolWithOrderNo(exists, id = 99) {
   return {
@@ -51,6 +54,34 @@ describe('checkAssistOrderNoAvailable', () => {
   })
 })
 
+describe('validateLockedAssistOrderLineQuantities', () => {
+  test('allows quantity changes for lines without inbound records', () => {
+    const err = validateLockedAssistOrderLineQuantities({
+      oldLines: [{ id: 1, kcaa01: 'MAT-001', wxak03: 2, inboundLocked: '0' }],
+      newLines: [{ id: 1, kcaa01: 'MAT-001', wxak03: 3 }],
+    })
+    assert.equal(err, null)
+  })
+
+  test('rejects quantity changes for lines with inbound records', () => {
+    const err = validateLockedAssistOrderLineQuantities({
+      oldLines: [{ id: 2, kcaa01: 'MAT-002', wxak03: 2, inboundLocked: '1' }],
+      newLines: [{ id: 2, kcaa01: 'MAT-002', wxak03: 3 }],
+    })
+    assert.match(err, /MAT-002/)
+    assert.match(err, /不允许修改外协数量/)
+  })
+
+  test('rejects deleting a line with inbound records', () => {
+    const err = validateLockedAssistOrderLineQuantities({
+      oldLines: [{ id: 3, kcaa01: 'MAT-003', wxak03: 1, inboundLocked: true }],
+      newLines: [],
+    })
+    assert.match(err, /MAT-003/)
+    assert.match(err, /不允许删除/)
+  })
+})
+
 describe('updateAssistOrder header audit SQL', () => {
   test('writes upname/uptruename on edit without overwriting creator uname/utruename', () => {
     const src = readFileSync(fileURLToPath(new URL('./assistOrderSaveService.js', import.meta.url)), 'utf8')
@@ -67,5 +98,18 @@ describe('updateAssistOrder header audit SQL', () => {
     const updateBlock = src.slice(src.indexOf('export async function updateAssistOrder'))
     assert.match(updateBlock, /AS referenceNo/)
     assert.match(updateBlock, /referenceNo:\s*header\.referenceNo\s*\|\|\s*row\.referenceNo/)
+  })
+
+  test('checks external inbound records before rewriting detail lines', () => {
+    const src = readFileSync(fileURLToPath(new URL('./assistOrderSaveService.js', import.meta.url)), 'utf8')
+    const updateBlock = src.slice(src.indexOf('export async function updateAssistOrder'))
+    const validateAt = updateBlock.indexOf('validateLockedAssistOrderLineQuantities')
+    const rewriteAt = updateBlock.indexOf('rewriteAssistOrderLines')
+    assert.ok(validateAt >= 0)
+    assert.ok(rewriteAt > validateAt)
+    assert.match(src, /UB_ERP_Stocks_Storage/)
+    assert.match(src, /UB_ERP_Stocks_Storage_list/)
+    assert.match(src, /\[kcan03\][\s\S]*N'2'/)
+    assert.doesNotMatch(src, /OFFSET|TRY_CONVERT|TRY_CAST/)
   })
 })

@@ -1,5 +1,6 @@
 import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 import { sql } from './db.js'
+import { getRequestIp } from './requestIp.js'
 import {
   STOCK_IN_HEADER_TABLE,
   STOCK_IN_LINE_TABLE,
@@ -2023,7 +2024,7 @@ export function registerStockInRoutes(app, deps) {
       const id = normalizeId(req.params?.id)
       if (!id) return res.status(400).json({ code: 400, msg: '入库单参数无效', data: null })
       const pool = await getPool()
-      const actor = await getActor(pool, req)
+      const actor = { ...(await getActor(pool, req)), ip: getRequestIp(req) }
       const result = await applyStockInLifecycleAction({ pool, id, action, actor })
       if (!result.ok) return res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
       res.json({ code: 200, msg: result.msg, data: result })

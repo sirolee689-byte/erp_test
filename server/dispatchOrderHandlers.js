@@ -1,5 +1,6 @@
 import { clampErpPageSize } from './erpPagination.js'
 import { sql } from './db.js'
+import { getRequestIp } from './requestIp.js'
 import {
   DISPATCH_ORDER_HEADER_TABLE,
   buildDispatchOrderListPagedSql,
@@ -267,7 +268,7 @@ export function registerDispatchOrderRoutes(app, deps) {
         return
       }
       const pool = await getPool()
-      const actor = await getActor(pool, req)
+      const actor = { ...(await getActor(pool, req)), ip: getRequestIp(req) }
       const result = await applyDispatchOrderLifecycleAction({ pool, id, action, actor })
       if (!result.ok) {
         res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })

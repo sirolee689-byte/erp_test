@@ -65,7 +65,10 @@
           </el-button>
         </el-form>
 
-        <div class="login-developer">系统开发：廖越锋</div>
+        <div class="login-footer">
+          <div class="login-developer">系统开发：廖越锋</div>
+          <div class="login-copyright">版权所有：中山市卓越皮具有限公司</div>
+        </div>
       </section>
     </main>
   </div>
@@ -361,12 +364,20 @@ async function onLogin() {
   box-shadow: 0 14px 30px rgba(37, 99, 235, 0.28);
 }
 
-.login-developer {
+.login-footer {
   margin-top: 24px;
+  text-align: center;
+}
+
+.login-developer,
+.login-copyright {
   font-size: var(--login-body-size);
   line-height: 1.6;
-  text-align: center;
   color: #94a3b8;
+}
+
+.login-copyright {
+  margin-top: 4px;
 }
 
 @media (max-width: 520px) {

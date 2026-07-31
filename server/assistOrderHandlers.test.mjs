@@ -153,8 +153,11 @@ describe('assistOrderHandlers', () => {
               return {
                 recordset: [
                   {
+                    id: 18,
                     seq: 1,
                     piNo: 'PI-001',
+                    bomSystemCode: 'BOM-GUID-001',
+                    systemcode: 'BOM-GUID-001',
                     kcaa01: 'MAT-001',
                     kcaa02: '材料',
                     wxak03: 12,
@@ -166,6 +169,17 @@ describe('assistOrderHandlers', () => {
                     deliveryDate: '2026-06-20',
                     referenceNo: 'REF-1',
                     remark: 'line remark',
+                  },
+                ],
+              }
+            }
+            if (/FROM\s+dbo\.\[UB_ERP_Stocks_Storage\]/i.test(sqlText)) {
+              return {
+                recordset: [
+                  {
+                    materialCode: 'MAT-001',
+                    materialSystemCode: 'BOM-GUID-001',
+                    inboundQty: 5,
                   },
                 ],
               }
@@ -203,7 +217,10 @@ describe('assistOrderHandlers', () => {
     assert.equal(res.body.data.header.id, 8)
     assert.equal(res.body.data.header.assistOrderNo, 'WX26060901')
     assert.equal(res.body.data.lines.length, 1)
+    assert.equal(res.body.data.lines[0].id, 18)
     assert.equal(res.body.data.lines[0].kcaa01, 'MAT-001')
+    assert.equal(res.body.data.lines[0].inboundLocked, true)
+    assert.equal(res.body.data.lines[0].inboundQty, 5)
     assert.equal(res.body.data.fees.length, 1)
     assert.equal(res.body.data.fees[0].feeCode, 'FEE-001')
   })

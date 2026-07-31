@@ -5,6 +5,28 @@ import {
   resolveStockInLifecycleConfig,
   validateStockInAuditLineCount,
 } from './stockInLifecycle.js'
+import { writeStockInOperationLog } from './stockInOperationLog.js'
+
+function createLogMockPool() {
+  const calls = []
+  return {
+    calls,
+    request() {
+      const inputs = {}
+      const req = {
+        input(name, _type, value) {
+          inputs[name] = value
+          return req
+        },
+        async query(sqlText) {
+          calls.push({ sqlText, inputs: { ...inputs } })
+          return { recordset: [] }
+        },
+      }
+      return req
+    },
+  }
+}
 
 describe('stockInLifecycle', () => {
   test('空明细草稿不能审核', () => {
@@ -78,6 +100,18 @@ describe('stockInLifecycle', () => {
     assert.equal(admin.hardDelete, true)
     const adminByCol = resolveStockInLifecycleConfig('hard-delete', { pass: '0', del: '1', sp_flag: '0', closed: '0' }, { is_admin: 1 })
     assert.equal(adminByCol.hardDelete, true)
+  })
+
+  test('入库单生命周期日志保留操作人上下文中的 IP', async () => {
+    const pool = createLogMockPool()
+    await writeStockInOperationLog(pool, {
+      actName: '审核入库单',
+      info: '入库单号：RK-001',
+      actor: { utruename: '张三', ip: '192.168.1.19' },
+      receiptNo: 'RK-001',
+      systemCode: 'SYS-001',
+    })
+    assert.equal(pool.calls[0].inputs.ip, '192.168.1.19')
   })
 })
 

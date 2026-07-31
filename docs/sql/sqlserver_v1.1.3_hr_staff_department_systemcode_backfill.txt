@@ -1,0 +1,17 @@
+/*
+  员工部门 GUID 关联补齐（SQL Server 2008 R2）
+  仅填充 in_bm_systemcode 为空、且能按旧 join_department=部门编码命中的在职员工。
+  执行前请先备份；不会覆盖已有 GUID，不会删除数据。
+*/
+SET NOCOUNT ON;
+
+UPDATE s
+SET s.in_bm_systemcode = d.systemcode,
+    s.in_bm = d.name
+FROM dbo.UB_ERP_Hr_staff AS s
+INNER JOIN dbo.UB_ERP_Hr_department AS d
+  ON LTRIM(RTRIM(ISNULL(s.join_department, N''))) = LTRIM(RTRIM(ISNULL(d.code, N'')))
+WHERE (ISNULL(s.del, N'') = N'' OR s.del = N'0')
+  AND (ISNULL(d.del, N'') = N'' OR d.del = N'0')
+  AND LTRIM(RTRIM(ISNULL(s.in_bm_systemcode, N''))) = N''
+  AND LTRIM(RTRIM(ISNULL(d.systemcode, N''))) <> N'';

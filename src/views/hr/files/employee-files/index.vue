@@ -3,70 +3,49 @@
     <!--
       v1.0.9 人事档案精简管理（UB_ERP_Hr_staff）
       - 只加载有效字段：code/name/sex/in_bm/card_number/meal_type/yn_history/intime/pass 等
-      - 搜索：name 模糊优先；否则 code 精确；否则 card_number 精确
+      - 搜索：姓名、工号、卡号共用一个关键词模糊查询
       - pass='1'：禁用编辑/删除；审核/反审互斥
       - card_number 不足 10 位：红字提示
     -->
-    <el-card shadow="never">
+    <div class="staff-files-mode-bar erp-mode-bar">
+      <el-button :type="pageMode === 'list' ? 'primary' : 'default'" plain @click="switchList">管理员工档案</el-button>
+      <el-button v-permission="'add'" :type="pageMode === 'form' && dialogMode === 'create' ? 'primary' : 'default'" plain @click="openCreate">
+        员工档案添加
+      </el-button>
+    </div>
+
+    <el-card v-show="pageMode === 'list'" shadow="never">
       <template #header>
         <span class="page-title">{{ pageTitle }}</span>
       </template>
-      <p class="page-desc">
-        仅展示必用字段；已审核（pass=1）记录锁定，编辑与删除需先反审。默认仅在职；打开「仅显示离职员工」后列表仅含
-        UB_ERP_Hr_staff.status 为离职的档案。
-      </p>
 
       <div class="operator-toolbar">
-        <el-button v-permission="'add'" class="toolbar-btn btn-action" @click="openCreate">
-          <el-icon class="btn-icon"><Plus /></el-icon>
-          新增员工
-        </el-button>
         <el-button v-permission="'edit'" class="toolbar-btn btn-action" @click="openBatchUpdate">
           <el-icon class="btn-icon"><Upload /></el-icon>
           批量更新
         </el-button>
-        <div class="audit-switch">
-          <span class="switch-label">显示未审核</span>
-          <el-switch v-model="showUnAudited" :disabled="showDeleted" />
-        </div>
-        <div class="audit-switch">
-          <span class="switch-label">显示已删除</span>
-          <el-switch v-model="showDeleted" />
-        </div>
-        <div class="audit-switch">
-          <span class="switch-label">仅显示离职员工</span>
-          <el-switch v-model="showLeaved" :disabled="showDeleted" title="开启后仅列出 status=离职；查看已删除时不按在职状态筛选" />
-        </div>
-        <el-button class="toolbar-btn btn-view" :loading="loading" @click="loadList">
-          <el-icon class="btn-icon"><Refresh /></el-icon>
-          刷新
-        </el-button>
       </div>
 
-      <div class="search-row">
+      <div class="search-row erp-filter-row">
         <el-input
-          v-model="qName"
-          placeholder="姓名（模糊，优先）"
+          v-model="keyword"
+          class="staff-filter-keyword"
+          placeholder="姓名 / 工号 / 卡号"
           clearable
-          style="max-width: 220px"
-          @keyup.enter="onSearch"
-        />
-        <el-input
-          v-model="qCode"
-          placeholder="工号（精确）"
-          clearable
-          style="max-width: 180px"
-          @keyup.enter="onSearch"
-        />
-        <el-input
-          v-model="qCard"
-          placeholder="10位卡号（精确）"
-          clearable
-          style="max-width: 180px"
           @keyup.enter="onSearch"
         />
         <el-button type="primary" @click="onSearch">查询</el-button>
         <el-button @click="onReset">重置</el-button>
+        <div class="staff-filter-divider erp-filter-divider" aria-hidden="true" />
+        <div class="staff-filter-switch erp-filter-switch">
+          <span class="switch-label">显示未审核</span>
+          <el-switch v-model="showUnAudited" :disabled="showLeaved" />
+        </div>
+        <div class="staff-filter-divider erp-filter-divider" aria-hidden="true" />
+        <div class="staff-filter-switch erp-filter-switch">
+          <span class="switch-label">显示离职员工</span>
+          <el-switch v-model="showLeaved" title="开启后仅列出 del=1 的离职员工；关闭则只看在职（del=0）" />
+        </div>
       </div>
 
       <el-alert v-if="errorMessage" :title="errorMessage" type="error" show-icon class="error-alert" />
@@ -87,80 +66,33 @@
       <el-skeleton :loading="loading" animated :rows="8">
         <template #default>
           <el-table
+            v-erp-list-h-scroll
             :data="tableList"
             row-key="code"
             border
             stripe
-            style="width: 100%"
+            class="erp-list-table"
             :empty-text="loading ? '加载中…' : '暂无数据'"
            @row-contextmenu="onErpListRowContextMenu">
-            <el-table-column prop="code" label="工号" min-width="100" show-overflow-tooltip />
-            <el-table-column prop="name" label="姓名" min-width="110" show-overflow-tooltip />
-            <el-table-column prop="sex" label="性别" width="70" show-overflow-tooltip />
-            <el-table-column prop="nation" label="民族" width="80" show-overflow-tooltip />
-            <el-table-column prop="birth" label="出生日期" min-width="110" show-overflow-tooltip />
-            <el-table-column prop="highest" label="文化程度" min-width="100" show-overflow-tooltip />
-            <el-table-column prop="yn_firend" label="亲友在本司" width="100" show-overflow-tooltip />
-            <el-table-column prop="in_bm" label="部门" min-width="120" show-overflow-tooltip />
-            <el-table-column label="10位卡号" min-width="120" show-overflow-tooltip>
-              <template #default="{ row }">
-                <span :class="{ 'warn-text': cardNumberTooShort(row?.card_number) }">
-                  {{ row?.card_number ?? '—' }}
-                </span>
-                <span v-if="cardNumberTooShort(row?.card_number)" class="warn-text-sub">（不足10位）</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="meal_type" label="饭餐类型" min-width="90" show-overflow-tooltip />
-            <el-table-column prop="remark" label="备注" min-width="100" show-overflow-tooltip />
-            <el-table-column prop="intime" label="入职时间" min-width="140" show-overflow-tooltip />
-            <el-table-column label="在职状态" width="90">
-              <template #default="{ row }">
-                <el-tag v-if="staffIsLeaved(row)" type="danger" effect="light">离职</el-tag>
-                <el-tag v-else type="success" effect="light">在职</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="审核状态" width="90">
-              <template #default="{ row }">
-                <el-tag v-if="rowIsAudited(row)" type="success" effect="light">已审核</el-tag>
-                <el-tag v-else type="info" effect="light">未审核</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="删除状态" width="90">
-              <template #default="{ row }">
-                <el-tag v-if="rowIsDeleted(row)" type="danger" effect="light">已删除</el-tag>
-                <el-tag v-else type="success" effect="light">正常</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" :width="staffActionsColWidth" fixed="right" class-name="erp-col-actions">
+            <el-table-column label="操作" :width="staffActionsColWidth" fixed="left" class-name="erp-col-actions">
               <template #default="{ row }">
                 <ErpTableActions>
                   <el-button type="info" plain @click="openView(row)">查看</el-button>
                   <el-button
                     v-permission="'edit'"
-                    type="danger"
-                    plain
-                    v-if="!showDeleted && !showUnAudited"
-                    :disabled="staffIsLeaved(row)"
-                    @click="confirmLeave(row)"
-                  >
-                    办理离职
-                  </el-button>
-                  <el-button
-                    v-permission="'edit'"
                     type="primary"
                     plain
-                    v-if="showDeleted"
-                    :disabled="rowIsAudited(row) || !rowIsDeleted(row)"
+                    v-if="showLeaved"
                     @click="confirmRestore(row)"
                   >
-                    恢复
+                    恢复在职
                   </el-button>
                   <el-button
                     v-permission="'edit'"
                     type="primary"
                     plain
-                    v-if="!showDeleted && showUnAudited"
-                    :disabled="rowIsAudited(row) || rowIsDeleted(row)"
+                    v-if="!showLeaved && showUnAudited"
+                    :disabled="rowIsAudited(row)"
                     @click="openEdit(row)"
                   >
                     编辑
@@ -169,18 +101,16 @@
                     v-permission="'delete'"
                     type="danger"
                     plain
-                    v-if="!showDeleted && showUnAudited"
-                    :disabled="rowIsAudited(row) || rowIsDeleted(row)"
-                    @click="confirmDelete(row)"
+                    v-if="!showLeaved"
+                    @click="confirmLeave(row)"
                   >
-                    删除
+                    办理离职
                   </el-button>
                   <el-button
                     v-permission="'audit'"
                     type="success"
                     plain
-                    v-if="!showDeleted && showUnAudited && !rowIsAudited(row)"
-                    :disabled="rowIsDeleted(row)"
+                    v-if="!showLeaved && showUnAudited && !rowIsAudited(row)"
                     @click="doAudit(row)"
                   >
                     审核
@@ -189,8 +119,7 @@
                     v-permission="'unaudit'"
                     type="warning"
                     plain
-                    v-if="!showDeleted && !showUnAudited && rowIsAudited(row)"
-                    :disabled="rowIsDeleted(row)"
+                    v-if="!showLeaved && !showUnAudited && rowIsAudited(row)"
                     @click="doUnaudit(row)"
                   >
                     反审
@@ -198,6 +127,26 @@
                 </ErpTableActions>
               </template>
             </el-table-column>
+            <el-table-column label="状态" width="125" show-overflow-tooltip>
+              <template #default="{ row }">{{ staffStatusText(row) }}</template>
+            </el-table-column>
+            <el-table-column prop="name" label="姓名" min-width="110" show-overflow-tooltip />
+            <el-table-column prop="code" label="旧工号" min-width="110" show-overflow-tooltip />
+            <el-table-column prop="new_code" label="新工号" min-width="110" show-overflow-tooltip />
+            <el-table-column prop="card_number" label="卡号（旧）" min-width="120" show-overflow-tooltip />
+            <el-table-column prop="new_card_number" label="卡号（新）" min-width="120" show-overflow-tooltip />
+            <el-table-column prop="in_bm" label="部门" min-width="120" show-overflow-tooltip />
+            <el-table-column prop="position" label="岗位" min-width="110" show-overflow-tooltip />
+            <el-table-column label="操作时间" min-width="150" show-overflow-tooltip>
+              <template #default="{ row }">{{ staffOperationTime(row) }}</template>
+            </el-table-column>
+            <el-table-column prop="sfz_number" label="身份证号" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="birth" label="出生月日" min-width="120" show-overflow-tooltip />
+            <el-table-column label="年龄" width="80">
+              <template #default="{ row }">{{ staffAge(row?.birth) }}</template>
+            </el-table-column>
+            <el-table-column prop="intime" label="入职日期" min-width="120" show-overflow-tooltip />
+            <el-table-column prop="meal_type" label="餐别" min-width="100" show-overflow-tooltip />
           </el-table>
 
           <div class="pagination-row pagination-row--bottom">
@@ -216,191 +165,56 @@
       </el-skeleton>
     </el-card>
 
-    <!-- 双列 + 分组：缩短弹窗纵向滚动；入职部门/岗位下拉仅已审数据由接口保证 -->
-    <el-dialog
-      v-model="dialogVisible"
-      :title="dialogTitle"
-      width="880px"
-      class="staff-dialog"
-      align-center
-      destroy-on-close
-    >
+    <!-- 双列 + 分组：员工新增、编辑、查看均在独立页面完成 -->
+    <section v-show="pageMode === 'form'" class="erp-section staff-form-section" :class="{ 'staff-form-section--readonly': dialogMode === 'view' }">
+      <div class="form-head">
+        <strong class="form-head-title">{{ dialogTitle }}</strong>
+        <div class="form-head-actions">
+          <!-- 与入库单一致：查看仅「返回列表」；新增/编辑为「重置」+「保存」，按钮靠右 -->
+          <el-button v-if="dialogMode === 'view'" @click="switchList">返回列表</el-button>
+          <template v-else>
+            <el-button @click="resetCurrentForm">重置</el-button>
+            <el-button type="primary" :loading="submitting" @click="submitForm">保存</el-button>
+          </template>
+        </div>
+      </div>
       <el-form
         ref="formRef"
         class="staff-form-dialog"
         :model="form"
         :rules="formRules"
         :disabled="dialogMode === 'view'"
-        label-width="140px"
-        label-position="right"
+        label-position="top"
         size="small"
         require-asterisk-position="right"
       >
-        <el-divider content-position="left">基本信息</el-divider>
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="档案编码">
-              <el-input v-model="form.code" disabled maxlength="50" placeholder="提交后自动生成" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="新档案编码" prop="new_code">
-              <el-input v-model="form.new_code" maxlength="50" placeholder="可手动输入（可空）" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="姓名" prop="name">
-              <el-input v-model="form.name" maxlength="50" placeholder="请输入姓名" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="卡号" prop="card_number">
-              <el-input v-model="form.card_number" maxlength="10" placeholder="固定 10 位数字" />
-              <div class="staff-form-item-hint">与同卡号的离职或已删除档案不冲突；仅不可与在职且未删除的员工重复。</div>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="性别" prop="sex">
-              <el-select v-model="form.sex" clearable placeholder="请选择性别" style="width: 100%">
-                <el-option label="男" value="男" />
-                <el-option label="女" value="女" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="民族" prop="nation">
-              <el-select v-model="form.nation" filterable clearable placeholder="请选择民族" style="width: 100%">
-                <el-option v-for="n in nationOptions" :key="n" :label="n" :value="n" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="出生日期" prop="birth">
-              <el-date-picker
-                v-model="form.birth"
-                type="date"
-                value-format="YYYY-MM-DD"
-                format="YYYY-MM-DD"
-                placeholder="选择日期"
-                style="width: 100%"
-                clearable
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="入职时间" prop="intime">
-              <el-date-picker
-                v-model="form.intime"
-                type="date"
-                value-format="YYYY-MM-DD"
-                format="YYYY-MM-DD"
-                placeholder="选择日期"
-                style="width: 100%"
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="饭餐类型" prop="meal_type">
-              <el-select v-model="form.meal_type" clearable placeholder="默认员工餐" style="width: 100%">
-                <el-option
-                  v-for="opt in mealTypeSelectOptions"
-                  :key="opt.value"
-                  :label="opt.label"
-                  :value="opt.value"
-                />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-
-        <el-divider content-position="left">岗位信息</el-divider>
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="入职部门" prop="join_department">
-              <el-select
-                v-model="form.join_department"
-                filterable
-                clearable
-                placeholder="仅显示已审核部门"
-                style="width: 100%"
-                @change="onDepartmentChange"
-              >
-                <el-option
-                  v-for="d in deptOptions"
-                  :key="String(d.code ?? '')"
-                  :label="String(d.name ?? '')"
-                  :value="String(d.code ?? '')"
-                />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="岗位" prop="position">
-              <el-select
-                v-model="form.position"
-                filterable
-                clearable
-                placeholder="仅显示已审核岗位"
-                style="width: 100%"
-                :disabled="!String(form.join_department ?? '').trim()"
-              >
-                <el-option
-                  v-for="p in postOptions"
-                  :key="String(p.code ?? '')"
-                  :label="String(p.name ?? '')"
-                  :value="String(p.code ?? '')"
-                />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-
-        <el-divider content-position="left">背景调查</el-divider>
-        <el-row :gutter="16">
-          <!-- 亲属问题置本区块首行左侧，减少滚动即可看到 -->
-          <el-col :span="12">
-            <!-- 库字段名为 yn_firend（历史拼写），勿改 -->
-            <el-form-item label="是否有亲属或朋友在我司工作" prop="yn_firend" class="staff-form-item--multiline-label">
-              <el-select v-model="form.yn_firend" clearable placeholder="请选择" style="width: 100%">
-                <el-option label="是" value="是" />
-                <el-option label="否" value="否" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="最高文化程度" prop="highest">
-              <el-select v-model="form.highest" clearable placeholder="请选择" style="width: 100%">
-                <el-option v-for="h in highestEduOptions" :key="h" :label="h" :value="h" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="是否曾在我司应聘" prop="yn_history">
-              <el-select v-model="form.yn_history" clearable placeholder="请选择" style="width: 100%">
-                <el-option label="是" value="是" />
-                <el-option label="否" value="否" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="24">
-            <el-form-item label="备注" prop="remark">
-              <el-input
-                v-model="form.remark"
-                type="textarea"
-                :rows="3"
-                maxlength="500"
-                show-word-limit
-                placeholder="备注（可空，最多 500 字）"
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
+        <div class="staff-form-row">
+          <el-form-item label="档案编码" class="staff-form-item staff-form-item--a"><el-input v-model="form.code" disabled maxlength="50" placeholder="提交后自动生成" /></el-form-item>
+          <el-form-item label="新档案编码" prop="new_code" class="staff-form-item staff-form-item--a"><el-input v-model="form.new_code" maxlength="50" placeholder="可手动输入（可空）" /></el-form-item>
+        </div>
+        <div class="staff-form-row">
+          <el-form-item label="姓名" prop="name" class="staff-form-item staff-form-item--a"><el-input v-model="form.name" maxlength="50" placeholder="请输入姓名" /></el-form-item>
+          <el-form-item label="性别" prop="sex" class="staff-form-item staff-form-item--a"><el-select v-model="form.sex" clearable placeholder="请选择性别"><el-option label="男" value="男" /><el-option label="女" value="女" /></el-select></el-form-item>
+          <el-form-item label="民族" prop="nation" class="staff-form-item staff-form-item--a"><el-select v-model="form.nation" filterable clearable placeholder="请选择民族"><el-option v-for="n in nationOptions" :key="n" :label="n" :value="n" /></el-select></el-form-item>
+          <el-form-item label="出生日期" prop="birth" class="staff-form-item staff-form-item--a"><el-date-picker v-model="form.birth" type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" placeholder="选择日期" clearable /></el-form-item>
+        </div>
+        <div class="staff-form-row">
+          <el-form-item label="卡号" prop="card_number" class="staff-form-item staff-form-item--a"><el-input v-model="form.card_number" maxlength="10" placeholder="固定 10 位数字" /></el-form-item>
+          <el-form-item label="报餐密码" prop="password" class="staff-form-item staff-form-item--a"><el-input v-model="form.password" type="password" show-password maxlength="50" placeholder="请输入报餐密码" /></el-form-item>
+          <el-form-item label="饭餐类型" prop="meal_type" class="staff-form-item staff-form-item--a"><el-select v-model="form.meal_type" clearable placeholder="默认员工餐"><el-option v-for="opt in mealTypeSelectOptions" :key="opt.value" :label="opt.label" :value="opt.value" /></el-select></el-form-item>
+        </div>
+        <div class="staff-form-row">
+          <el-form-item label="入职时间" prop="intime" class="staff-form-item staff-form-item--a"><el-date-picker v-model="form.intime" type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" placeholder="选择日期" /></el-form-item>
+          <el-form-item label="入职部门" prop="in_bm_systemcode" class="staff-form-item staff-form-item--a"><el-select v-model="form.in_bm_systemcode" filterable clearable placeholder="仅显示已审核部门" @change="onDepartmentChange"><el-option v-for="d in deptOptions" :key="String(d.systemcode ?? '')" :label="String(d.name ?? '')" :value="String(d.systemcode ?? '')" /></el-select></el-form-item>
+          <el-form-item label="岗位" prop="position" class="staff-form-item staff-form-item--a"><el-select v-model="form.position" filterable clearable placeholder="仅显示已审核岗位"><el-option v-for="p in positionOptions" :key="String(p.systemcode ?? '')" :label="String(p.name ?? '')" :value="String(p.name ?? '')" /></el-select></el-form-item>
+        </div>
+        <div class="staff-form-row">
+          <el-form-item label="是否有亲属或朋友在我司工作" prop="yn_firend" class="staff-form-item staff-form-item--a"><el-select v-model="form.yn_firend" clearable placeholder="请选择"><el-option label="是" value="是" /><el-option label="否" value="否" /></el-select></el-form-item>
+          <el-form-item label="最高文化程度" prop="highest" class="staff-form-item staff-form-item--a"><el-select v-model="form.highest" clearable placeholder="请选择"><el-option v-for="h in highestEduOptions" :key="h" :label="h" :value="h" /></el-select></el-form-item>
+          <el-form-item label="是否曾在我司应聘" prop="yn_history" class="staff-form-item staff-form-item--a"><el-select v-model="form.yn_history" clearable placeholder="请选择"><el-option label="是" value="是" /><el-option label="否" value="否" /></el-select></el-form-item>
+        </div>
       </el-form>
-      <template #footer>
-        <el-button @click="dialogVisible = false">{{ dialogMode === 'view' ? '关闭' : '取消' }}</el-button>
-        <el-button v-if="dialogMode !== 'view'" type="primary" :loading="submitting" @click="submitForm">确定</el-button>
-      </template>
-    </el-dialog>
+    </section>
 
     <!-- v1.1.2：批量更新（Excel：姓名/部门/岗位） -->
     <el-dialog v-model="batchDialogVisible" title="批量更新（Excel）" width="760px" align-center destroy-on-close>
@@ -461,63 +275,6 @@
         </el-table>
       </div>
     </el-dialog>
-
-    <!-- v1.1.2：办理离职弹窗（离职日期/原因/黑名单） -->
-    <el-dialog v-model="leaveDialogVisible" title="办理离职" width="680px" align-center destroy-on-close>
-      <el-form :model="leaveForm" label-width="110px" size="small">
-        <el-form-item label="离职日期" required>
-          <el-date-picker
-            v-model="leaveForm.leave_date"
-            type="date"
-            value-format="YYYY-MM-DD"
-            format="YYYY-MM-DD"
-            placeholder="选择离职日期"
-            style="width: 100%"
-          />
-        </el-form-item>
-
-        <el-form-item label="离职原因" required>
-          <div style="display: flex; flex-direction: column; gap: 8px; width: 100%">
-            <div style="display: flex; gap: 8px; flex-wrap: wrap">
-              <el-button size="small" @click="appendLeaveReason('个人原因')">个人原因</el-button>
-              <el-button size="small" @click="appendLeaveReason('合同到期')">合同到期</el-button>
-              <el-button size="small" @click="appendLeaveReason('辞退')">辞退</el-button>
-            </div>
-            <el-input
-              v-model="leaveForm.leave_reason"
-              type="textarea"
-              :rows="3"
-              maxlength="200"
-              show-word-limit
-              placeholder="请输入离职原因"
-            />
-          </div>
-        </el-form-item>
-
-        <el-form-item label="加入黑名单" required>
-          <el-select v-model="leaveForm.is_blacklist" placeholder="请选择" style="width: 100%">
-            <el-option label="否" :value="0" />
-            <el-option label="是" :value="1" />
-          </el-select>
-        </el-form-item>
-
-        <el-form-item v-if="leaveForm.is_blacklist === 1" label="黑名单备注" required>
-          <el-input
-            v-model="leaveForm.blacklist_reason"
-            type="textarea"
-            :rows="3"
-            maxlength="200"
-            show-word-limit
-            placeholder="请输入黑名单原因（必填）"
-          />
-        </el-form-item>
-      </el-form>
-
-      <template #footer>
-        <el-button @click="leaveDialogVisible = false">取消</el-button>
-        <el-button type="danger" :loading="leaveSubmitting" @click="submitLeave">确认办理离职</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -525,10 +282,10 @@
 import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
 import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
-import { Plus, Refresh, Upload } from '@element-plus/icons-vue'
+import { Upload } from '@element-plus/icons-vue'
 import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
 import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
 const { onErpListRowContextMenu } = useErpListRowContextMenu()
@@ -544,10 +301,11 @@ const total = ref(0)
 const loading = ref(false)
 const errorMessage = ref('')
 
-/** 搜索条件（name 模糊优先） */
-const qName = ref('')
-const qCode = ref('')
-const qCard = ref('')
+/** 姓名、工号、卡号共用一个模糊检索词 */
+const keyword = ref('')
+
+/** list：管理员工档案；form：员工档案添加、编辑或查看 */
+const pageMode = ref('list')
 
 const page = ref(1)
 /** 默认每页 20（数据量大） */
@@ -561,27 +319,24 @@ const staffActionsColWidth = computed(() => getErpTableActionsColWidthByRows(tab
 /** 员工档案主列表操作列按钮：与模板 v-if / v-permission 保持一致，用于估算列宽 */
 function getStaffRowActionLabels(row) {
   const labels = ['查看']
-  if (showDeleted.value) {
-    if (hasPageAction(model, menuPath, 'edit')) labels.push('恢复')
+  if (showLeaved.value) {
+    if (hasPageAction(model, menuPath, 'edit')) labels.push('恢复在职')
     return labels
   }
   if (showUnAudited.value) {
     if (hasPageAction(model, menuPath, 'edit')) labels.push('编辑')
-    if (hasPageAction(model, menuPath, 'delete')) labels.push('删除')
+    if (hasPageAction(model, menuPath, 'delete')) labels.push('办理离职')
     if (!rowIsAudited(row) && hasPageAction(model, menuPath, 'audit')) labels.push('审核')
     return labels
   }
-  if (hasPageAction(model, menuPath, 'edit')) labels.push('办理离职')
+  if (hasPageAction(model, menuPath, 'delete')) labels.push('办理离职')
   if (rowIsAudited(row) && hasPageAction(model, menuPath, 'unaudit')) labels.push('反审')
   return labels
 }
 
-/** v1.1.2：是否显示已删除（del='1'） */
-const showDeleted = ref(false)
-/** 为 true 时列表仅含 status=离职；关闭时接口排除离职，分页 total 准确 */
+/** 为 true 时列表仅含离职员工（del='1'）；关闭时只看在职（del='0'） */
 const showLeaved = ref(false)
 
-const dialogVisible = ref(false)
 const dialogMode = ref('create')
 const submitting = ref(false)
 const formRef = ref()
@@ -593,20 +348,9 @@ const batchFileBase64 = ref('')
 const batchFileName = ref('')
 const batchResult = ref(null)
 
-/** v1.1.2：办理离职弹窗 */
-const leaveDialogVisible = ref(false)
-const leaveSubmitting = ref(false)
-const leaveTarget = ref({ id: null, code: '', name: '' })
-const leaveForm = ref({
-  leave_date: '',
-  leave_reason: '',
-  is_blacklist: 0,
-  blacklist_reason: '',
-})
-
 /** 部门/岗位下拉（来自 UB_ERP_Hr_department） */
 const deptOptions = ref([])
-const postOptions = ref([])
+const positionOptions = ref([])
 
 /** 民族下拉（与常见档案口径一致，含「其他」） */
 const nationOptions = [
@@ -679,6 +423,8 @@ const form = ref({
   new_code: '',
   name: '',
   card_number: '',
+  password: '',
+  in_bm_systemcode: '',
   join_department: '',
   position: '',
   sex: '',
@@ -688,7 +434,6 @@ const form = ref({
   yn_firend: '',
   meal_type: DEFAULT_MEAL_TYPE,
   yn_history: '',
-  remark: '',
   intime: '',
 })
 
@@ -720,32 +465,45 @@ function rowIsAudited(row) {
   return String(row?.pass ?? '').trim() === '1'
 }
 
-/** del === '1' 为已删除 */
+/** del === '1' 为离职（本模块不再用 status 列） */
 function rowIsDeleted(row) {
   return String(row?.del ?? '').trim() === '1'
 }
 
-/** status === '离职' 视为已离职（空/其它默认在职） */
+/** 离职 = del='1' */
 function staffIsLeaved(row) {
-  return String(row?.status ?? '').trim() === '离职'
+  return rowIsDeleted(row)
 }
 
-/** card_number 不足 10 位提示（空值不提示） */
-function cardNumberTooShort(v) {
-  const s = String(v ?? '').trim()
-  if (!s) return false
-  return s.length < 10
+/** 列表状态：在职/离职 与 审核状态合并展示 */
+function staffStatusText(row) {
+  return `${staffIsLeaved(row) ? '离职' : '在职'}/${rowIsAudited(row) ? '已审核' : '未审核'}`
 }
 
-/** 组装搜索参数：name 优先，其次 code，其次 card_number */
+/** 操作时间优先显示最后修改时间；未修改的新增档案显示录入时间 */
+function staffOperationTime(row) {
+  return String(row?.edittime ?? '').trim() || String(row?.addtime ?? '').trim() || '—'
+}
+
+/** 按完整出生日期计算周岁；旧数据日期不完整或不合法时留空 */
+function staffAge(birth) {
+  const match = String(birth ?? '').trim().match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/)
+  if (!match) return ''
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const date = new Date(year, month - 1, day)
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return ''
+  const today = new Date()
+  let age = today.getFullYear() - year
+  if (today.getMonth() + 1 < month || (today.getMonth() + 1 === month && today.getDate() < day)) age -= 1
+  return age >= 0 ? String(age) : ''
+}
+
+/** 组装单关键词搜索参数 */
 function buildQueryParams() {
-  const name = String(qName.value ?? '').trim()
-  const code = String(qCode.value ?? '').trim()
-  const card = String(qCard.value ?? '').trim()
-  if (name) return { name }
-  if (code) return { code }
-  if (card) return { card_number: card }
-  return {}
+  const value = String(keyword.value ?? '').trim()
+  return value ? { keyword: value } : {}
 }
 
 function todayString() {
@@ -773,26 +531,16 @@ async function loadDeptOptions() {
   }
 }
 
-async function loadPostOptions(parentId) {
-  const pid = String(parentId ?? '').trim()
-  if (!pid) {
-    postOptions.value = []
-    return
-  }
-  try {
-    const res = await axios.get('/api/hr/staff/department-posts', { params: { parentId: pid } })
-    const body = res.data
-    const list = body?.data?.list
-    postOptions.value = Array.isArray(list) ? list : []
-  } catch {
-    postOptions.value = []
-  }
+async function loadPositionOptions() {
+  try { const { data } = await axios.get('/api/hr/staff/position-options'); positionOptions.value = Array.isArray(data?.data?.list) ? data.data.list : [] } catch { positionOptions.value = [] }
 }
 
-async function onDepartmentChange(v) {
-  const pid = String(v ?? '').trim()
-  form.value.position = ''
-  await loadPostOptions(pid)
+function onDepartmentChange(v) {
+  const systemcode = String(v ?? '').trim()
+  const hit = deptOptions.value.find((item) => String(item?.systemcode ?? '').trim() === systemcode)
+  form.value.in_bm = String(hit?.name ?? '')
+  // 保留部门编码兼容仍读取 join_department 的历史宿舍/报表接口；员工部门关联以 systemcode 为准。
+  form.value.join_department = String(hit?.code ?? '')
 }
 
 async function loadList() {
@@ -804,8 +552,7 @@ async function loadList() {
         page: page.value,
         pageSize: pageSize.value,
         pass: showUnAudited.value ? '0' : '1',
-        del: showDeleted.value ? '1' : '0',
-        include_leaved: showDeleted.value ? 'all' : showLeaved.value ? '1' : '0',
+        del: showLeaved.value ? '1' : '0',
         ...buildQueryParams(),
       },
     })
@@ -838,26 +585,41 @@ watch(showUnAudited, () => {
   loadList()
 })
 
-watch(showDeleted, () => {
-  // 业务约定：只有未审核数据允许删除/恢复，因此「显示已删除」开启时强制同时打开「显示未审核」
-  if (showDeleted.value) {
-    showUnAudited.value = true
+watch(showLeaved, () => {
+  // 看离职名单时不叠「未审核」筛选，避免空列表误解
+  if (showLeaved.value) {
+    showUnAudited.value = false
   }
   page.value = 1
   loadList()
 })
 
-watch(showLeaved, () => {
-  page.value = 1
-  loadList()
-})
-
 function onReset() {
-  qName.value = ''
-  qCode.value = ''
-  qCard.value = ''
+  keyword.value = ''
   page.value = 1
   loadList()
+}
+
+function switchList() {
+  pageMode.value = 'list'
+}
+
+/** 新增清空表单；编辑重新拉取当前档案（对齐入库单「重置」） */
+async function resetCurrentForm() {
+  if (dialogMode.value === 'view') return
+  if (dialogMode.value === 'edit') {
+    const code = String(form.value.code ?? '').trim()
+    if (!code) return
+    await openEdit({ code })
+    await nextTick()
+    formRef.value?.clearValidate?.()
+    ElMessage.success('已重置')
+    return
+  }
+  openCreate()
+  await nextTick()
+  formRef.value?.clearValidate?.()
+  ElMessage.success('已重置')
 }
 
 function onPageSizeChange(size) {
@@ -878,6 +640,8 @@ function openCreate() {
     new_code: '',
     name: '',
     card_number: '',
+      password: '',
+      in_bm_systemcode: '',
     join_department: '',
     position: '',
     sex: '',
@@ -887,22 +651,38 @@ function openCreate() {
     yn_firend: '',
     meal_type: DEFAULT_MEAL_TYPE,
     yn_history: '',
-    remark: '',
     intime: todayString(),
   }
-  postOptions.value = []
   void loadDeptOptions()
-  dialogVisible.value = true
+  void loadPositionOptions()
+  pageMode.value = 'form'
 }
 
-function openEdit(row) {
+async function openEdit(row) {
   if (rowIsAudited(row)) return
+  const code = String(row?.code ?? '').trim()
+  if (!code) return
   dialogMode.value = 'edit'
+  try {
+    const res = await axios.get(`/api/hr/staff/${encodeURIComponent(code)}`)
+    const body = res.data
+    if (body?.code !== 200) {
+      ElMessage.error(String(body?.msg ?? '读取员工资料失败'))
+      return
+    }
+    row = body?.data ?? row
+  } catch (e) {
+    const msg = e?.response?.data?.msg
+    ElMessage.error(String(msg ?? e?.message ?? '请求失败'))
+    return
+  }
   form.value = {
     code: String(row?.code ?? ''),
     new_code: String(row?.new_code ?? ''),
     name: String(row?.name ?? ''),
     card_number: String(row?.card_number ?? ''),
+    password: String(row?.password ?? ''),
+    in_bm_systemcode: String(row?.in_bm_systemcode ?? ''),
     join_department: String(row?.join_department ?? ''),
     position: String(row?.position ?? ''),
     sex: String(row?.sex ?? ''),
@@ -912,12 +692,10 @@ function openEdit(row) {
     yn_firend: String(row?.yn_firend ?? ''),
     meal_type: String(row?.meal_type ?? '').trim() || DEFAULT_MEAL_TYPE,
     yn_history: normalizeYnHistoryForForm(row?.yn_history),
-    remark: String(row?.remark ?? ''),
     intime: String(row?.intime ?? ''),
   }
   void loadDeptOptions()
-  void loadPostOptions(form.value.join_department)
-  dialogVisible.value = true
+  pageMode.value = 'form'
 }
 
 async function openView(row) {
@@ -938,6 +716,8 @@ async function openView(row) {
       new_code: String(r?.new_code ?? ''),
       name: String(r?.name ?? ''),
       card_number: String(r?.card_number ?? ''),
+      password: String(r?.password ?? ''),
+      in_bm_systemcode: String(r?.in_bm_systemcode ?? ''),
       join_department: String(r?.join_department ?? ''),
       position: String(r?.position ?? ''),
       sex: String(r?.sex ?? ''),
@@ -947,12 +727,11 @@ async function openView(row) {
       yn_firend: String(r?.yn_firend ?? ''),
       meal_type: String(r?.meal_type ?? '').trim() || DEFAULT_MEAL_TYPE,
       yn_history: normalizeYnHistoryForForm(r?.yn_history),
-      remark: String(r?.remark ?? ''),
       intime: String(r?.intime ?? ''),
     }
     void loadDeptOptions()
-    void loadPostOptions(form.value.join_department)
-    dialogVisible.value = true
+    void loadPositionOptions()
+    pageMode.value = 'form'
   } catch (e) {
     const msg = e?.response?.data?.msg
     ElMessage.error(String(msg ?? e?.message ?? '请求失败'))
@@ -981,6 +760,8 @@ async function submitForm() {
       name: String(form.value.name ?? '').trim(),
       new_code: String(form.value.new_code ?? '').trim(),
       card_number: String(form.value.card_number ?? '').trim(),
+      password: String(form.value.password ?? '').trim(),
+      in_bm_systemcode: String(form.value.in_bm_systemcode ?? '').trim(),
       join_department: String(form.value.join_department ?? '').trim(),
       position: String(form.value.position ?? '').trim(),
       sex: String(form.value.sex ?? '').trim(),
@@ -990,7 +771,6 @@ async function submitForm() {
       yn_firend: String(form.value.yn_firend ?? '').trim(),
       meal_type: String(form.value.meal_type ?? '').trim() || DEFAULT_MEAL_TYPE,
       yn_history: String(form.value.yn_history ?? '').trim(),
-      remark: String(form.value.remark ?? '').trim(),
       intime: String(form.value.intime ?? '').trim(),
     }
     if (dialogMode.value === 'edit') {
@@ -1011,7 +791,7 @@ async function submitForm() {
       }
       ElMessage.success('已新增')
     }
-    dialogVisible.value = false
+    switchList()
     await loadList()
   } catch (e) {
     const msg = e?.response?.data?.msg
@@ -1021,18 +801,19 @@ async function submitForm() {
   }
 }
 
-async function confirmDelete(row) {
-  if (rowIsAudited(row)) {
-    ElMessage.warning('该记录已审核锁定，请反审后再操作')
+async function confirmLeave(row) {
+  if (staffIsLeaved(row)) {
+    ElMessage.warning('该员工已是离职状态')
     return
   }
-  if (rowIsDeleted(row)) {
-    ElMessage.warning('该记录已删除，请使用“恢复”')
-    return
-  }
-  const code = String(row?.code ?? '')
+  const code = String(row?.code ?? '').trim()
+  if (!code) return
   try {
-    await ElMessageBox.confirm(`确定删除员工「${row?.name}」（工号=${code}）吗？`, '确认删除', { type: 'warning' })
+    await ElMessageBox.confirm(
+      `确定为员工「${row?.name}」（工号=${code}）办理离职吗？办理后会出现在「显示离职员工」列表中，系统账号不受影响。`,
+      '确认办理离职',
+      { type: 'warning' }
+    )
   } catch {
     return
   }
@@ -1040,10 +821,10 @@ async function confirmDelete(row) {
     const res = await axios.delete(`/api/hr/staff/${encodeURIComponent(code)}`)
     const body = res.data
     if (body?.code !== 200) {
-      ElMessage.error(String(body?.msg ?? '删除失败'))
+      ElMessage.error(String(body?.msg ?? '办理离职失败'))
       return
     }
-    ElMessage.success('已删除')
+    ElMessage.success('已办理离职')
     await loadList()
   } catch (e) {
     const msg = e?.response?.data?.msg
@@ -1052,14 +833,16 @@ async function confirmDelete(row) {
 }
 
 async function confirmRestore(row) {
-  if (rowIsAudited(row)) {
-    ElMessage.warning('该记录已审核锁定，请反审后再操作')
+  if (!staffIsLeaved(row)) {
+    ElMessage.warning('该员工不是离职状态')
     return
   }
-  if (!rowIsDeleted(row)) return
-  const code = String(row?.code ?? '')
+  const code = String(row?.code ?? '').trim()
+  if (!code) return
   try {
-    await ElMessageBox.confirm(`确定恢复员工「${row?.name}」（工号=${code}）吗？`, '确认恢复', { type: 'warning' })
+    await ElMessageBox.confirm(`确定将员工「${row?.name}」（工号=${code}）恢复为在职吗？`, '确认恢复在职', {
+      type: 'warning',
+    })
   } catch {
     return
   }
@@ -1067,104 +850,14 @@ async function confirmRestore(row) {
     const res = await axios.put('/api/hr/staff/restore', { code })
     const body = res.data
     if (body?.code !== 200) {
-      ElMessage.error(String(body?.msg ?? '恢复失败'))
+      ElMessage.error(String(body?.msg ?? '恢复在职失败'))
       return
     }
-    ElMessage.success('已恢复')
+    ElMessage.success('已恢复在职')
     await loadList()
   } catch (e) {
     const msg = e?.response?.data?.msg
     ElMessage.error(String(msg ?? e?.message ?? '请求失败'))
-  }
-}
-
-async function confirmLeave(row) {
-  if (rowIsDeleted(row)) {
-    ElMessage.warning('该员工已删除，不能办理离职')
-    return
-  }
-  if (staffIsLeaved(row)) {
-    ElMessage.warning('该员工已是离职状态')
-    return
-  }
-  const id = Number(row?.id)
-  if (!Number.isFinite(id) || id <= 0) {
-    ElMessage.error('员工ID不合法，无法办理离职')
-    return
-  }
-
-  // 打开离职弹窗并初始化默认值（离职日期默认今天）
-  leaveTarget.value = { id, code: String(row?.code ?? ''), name: String(row?.name ?? '') }
-  leaveForm.value = {
-    leave_date: todayString(),
-    leave_reason: '',
-    is_blacklist: 0,
-    blacklist_reason: '',
-  }
-  leaveDialogVisible.value = true
-}
-
-function appendLeaveReason(text) {
-  const cur = String(leaveForm.value.leave_reason ?? '').trim()
-  if (!cur) {
-    leaveForm.value.leave_reason = text
-    return
-  }
-  if (cur.includes(text)) return
-  leaveForm.value.leave_reason = `${cur}；${text}`
-}
-
-async function submitLeave() {
-  const id = Number(leaveTarget.value?.id)
-  if (!Number.isFinite(id) || id <= 0) {
-    ElMessage.error('员工ID不合法，无法办理离职')
-    return
-  }
-  const leaveDate = String(leaveForm.value.leave_date ?? '').trim()
-  const leaveReason = String(leaveForm.value.leave_reason ?? '').trim()
-  const isBlacklist = Number(leaveForm.value.is_blacklist ?? 0) === 1 ? 1 : 0
-  const blacklistReason = String(leaveForm.value.blacklist_reason ?? '').trim()
-
-  if (!leaveDate) {
-    ElMessage.error('请选择离职日期')
-    return
-  }
-  if (!leaveReason) {
-    ElMessage.error('请输入离职原因')
-    return
-  }
-  if (isBlacklist === 1 && !blacklistReason) {
-    ElMessage.error('请输入黑名单备注')
-    return
-  }
-
-  try {
-    await ElMessageBox.confirm('确定要为该员工办理离职吗？办理后其系统账号将无法登录。', '确认离职', { type: 'warning' })
-  } catch {
-    return
-  }
-
-  leaveSubmitting.value = true
-  try {
-    const res = await axios.put(`/api/hr/staff/leave/${encodeURIComponent(String(id))}`, {
-      leave_date: leaveDate,
-      leave_reason: leaveReason,
-      is_blacklist: isBlacklist,
-      blacklist_reason: blacklistReason,
-    })
-    const body = res.data
-    if (body?.code !== 200) {
-      ElMessage.error(String(body?.msg ?? '办理离职失败'))
-      return
-    }
-    ElMessage.success('已办理离职')
-    leaveDialogVisible.value = false
-    await loadList()
-  } catch (e) {
-    const msg = e?.response?.data?.msg
-    ElMessage.error(String(msg ?? e?.message ?? '请求失败'))
-  } finally {
-    leaveSubmitting.value = false
   }
 }
 
@@ -1172,7 +865,7 @@ async function doAudit(row) {
   if (rowIsAudited(row)) return
   try {
     await ElMessageBox.confirm(
-      `确定审核员工「${row?.name}」（工号=${row?.code}）吗？审核后将锁定编辑/删除，需反审后再操作。`,
+      `确定审核员工「${row?.name}」（工号=${row?.code}）吗？审核后将锁定编辑，需反审后再改资料。`,
       '确认审核',
       { type: 'warning' }
     )
@@ -1197,7 +890,7 @@ async function doAudit(row) {
 async function doUnaudit(row) {
   if (!rowIsAudited(row)) return
   try {
-    await ElMessageBox.confirm(`确定反审员工「${row?.name}」吗？反审后可再编辑或删除。`, '确认反审', {
+    await ElMessageBox.confirm(`确定反审员工「${row?.name}」吗？反审后可再编辑。`, '确认反审', {
       type: 'warning',
     })
   } catch {
@@ -1219,6 +912,7 @@ async function doUnaudit(row) {
 }
 
 onMounted(() => {
+  void loadPositionOptions()
   loadList()
 })
 
@@ -1300,6 +994,9 @@ async function submitBatchUpdate() {
 .erp-module-page {
   min-height: 200px;
 }
+.staff-files-mode-bar {
+  margin-bottom: 12px;
+}
 .page-title {
   font-size: 18px;
   font-weight: 600;
@@ -1319,19 +1016,26 @@ async function submitBatchUpdate() {
   gap: 8px;
   margin: 8px 0 12px;
 }
+.staff-filter-keyword {
+  width: 420px;
+  max-width: 100%;
+}
+.staff-filter-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--el-border-color);
+  margin: 0 4px;
+}
+.staff-filter-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 .operator-toolbar {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   margin: 10px 0 12px;
-}
-.audit-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px;
-  border-radius: 8px;
-  background: #f5f7fa;
 }
 .switch-label {
   font-size: 13px;
@@ -1343,51 +1047,75 @@ async function submitBatchUpdate() {
   border-radius: 8px;
   font-weight: 500;
 }
-.btn-icon {
-  margin-right: 8px;
-}
 .btn-action {
   background-color: #d6ecff;
   border-color: #bcdfff;
   color: #1f5faa;
 }
-.btn-view {
-  background-color: #d6ecff;
-  border-color: #bcdfff;
-  color: #1f5faa;
+.staff-form-section {
+  overflow-x: auto;
+  /* DIY：员工档案添加/编辑页字号与顶栏按钮
+     标题建议 16～22；按钮高度 36～48、字号 13～16；
+     字段标签（档案编码等）建议 13～18；输入框字号建议 13～18 */
+  --staff-form-head-title-font-size: 18px;
+  --staff-form-head-btn-height: 36px;
+  --staff-form-head-btn-font-size: 16px;
+  --staff-form-label-font-size: 16px;
+  --staff-form-input-font-size: 16px;
 }
-.warn-text {
-  color: #d12f19;
-  font-weight: 700;
+.staff-form-section--readonly {
+  opacity: 0.92;
 }
-.warn-text-sub {
-  color: #d12f19;
-  margin-left: 6px;
+/* 与入库单一致：标题在左，重置/保存在最右 */
+.form-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
 }
-
-/* 弹窗表单：双列紧凑、长标签换行不挤占控件 */
-.staff-dialog :deep(.el-dialog__body) {
-  padding-top: 8px;
+.form-head-title {
+  font-size: var(--staff-form-head-title-font-size);
 }
-.staff-form-dialog :deep(.el-divider) {
-  margin: 14px 0 12px;
+.form-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+.form-head-actions :deep(.el-button) {
+  height: var(--staff-form-head-btn-height);
+  min-height: var(--staff-form-head-btn-height);
+  font-size: var(--staff-form-head-btn-font-size);
 }
 .staff-form-dialog :deep(.el-form-item) {
-  margin-bottom: 14px;
+  margin-bottom: 0;
 }
 .staff-form-dialog :deep(.el-form-item__label) {
   line-height: 1.35;
+  padding-bottom: 5px;
+  font-size: var(--staff-form-label-font-size);
+}
+.staff-form-dialog :deep(.el-input),
+.staff-form-dialog :deep(.el-select),
+.staff-form-dialog :deep(.el-date-editor) {
+  font-size: var(--staff-form-input-font-size);
+}
+.staff-form-row {
+  display: flex;
   align-items: flex-start;
-  padding-top: 4px;
+  gap: 16px;
+  width: max-content;
+  min-width: 100%;
+  margin-bottom: 16px;
 }
-.staff-form-item--multiline-label :deep(.el-form-item__label) {
-  white-space: normal;
-  word-break: break-all;
+.staff-form-item--a {
+  width: 250px;
 }
-.staff-form-item-hint {
-  font-size: 12px;
-  color: #909399;
-  line-height: 1.4;
-  margin-top: 4px;
+.staff-form-item :deep(.el-input),
+.staff-form-item :deep(.el-select),
+.staff-form-item :deep(.el-date-editor) {
+  width: 100%;
 }
 </style>

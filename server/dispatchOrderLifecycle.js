@@ -151,7 +151,7 @@ export async function applyDispatchOrderLifecycleAction({ pool, id, action, acto
       DELETE FROM ${LINE_FROM} WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([scak01], N'')))) = @orderNo;
       DELETE FROM ${HEADER_FROM} WHERE [id] = @id;
     `)
-    await writeDispatchOrderOperationLog(pool, { actName: config.actName, info, actor, orderNo: row.dispatchOrderNo, systemCode: row.systemCode })
+    await writeDispatchOrderOperationLog(pool, { actName: config.actName, info, actor, orderNo: row.dispatchOrderNo, systemCode: row.systemCode, ip: actor?.ip || '' })
     return { ok: true, msg: config.msg, id, dispatchOrderNo: row.dispatchOrderNo }
   }
 
@@ -168,6 +168,6 @@ export async function applyDispatchOrderLifecycleAction({ pool, id, action, acto
     for (const [key, value] of Object.entries(params)) lreq.input(key, sql.NVarChar(200), value)
     await lreq.query(`UPDATE ${LINE_FROM} SET ${lineSetSql} WHERE LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL([scak01], N'')))) = @orderNo`)
   }
-  await writeDispatchOrderOperationLog(pool, { actName: config.actName, info, actor, orderNo: row.dispatchOrderNo, systemCode: row.systemCode })
+  await writeDispatchOrderOperationLog(pool, { actName: config.actName, info, actor, orderNo: row.dispatchOrderNo, systemCode: row.systemCode, ip: actor?.ip || '' })
   return { ok: true, msg: config.msg, id, dispatchOrderNo: row.dispatchOrderNo }
 }

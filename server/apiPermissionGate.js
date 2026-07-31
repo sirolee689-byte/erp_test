@@ -171,6 +171,9 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'PUT' && path === '/api/hr/departments/unaudit') {
     return { menuPath: 'hr/files/department', action: 'unaudit' }
   }
+  if (m === 'PUT' && path === '/api/hr/departments/restore') {
+    return { menuPath: 'hr/files/department', action: 'edit' }
+  }
   if (m === 'PUT' && path === '/api/hr/departments') {
     return { menuPath: 'hr/files/department', action: 'edit' }
   }
@@ -183,6 +186,13 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'GET' && path === '/api/hr/staff/department-options') {
     return { menuPath: 'hr/files/employee-files', action: 'view' }
   }
+  if (m === 'GET' && path === '/api/hr/positions') return { menuPath: 'hr/files/position', action: 'view' }
+  if (m === 'GET' && path === '/api/hr/staff/position-options') return { menuPath: 'hr/files/employee-files', action: 'view' }
+  if (m === 'POST' && path === '/api/hr/positions') return { menuPath: 'hr/files/position', action: 'add' }
+  if (m === 'PUT' && path === '/api/hr/positions/audit') return { menuPath: 'hr/files/position', action: 'audit' }
+  if (m === 'PUT' && path === '/api/hr/positions/unaudit') return { menuPath: 'hr/files/position', action: 'unaudit' }
+  if (m === 'PUT' && (path === '/api/hr/positions' || path === '/api/hr/positions/restore')) return { menuPath: 'hr/files/position', action: 'edit' }
+  if (m === 'DELETE' && /^\/api\/hr\/positions\/.+$/.test(path)) return { menuPath: 'hr/files/position', action: 'delete' }
   if (m === 'GET' && path === '/api/hr/staff/department-posts') {
     return { menuPath: 'hr/files/employee-files', action: 'view' }
   }
@@ -224,7 +234,7 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'GET' && path === '/api/hr/dormitory/rooms') {
     return { menuPath: 'hr/dormitory/room-management', action: 'view' }
   }
-  if (m === 'GET' && /^\/api\/hr\/dormitory\/rooms\/\d+$/.test(path)) {
+  if (m === 'GET' && /^\/api\/hr\/dormitory\/rooms\/[^/]+$/.test(path)) {
     return { menuPath: 'hr/dormitory/room-management', action: 'view' }
   }
   if (m === 'POST' && path === '/api/hr/dormitory/rooms') {
@@ -236,6 +246,28 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'PUT' && path === '/api/hr/dormitory/rooms/unaudit') {
     return { menuPath: 'hr/dormitory/room-management', action: 'unaudit' }
   }
+  if (m === 'PUT' && path === '/api/hr/dormitory/rooms/audit-batch') {
+    return { menuPath: 'hr/dormitory/room-management', action: 'audit' }
+  }
+  if (m === 'PUT' && path === '/api/hr/dormitory/rooms/restore') {
+    return { menuPath: 'hr/dormitory/room-management', action: 'edit' }
+  }
+  if (m === 'PUT' && path === '/api/hr/dormitory/rooms') {
+    return { menuPath: 'hr/dormitory/room-management', action: 'edit' }
+  }
+  if (m === 'DELETE' && /^\/api\/hr\/dormitory\/rooms\/[^/]+$/.test(path)) {
+    return { menuPath: 'hr/dormitory/room-management', action: 'delete' }
+  }
+  if (m === 'GET' && (path === '/api/hr/dormitory/lodging-records' || path === '/api/hr/dormitory/lodging-records/options')) {
+    return { menuPath: 'hr/dormitory/lodging-records', action: path.endsWith('/options') ? 'add' : 'view' }
+  }
+  if (m === 'POST' && path === '/api/hr/dormitory/lodging-records') return { menuPath: 'hr/dormitory/lodging-records', action: 'add' }
+  if (m === 'PUT' && path === '/api/hr/dormitory/lodging-records/check-out') return { menuPath: 'hr/dormitory/lodging-records', action: 'add' }
+  if (m === 'PUT' && path === '/api/hr/dormitory/lodging-records/audit') return { menuPath: 'hr/dormitory/lodging-records', action: 'audit' }
+  if (m === 'PUT' && path === '/api/hr/dormitory/lodging-records/audit-batch') return { menuPath: 'hr/dormitory/lodging-records', action: 'audit' }
+  if (m === 'PUT' && path === '/api/hr/dormitory/lodging-records/unaudit') return { menuPath: 'hr/dormitory/lodging-records', action: 'unaudit' }
+  if (m === 'PUT' && path === '/api/hr/dormitory/lodging-records/restore') return { menuPath: 'hr/dormitory/lodging-records', action: 'edit' }
+  if (m === 'DELETE' && /^\/api\/hr\/dormitory\/lodging-records\/[^/]+$/.test(path)) return { menuPath: 'hr/dormitory/lodging-records', action: 'delete' }
   if (m === 'POST' && path === '/api/hr/dormitory/check-in') {
     return { menuPath: 'hr/dormitory/lodging-records', action: 'add' }
   }

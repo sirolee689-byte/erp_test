@@ -198,14 +198,17 @@
           <el-table-column label="数量" width="126">
             <template #default="{ row }">
               <template v-if="readonly">{{ formatErpQtyDisplay(row.wxak03) }}</template>
-              <el-input-number
-                v-else
-                v-model="row.wxak03"
-                :precision="2"
-                :min="0"
-                controls-position="right"
-                @change="$emit('line-tax-excluded-change', row)"
-              />
+              <div v-else class="assist-line-qty-cell">
+                <el-input-number
+                  v-model="row.wxak03"
+                  :precision="2"
+                  :min="0"
+                  :disabled="row.inboundLocked"
+                  controls-position="right"
+                  @change="$emit('line-tax-excluded-change', row)"
+                />
+                <span v-if="row.inboundLocked" class="assist-line-lock-tip">已入库，数量锁定</span>
+              </div>
             </template>
           </el-table-column>
           <el-table-column label="不含税单价" width="138">
@@ -797,6 +800,19 @@ defineExpose({
 
 :deep(.assist-line-row--marked) {
   --el-table-tr-bg-color: #f5f5f5;
+}
+
+.assist-line-qty-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.assist-line-lock-tip {
+  color: var(--el-color-warning-dark-2);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
 }
 
 .assist-fees-pane {

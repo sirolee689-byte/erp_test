@@ -1,0 +1,146 @@
+{"kind":"deck","id":"pr/xlat95","name":"Deck"}
+{"kind":"layout","layoutId":"69fbfbf9-0eef-41bb-89f3-9a50e85fdbad","name":"Master","type":"master"}
+{"kind":"layout","layoutId":"8a527e84-916c-4b50-8761-9345c812cb18","name":"Title Slide","type":"title"}
+{"kind":"slide","id":"sl/8qjp51","slide":1,"title":"ERP 系统生产流程演示","textShapes":6}
+{"kind":"shape","id":"sh/7a5wfi1g","slide":1,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/8bed8ni1","slide":1,"bbox":[0,0,1280,18]}
+{"kind":"textbox","id":"sh/tcnehsjm","slide":1,"text":"ERP 系统生产流程演示","textPreview":"ERP 系统生产流程演示","textChars":12,"textLines":1,"bbox":[72,130,820,70]}
+{"kind":"textbox","id":"sh/udwvax07","slide":1,"text":"旧系统问题修复与新功能提升｜阶段版","textPreview":"旧系统问题修复与新功能提升｜阶段版","textChars":17,"textLines":1,"bbox":[76,218,760,40]}
+{"kind":"textbox","id":"sh/vy5wji1s","slide":1,"text":"以 PQ-3159B1 为例，展示从纸格导入到销售订单录入的工作流变化","textPreview":"以 PQ-3159B1 为例，展示从纸格导入到销售订单录入的工作流变化","textChars":35,"textLines":1,"bbox":[76,292,790,70]}
+{"kind":"shape","id":"sh/gzydcnid","slide":1,"bbox":[76,430,438,88]}
+{"kind":"textbox","id":"sh/h07elsji","slide":1,"text":"本阶段核心结论","textPreview":"本阶段核心结论","textChars":7,"textLines":1,"bbox":[104,450,230,24]}
+{"kind":"textbox","id":"sh/ahcvytkn","slide":1,"text":"流程更顺｜提示更清｜效率更高","textPreview":"流程更顺｜提示更清｜效率更高","textChars":14,"textLines":1,"bbox":[104,478,360,30]}
+{"kind":"textbox","id":"sh/bilw7y18","slide":1,"text":"面向领导汇报","textPreview":"面向领导汇报","textChars":6,"textLines":1,"bbox":[76,640,220,25]}
+{"kind":"notes","id":"nt/8qjp51","slide":1,"text":"[Sources]\n内容依据：用户提供的 ERP 生产流程、旧系统问题与新系统改进说明。"}
+{"kind":"slide","id":"sl/rme2ip","slide":2,"title":"一套生产流程，贯穿多个业务部门","textShapes":18}
+{"kind":"textbox","id":"sh/vep4ril8","slide":2,"text":"一套生产流程，贯穿多个业务部门","textPreview":"一套生产流程，贯穿多个业务部门","textChars":15,"textLines":1,"bbox":[72,48,1040,54]}
+{"kind":"textbox","id":"sh/wfylkn2t","slide":2,"text":"从计价资料进入系统，到采购、外协、仓库形成完整闭环","textPreview":"从计价资料进入系统，到采购、外协、仓库形成完整闭环","textChars":25,"textLines":1,"bbox":[74,105,1060,28]}
+{"kind":"shape","id":"sh/xg7mt8je","slide":2,"bbox":[72,144,80,5]}
+{"kind":"shape","id":"sh/m9g3etkr","slide":2,"bbox":[300,304,72,36]}
+{"kind":"shape","id":"sh/nap4nylc","slide":2,"bbox":[590,304,72,36]}
+{"kind":"shape","id":"sh/8bylg32x","slide":2,"bbox":[880,304,72,36]}
+{"kind":"shape","id":"sh/9c7mp832","slide":2,"bbox":[72,235,220,170]}
+{"kind":"textbox","id":"sh/650nqxkv","slide":2,"text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[92,255,50,30]}
+{"kind":"textbox","id":"sh/7694z21g","slide":2,"text":"计价做资料","textPreview":"计价做资料","textChars":5,"textLines":1,"bbox":[92,292,180,32]}
+{"kind":"textbox","id":"sh/fa103ydc","slide":2,"text":"纸格导入 → BOM 运算审核 → 形成成品 PQ","textPreview":"纸格导入 → BOM 运算审核 → 形成成品 PQ","textChars":25,"textLines":1,"bbox":[92,340,180,52]}
+{"kind":"shape","id":"sh/upszudcr","slide":2,"bbox":[362,235,220,170]}
+{"kind":"textbox","id":"sh/hc3i58vi","slide":2,"text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[382,255,50,30]}
+{"kind":"textbox","id":"sh/gbu1w3ux","slide":2,"text":"IT 部录 PI 单","textPreview":"IT 部录 PI 单","textChars":10,"textLines":1,"bbox":[382,292,180,32]}
+{"kind":"textbox","id":"sh/3el07ido","slide":2,"text":"根据邮件与 Excel 录入 PQ 款式、数量 → 生成物料单","textPreview":"根据邮件与 Excel 录入 PQ 款式、数量 → 生成物料单","textChars":31,"textLines":1,"bbox":[382,340,180,52]}
+{"kind":"shape","id":"sh/2dcjydc3","slide":2,"bbox":[652,235,220,170]}
+{"kind":"textbox","id":"sh/pg3i9sve","slide":2,"text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[672,255,50,30]}
+{"kind":"textbox","id":"sh/ofu10nut","slide":2,"text":"录派工单","textPreview":"录派工单","textChars":4,"textLines":1,"bbox":[672,292,180,32]}
+{"kind":"textbox","id":"sh/bil0bidk","slide":2,"text":"IT 部安排包装/开料；仓库安排车缝","textPreview":"IT 部安排包装/开料；仓库安排车缝","textChars":18,"textLines":1,"bbox":[672,340,180,52]}
+{"kind":"shape","id":"sh/qhcj2xcz","slide":2,"bbox":[942,235,220,170]}
+{"kind":"textbox","id":"sh/mdg3ahw7","slide":2,"text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[962,255,50,30]}
+{"kind":"textbox","id":"sh/nep43mxs","slide":2,"text":"采购、外协、仓库","textPreview":"采购、外协、仓库","textChars":8,"textLines":1,"bbox":[962,292,180,32]}
+{"kind":"textbox","id":"sh/8zylcred","slide":2,"text":"采购入库、派工出库、外协入库等后续处理","textPreview":"采购入库、派工出库、外协入库等后续处理","textChars":19,"textLines":1,"bbox":[962,340,180,52]}
+{"kind":"shape","id":"sh/907m5wfy","slide":2,"bbox":[72,490,1136,76]}
+{"kind":"textbox","id":"sh/y9w36hwb","slide":2,"text":"关键连接点","textPreview":"关键连接点","textChars":5,"textLines":1,"bbox":[98,514,150,24]}
+{"kind":"textbox","id":"sh/za5kzmxw","slide":2,"text":"物料单是采购、入库、出库、外协等大部分模块都会关联的重要单据。","textPreview":"物料单是采购、入库、出库、外协等大部分模块都会关联的重要单据。","textChars":31,"textLines":1,"bbox":[255,512,850,28]}
+{"kind":"textbox","id":"sh/0byl8re1","slide":2,"text":"ERP 系统演示｜阶段版","textPreview":"ERP 系统演示｜阶段版","textChars":12,"textLines":1,"bbox":[72,682,300,20]}
+{"kind":"textbox","id":"sh/lc721wfm","slide":2,"text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[1148,682,60,20]}
+{"kind":"notes","id":"nt/rme2ip","slide":2,"text":"[Sources]\n内容依据：用户提供的 ERP 生产工作流说明。"}
+{"kind":"slide","id":"sl/24imky","slide":3,"title":"纸格导入：从“容易卡死”到“可控、可校验”","textShapes":16}
+{"kind":"textbox","id":"sh/6tw7mtob","slide":3,"text":"纸格导入：从“容易卡死”到“可控、可校验”","textPreview":"纸格导入：从“容易卡死”到“可控、可校验”","textChars":21,"textLines":1,"bbox":[72,48,1040,54]}
+{"kind":"textbox","id":"sh/tgnqh8nm","slide":3,"text":"演示款号 PQ-3159B1｜导入主袋、活动肩带、拉牌、人民牌四份纸格资料","textPreview":"演示款号 PQ-3159B1｜导入主袋、活动肩带、拉牌、人民牌四份纸格资料","textChars":37,"textLines":1,"bbox":[74,105,1060,28]}
+{"kind":"shape","id":"sh/8fe9o3m1","slide":3,"bbox":[72,144,80,5]}
+{"kind":"shape","id":"sh/vi58ji5s","slide":3,"bbox":[72,190,390,390]}
+{"kind":"textbox","id":"sh/uhwrqd47","slide":3,"text":"旧系统问题","textPreview":"旧系统问题","textChars":5,"textLines":1,"bbox":[100,220,250,32]}
+{"kind":"shape","id":"sh/hk7ql8ny","slide":3,"bbox":[100,291,10,10]}
+{"kind":"textbox","id":"sh/gjy9snmd","slide":3,"text":"连续导入会卡死","textPreview":"连续导入会卡死","textChars":7,"textLines":1,"bbox":[124,285,296,28]}
+{"kind":"textbox","id":"sh/3mp8ni5o","slide":3,"text":"多次连续导入时页面无法继续操作，影响现场录入节奏。","textPreview":"多次连续导入时页面无法继续操作，影响现场录入节奏。","textChars":25,"textLines":1,"bbox":[124,316,296,48]}
+{"kind":"shape","id":"sh/ilgrud43","slide":3,"bbox":[72,505,330,42]}
+{"kind":"textbox","id":"sh/0vu10zyx","slide":3,"text":"问题：稳定性不足","textPreview":"问题：稳定性不足","textChars":8,"textLines":1,"bbox":[95,516,250,22]}
+{"kind":"shape","id":"sh/1w3i94zi","slide":3,"bbox":[486,190,390,390]}
+{"kind":"textbox","id":"sh/e9sjypgr","slide":3,"text":"新系统改进","textPreview":"新系统改进","textChars":5,"textLines":1,"bbox":[514,220,250,32]}
+{"kind":"shape","id":"sh/ful07uhc","slide":3,"bbox":[514,291,10,10]}
+{"kind":"textbox","id":"sh/ozu14jy9","slide":3,"text":"智能校验更清晰","textPreview":"智能校验更清晰","textChars":7,"textLines":1,"bbox":[538,285,296,28]}
+{"kind":"textbox","id":"sh/p03id4zu","slide":3,"text":"明确提示编码不统一、编码不存在、编码为空等问题。","textPreview":"明确提示编码不统一、编码不存在、编码为空等问题。","textChars":24,"textLines":1,"bbox":[538,316,296,48]}
+{"kind":"shape","id":"sh/2xcj29g3","slide":3,"bbox":[514,396,10,10]}
+{"kind":"textbox","id":"sh/nyl0beho","slide":3,"text":"导入速度与页面优化","textPreview":"导入速度与页面优化","textChars":9,"textLines":1,"bbox":[538,390,296,28]}
+{"kind":"textbox","id":"sh/c3e18jy5","slide":3,"text":"提高写入速度，让连续导入更顺畅。","textPreview":"提高写入速度，让连续导入更顺畅。","textChars":16,"textLines":1,"bbox":[538,421,296,48]}
+{"kind":"textbox","id":"sh/x4n2hozq","slide":3,"text":"现场展示：四份纸格资料导入后进入 BOM 流程","textPreview":"现场展示：四份纸格资料导入后进入 BOM 流程","textChars":23,"textLines":1,"bbox":[514,505,320,46]}
+{"kind":"textbox","id":"sh/kja1sjq9","slide":3,"text":"旧系统：导入过程中卡死","textPreview":"旧系统：导入过程中卡死","textChars":11,"textLines":1,"bbox":[920,380,285,24]}
+{"kind":"textbox","id":"sh/yhsjq983","slide":3,"text":"新系统：错误提示清晰可定位","textPreview":"新系统：错误提示清晰可定位","textChars":13,"textLines":1,"bbox":[920,585,285,24]}
+{"kind":"textbox","id":"sh/to3ipo76","slide":3,"text":"ERP 系统演示｜阶段版","textPreview":"ERP 系统演示｜阶段版","textChars":12,"textLines":1,"bbox":[72,682,300,20]}
+{"kind":"textbox","id":"sh/8na1wjql","slide":3,"text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[1148,682,60,20]}
+{"kind":"image","id":"im/6tc3i1gj","slide":3,"name":"","geometry":"roundRect","alt":"旧系统连续导入卡死截图","bbox":[920,188,285,186]}
+{"kind":"image","id":"im/svulkry9","slide":3,"name":"","geometry":"roundRect","alt":"新系统智能校验截图","bbox":[920,420,285,160]}
+{"kind":"notes","id":"nt/24imky","slide":3,"text":"[Sources]\n图片来源：用户提供的旧系统卡死截图与新系统智能校验截图。内容依据：用户提供的纸格导入演示说明。"}
+{"kind":"slide","id":"sl/xsi2na","slide":4,"title":"BOM 运算：批量处理把等待时间压缩到 1 分 25 秒","textShapes":12}
+{"kind":"textbox","id":"sh/jq9kf69w","slide":4,"text":"BOM 运算：批量处理把等待时间压缩到 1 分 25 秒","textPreview":"BOM 运算：批量处理把等待时间压缩到 1 分 25 秒","textChars":28,"textLines":1,"bbox":[72,48,1040,54]}
+{"kind":"textbox","id":"sh/krilobah","slide":4,"text":"纸格导入后的资料先进入“未审核”，再进行 BOM 运算与审核","textPreview":"纸格导入后的资料先进入“未审核”，再进行 BOM 运算与审核","textChars":30,"textLines":1,"bbox":[74,105,1060,28]}
+{"kind":"shape","id":"sh/5sbmhgr2","slide":4,"bbox":[72,144,80,5]}
+{"kind":"shape","id":"sh/al03ihsf","slide":4,"bbox":[72,202,500,315]}
+{"kind":"textbox","id":"sh/bm9krm90","slide":4,"text":"PQ-3672A1 实际对比","textPreview":"PQ-3672A1 实际对比","textChars":14,"textLines":1,"bbox":[102,232,330,32]}
+{"kind":"textbox","id":"sh/wnilkra5","slide":4,"text":"24 个 BOM 资料","textPreview":"24 个 BOM 资料","textChars":11,"textLines":1,"bbox":[102,293,300,44]}
+{"kind":"textbox","id":"sh/xor2dwrq","slide":4,"text":"旧系统｜逐个运算","textPreview":"旧系统｜逐个运算","textChars":8,"textLines":1,"bbox":[102,365,250,26]}
+{"kind":"textbox","id":"sh/uhk3ulsj","slide":4,"text":"约 50 分钟","textPreview":"约 50 分钟","textChars":7,"textLines":1,"bbox":[102,395,300,52]}
+{"kind":"textbox","id":"sh/fit4nq94","slide":4,"text":"新系统｜批量运算","textPreview":"新系统｜批量运算","textChars":8,"textLines":1,"bbox":[350,365,210,26]}
+{"kind":"textbox","id":"sh/be5kjups","slide":4,"text":"1 分 25 秒","textPreview":"1 分 25 秒","textChars":8,"textLines":1,"bbox":[350,395,220,52]}
+{"kind":"shape","id":"sh/adw3qpo7","slide":4,"bbox":[102,474,420,1]}
+{"kind":"textbox","id":"sh/x072l47y","slide":4,"text":"配件明细越大，效率改善越明显","textPreview":"配件明细越大，效率改善越明显","textChars":14,"textLines":1,"bbox":[102,486,420,24]}
+{"kind":"shape","id":"sh/z2pknepo","slide":4,"bbox":[620,558,585,54]}
+{"kind":"textbox","id":"sh/y1g3u9o3","slide":4,"text":"新功能：批量运算（当前页）＋执行前确认提示","textPreview":"新功能：批量运算（当前页）＋执行前确认提示","textChars":21,"textLines":1,"bbox":[645,574,530,24]}
+{"kind":"textbox","id":"sh/l47mp47u","slide":4,"text":"ERP 系统演示｜阶段版","textPreview":"ERP 系统演示｜阶段版","textChars":12,"textLines":1,"bbox":[72,682,300,20]}
+{"kind":"textbox","id":"sh/k3ylwj69","slide":4,"text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[1148,682,60,20]}
+{"kind":"image","id":"im/3mpsvmx4","slide":4,"name":"","geometry":"roundRect","alt":"BOM 批量运算功能截图","bbox":[620,195,585,345]}
+{"kind":"notes","id":"nt/xsi2na","slide":4,"text":"[Sources]\n图片来源：用户提供的 BOM 批量运算截图。数据来源：用户提供的 PQ-3672A1 实测对比：旧系统约 50 分钟，新系统 1 分 25 秒。"}
+{"kind":"slide","id":"sl/ohbahw","slide":5,"title":"销售订单录入：修复会影响后续部门的关键数据 BUG","textShapes":11}
+{"kind":"textbox","id":"sh/r2hcjmdg","slide":5,"text":"销售订单录入：修复会影响后续部门的关键数据 BUG","textPreview":"销售订单录入：修复会影响后续部门的关键数据 BUG","textChars":25,"textLines":1,"bbox":[72,48,1040,54]}
+{"kind":"textbox","id":"sh/c3qtsre1","slide":5,"text":"从“只能进后台修数据”变成“系统内可正确同步、可批量录入”","textPreview":"从“只能进后台修数据”变成“系统内可正确同步、可批量录入”","textChars":29,"textLines":1,"bbox":[74,105,1060,28]}
+{"kind":"shape","id":"sh/d4zulwvm","slide":5,"bbox":[72,144,80,5]}
+{"kind":"shape","id":"sh/2dobmhwz","slide":5,"bbox":[72,190,500,395]}
+{"kind":"textbox","id":"sh/3excfmdk","slide":5,"text":"旧系统的两个关键问题","textPreview":"旧系统的两个关键问题","textChars":10,"textLines":1,"bbox":[102,220,390,32]}
+{"kind":"shape","id":"sh/4fqtore5","slide":5,"bbox":[102,298,10,10]}
+{"kind":"textbox","id":"sh/pgzuhwva","slide":5,"text":"BUG 1｜LA-0381/N 损耗丢失","textPreview":"BUG 1｜LA-0381/N 损耗丢失","textChars":20,"textLines":1,"bbox":[126,292,376,28]}
+{"kind":"textbox","id":"sh/m9sbylc3","slide":5,"text":"BOM 用量与销售订单用量不一致，导致其他部门无法正常处理。","textPreview":"BOM 用量与销售订单用量不一致，导致其他部门无法正常处理。","textChars":30,"textLines":1,"bbox":[126,323,376,48]}
+{"kind":"shape","id":"sh/na1cr6do","slide":5,"bbox":[102,411,10,10]}
+{"kind":"textbox","id":"sh/by1gjehc","slide":5,"text":"BUG 2｜PI-4180 明细同步错位","textPreview":"BUG 2｜PI-4180 明细同步错位","textChars":20,"textLines":1,"bbox":[126,405,376,28]}
+{"kind":"textbox","id":"sh/axsfq9g7","slide":5,"text":"选择同步 A 明细，系统却自动同步 B 明细，造成数据错误。","textPreview":"选择同步 A 明细，系统却自动同步 B 明细，造成数据错误。","textChars":30,"textLines":1,"bbox":[126,436,376,48]}
+{"kind":"textbox","id":"sh/xkjylozi","slide":5,"text":"旧系统只能通过后台数据库对比、手动修正","textPreview":"旧系统只能通过后台数据库对比、手动修正","textChars":19,"textLines":1,"bbox":[102,520,420,28]}
+{"kind":"shape","id":"sh/jmlgneho","slide":5,"bbox":[620,558,585,54]}
+{"kind":"textbox","id":"sh/ilcfu9g3","slide":5,"text":"新系统：以上同步 BUG 已修复，数据可正确进入后续流程","textPreview":"新系统：以上同步 BUG 已修复，数据可正确进入后续流程","textChars":28,"textLines":1,"bbox":[645,574,530,24]}
+{"kind":"textbox","id":"sh/5o3ypozu","slide":5,"text":"ERP 系统演示｜阶段版","textPreview":"ERP 系统演示｜阶段版","textChars":12,"textLines":1,"bbox":[72,682,300,20]}
+{"kind":"textbox","id":"sh/knuxwjy9","slide":5,"text":"05","textPreview":"05","textChars":2,"textLines":1,"bbox":[1148,682,60,20]}
+{"kind":"image","id":"im/rmdgbmt4","slide":5,"name":"","geometry":"roundRect","alt":"销售订单 BOM 用量差异截图","bbox":[620,190,585,340]}
+{"kind":"notes","id":"nt/ohbahw","slide":5,"text":"[Sources]\n图片来源：用户提供的销售订单/BOM 用量差异截图。内容依据：用户提供的 LA-0381/N 损耗问题、PI-4180 明细同步错位问题及修复说明。"}
+{"kind":"slide","id":"sl/7jq07t","slide":6,"title":"销售订单录入：减少重复操作，让选择更聚焦","textShapes":13}
+{"kind":"textbox","id":"sh/bmpoj658","slide":6,"text":"销售订单录入：减少重复操作，让选择更聚焦","textPreview":"销售订单录入：减少重复操作，让选择更聚焦","textChars":20,"textLines":1,"bbox":[72,48,1040,54]}
+{"kind":"textbox","id":"sh/cny5cbmt","slide":6,"text":"在修复数据正确性的基础上，继续优化实际录入效率","textPreview":"在修复数据正确性的基础上，继续优化实际录入效率","textChars":23,"textLines":1,"bbox":[74,105,1060,28]}
+{"kind":"shape","id":"sh/dor6lgny","slide":6,"bbox":[72,144,80,5]}
+{"kind":"shape","id":"sh/yp0nel4j","slide":6,"bbox":[72,205,510,300]}
+{"kind":"textbox","id":"sh/zq9onq54","slide":6,"text":"录入方式变化","textPreview":"录入方式变化","textChars":6,"textLines":1,"bbox":[104,237,300,30]}
+{"kind":"textbox","id":"sh/0ripgvmp","slide":6,"text":"旧系统","textPreview":"旧系统","textChars":3,"textLines":1,"bbox":[104,320,160,28]}
+{"kind":"textbox","id":"sh/lcr6pgna","slide":6,"text":"逐个添加物料","textPreview":"逐个添加物料","textChars":6,"textLines":1,"bbox":[104,355,240,40]}
+{"kind":"textbox","id":"sh/etwn2hof","slide":6,"text":"新系统","textPreview":"新系统","textChars":3,"textLines":1,"bbox":[354,320,160,28]}
+{"kind":"textbox","id":"sh/fu5obm50","slide":6,"text":"批量添加物料","textPreview":"批量添加物料","textChars":6,"textLines":1,"bbox":[354,355,240,40]}
+{"kind":"shape","id":"sh/jypcfahk","slide":6,"bbox":[72,535,1135,65]}
+{"kind":"textbox","id":"sh/ixgbm5gz","slide":6,"text":"细节优化：默认显示成品，可筛选掉大部分不需要选择的物料，减少查找与误选。","textPreview":"细节优化：默认显示成品，可筛选掉大部分不需要选择的物料，减少查找与误选。","textChars":36,"textLines":1,"bbox":[104,555,1080,26]}
+{"kind":"shape","id":"sh/507uh0za","slide":6,"bbox":[700,220,420,300]}
+{"kind":"textbox","id":"sh/4zytofy5","slide":6,"text":"录入体验的变化","textPreview":"录入体验的变化","textChars":7,"textLines":1,"bbox":[738,258,310,28]}
+{"kind":"textbox","id":"sh/vupcbqh8","slide":6,"text":"少点几次\n少找一些\n少出错一点","textPreview":"少点几次 | 少找一些 | 少出错一点","textChars":15,"textLines":3,"bbox":[738,315,300,120]}
+{"kind":"textbox","id":"sh/utwbilgn","slide":6,"text":"让 IT 部录单更快，也让后续部门拿到更可靠的数据。","textPreview":"让 IT 部录单更快，也让后续部门拿到更可靠的数据。","textChars":26,"textLines":1,"bbox":[738,455,350,44]}
+{"kind":"textbox","id":"sh/hw7ud0ze","slide":6,"text":"ERP 系统演示｜阶段版","textPreview":"ERP 系统演示｜阶段版","textChars":12,"textLines":1,"bbox":[72,682,300,20]}
+{"kind":"textbox","id":"sh/wvytkvyt","slide":6,"text":"06","textPreview":"06","textChars":2,"textLines":1,"bbox":[1148,682,60,20]}
+{"kind":"notes","id":"nt/7jq07t","slide":6,"text":"[Sources]\n内容依据：用户提供的销售订单录入新旧功能对比及页面优化说明。"}
+{"kind":"slide","id":"sl/357bmh","slide":7,"title":"阶段性结果：流程更顺、问题更少、效率更高","textShapes":10}
+{"kind":"textbox","id":"sh/2l4rq5gz","slide":7,"text":"阶段性结果：流程更顺、问题更少、效率更高","textPreview":"阶段性结果：流程更顺、问题更少、效率更高","textChars":20,"textLines":1,"bbox":[72,82,1060,64]}
+{"kind":"textbox","id":"sh/povql0fq","slide":7,"text":"目前已覆盖生产流程前段的关键演示节点","textPreview":"目前已覆盖生产流程前段的关键演示节点","textChars":18,"textLines":1,"bbox":[76,158,600,28]}
+{"kind":"shape","id":"sh/onm9svy5","slide":7,"bbox":[72,260,330,220]}
+{"kind":"textbox","id":"sh/fid8fqxo","slide":7,"text":"纸格导入","textPreview":"纸格导入","textChars":4,"textLines":1,"bbox":[100,295,260,32]}
+{"kind":"textbox","id":"sh/ehkrmlg3","slide":7,"text":"解决连续导入卡死\n智能校验更清晰","textPreview":"解决连续导入卡死 | 智能校验更清晰","textChars":16,"textLines":2,"bbox":[100,355,270,72]}
+{"kind":"shape","id":"sh/1kvqh0fu","slide":7,"bbox":[100,445,90,5]}
+{"kind":"shape","id":"sh/gjm9ovy9","slide":7,"bbox":[446,260,330,220]}
+{"kind":"textbox","id":"sh/ret8b6hc","slide":7,"text":"BOM 运算","textPreview":"BOM 运算","textChars":6,"textLines":1,"bbox":[474,295,260,32]}
+{"kind":"textbox","id":"sh/6tkrilg7","slide":7,"text":"24 个资料\n约 50 分钟 → 1 分 25 秒","textPreview":"24 个资料 | 约 50 分钟 → 1 分 25 秒","textChars":25,"textLines":2,"bbox":[474,355,270,72]}
+{"kind":"shape","id":"sh/c76xcfyl","slide":7,"bbox":[474,445,90,5]}
+{"kind":"shape","id":"sh/d8fe5kz6","slide":7,"bbox":[820,260,330,220]}
+{"kind":"textbox","id":"sh/q54fa5gf","slide":7,"text":"销售订单","textPreview":"销售订单","textChars":4,"textLines":1,"bbox":[848,295,260,32]}
+{"kind":"textbox","id":"sh/r6xw3ah0","slide":7,"text":"修复同步 BUG\n支持批量添加","textPreview":"修复同步 BUG | 支持批量添加","textChars":15,"textLines":2,"bbox":[848,355,270,72]}
+{"kind":"shape","id":"sh/4jmx8vy9","slide":7,"bbox":[848,445,90,5]}
+{"kind":"shape","id":"sh/pkve10zu","slide":7,"bbox":[72,552,1135,2]}
+{"kind":"textbox","id":"sh/2h4f65gj","slide":7,"text":"后续可继续沿着 PI 单、派工单、采购、外协、入库、出库流程补充演示内容。","textPreview":"后续可继续沿着 PI 单、派工单、采购、外协、入库、出库流程补充演示内容。","textChars":37,"textLines":1,"bbox":[72,590,1050,30]}
+{"kind":"textbox","id":"sh/3idwzaho","slide":7,"text":"阶段版｜待继续完善","textPreview":"阶段版｜待继续完善","textChars":9,"textLines":1,"bbox":[72,650,300,24]}
+{"kind":"notes","id":"nt/357bmh","slide":7,"text":"[Sources]\n内容依据：用户目前提供的纸格导入、BOM 运算、销售订单录入演示内容。"}

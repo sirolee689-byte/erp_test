@@ -112,6 +112,7 @@ export async function applyAssistOrderLifecycleAction({ pool, id, action, actor 
       actor,
       orderNo: row.assistOrderNo,
       systemCode: row.systemCode,
+      ip: actor?.ip || '',
     })
     return { ok: true, msg: config.msg, id, assistOrderNo: row.assistOrderNo }
   }
@@ -128,6 +129,7 @@ export async function applyAssistOrderLifecycleAction({ pool, id, action, actor 
     actor,
     orderNo: row.assistOrderNo,
     systemCode: row.systemCode,
+    ip: actor?.ip || '',
   })
   return { ok: true, msg: config.msg, id, assistOrderNo: row.assistOrderNo }
 }

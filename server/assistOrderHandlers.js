@@ -1,4 +1,5 @@
 import { sql } from './db.js'
+import { getRequestIp } from './requestIp.js'
 import {
   ASSIST_ORDER_HEADER_TABLE,
   buildAssistOrderListPagedSql,
@@ -27,6 +28,8 @@ import {
 const HEADER_FROM = `dbo.[${ASSIST_ORDER_HEADER_TABLE}]`
 const LINE_FROM = 'dbo.[UB_ERP_assist_order_list]'
 const MONEY_FROM = 'dbo.[UB_ERP_assist_order_money]'
+const STOCK_IN_FROM = 'dbo.[UB_ERP_Stocks_Storage]'
+const STOCK_IN_LINE_FROM = 'dbo.[UB_ERP_Stocks_Storage_list]'
 
 function materialSelectable(value) {
   const s = String(value ?? '').trim().toLowerCase()
@@ -60,6 +63,25 @@ function serializeAssistOrderRow(row) {
   }
   if (o.id != null) o.id = Number(o.id)
   return o
+}
+
+function attachAssistDetailInboundLock(lines = [], inboundRows = []) {
+  const inbound = Array.isArray(inboundRows) ? inboundRows : []
+  return (Array.isArray(lines) ? lines : []).map((line) => {
+    const materialCode = String(line?.kcaa01 ?? '').trim()
+    const systemCode = String(line?.bomSystemCode ?? line?.systemcode ?? '').trim()
+    const matched = inbound.filter((row) => {
+      const inboundMaterialCode = String(row?.materialCode ?? '').trim()
+      const inboundSystemCode = String(row?.materialSystemCode ?? '').trim()
+      return (materialCode && inboundMaterialCode === materialCode) ||
+        (systemCode && inboundSystemCode === systemCode)
+    })
+    return {
+      ...line,
+      inboundLocked: matched.length > 0,
+      inboundQty: matched.reduce((sum, row) => sum + Number(row?.inboundQty ?? 0), 0),
+    }
+  })
 }
 
 export function registerAssistOrderRoutes(app, deps) {
@@ -102,7 +124,7 @@ export function registerAssistOrderRoutes(app, deps) {
         pool,
         id,
         action,
-        actor: { ...(req.user ?? req.session?.user ?? {}), ...auditActor },
+        actor: { ...(req.user ?? req.session?.user ?? {}), ...auditActor, ip: getRequestIp(req) },
       })
       if (!result?.ok) {
         res.status(result?.status ?? 400).json({ code: result?.status ?? 400, msg: result?.msg || '操作失败', data: null })
@@ -610,7 +632,10 @@ export function registerAssistOrderRoutes(app, deps) {
         .input('orderNo', sql.NVarChar(200), orderNo)
         .query(`
           SELECT
+            l.[id],
             ROW_NUMBER() OVER (ORDER BY l.[id] ASC) AS seq,
+            LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[wxak02], N'')))) AS bomSystemCode,
+            LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(l.[systemcode], N'')))) AS systemcode,
             LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[pi], N'')))) AS piNo,
             LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[Product], N'')))) AS product,
             LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(l.[kcaa01], N'')))) AS kcaa01,
@@ -640,6 +665,25 @@ export function registerAssistOrderRoutes(app, deps) {
           ORDER BY l.[id] ASC
         `)
 
+      const inboundResult = await pool
+        .request()
+        .input('orderNo', sql.NVarChar(200), orderNo)
+        .query(`
+          SELECT
+            LTRIM(RTRIM(CONVERT(nvarchar(300), ISNULL(il.[kcaa01], N'')))) AS materialCode,
+            LTRIM(RTRIM(CONVERT(nvarchar(500), ISNULL(il.[kcao02], N'')))) AS materialSystemCode,
+            SUM(ISNULL(il.[kcao03], 0)) AS inboundQty
+          FROM ${STOCK_IN_FROM} AS s
+          INNER JOIN ${STOCK_IN_LINE_FROM} AS il
+            ON LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[kcan01], N'')))) =
+               LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(il.[kcao01], N''))))
+           AND (ISNULL(il.[del], N'') = N'' OR il.[del] = N'0')
+          WHERE (ISNULL(s.[del], N'') = N'' OR s.[del] = N'0')
+            AND LTRIM(RTRIM(CONVERT(nvarchar(200), ISNULL(s.[kcan04], N'')))) = @orderNo
+            AND LTRIM(RTRIM(CONVERT(nvarchar(20), ISNULL(s.[kcan03], N'')))) = N'2'
+          GROUP BY il.[kcaa01], il.[kcao02]
+        `)
+
       const feesResult = await pool
         .request()
         .input('orderNo', sql.NVarChar(200), orderNo)
@@ -662,7 +706,10 @@ export function registerAssistOrderRoutes(app, deps) {
         msg: 'success',
         data: {
           header,
-          lines: (linesResult.recordset ?? []).map((row) => serializeAssistOrderRow(row)),
+          lines: attachAssistDetailInboundLock(
+            (linesResult.recordset ?? []).map((row) => serializeAssistOrderRow(row)),
+            inboundResult.recordset ?? [],
+          ),
           fees: (feesResult.recordset ?? []).map((row) => serializeAssistOrderRow(row)),
         },
       })

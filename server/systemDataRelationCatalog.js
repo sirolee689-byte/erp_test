@@ -419,6 +419,9 @@ const ASSIST_ORDER_ACTIONS = [
     transactionResult: '主表、明细、额外费用和操作日志在同一事务内提交；任一步失败则全部回滚。',
     reads: [
       { tableName: 'UB_ERP_assist_order', purpose: '外协订单主表', detail: '生成单号、检查重复；编辑时读取原单号、状态和核心编码。' },
+      { tableName: 'UB_ERP_assist_order_list', purpose: '外协订单明细表', detail: '编辑时读取原明细，用于保护已经发生外协入库的明细数量。' },
+      { tableName: 'UB_ERP_Stocks_Storage', purpose: '入库单主表', detail: '编辑时按外协单号和外协入库类型判断明细是否已有入库记录。' },
+      { tableName: 'UB_ERP_Stocks_Storage_list', purpose: '入库单明细表', detail: '按物料编码或来源明细键定位已有外协入库明细。' },
       { tableName: 'UB_ERP_System_supplier', purpose: '供应商资料表', detail: '校验外协商属于外协或共用类型，且已审核、未删除。' },
       { tableName: 'UB_ERP_Finance_currency', purpose: '财务币别表', detail: '校验币别并取得币别名称和汇率快照。' },
       { tableName: 'UB_ERP_Bom_Sales_list', purpose: 'PI销售BOM配件表', detail: '订单外协或订单外发优先读取 PI BOM 物料快照。' },
@@ -434,6 +437,7 @@ const ASSIST_ORDER_ACTIONS = [
       '主表新增固定 pass=0、closed=0、del=0；明细保存时当前代码固定写 pass=1。',
       '保存不写入库单或出库单；外协入库、外协领料由后续单据按外协单号关联。',
       '已审核、已结案或回收站外协订单不能编辑保存。',
+      '反审后的外协订单允许编辑，但已有外协入库记录的明细不能修改数量或删除。',
     ],
   },
   {

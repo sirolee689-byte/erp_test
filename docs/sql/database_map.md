@@ -173,6 +173,19 @@
 | 操作员、登录与权限 | `New_UB_ERP_User` + `New_UB_ERP_System_role` | `New_UB_ERP_User.RoleID` 按 `RoleID` 关联新角色表，登录返回 `RoleName`、`Permissions` 与 `truename`（库列 `New_UB_ERP_User.truename`，供装饰首页欢迎语）；路由、菜单、按钮和接口权限统一使用 `New_UB_ERP_System_role.Permissions`。登录后默认落点 `/home`（侧栏隐藏、不进标签）。新表须具备当前角色模块使用的 `RoleID/RoleName/Description/pass/del/Status/Permissions` 等字段，且 `RoleID` 与用户表的关联数据一致。 |
 | 操作审计与数据库配置 | `New_UB_ERP_System_role` | 角色新增、修改、删除、恢复、权限保存由中央白名单日志写入 `UB_Date_ERP_Operation_log`，目标表 `code=New_UB_ERP_System_role`；系统数据库配置的“系统角色权限表”登记新表名。`Sys_Roles` 是独立兼容表，本模块不使用。 |
 
+## 人力资源 · 员工档案
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|----------|--------|-----------------|
+| 员工档案列表/详情 | `UB_ERP_Hr_staff`（可用 `.env` `HR_STAFF_TABLE` 覆盖） | `GET /api/hr/staff`、`GET /api/hr/staff/:code`；列表按 `pass`、`del` 筛选；**不依赖** `status`/`leave_date`/`remark` 列（`remark` 按列探测，缺列回空）。`del='0'` 在职，`del='1'` 离职；`pass` 审核位。前端表单**无备注录入**。 |
+| 办理离职 / 恢复在职 | 同上 | `DELETE /api/hr/staff/:code` → `del='1'`（已审也可，不封账号）；`PUT /api/hr/staff/restore` → `del='0'`。旧 `PUT .../leave/:id`（status 离职）前端已停用。 |
+
+## 人力资源 · 部门资料
+
+| 业务功能 | 物理表 | 关键字段 / 说明 |
+|----------|--------|-----------------|
+| 部门维护与员工关联 | `UB_ERP_Hr_department`（可用 `.env` `HR_LEGACY_DEPT_TABLE` 覆盖） | `systemcode` 是部门 GUID 与员工关联键；`code`、`name` 为在册唯一业务字段；`manager`、`remark` 为维护字段；`pass` 审核、`del` 软删除。员工同时保存 `in_bm=部门名称`、`in_bm_systemcode=GUID`；`join_department=部门编码`仅兼容历史读取。删除部门前按在职员工 `in_bm_systemcode` 拦截。 |
+
 ## 全局操作日志
 
 | 业务功能 | 物理表 | 关键字段 / 说明 |
@@ -232,7 +245,7 @@
 | 出库单保存 | `UB_ERP_Stocks_out`、`UB_ERP_Stocks_out_list`、`UB_ERP_Stocks_Warehouse`、`UB_ERP_Bom_000` | 主表新增/更新，明细整单替换并固定保存为 `pass=0`；保存阶段不回写来源单据，空明细草稿可保存但不能审核 |
 | 出库单审核/反审核 | `UB_ERP_Stocks_out`、`UB_ERP_Stocks_out_list` | 主从表 `pass` 同步更新；审核、反审核和操作日志在同一事务内；审核后才进入正式出库库存统计 |
 | 出库来源数量回写 | `UB_ERP_Buy_order_list`、`UB_ERP_assist_order_list`、`UB_ERP_Dispatch_order_list`、`UB_ERP_Sales_order_list` | 按 `kcap03` 类型和明细 `kcaq02` 聚合：审核增加、反审核扣回 `kcak07/wxak08/scak04/scak05/xsak06`；扣回最低为 0；盘亏、其他、计划外和补数等未映射类型不回写 |
-| 外协单保存 | `UB_ERP_assist_order`、`UB_ERP_assist_order_list`、`UB_ERP_assist_order_money`、`UB_ERP_Bom_Sales`、`UB_ERP_Bom_Sales_list`、`UB_ERP_Bom_000` | 主表新增/更新，明细和额外费用整单替换；PI 外协优先读取 PI BOM 快照，明细关联键最终取 `UB_ERP_Bom_000.GUID`；不直接生成入库或出库 |
+| 外协单保存 | `UB_ERP_assist_order`、`UB_ERP_assist_order_list`、`UB_ERP_assist_order_money`、`UB_ERP_Bom_Sales`、`UB_ERP_Bom_Sales_list`、`UB_ERP_Bom_000`、`UB_ERP_Stocks_Storage`、`UB_ERP_Stocks_Storage_list` | 主表新增/更新，明细和额外费用整单替换；PI 外协优先读取 PI BOM 快照，明细关联键最终取 `UB_ERP_Bom_000.GUID`；不直接生成入库或出库。反审后编辑时，按 `kcan03=2`、`kcan04=外协单号` 及物料编码/来源明细键识别已有入库的明细，禁止修改数量或删除 |
 | 外协单审核/反审 | `UB_ERP_assist_order` | 只更新主表 `pass`；当前不检查明细数量、不批量更新明细 `pass`，也不修改已有外协入库或领料出库 |
 | 外协单结案/反结案 | `UB_ERP_assist_order` | 只更新主表 `closed`；结案要求已审核，反结案不自动反审；当前主表更新与操作日志未放在同一事务 |
 | 派工单保存 | `UB_ERP_Dispatch_order`、`UB_ERP_Dispatch_order_list`、`UB_ERP_Stocks_workshop`、`UB_ERP_Sales_order`、`UB_ERP_Sales_order_list` | 校验车间和销售订单可派数量后保存派工主从表；编辑整单替换明细；未审核派工也占用可派数量；不回写销售订单、不写库存 |
@@ -426,3 +439,17 @@
 | 参管人员候选 | `New_UB_ERP_User` | `GET /api/inventory/warehouse/user-options`；`del=0 pass=1`；模糊 `Usercode`/`truename`。 |
 | 操作日志 | `UB_Date_ERP_Operation_log` | 增改删恢复审反审批量审经 `operationAuditMiddleware` 写入；`code` 映射表名为 `UB_ERP_Stocks_warehouse`。 |
 | 本期不做 | — | Excel 导入、打印、彻底删除、DDL。 |
+# 宿舍房间管理补充
+
+## UB_ERP_Hr_room
+
+- `systemcode` 是房间稳定关联标识；入住表同时保存该值，作为当前在住人数统计和 `in_user` 自动汇总的连接键。
+- `code` 为房间编码，`name` 为房间名称，`s_code` 为入住和费用历史关联房号；关联数据存在后禁止改动 `s_code`。
+- `in_sum` 为总床位容量，`in_bad` 为损坏床位数；旧数据如 `in_sum` 为空，模块初始化时把旧 `in_bad` 容量迁入 `in_sum` 并归零损坏数。
+- `in_user` 不允许房间页面手工维护，由 `UB_ERP_Hr_room_in` 中 `del=0`、`in_room=1`、`out_room=0` 的人员记录自动汇总。
+
+## UB_ERP_Hr_room_in（住宿管理）
+
+- `systemcode` 为住宿记录唯一标识；`staff_systemcode`、`room_systemcode` 分别关联员工和房间稳定标识，`staff_code`、`staff_truename`、`staff_bm_*`、`name`、`room_code` 为登记时快照。增加入住选择员工时从 `UB_ERP_Hr_staff.in_bm` 带出部门展示，并仍以服务端员工档案为准写入快照；电费分摊报表以 `staff_systemcode` 优先关联员工档案，读取 `in_bm`（部门）与 `position`（职务）。
+- `in_room=1` 表示已办理入住，`out_room=0` 表示当前在住；退宿只更新 `out_room=1`、`out_time`、`out_time2`，不删除历史记录。`bed`、`money`、`water`、`electric`、`info` 属于住宿记录本身。
+- 住宿管理不使用 `pass` 审核流程；所有 `del=0 + out_room=0` 记录都参与房间人数和剩余床位统计。删除为软删除，不物理删除住宿历史。

@@ -94,45 +94,10 @@
             :empty-text="loading ? '加载中…' : '暂无数据'"
             @row-contextmenu="onErpListRowContextMenu"
           >
-            <el-table-column prop="code" label="仓库编码" min-width="110" align="center" header-align="center">
-              <template #default="{ row }">
-                <span class="code-bold">{{ row.code || '—' }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="name" label="仓库名称" min-width="140" align="center" header-align="center" />
-            <el-table-column prop="info2" label="库存预警" width="100" align="center" header-align="center">
-              <template #default="{ row }">{{ row.info2 || '—' }}</template>
-            </el-table-column>
-            <el-table-column label="允许负数出仓" width="120" align="center" header-align="center">
-              <template #default="{ row }">{{ yesNoText(row.negative) }}</template>
-            </el-table-column>
-            <el-table-column label="参与盘点" width="90" align="center" header-align="center">
-              <template #default="{ row }">{{ yesNoText(row.pd) }}</template>
-            </el-table-column>
-            <el-table-column label="参与扣数" width="90" align="center" header-align="center">
-              <template #default="{ row }">{{ yesNoText(row.ks) }}</template>
-            </el-table-column>
-            <el-table-column label="参管人员" min-width="160" align="center" header-align="center" show-overflow-tooltip>
-              <template #default="{ row }">{{ row.managerNames || row.etname || '—' }}</template>
-            </el-table-column>
-            <el-table-column label="LOGO" width="90" align="center" header-align="center">
-              <template #default="{ row }">
-                <el-button v-if="row.logo" link type="primary" @click="openLogoPreview(row)">查看</el-button>
-                <span v-else>—</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="info" label="备注" min-width="140" align="center" header-align="center" show-overflow-tooltip />
-            <el-table-column label="审核" width="100" align="center" header-align="center">
-              <template #default="{ row }">
-                <el-tag v-if="passLabel(row) === '已审核'" type="success" size="small">已审核</el-tag>
-                <el-tag v-else-if="passLabel(row) === '未审核'" type="warning" size="small">未审核</el-tag>
-                <el-tag v-else type="info" size="small">{{ passLabel(row) }}</el-tag>
-              </template>
-            </el-table-column>
             <el-table-column
               label="操作"
               :width="actionsColWidth"
-              fixed="right"
+              fixed="left"
               align="center"
               class-name="erp-col-actions"
             >
@@ -196,6 +161,41 @@
                 </ErpTableActions>
               </template>
             </el-table-column>
+            <el-table-column label="审核" width="100" align="center" header-align="center">
+              <template #default="{ row }">
+                <el-tag v-if="passLabel(row) === '已审核'" type="success" size="small">已审核</el-tag>
+                <el-tag v-else-if="passLabel(row) === '未审核'" type="warning" size="small">未审核</el-tag>
+                <el-tag v-else type="info" size="small">{{ passLabel(row) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="code" label="仓库编码" min-width="110" align="center" header-align="center">
+              <template #default="{ row }">
+                <span class="code-bold">{{ row.code || '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="name" label="仓库名称" min-width="140" align="center" header-align="center" />
+            <el-table-column prop="info2" label="库存预警" width="100" align="center" header-align="center">
+              <template #default="{ row }">{{ row.info2 || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="允许负数出仓" width="120" align="center" header-align="center">
+              <template #default="{ row }">{{ yesNoText(row.negative) }}</template>
+            </el-table-column>
+            <el-table-column label="参与盘点" width="90" align="center" header-align="center">
+              <template #default="{ row }">{{ yesNoText(row.pd) }}</template>
+            </el-table-column>
+            <el-table-column label="参与扣数" width="90" align="center" header-align="center">
+              <template #default="{ row }">{{ yesNoText(row.ks) }}</template>
+            </el-table-column>
+            <el-table-column label="参管人员" min-width="160" align="center" header-align="center" show-overflow-tooltip>
+              <template #default="{ row }">{{ row.managerNames || row.etname || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="LOGO" width="90" align="center" header-align="center">
+              <template #default="{ row }">
+                <el-button v-if="row.logo" link type="primary" @click="openLogoPreview(row)">查看</el-button>
+                <span v-else>—</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="info" label="备注" min-width="140" align="center" header-align="center" show-overflow-tooltip />
           </el-table>
 
           <div class="pagination-row pagination-row--bottom">
@@ -996,7 +996,7 @@ loadData()
 }
 .pagination-row {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   margin: 8px 0;
 }
 </style>

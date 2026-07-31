@@ -1,549 +1,100 @@
 <template>
   <div class="erp-module-page">
-    <!--
-      v1.1.3 宿舍房间列表：UB_ERP_Hr_room + 在住人数（UB_ERP_Hr_room_in 未退房条数）
-      - 使用状态列：s_code1（使用/闲置）；在住判定：in_room=1 且 out_room=0
-    -->
-    <el-card shadow="never">
-      <template #header>
-        <span class="page-title">{{ pageTitle }}</span>
-      </template>
-      <p class="page-desc">
-        列表数据来自 <code>UB_ERP_Hr_room</code>；「在住人数」统计 <code>UB_ERP_Hr_room_in</code> 中未退房记录。默认仅显示已审核（pass=1）的房间资料。
-      </p>
+    <div class="erp-mode-bar">
+      <el-button :type="pageMode === 'list' ? 'primary' : 'default'" plain @click="switchList">管理房间资料</el-button>
+      <el-button v-permission="'add'" :type="pageMode === 'form' && formMode === 'create' ? 'primary' : 'default'" plain @click="openCreate">房间资料添加</el-button>
+    </div>
 
-      <div class="operator-toolbar">
-        <el-button v-permission="'add'" type="primary" class="toolbar-btn btn-action" @click="openAddDialog">
-          <el-icon class="btn-icon"><Plus /></el-icon>
-          添加房间
-        </el-button>
-        <div class="audit-switch">
-          <span class="switch-label">显示未审核</span>
-          <el-switch v-model="showUnAudited" />
-        </div>
-        <el-button class="toolbar-btn btn-view" :loading="loading" @click="loadData">
-          <el-icon class="btn-icon"><Refresh /></el-icon>
-          刷新
-        </el-button>
-      </div>
-
-      <div class="search-row">
-        <el-input
-          v-model="keyword"
-          placeholder="模糊搜索：房号、楼栋、名称、房型"
-          clearable
-          style="max-width: 380px"
-          @keyup.enter="onSearch"
-        />
+    <el-card v-show="pageMode === 'list'" shadow="never">
+      <template #header><span class="page-title">房间管理</span></template>
+      <div class="search-row erp-filter-row">
+        <el-input v-model="keyword" class="room-keyword" clearable placeholder="类型 / 房间名称 / 编码 / 楼号 / 备注" @keyup.enter="onSearch" />
         <el-button type="primary" @click="onSearch">查询</el-button>
         <el-button @click="onReset">重置</el-button>
+        <div class="erp-filter-divider" aria-hidden="true" />
+        <div class="erp-filter-switch"><span>显示未审核</span><el-switch v-model="showUnAudited" :disabled="showRecycle" /></div>
+        <div class="erp-filter-divider" aria-hidden="true" />
+        <div class="erp-filter-switch"><span>回收站</span><el-switch v-model="showRecycle" /></div>
+        <el-button v-if="showUnAudited" v-permission="'audit'" type="success" plain :disabled="!selectedRows.length" @click="batchAudit">批量审核</el-button>
       </div>
-
       <el-alert v-if="errorMessage" :title="errorMessage" type="error" show-icon class="error-alert" />
-      <el-alert
-        v-if="showUnAudited"
-        title="当前显示：未审核（pass=0）的房间资料"
-        type="warning"
-        show-icon
-        class="audit-view-alert"
-      />
-
-      <div class="pagination-row pagination-row--top">
-        <el-pagination
-          background
-          layout="total, sizes, prev, pager, next, jumper"
-          :total="total"
-          :current-page="page"
-          :page-size="pageSize"
-          :page-sizes="ERP_PAGE_SIZE_OPTIONS"
-          @size-change="onPageSizeChange"
-          @current-change="onPageChange"
-        />
-      </div>
-
+      <div class="pagination-row"><el-pagination background layout="total, sizes, prev, pager, next, jumper" :total="total" :current-page="page" :page-size="pageSize" :page-sizes="ERP_PAGE_SIZE_OPTIONS" @size-change="onPageSizeChange" @current-change="onPageChange" /></div>
       <el-skeleton :loading="loading" animated :rows="8">
         <template #default>
-          <el-table
-            :data="tableList"
-            row-key="id"
-            border
-            stripe
-            style="width: 100%"
-            :empty-text="loading ? '加载中…' : '暂无数据'"
-           @row-contextmenu="onErpListRowContextMenu">
-            <el-table-column prop="in_lou" label="楼栋" min-width="100" show-overflow-tooltip />
-            <el-table-column prop="s_code" label="房号" min-width="90" show-overflow-tooltip />
-            <el-table-column prop="code" label="房型" min-width="100" show-overflow-tooltip />
-            <el-table-column prop="name" label="名称" min-width="100" show-overflow-tooltip />
-            <el-table-column label="房间状态" min-width="100" show-overflow-tooltip>
-              <template #default="{ row }">{{ row?.s_code1 ?? '—' }}</template>
+          <el-table v-erp-list-h-scroll :data="tableList" row-key="systemcode" border stripe class="erp-list-table" :empty-text="loading ? '加载中…' : '暂无数据'" @selection-change="selectedRows = $event" @row-contextmenu="onErpListRowContextMenu">
+            <el-table-column v-if="showUnAudited && !showRecycle" type="selection" width="48" fixed="left" />
+            <el-table-column label="操作" :width="actionsColWidth" fixed="left" class-name="erp-col-actions">
+              <template #default="{ row }"><ErpTableActions>
+                <el-button type="info" plain @click="openView(row)">查看</el-button>
+                <el-button v-if="showRecycle" v-permission="'edit'" type="primary" plain @click="restore(row)">恢复</el-button>
+                <template v-else>
+                  <el-button v-if="showUnAudited" v-permission="'edit'" type="primary" plain @click="openEdit(row)">编辑</el-button>
+                  <el-button v-if="showUnAudited" v-permission="'delete'" type="danger" plain @click="remove(row)">删除</el-button>
+                  <el-button v-if="showUnAudited" v-permission="'audit'" type="success" plain @click="audit(row)">审核</el-button>
+                  <el-button v-if="!showUnAudited && rowIsAudited(row)" v-permission="'unaudit'" type="warning" plain @click="unaudit(row)">反审</el-button>
+                </template>
+              </ErpTableActions></template>
             </el-table-column>
-            <el-table-column prop="in_bad" label="床位数" width="88" />
-            <el-table-column label="在住人数" width="100">
-              <template #default="{ row }">
-                <el-tag type="info" effect="plain">{{ Number(row?.live_in_count ?? 0) }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="审核" width="88">
-              <template #default="{ row }">
-                <el-tag v-if="rowIsAudited(row)" type="success" effect="light">已审</el-tag>
-                <el-tag v-else type="info" effect="light">未审</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" :width="roomActionsColWidth" fixed="right" class-name="erp-col-actions">
-              <template #default="{ row }">
-                <ErpTableActions>
-                  <el-button v-permission="'view'" type="info" plain @click="openViewDetail(row)">查看</el-button>
-                  <el-button
-                    v-if="showUnAudited && !rowIsAudited(row)"
-                    v-permission="'audit'"
-                    type="success"
-                    plain
-                    @click="doAudit(row)"
-                  >
-                    审核
-                  </el-button>
-                  <el-button
-                    v-if="!showUnAudited && rowIsAudited(row)"
-                    v-permission="'unaudit'"
-                    type="warning"
-                    plain
-                    @click="doUnaudit(row)"
-                  >
-                    反审
-                  </el-button>
-                </ErpTableActions>
-              </template>
-            </el-table-column>
+            <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag :type="rowIsAudited(row) ? 'success' : 'info'">{{ rowIsAudited(row) ? '已审核' : '未审核' }}</el-tag></template></el-table-column>
+            <el-table-column prop="code" label="类型" min-width="130" show-overflow-tooltip />
+            <el-table-column prop="name" label="房间名称" min-width="140" show-overflow-tooltip />
+            <el-table-column prop="s_code" label="编码" min-width="120" show-overflow-tooltip />
+            <el-table-column prop="in_lou" label="楼号" min-width="120" show-overflow-tooltip />
+            <el-table-column prop="in_sum" label="床位数" width="100" />
+            <el-table-column prop="info" label="备注" min-width="200" show-overflow-tooltip />
+            <el-table-column label="操作时间" min-width="165" show-overflow-tooltip><template #default="{ row }">{{ row.edittime || row.addtime || '—' }}</template></el-table-column>
           </el-table>
-
-          <div class="pagination-row pagination-row--bottom">
-            <el-pagination
-              background
-              layout="total, sizes, prev, pager, next, jumper"
-              :total="total"
-              :current-page="page"
-              :page-size="pageSize"
-              :page-sizes="ERP_PAGE_SIZE_OPTIONS"
-              @size-change="onPageSizeChange"
-              @current-change="onPageChange"
-            />
-          </div>
+          <div class="pagination-row pagination-row--bottom"><el-pagination background layout="total, sizes, prev, pager, next, jumper" :total="total" :current-page="page" :page-size="pageSize" :page-sizes="ERP_PAGE_SIZE_OPTIONS" @size-change="onPageSizeChange" @current-change="onPageChange" /></div>
         </template>
       </el-skeleton>
     </el-card>
 
-    <el-dialog v-model="addDialogVisible" title="添加房间" width="480px" destroy-on-close @closed="resetAddForm">
-      <el-form ref="addFormRef" :model="addForm" :rules="addRules" label-width="110px">
-        <el-form-item label="房间号" prop="s_code">
-          <el-input v-model="addForm.s_code" maxlength="50" clearable placeholder="对应 UB_ERP_Hr_room.s_code" />
-        </el-form-item>
-        <el-form-item label="宿舍状态" prop="s_code1">
-          <el-select v-model="addForm.s_code1" placeholder="请选择" style="width: 100%">
-            <el-option v-for="o in stateOptions" :key="o" :label="o" :value="o" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="宿舍类型" prop="code">
-          <el-select v-model="addForm.code" placeholder="请选择" style="width: 100%">
-            <el-option v-for="o in typeOptions" :key="o" :label="o" :value="o" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="床位数量" prop="in_bad">
-          <el-input-number v-model="addForm.in_bad" :min="1" :max="99" :step="1" controls-position="right" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="备注" prop="info">
-          <el-input v-model="addForm.info" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="可选" />
-        </el-form-item>
+    <section v-show="pageMode === 'form'" class="room-form-section">
+      <div class="form-head"><strong>{{ formTitle }}</strong><div><el-button v-if="formMode === 'view'" @click="switchList">返回列表</el-button><template v-else><el-button @click="resetForm">重置</el-button><el-button type="primary" :loading="submitting" @click="submitForm">保存</el-button></template></div></div>
+      <el-form ref="formRef" :model="form" :rules="formRules" :disabled="formMode === 'view'" label-position="left" label-width="100px" class="room-form">
+        <div class="form-row"><el-form-item label="类型" prop="code"><el-input v-model="form.code" maxlength="50" /></el-form-item><el-form-item label="房间名称" prop="name"><el-input v-model="form.name" maxlength="50" /></el-form-item></div>
+        <div class="form-row"><el-form-item label="编码" prop="s_code"><el-input v-model="form.s_code" maxlength="50" :disabled="formMode === 'edit' && form.s_code_locked" /><span v-if="formMode === 'edit' && form.s_code_locked" class="field-note">已有入住或费用记录，不能修改</span></el-form-item><el-form-item label="楼号" prop="in_lou"><el-input v-model="form.in_lou" maxlength="50" /></el-form-item></div>
+        <div class="form-row"><el-form-item label="床位数" prop="in_sum"><el-input-number v-model="form.in_sum" :min="1" :max="999" controls-position="right" /></el-form-item><el-form-item label="损坏床位" prop="in_bad"><el-input-number v-model="form.in_bad" :min="0" :max="999" controls-position="right" /></el-form-item></div>
+        <div class="form-row"><el-form-item label="水费信息"><el-input v-model="form.water" maxlength="50" /></el-form-item><el-form-item label="电费信息"><el-input v-model="form.electric" maxlength="50" /></el-form-item></div>
+        <div class="form-row"><el-form-item label="电表编号"><el-input v-model="form.electric_code" maxlength="50" /></el-form-item></div>
+        <el-form-item label="备注" class="remark"><el-input v-model="form.info" type="textarea" :rows="3" maxlength="500" show-word-limit /></el-form-item>
+        <el-form-item v-if="formMode === 'view'" label="入住人员" class="remark"><el-input :model-value="form.in_user || '—'" type="textarea" :rows="2" readonly /></el-form-item>
       </el-form>
-      <template #footer>
-        <el-button @click="addDialogVisible = false">取消</el-button>
-        <el-button v-permission="'add'" type="primary" :loading="addSubmitting" @click="submitAddRoom">确定</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="viewDialogVisible" title="房间详情" width="520px" destroy-on-close @closed="onViewDialogClosed">
-      <el-skeleton :loading="viewLoading" animated :rows="6">
-        <template #default>
-          <el-descriptions v-if="viewDetail" :column="1" border size="small">
-            <el-descriptions-item label="房间号">{{ viewDetail.s_code ?? '—' }}</el-descriptions-item>
-            <el-descriptions-item label="宿舍状态">{{ viewDetail.s_code1 ?? '—' }}</el-descriptions-item>
-            <el-descriptions-item label="宿舍类型">{{ viewDetail.code ?? '—' }}</el-descriptions-item>
-            <el-descriptions-item label="床位数量">{{ viewDetail.in_bad != null ? viewDetail.in_bad : '—' }}</el-descriptions-item>
-            <el-descriptions-item label="备注">{{ remarkDisplay(viewDetail) }}</el-descriptions-item>
-            <el-descriptions-item label="名称">{{ viewDetail.name ?? '—' }}</el-descriptions-item>
-            <el-descriptions-item label="楼栋">{{ viewDetail.in_lou ?? '—' }}</el-descriptions-item>
-            <el-descriptions-item label="在住人数">{{ Number(viewDetail.live_in_count ?? 0) }}</el-descriptions-item>
-            <el-descriptions-item label="内部编码">{{ viewDetail.systemcode ?? '—' }}</el-descriptions-item>
-            <el-descriptions-item label="审核状态">
-              <el-tag v-if="String(viewDetail.pass ?? '').trim() === '1'" type="success" size="small">已审核</el-tag>
-              <el-tag v-else type="info" size="small">未审核</el-tag>
-            </el-descriptions-item>
-            <el-descriptions-item label="创建信息">
-              {{ formatCreatorLine(viewDetail) }}
-            </el-descriptions-item>
-            <el-descriptions-item label="审核信息">
-              {{ formatAuditorLine(viewDetail) }}
-            </el-descriptions-item>
-          </el-descriptions>
-        </template>
-      </el-skeleton>
-      <template #footer>
-        <el-button type="primary" @click="viewDialogVisible = false">关闭</el-button>
-      </template>
-    </el-dialog>
+    </section>
   </div>
 </template>
 
 <script setup>
-import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
-import { useErpDeepLinkOpen } from '@/composables/useErpDeepLinkOpen'
-import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
-import { ref, watch, computed } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh } from '@element-plus/icons-vue'
-import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
+import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
-const { onErpListRowContextMenu } = useErpListRowContextMenu()
+import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
+import { useErpListRowContextMenu } from '@/composables/useErpListRowContextMenu'
 
 const menuPath = 'hr/dormitory/room-management'
 const model = getPermissionModelFromStorage()
-
-const pageTitle = '房间管理'
-
-const loading = ref(false)
-const errorMessage = ref('')
-const tableList = ref([])
-const total = ref(0)
-const page = ref(1)
-const pageSize = ref(20)
-const keyword = ref('')
-const showUnAudited = ref(false)
-
-const roomActionsColWidth = computed(() => getErpTableActionsColWidthByRows(tableList.value, getRoomRowActionLabels))
-
-/** 房间管理主列表操作列按钮：与模板 v-if / v-permission 保持一致，用于估算列宽 */
-function getRoomRowActionLabels(row) {
-  const labels = []
-  if (hasPageAction(model, menuPath, 'view')) labels.push('查看')
-  if (showUnAudited.value && !rowIsAudited(row) && hasPageAction(model, menuPath, 'audit')) labels.push('审核')
-  if (!showUnAudited.value && rowIsAudited(row) && hasPageAction(model, menuPath, 'unaudit')) labels.push('反审')
-  return labels
-}
-
-/** 宿舍状态下拉 */
-const stateOptions = ['使用', '闲置']
-/** 宿舍类型下拉（写入 UB_ERP_Hr_room.code） */
-const typeOptions = ['普通房', '空调房', '大房']
-
-const addDialogVisible = ref(false)
-const addFormRef = ref()
-const addSubmitting = ref(false)
-const addForm = ref({
-  s_code: '',
-  s_code1: '使用',
-  code: '普通房',
-  in_bad: 6,
-  info: '',
-})
-
-const viewDialogVisible = ref(false)
-const viewLoading = ref(false)
-const viewDetail = ref(null)
-
-function onViewDialogClosed() {
-  viewDetail.value = null
-}
-
-function remarkDisplay(d) {
-  const s = d?.info != null ? String(d.info).trim() : ''
-  return s || '—'
-}
-
-function formatCreatorLine(d) {
-  if (!d) return '—'
-  const u = [d.uname, d.utruename].filter(Boolean).join(' / ')
-  const t = d.addtime ? String(d.addtime) : ''
-  if (!u && !t) return '—'
-  return [u || '—', t ? `时间 ${t}` : ''].filter(Boolean).join('，')
-}
-
-function formatAuditorLine(d) {
-  if (!d) return '—'
-  if (String(d.pass ?? '').trim() !== '1') return '—'
-  const u = [d.passuname, d.passutruename].filter(Boolean).join(' / ')
-  return u || '—'
-}
-
-async function openViewDetail(row) {
-  const id = Number(row?.id)
-  if (!Number.isFinite(id) || id <= 0) {
-    ElMessage.error('无法识别房间主键')
-    return
-  }
-  viewDetail.value = null
-  viewDialogVisible.value = true
-  viewLoading.value = true
-  try {
-    const res = await axios.get(`/api/hr/dormitory/rooms/${id}`)
-    const body = res.data
-    if (body?.code !== 200) {
-      ElMessage.error(String(body?.msg ?? '加载详情失败'))
-      viewDialogVisible.value = false
-      return
-    }
-    viewDetail.value = body.data ?? null
-  } catch (e) {
-    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '请求失败'))
-    viewDialogVisible.value = false
-  } finally {
-    viewLoading.value = false
-  }
-}
-useErpDeepLinkOpen({
-  handlers: {
-    view: async (recordId) => {
-      const id = Number(recordId)
-      if (!Number.isFinite(id) || id <= 0) return
-      await openViewDetail({ id })
-    },
-  },
-})
-
-
-/** 已审核列表中：反审（需 audit 权限） */
-async function doUnaudit(row) {
-  if (!rowIsAudited(row)) return
-  const id = Number(row?.id)
-  if (!Number.isFinite(id) || id <= 0) {
-    ElMessage.error('无法识别房间主键，请刷新后重试')
-    return
-  }
-  const roomNo = String(row?.s_code ?? '').trim() || String(id)
-  try {
-    await ElMessageBox.confirm(
-      `确定反审房号「${roomNo}」吗？反审后将变为未审核，仅在「显示未审核」中可见。`,
-      '确认反审',
-      { type: 'warning' },
-    )
-  } catch {
-    return
-  }
-  try {
-    const res = await axios.put('/api/hr/dormitory/rooms/unaudit', { id })
-    const body = res.data
-    if (body?.code !== 200) {
-      ElMessage.error(String(body?.msg ?? '反审失败'))
-      return
-    }
-    ElMessage.success('反审成功')
-    await loadData()
-  } catch (e) {
-    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '请求失败'))
-  }
-}
-
-const addRules = {
-  s_code: [{ required: true, message: '请输入房间号', trigger: 'blur' }],
-  s_code1: [{ required: true, message: '请选择宿舍状态', trigger: 'change' }],
-  code: [{ required: true, message: '请选择宿舍类型', trigger: 'change' }],
-  in_bad: [{ required: true, message: '请填写床位数量', trigger: 'change' }],
-}
-
-function openAddDialog() {
-  resetAddForm()
-  addDialogVisible.value = true
-}
-
-function resetAddForm() {
-  addForm.value = {
-    s_code: '',
-    s_code1: '使用',
-    code: '普通房',
-    in_bad: 6,
-    info: '',
-  }
-  addFormRef.value?.clearValidate?.()
-}
-
-/** 未审核视图下：单条审核（需菜单 audit 权限） */
-async function doAudit(row) {
-  if (rowIsAudited(row)) return
-  const id = Number(row?.id)
-  if (!Number.isFinite(id) || id <= 0) {
-    ElMessage.error('无法识别房间主键，请刷新后重试')
-    return
-  }
-  const roomNo = String(row?.s_code ?? '').trim() || String(id)
-  try {
-    await ElMessageBox.confirm(`确定审核房号「${roomNo}」吗？审核后将出现在默认（已审核）列表中。`, '确认审核', {
-      type: 'warning',
-    })
-  } catch {
-    return
-  }
-  try {
-    const res = await axios.put('/api/hr/dormitory/rooms/audit', { id })
-    const body = res.data
-    if (body?.code !== 200) {
-      ElMessage.error(String(body?.msg ?? '审核失败'))
-      return
-    }
-    ElMessage.success('审核成功')
-    await loadData()
-  } catch (e) {
-    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '请求失败'))
-  }
-}
-
-async function submitAddRoom() {
-  try {
-    await addFormRef.value?.validate()
-  } catch {
-    return
-  }
-  addSubmitting.value = true
-  try {
-    const res = await axios.post('/api/hr/dormitory/rooms', {
-      s_code: String(addForm.value.s_code ?? '').trim(),
-      s_code1: addForm.value.s_code1,
-      code: addForm.value.code,
-      in_bad: addForm.value.in_bad,
-      info: String(addForm.value.info ?? '').trim(),
-    })
-    const body = res.data
-    if (body?.code !== 200) {
-      ElMessage.error(String(body?.msg ?? '添加失败'))
-      return
-    }
-    ElMessage.success('添加成功（默认未审核，可打开「显示未审核」查看）')
-    addDialogVisible.value = false
-    showUnAudited.value = true
-    page.value = 1
-    await loadData()
-  } catch (e) {
-    ElMessage.error(String(e?.response?.data?.msg ?? e?.message ?? '请求失败'))
-  } finally {
-    addSubmitting.value = false
-  }
-}
-
-function rowIsAudited(row) {
-  return String(row?.pass ?? '').trim() === '1'
-}
-
-async function loadData() {
-  loading.value = true
-  errorMessage.value = ''
-  try {
-    const pass = showUnAudited.value ? '0' : '1'
-    const q = String(keyword.value ?? '').trim()
-    const res = await axios.get('/api/hr/dormitory/rooms', {
-      params: {
-        page: page.value,
-        pageSize: pageSize.value,
-        pass,
-        ...(q ? { keyword: q } : {}),
-      },
-    })
-    const body = res.data
-    if (body?.code !== 200) {
-      errorMessage.value = String(body?.msg ?? '加载失败')
-      tableList.value = []
-      total.value = 0
-      return
-    }
-    const pack = body.data ?? {}
-    tableList.value = Array.isArray(pack.list) ? pack.list : []
-    total.value = Number(pack.total ?? 0)
-  } catch (e) {
-    const msg = e?.response?.data?.msg
-    errorMessage.value = String(msg ?? e?.message ?? '请求失败')
-    tableList.value = []
-    total.value = 0
-  } finally {
-    loading.value = false
-  }
-}
-
-function onSearch() {
-  page.value = 1
-  loadData()
-}
-
-function onReset() {
-  keyword.value = ''
-  page.value = 1
-  loadData()
-}
-
-function onPageSizeChange(size) {
-  pageSize.value = size
-  page.value = 1
-  loadData()
-}
-
-function onPageChange(p) {
-  page.value = p
-  loadData()
-}
-
-watch(showUnAudited, () => {
-  page.value = 1
-  loadData()
-})
-
-loadData()
+const { onErpListRowContextMenu } = useErpListRowContextMenu()
+const pageMode = ref('list'), formMode = ref('create'), tableList = ref([]), selectedRows = ref([])
+const total = ref(0), loading = ref(false), submitting = ref(false), errorMessage = ref('')
+const keyword = ref(''), showUnAudited = ref(false), showRecycle = ref(false), page = ref(1), pageSize = ref(20), formRef = ref()
+const emptyForm = () => ({ systemcode: '', code: '', name: '', s_code: '', s_code_locked: false, in_lou: '', in_sum: 1, in_bad: 0, water: '', electric: '', electric_code: '', info: '', in_user: '' })
+const form = ref(emptyForm())
+const formRules = { code: [{ required: true, message: '请输入类型', trigger: 'blur' }], name: [{ required: true, message: '请输入房间名称', trigger: 'blur' }], s_code: [{ required: true, message: '请输入编码', trigger: 'blur' }], in_lou: [{ required: true, message: '请输入楼号', trigger: 'blur' }], in_sum: [{ required: true, message: '请输入床位数', trigger: 'change' }] }
+const formTitle = computed(() => ({ create: '房间资料添加', edit: '房间资料编辑', view: '房间资料查看' }[formMode.value]))
+const rowIsAudited = (row) => String(row?.pass ?? '').trim() === '1'
+const actionsColWidth = computed(() => getErpTableActionsColWidthByRows(tableList.value, (row) => { const labels = ['查看']; if (showRecycle.value) { if (hasPageAction(model, menuPath, 'edit')) labels.push('恢复') } else if (showUnAudited.value) { if (hasPageAction(model, menuPath, 'edit')) labels.push('编辑'); if (hasPageAction(model, menuPath, 'delete')) labels.push('删除'); if (hasPageAction(model, menuPath, 'audit')) labels.push('审核') } else if (rowIsAudited(row) && hasPageAction(model, menuPath, 'unaudit')) labels.push('反审'); return labels }))
+async function loadList() { loading.value = true; errorMessage.value = ''; selectedRows.value = []; try { const { data } = await axios.get('/api/hr/dormitory/rooms', { params: { page: page.value, pageSize: pageSize.value, keyword: keyword.value.trim(), pass: showUnAudited.value ? '0' : '1', recycle: showRecycle.value ? '1' : '0' } }); if (data?.code !== 200) throw new Error(data?.msg || '加载失败'); tableList.value = data.data?.list || []; total.value = Number(data.data?.total || 0) } catch (e) { tableList.value = []; total.value = 0; errorMessage.value = String(e?.response?.data?.msg || e?.message || '请求失败') } finally { loading.value = false } }
+function onSearch() { page.value = 1; loadList() } function onReset() { keyword.value = ''; onSearch() } function onPageSizeChange(v) { pageSize.value = v; page.value = 1; loadList() } function onPageChange(v) { page.value = v; loadList() }
+function switchList() { pageMode.value = 'list'; loadList() } function openCreate() { formMode.value = 'create'; form.value = emptyForm(); pageMode.value = 'form' } async function openEdit(row) { if (rowIsAudited(row)) return; try { const { data } = await axios.get(`/api/hr/dormitory/rooms/${encodeURIComponent(row.systemcode)}`); if (data?.code !== 200) throw new Error(data?.msg); formMode.value = 'edit'; form.value = { ...emptyForm(), ...data.data }; pageMode.value = 'form' } catch (e) { ElMessage.error(String(e?.response?.data?.msg || e?.message || '读取详情失败')) } } async function openView(row) { try { const { data } = await axios.get(`/api/hr/dormitory/rooms/${encodeURIComponent(row.systemcode)}`); if (data?.code !== 200) throw new Error(data?.msg); formMode.value = 'view'; form.value = { ...emptyForm(), ...data.data }; pageMode.value = 'form' } catch (e) { ElMessage.error(String(e?.response?.data?.msg || e?.message || '读取详情失败')) } }
+function resetForm() { if (formMode.value === 'create') form.value = emptyForm() }
+async function submitForm() { try { await formRef.value?.validate() } catch { return }; if (Number(form.value.in_bad) >= Number(form.value.in_sum)) return ElMessage.error('损坏床位必须小于房间容量'); submitting.value = true; try { const payload = { ...form.value, code: String(form.value.code || '').trim(), name: String(form.value.name || '').trim(), s_code: String(form.value.s_code || '').trim(), in_lou: String(form.value.in_lou || '').trim() }; const { data } = formMode.value === 'edit' ? await axios.put('/api/hr/dormitory/rooms', payload) : await axios.post('/api/hr/dormitory/rooms', payload); if (data?.code !== 200) throw new Error(data?.msg || '保存失败'); ElMessage.success('保存成功'); switchList() } catch (e) { ElMessage.error(String(e?.response?.data?.msg || e?.message || '保存失败')) } finally { submitting.value = false } }
+async function confirmAction(message, callback) { try { await ElMessageBox.confirm(message, '确认操作', { type: 'warning' }) } catch { return }; try { await callback(); await loadList() } catch (e) { ElMessage.error(String(e?.response?.data?.msg || e?.message || '操作失败')) } }
+function remove(row) { confirmAction(`确定删除房间“${row.name}”吗？`, async () => { const { data } = await axios.delete(`/api/hr/dormitory/rooms/${encodeURIComponent(row.systemcode)}`); if (data?.code !== 200) throw new Error(data?.msg) }) } function restore(row) { confirmAction(`确定恢复房间“${row.name}”吗？`, async () => { const { data } = await axios.put('/api/hr/dormitory/rooms/restore', { systemcode: row.systemcode }); if (data?.code !== 200) throw new Error(data?.msg) }) } function audit(row) { confirmAction(`确定审核房间“${row.name}”吗？`, async () => { const { data } = await axios.put('/api/hr/dormitory/rooms/audit', { systemcode: row.systemcode }); if (data?.code !== 200) throw new Error(data?.msg) }) } function unaudit(row) { confirmAction(`确定反审房间“${row.name}”吗？`, async () => { const { data } = await axios.put('/api/hr/dormitory/rooms/unaudit', { systemcode: row.systemcode }); if (data?.code !== 200) throw new Error(data?.msg) }) } function batchAudit() { const systemcodes = selectedRows.value.map((row) => row.systemcode).filter(Boolean); confirmAction(`确定审核已选的 ${systemcodes.length} 个房间吗？`, async () => { const { data } = await axios.put('/api/hr/dormitory/rooms/audit-batch', { systemcodes }); if (data?.code !== 200) throw new Error(data?.msg) }) }
+watch(showUnAudited, () => { if (showUnAudited.value) showRecycle.value = false; onSearch() }); watch(showRecycle, () => { if (showRecycle.value) showUnAudited.value = false; onSearch() }); onMounted(loadList)
 </script>
 
 <style scoped>
-.erp-module-page {
-  min-height: 200px;
-}
-.page-title {
-  font-size: 18px;
-  font-weight: 600;
-}
-.page-desc {
-  margin: 0 0 12px;
-  color: var(--el-text-color-secondary);
-}
-.page-desc code {
-  font-size: 0.9em;
-}
-.operator-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.toolbar-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.btn-icon {
-  font-size: 16px;
-}
-.audit-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.switch-label {
-  font-size: 14px;
-  color: var(--el-text-color-regular);
-}
-.search-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.error-alert,
-.audit-view-alert {
-  margin-bottom: 12px;
-}
+.erp-module-page { min-height: 200px; }.erp-mode-bar, .search-row, .form-row, .form-head { display: flex; align-items: center; gap: 10px; }.erp-mode-bar { margin-bottom: 12px; }.page-title { font-size: 18px; font-weight: 600; }.search-row { margin: 8px 0 12px; }.room-keyword { width: 340px; }.erp-filter-divider { width: 1px; height: 24px; background: var(--el-border-color); margin: 0 4px; }.erp-filter-switch { display: inline-flex; gap: 8px; align-items: center; white-space: nowrap; }.error-alert { margin: 12px 0; }.pagination-row { display: flex; margin: 12px 0; }.pagination-row--bottom { justify-content: flex-end; }.room-form-section { padding: 18px 22px; border: 1px solid var(--el-border-color-lighter); background: var(--el-bg-color); }.form-head { justify-content: space-between; padding-bottom: 16px; margin-bottom: 18px; border-bottom: 1px solid var(--el-border-color-lighter); }.room-form { max-width: 700px; }.form-row .el-form-item { width: 250px; }.remark { width: 500px; }.field-note { display: block; font-size: 12px; line-height: 18px; color: var(--el-color-warning); }@media (max-width:720px) { .search-row { flex-wrap: wrap; }.form-row { display: block; }.room-keyword, .form-row .el-form-item, .remark { width: 100%; } }
 </style>

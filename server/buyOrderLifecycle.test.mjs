@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { applyBuyOrderLifecycleAction, buildBuyOrderSoftDeleteSql } from './buyOrderLifecycle.js'
+import { applyBuyOrderLifecycleAction, buildBuyOrderSoftDeleteSql, getBuyOrderLifecycleActionLogName } from './buyOrderLifecycle.js'
 
 function createMockPool(currentRow, opts = {}) {
   const calls = []
@@ -53,9 +53,18 @@ describe('applyBuyOrderLifecycleAction', () => {
 
   test('audits an unaudited order only when it has detail lines', async () => {
     const pool = createMockPool({ id: 1, buyOrderNo: 'ZY-2501', referenceNo: 'PI-1', systemCode: 'SYS-1', pass: '0', closed: '0', del: '0' })
-    const result = await applyBuyOrderLifecycleAction({ pool, id: 1, action: 'audit', actor: { utruename: '张三' } })
+    const result = await applyBuyOrderLifecycleAction({ pool, id: 1, action: 'audit', actor: { utruename: '张三', ip: '192.168.1.19' } })
     assert.equal(result.ok, true)
     assert.ok(pool.calls.some((call) => /UPDATE\s+dbo\.\[UB_ERP_Buy_order\]/i.test(call.sqlText) && /\[pass\]=N'1'/i.test(call.sqlText)))
+    const logCall = pool.calls.find((call) => /INSERT\s+INTO\s+dbo\.\[UB_Date_ERP_Operation_log\]/i.test(call.sqlText))
+    assert.equal(logCall.inputs.ip, '192.168.1.19')
+    assert.equal(logCall.inputs.act_name, '审核采购单')
+  })
+
+  test('uses complete purchase-order action names for lifecycle logs', () => {
+    assert.equal(getBuyOrderLifecycleActionLogName('audit'), '审核采购单')
+    assert.equal(getBuyOrderLifecycleActionLogName('unaudit'), '反审采购单')
+    assert.equal(getBuyOrderLifecycleActionLogName('hard-delete'), '彻底删除采购单')
   })
 
   test('rejects audit when the order has no detail lines', async () => {

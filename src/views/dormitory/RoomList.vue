@@ -1,43 +1,37 @@
 <template>
   <div class="room-list-root">
-    <div class="toolbar-row">
-      <el-button type="primary" @click="openCheckInDialog()">办理入住</el-button>
-      <el-button type="primary" :loading="overviewLoading" @click="loadOverview">立即查询</el-button>
-      <el-button @click="resetOverviewQuery">重置</el-button>
-      <el-button type="primary" plain @click="queryOverviewAll">查询全部</el-button>
-    </div>
-
     <el-dialog v-model="checkInVisible" title="办理入住" width="620px" destroy-on-close>
-      <p class="panel-hint">办理后写入 <code>UB_ERP_Hr_room_in</code>；<strong>pass 自动为已审核（'1'）</strong>。</p>
-      <div class="audit-switch">
-        <span class="switch-label">匹配未审核的房间资料</span>
-        <el-switch v-model="useUnauditedRoom" />
-      </div>
+      <p class="panel-hint">办理后写入 <code>UB_ERP_Hr_room_in</code>，房间容量会立即重新汇总。</p>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
-        <el-form-item label="入住人员" prop="staff_code">
+        <el-form-item label="入住人员" prop="staff_systemcode">
           <el-select
-            v-model="form.staff_code"
+            v-model="form.staff_systemcode"
             filterable
             remote
             clearable
             :remote-method="remoteSearchStaff"
+            @change="onStaffSelected"
             :loading="staffLoading"
             placeholder="输入工号或姓名搜索（仅在职/非黑名单）"
             style="width: 360px"
           >
             <el-option
               v-for="opt in staffOptions"
-              :key="opt.code"
+              :key="opt.systemcode"
               :label="`${opt.code}${opt.name ? ' - ' + opt.name : ''}`"
-              :value="opt.code"
+              :value="opt.systemcode"
             />
           </el-select>
+        </el-form-item>
+        <el-form-item label="部门">
+          <el-input v-model="form.staff_department" disabled style="width: 360px" />
         </el-form-item>
         <el-form-item label="房间编码" prop="room_code">
           <el-input v-model="form.room_code" clearable maxlength="50" style="width: 220px" />
         </el-form-item>
-        <el-form-item label="入住日期" prop="in_time">
+        <el-form-item label="入住时间" prop="in_time">
           <el-date-picker v-model="form.in_time" type="date" value-format="YYYY-MM-DD" style="width: 220px" />
+          <el-time-select v-model="form.in_hm" start="00:00" step="00:30" end="23:30" style="width: 130px; margin-left: 12px" />
         </el-form-item>
         <el-form-item label="优惠电量" prop="electric">
           <el-input-number v-model="form.electric" :min="0" :max="999999" :step="1" controls-position="right" />
@@ -89,35 +83,13 @@
       :data="overviewList"
       border
       stripe
-      class="lodging-table"
+      v-erp-list-h-scroll
+      class="lodging-table erp-list-table"
       empty-text="暂无数据"
       style="width: 100%"
-      data-testid="room-list-table"
+     data-testid="room-list-table"
      @row-contextmenu="onErpListRowContextMenu">
-      <el-table-column prop="in_lou" label="楼号" min-width="90" align="center" show-overflow-tooltip />
-      <el-table-column prop="s_code" label="编码" min-width="80" align="center" show-overflow-tooltip />
-      <el-table-column prop="name" label="名称" min-width="90" align="center" show-overflow-tooltip />
-      <el-table-column prop="code" label="类型" min-width="90" align="center" show-overflow-tooltip />
-      <el-table-column label="状态" min-width="90" align="center" show-overflow-tooltip>
-        <template #default="{ row }">{{ row?.s_code1 ?? '—' }}</template>
-      </el-table-column>
-      <el-table-column label="入住人数" width="100" align="center">
-        <template #default="{ row }">
-          <span class="occ-count">{{ Number(row?.live_in_count ?? 0) }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="剩余床位" width="100" align="center">
-        <template #default="{ row }">{{ Number(row?.remaining_beds ?? 0) }}</template>
-      </el-table-column>
-      <el-table-column label="入住人员" min-width="160" align="center" show-overflow-tooltip>
-        <template #default="{ row }">{{ row?.occupant_names || '—' }}</template>
-      </el-table-column>
-      <el-table-column label="电费(汇总)" min-width="110" align="center" show-overflow-tooltip>
-        <template #default="{ row }">
-          {{ formatMoney(row?.c_sum_money) }}
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" :width="roomListActionsColWidth" align="center" fixed="right" class-name="erp-col-actions">
+      <el-table-column label="操作" :width="roomListActionsColWidth" align="center" fixed="left" class-name="erp-col-actions">
         <template #default="{ row }">
           <ErpTableActions>
             <el-button v-permission="'add'" type="success" plain @click="openCheckInForRoom(row)">增加入住</el-button>
@@ -126,6 +98,29 @@
             <el-button v-permission="'audit'" type="danger" plain @click="onDeleteElectric(row)">删除电费</el-button>
           </ErpTableActions>
         </template>
+      </el-table-column>
+      <el-table-column prop="s_code" label="编码" min-width="80" align="center" show-overflow-tooltip />
+      <el-table-column label="入住人员" min-width="220" align="center" show-overflow-tooltip>
+        <template #default="{ row }">{{ row?.occupant_names || '—' }}</template>
+      </el-table-column>
+      <el-table-column label="入住人数" width="90" align="center">
+        <template #default="{ row }">
+          <span class="occ-count">{{ Number(row?.live_in_count ?? 0) }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="剩余床位" width="90" align="center">
+        <template #default="{ row }">{{ Number(row?.remaining_beds ?? 0) }}</template>
+      </el-table-column>
+      <el-table-column :label="electricColumnLabel" min-width="100" align="center" show-overflow-tooltip>
+        <template #default="{ row }">
+          {{ formatMoney(row?.c_sum_money) }}
+        </template>
+      </el-table-column>
+      <el-table-column prop="in_lou" label="楼号" min-width="90" align="center" show-overflow-tooltip />
+      <el-table-column prop="name" label="名称" min-width="90" align="center" show-overflow-tooltip />
+      <el-table-column prop="code" label="类型" min-width="90" align="center" show-overflow-tooltip />
+      <el-table-column label="状态" min-width="90" align="center" show-overflow-tooltip>
+        <template #default="{ row }">{{ row?.s_code1 ?? '—' }}</template>
       </el-table-column>
     </el-table>
 
@@ -239,24 +234,24 @@ const ovKeyword = ref('')
 const ovStaffKw = ref('')
 const ovPage = ref(1)
 const ovPageSize = ref(20)
+const electricColumnLabel = computed(() => `${Number(ovYear.value)}年${Number(ovMonth.value)}月,电费`)
 const overviewList = ref([])
 const overviewTotal = ref(0)
 const overviewLoading = ref(false)
 const overviewError = ref('')
 
-const useUnauditedRoom = ref(false)
 const formRef = ref()
 const submitting = ref(false)
-const form = ref({ staff_code: '', room_code: '', in_time: '', electric: 0, room_info: '' })
+const form = ref({ staff_systemcode: '', staff_department: '', room_code: '', room_systemcode: '', in_time: '', in_hm: '00:00', electric: 15, room_info: '' })
 const staffOptions = ref([])
 const staffLoading = ref(false)
 const rules = {
-  staff_code: [{ required: true, message: '请选择入住人员', trigger: 'change' }],
+  staff_systemcode: [{ required: true, message: '请选择入住人员', trigger: 'change' }],
   room_code: [{ required: true, message: '请输入房间编码', trigger: 'blur' }],
   in_time: [{ required: true, message: '请选择入住日期', trigger: 'change' }],
 }
 
-const passParam = computed(() => (useUnauditedRoom.value ? '0' : '1'))
+const passParam = computed(() => '1')
 
 const occupantsVisible = ref(false)
 const occupantsRoomCode = ref('')
@@ -303,27 +298,15 @@ function todayYmd() {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
-function openCheckInDialog() {
-  checkInVisible.value = true
-  if (!form.value.in_time) form.value.in_time = todayYmd()
-  formRef.value?.clearValidate?.()
+function onStaffSelected(systemcode) {
+  const selected = staffOptions.value.find((item) => String(item?.systemcode ?? '').trim() === String(systemcode ?? '').trim())
+  form.value.staff_department = String(selected?.department ?? '').trim()
 }
 
-function resetOverviewQuery() {
-  const d = new Date()
-  ovYear.value = d.getFullYear()
-  ovMonth.value = d.getMonth() + 1
-  ovKeyword.value = ''
-  ovStaffKw.value = ''
-  ovPage.value = 1
-  loadOverview()
-}
-
-function queryOverviewAll() {
-  ovKeyword.value = ''
-  ovStaffKw.value = ''
-  ovPage.value = 1
-  loadOverview()
+function buildCheckInTime() {
+  const date = String(form.value.in_time ?? '').trim()
+  const hm = String(form.value.in_hm ?? '').trim() || '00:00'
+  return date ? `${date} ${hm}` : ''
 }
 
 function onOvPageSizeChange() {
@@ -374,9 +357,12 @@ function loadOverviewByTjDate() {
 function openCheckInForRoom(row) {
   checkInVisible.value = true
   form.value.room_code = String(row?.s_code ?? '').trim()
-  form.value.staff_code = ''
+  form.value.staff_systemcode = ''
+  form.value.staff_department = ''
+  form.value.room_systemcode = String(row?.systemcode ?? '').trim()
   form.value.in_time = todayYmd()
-  form.value.electric = 0
+  form.value.in_hm = '00:00'
+  form.value.electric = 15
   form.value.room_info = ''
   formRef.value?.clearValidate?.()
 }
@@ -536,10 +522,11 @@ async function onSubmitCheckIn() {
   submitting.value = true
   try {
     const res = await axios.post('/api/hr/dormitory/check-in', {
-      staff_code: String(form.value.staff_code ?? '').trim(),
+      staff_systemcode: String(form.value.staff_systemcode ?? '').trim(),
       room_code: String(form.value.room_code ?? '').trim(),
+      room_systemcode: String(form.value.room_systemcode ?? '').trim(),
       pass: passParam.value,
-      in_time: String(form.value.in_time ?? '').trim(),
+      in_time: buildCheckInTime(),
       electric: Number(form.value.electric ?? 0),
       room_info: String(form.value.room_info ?? '').trim(),
     })
@@ -550,7 +537,7 @@ async function onSubmitCheckIn() {
     }
     ElMessage.success('办理入住成功')
     checkInVisible.value = false
-    form.value = { staff_code: '', room_code: '', in_time: todayYmd(), electric: 0, room_info: '' }
+    form.value = { staff_systemcode: '', staff_department: '', room_code: '', room_systemcode: '', in_time: todayYmd(), in_hm: '00:00', electric: 15, room_info: '' }
     formRef.value?.clearValidate?.()
     await loadOverview()
     emit('dorm-data-changed')

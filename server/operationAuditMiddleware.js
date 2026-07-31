@@ -1943,7 +1943,11 @@ export function createOperationAuditMiddleware(deps) {
         } else if (method === 'DELETE' && /^\/api\/hr\/staff\/.+/.test(path) && req.__auditDeleteStaff) {
           const { name, code } = req.__auditDeleteStaff
           const op = operatorDisplayName(user)
-          content = `${op}删除了员工档案：姓名[${displayCell(name)}]，工号[${displayCell(code)}]`
+          content = `${op}办理了员工离职：姓名[${displayCell(name)}]，工号[${displayCell(code)}]`
+        } else if (method === 'PUT' && path === '/api/hr/staff/restore') {
+          const code = displayCell(req.body?.code)
+          const op = operatorDisplayName(user)
+          content = `${op}恢复了员工在职：工号[${code}]`
         } else if (method === 'PUT' && path === '/api/hr/staff' && req.__auditPutStaffDiff) {
           const op = operatorDisplayName(user)
           content = `${op}修改了员工档案：${String(req.__auditPutStaffDiff).trim()}`

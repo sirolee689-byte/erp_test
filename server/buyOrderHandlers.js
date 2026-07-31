@@ -1,5 +1,6 @@
 import { clampErpPageSize, ERP_MAX_PAGE_SIZE } from './erpPagination.js'
 import { sql } from './db.js'
+import { getRequestIp } from './requestIp.js'
 import { resolveActorAuditTripletFromReq } from './businessAuditFields.js'
 import { applyBuyOrderLifecycleAction } from './buyOrderLifecycle.js'
 import { enrichBuyOrderBatchAddPrices, fetchBuyOrderBatchAddLines } from './buyOrderBatchAdd.js'
@@ -452,7 +453,8 @@ export function registerBuyOrderRoutes(app, deps) {
       const id = Number(req.params?.id)
       if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ code: 400, msg: '采购单参数无效', data: null })
       const pool = await getPool()
-      const result = await applyBuyOrderLifecycleAction({ pool, id, action, actor: await actor(pool, req), reason: req.body?.reason })
+      const lifecycleActor = { ...(await actor(pool, req)), ip: getRequestIp(req) }
+      const result = await applyBuyOrderLifecycleAction({ pool, id, action, actor: lifecycleActor, reason: req.body?.reason })
       if (!result.ok) return res.status(result.status ?? 400).json({ code: result.status ?? 400, msg: result.msg, data: null })
       res.json({ code: 200, msg: result.msg, data: result })
     } catch (err) {
