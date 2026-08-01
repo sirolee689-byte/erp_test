@@ -65,6 +65,11 @@
                   修改密码
                 </el-dropdown-item>
 
+                <el-dropdown-item command="dining">
+                  <el-icon class="menu-icon" :size="16"><KnifeFork /></el-icon>
+                  报餐系统
+                </el-dropdown-item>
+
                 <!-- 退出登录（带 SwitchButton 图标） -->
                 <el-dropdown-item divided command="logout">
                   <el-icon class="menu-icon" :size="16"><SwitchButton /></el-icon>
@@ -163,7 +168,7 @@ import { ERP_CONTEXT_MENU_KEY } from '@/composables/erpContextMenuKey'
 import { resolveRouteAliveComponent } from './resolveRouteAliveComponent.js'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, Edit, Expand, Fold, SwitchButton, UserFilled } from '@element-plus/icons-vue'
+import { ArrowDown, Edit, Expand, Fold, KnifeFork, SwitchButton, UserFilled } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -363,7 +368,7 @@ async function onLogoutClick() {
 
 /**
  * 用户下拉菜单点击事件
- * @param {'changePassword' | 'logout'} command
+ * @param {'changePassword' | 'dining' | 'logout'} command
  */
 async function onUserCommand(command) {
   if (command === 'logout') {
@@ -372,6 +377,11 @@ async function onUserCommand(command) {
   }
   if (command === 'changePassword') {
     openChangePasswordDialog()
+    return
+  }
+  if (command === 'dining') {
+    const url = router.resolve('/dining').href
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 }
 

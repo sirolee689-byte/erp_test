@@ -81,6 +81,8 @@ import { registerBomRoutes } from './bom/registerBomRoutes.js'
 import { registerPiTraceRoutes } from './piTraceHandlers.js'
 import { registerCustomsDeclarationRoutes } from './customsDeclarationHandlers.js'
 import { registerWarehouseRoutes } from './warehouseHandlers.js'
+import { registerDiningAuthRoutes } from './diningAuthHandlers.js'
+import { registerDiningMealRoutes } from './diningMealHandlers.js'
 import {
   BOM_COST_TABLE,
   INV_BOM_CODE_FROM,
@@ -12638,6 +12640,8 @@ registerPiBomDataRoutes(app, { getPool })
 registerPiTraceRoutes(app, { getPool })
 registerCustomsDeclarationRoutes(app, { getPool })
 registerWarehouseRoutes(app, { getPool })
+const diningAuthService = registerDiningAuthRoutes(app)
+registerDiningMealRoutes(app, { authService: diningAuthService })
 registerBomRoutes(app, {
   escapeSqlLikePattern,
   formatBomColorcodeTimestamp,

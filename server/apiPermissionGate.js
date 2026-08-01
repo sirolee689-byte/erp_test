@@ -1524,7 +1524,7 @@ export function matchApiPermissionRule(method, path, body, params) {
 export function createApiPermissionGate(deps) {
   return async function apiPermissionGate(req, res, next) {
     const p = req.path || ''
-    if (p === '/api/login' || p === '/api/health') {
+    if (p === '/api/login' || p === '/api/health' || isDiningAuthRequest(req.method, p)) {
       return next()
     }
     if (req.method === 'GET' && p === '/api/stock-in/material-qr-info') {
@@ -1591,4 +1591,17 @@ export function createApiPermissionGate(deps) {
 
     next()
   }
+}
+
+/** 报餐身份由独立 token 校验，只精确放行已登记的身份与报餐接口。 */
+export function isDiningAuthRequest(method, path) {
+  const m = String(method || '').toUpperCase()
+  const p = String(path || '')
+  return (
+    (m === 'POST' && p === '/api/dining/login') ||
+    (m === 'GET' && p === '/api/dining/session') ||
+    (m === 'POST' && p === '/api/dining/logout') ||
+    (m === 'GET' && p === '/api/dining/meals') ||
+    (m === 'PUT' && p === '/api/dining/meals')
+  )
 }

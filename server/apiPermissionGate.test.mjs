@@ -6,9 +6,23 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import {
   isRecyclePermanentDeleteRequest,
+  isDiningAuthRequest,
   isSuperAdminIdentityChangeRequest,
   matchApiPermissionRule,
 } from './apiPermissionGate.js'
+
+describe('报餐系统独立身份接口', () => {
+  test('只放行已登记的独立报餐接口，不扩大到整个 dining 前缀', () => {
+    assert.equal(isDiningAuthRequest('POST', '/api/dining/login'), true)
+    assert.equal(isDiningAuthRequest('GET', '/api/dining/session'), true)
+    assert.equal(isDiningAuthRequest('POST', '/api/dining/logout'), true)
+    assert.equal(isDiningAuthRequest('GET', '/api/dining/meals'), true)
+    assert.equal(isDiningAuthRequest('PUT', '/api/dining/meals'), true)
+    assert.equal(isDiningAuthRequest('GET', '/api/dining/login'), false)
+    assert.equal(isDiningAuthRequest('GET', '/api/dining/orders'), false)
+    assert.equal(isDiningAuthRequest('POST', '/api/dining/meals'), false)
+  })
+})
 
 function ruleKey(rule) {
   if (!rule) return null

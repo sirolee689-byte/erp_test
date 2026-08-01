@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import menuStructure from '../../erp_structure_dump.json'
 import ErpLayout from '@/layout/index.vue'
+import { getDiningToken } from '@/utils/diningAuthStorage'
 import {
   getPermissionModelFromStorage,
   isRouteAllowed,
@@ -257,6 +258,25 @@ const legacyStockInMaterialQrInfoRoute = {
   meta: { title: '入库物料信息', public: true },
 }
 
+const diningLoginRoute = {
+  path: '/dining/login',
+  name: 'dining-login',
+  component: () => import('@/views/dining/login/index.vue'),
+  meta: { title: '员工报餐系统登录', diningPublic: true },
+}
+
+const diningAppRoute = {
+  path: '/dining',
+  component: () => import('@/views/dining/layout/index.vue'),
+  redirect: '/dining/meal',
+  meta: { diningAuth: true },
+  children: [
+    { path: 'meal', name: 'dining-meal', component: () => import('@/views/dining/meal/index.vue'), meta: { title: '报餐管理' } },
+    { path: 'profile', name: 'dining-profile', component: () => import('@/views/dining/profile/index.vue'), meta: { title: '个人中心' } },
+    { path: 'change-password', name: 'dining-change-password', component: () => import('@/views/dining/change-password/index.vue'), meta: { title: '修改密码' } },
+  ],
+}
+
 const childRoutes = [
   ...walkRoutes(menuStructure),
   paperPatternImportPreviewRoute,
@@ -287,6 +307,8 @@ const router = createRouter({
       component: viewModules['../views/login/index.vue'],
       meta: { title: '登录' },
     },
+    diningLoginRoute,
+    diningAppRoute,
     bomDataWindowRoute,
     piBomDataWindowRoute,
     salesOrderWindowRoute,
@@ -327,6 +349,15 @@ const router = createRouter({
  * 路由守卫：未登录拦截 + 无权限 URL 拦截
  */
 router.beforeEach((to) => {
+  if (to.meta?.diningPublic) {
+    return true
+  }
+
+  if (to.matched.some((record) => record.meta?.diningAuth)) {
+    if (!getDiningToken()) return { path: '/dining/login', query: { redirect: to.fullPath } }
+    return true
+  }
+
   if (to.meta?.public) {
     return true
   }

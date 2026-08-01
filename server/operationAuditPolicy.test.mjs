@@ -61,6 +61,9 @@ describe('operation audit policy catalog', () => {
 
   test('read-only POST and dry-run writes are ignored', () => {
     assertPolicy('ignore', [
+      ['POST', '/api/dining/login'],
+      ['POST', '/api/dining/logout'],
+      ['PUT', '/api/dining/meals'],
       ['POST', '/api/stock-in/surplus-batch-prices'],
       ['POST', '/api/stock-out/other-batch-prices'],
       ['POST', '/api/buy-order/batch-add-prices'],

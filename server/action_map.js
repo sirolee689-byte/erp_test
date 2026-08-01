@@ -894,6 +894,10 @@ const BUSINESS_LOGGED_RULES = [
 /** 使用 POST 承载查询、校验、预览或临时上传，不属于业务数据变更。 */
 const IGNORED_WRITE_RULES = [
   { method: 'POST', path: '/api/login' },
+  { method: 'POST', path: '/api/dining/login' },
+  { method: 'POST', path: '/api/dining/logout' },
+  // 员工自助报餐写入旧饭堂业务表，不使用 ERP 管理员身份写中央操作日志。
+  { method: 'PUT', path: '/api/dining/meals' },
   { method: 'POST', path: '/api/stock-in/surplus-batch-prices' },
   { method: 'POST', path: '/api/stock-out/other-batch-prices' },
   { method: 'POST', path: '/api/buy-order/batch-add-prices' },

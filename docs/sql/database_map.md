@@ -179,6 +179,10 @@
 |----------|--------|-----------------|
 | 员工档案列表/详情 | `UB_ERP_Hr_staff`（可用 `.env` `HR_STAFF_TABLE` 覆盖） | `GET /api/hr/staff`、`GET /api/hr/staff/:code`；列表按 `pass`、`del` 筛选；**不依赖** `status`/`leave_date`/`remark` 列（`remark` 按列探测，缺列回空）。`del='0'` 在职，`del='1'` 离职；`pass` 审核位。前端表单**无备注录入**。 |
 | 办理离职 / 恢复在职 | 同上 | `DELETE /api/hr/staff/:code` → `del='1'`（已审也可，不封账号）；`PUT /api/hr/staff/restore` → `del='0'`。旧 `PUT .../leave/:id`（status 离职）前端已停用。 |
+| 员工报餐系统登录 | `ERP_UB.dbo.UB_ERP_Hr_staff` | 方案 A 只让报餐模块跨库访问旧正式库；`POST /api/dining/login` 按 `new_code` 精确读取，要求 `del=0/pass=1`，兼容校验旧表 `password`。会话内部保留 `id/code/new_code/name/in_bm/meal_type/card_number/new_card_number` 快照供正式报餐，接口只返回 `id/new_code/name/in_bm/meal_type`，不返回密码或卡号。 |
+| 报餐截止配置 | `ERP_UB.dbo.UB_ERP_Dining` | `GET/PUT /api/dining/meals` 只读取 `code=UB_ERP_Dining、del=0、pass=1、enable=1` 的 `bc`；当前正式值为 `13:30:00`。本期不提供配置维护、不写该表。 |
+| 统一餐兼容菜单 | `ERP_UB.dbo.UB_ERP_Dining_dishes` + `ERP_UB.dbo.UB_ERP_Dining_dishes_list` | 新系统首次提交某日某餐时复用当天 `del=0/pass=1/enable=1` 主档；没有主档则自动 INSERT。明细按 `dtime + lx(2午餐/3晚餐) + info=新报餐系统统一餐兼容项` 识别，写 `pass=0/del=0/enable=1` 和“午餐（统一餐）/晚餐（统一餐）”。不修改、删除旧菜式。 |
+| 员工正式报餐 | `ERP_UB.dbo.UB_ERP_Dining_meal` | `GET /api/dining/meals` 按会话员工 `uid`、`dis_dtime`、`dis_lx` 读取 `del=0/pass=1`，把旧系统的一餐多行合并为一个状态。`PUT /api/dining/meals` 新提交每餐只 INSERT 一条，快照字段沿用旧映射：`uid←staff.id`、`uname/utruename←staff.name`、`user_code←staff.code`、卡号/部门/饭餐类型取员工档案，`dis_lx=2/3`、`dis_dtime=日期`、`meal_from=微信或电脑端报餐`；取消按员工+日期+餐次把全部有效行 UPDATE 为 `del=1`。不物理删除。 |
 
 ## 人力资源 · 部门资料
 
