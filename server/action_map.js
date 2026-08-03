@@ -23,6 +23,23 @@ export const DEFAULT_UNKNOWN_TARGET_TABLE = 'ERP'
  * @type {OperationAuditRouteRule[]}
  */
 export const OPERATION_AUDIT_ROUTE_RULES = [
+  { method: 'PUT', path: /^\/api\/canteen\/records\/supplements\/reviews\/\d+\/audit$/, action: '审核打卡消费补录', targetTable: 'UB_ERP_Dining_meal_log' },
+  { method: 'PUT', path: /^\/api\/canteen\/records\/supplements\/reviews\/\d+\/unaudit$/, action: '反审核打卡消费补录', targetTable: 'UB_ERP_Dining_meal_log' },
+  { method: 'POST', path: '/api/canteen/records/supplements', action: '新增打卡消费补录', targetTable: 'UB_ERP_Dining_meal_log' },
+  { method: 'POST', path: '/api/canteen/records/supplements/one-click', action: '一键漏卡补录', targetTable: 'UB_ERP_Dining_meal_log' },
+  { method: 'DELETE', path: /^\/api\/canteen\/records\/people\/[^/]+\/\d{4}-\d{2}-\d{2}\/[23]$/, action: '取消员工报餐', targetTable: 'UB_ERP_Dining_meal' },
+  { method: 'PUT', path: '/api/canteen/management/config', action: '保存饭堂时间配置', targetTable: 'UB_ERP_Dining' },
+  { method: 'POST', path: '/api/canteen/management/machines', action: '新增饭堂授权IP', targetTable: 'UB_ERP_Dining_machine' },
+  { method: 'PUT', path: /^\/api\/canteen\/management\/machines\/\d+$/, action: '修改饭堂授权IP', targetTable: 'UB_ERP_Dining_machine' },
+  { method: 'DELETE', path: /^\/api\/canteen\/management\/machines\/\d+$/, action: '删除饭堂授权IP', targetTable: 'UB_ERP_Dining_machine' },
+  { method: 'POST', path: '/api/canteen/management/report-months', action: '生成饭堂报餐月份', targetTable: 'UB_ERP_Dining_report_month' },
+  { method: 'DELETE', path: /^\/api\/canteen\/management\/report-months\/\d{6}$/, action: '删除饭堂报餐月份', targetTable: 'UB_ERP_Dining_report_month,UB_ERP_Dining_report_block' },
+  { method: 'POST', path: '/api/canteen/management/blocks', action: '新增饭堂报餐特殊日期', targetTable: 'UB_ERP_Dining_report_block' },
+  { method: 'PUT', path: /^\/api\/canteen\/management\/blocks\/\d+$/, action: '修改饭堂报餐特殊日期', targetTable: 'UB_ERP_Dining_report_block' },
+  { method: 'DELETE', path: /^\/api\/canteen\/management\/blocks\/\d+$/, action: '删除饭堂报餐特殊日期', targetTable: 'UB_ERP_Dining_report_block' },
+  { method: 'POST', path: '/api/canteen/management/exceptions', action: '新增饭堂开放规则', targetTable: 'UB_ERP_Dining_report_exception' },
+  { method: 'PUT', path: /^\/api\/canteen\/management\/exceptions\/\d+$/, action: '修改饭堂开放规则', targetTable: 'UB_ERP_Dining_report_exception' },
+  { method: 'DELETE', path: /^\/api\/canteen\/management\/exceptions\/\d+$/, action: '删除饭堂开放规则', targetTable: 'UB_ERP_Dining_report_exception' },
   { method: 'GET', path: '/api/system/kernel/mail-config', action: '查询系统EMAIL配置', targetTable: 'UB_ERP_System_mail' },
   { method: 'PUT', path: '/api/system/kernel/mail-config', action: '保存系统EMAIL配置', targetTable: 'UB_ERP_System_mail' },
   { method: 'GET', path: '/api/system/kernel/print-config', action: '查询打印设定', targetTable: 'UB_ERP_System_Head' },
@@ -898,6 +915,10 @@ const IGNORED_WRITE_RULES = [
   { method: 'POST', path: '/api/dining/logout' },
   // 员工自助报餐写入旧饭堂业务表，不使用 ERP 管理员身份写中央操作日志。
   { method: 'PUT', path: '/api/dining/meals' },
+  // 员工自行改报餐密码，只更新本人旧员工档案，不写 ERP 管理员操作日志。
+  { method: 'PUT', path: '/api/dining/password' },
+  // 饭堂终端刷卡本身会落 UB_ERP_Dining_meal_log，不重复写 ERP 管理员操作日志。
+  { method: 'POST', path: '/api/dining-terminal/swipe' },
   { method: 'POST', path: '/api/stock-in/surplus-batch-prices' },
   { method: 'POST', path: '/api/stock-out/other-batch-prices' },
   { method: 'POST', path: '/api/buy-order/batch-add-prices' },

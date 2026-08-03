@@ -41,6 +41,11 @@ describe('operation audit policy catalog', () => {
       ['POST', '/api/customs-declaration/generate'],
       ['PUT', '/api/stock-out/cutting-issue-config'],
       ['POST', '/api/system/kernel/print-image'],
+      ['DELETE', '/api/canteen/records/people/7/2026-08-04/2'],
+      ['POST', '/api/canteen/records/supplements'],
+      ['POST', '/api/canteen/records/supplements/one-click'],
+      ['PUT', '/api/canteen/records/supplements/reviews/916383/audit'],
+      ['PUT', '/api/canteen/records/supplements/reviews/916383/unaudit'],
     ])
   })
 
@@ -64,6 +69,8 @@ describe('operation audit policy catalog', () => {
       ['POST', '/api/dining/login'],
       ['POST', '/api/dining/logout'],
       ['PUT', '/api/dining/meals'],
+      ['PUT', '/api/dining/password'],
+      ['POST', '/api/dining-terminal/swipe'],
       ['POST', '/api/stock-in/surplus-batch-prices'],
       ['POST', '/api/stock-out/other-batch-prices'],
       ['POST', '/api/buy-order/batch-add-prices'],

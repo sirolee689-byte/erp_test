@@ -277,6 +277,20 @@ const diningAppRoute = {
   ],
 }
 
+const diningTerminalRoute = {
+  path: '/dining-terminal',
+  name: 'dining-terminal',
+  component: () => import('@/views/dining-terminal/index.vue'),
+  meta: { title: '饭堂刷卡终端', public: true },
+}
+
+const diningSupplementStaffWindowRoute = {
+  path: '/canteen/records/supplement-staff-window',
+  name: 'canteen-records-supplement-staff-window',
+  component: () => import('@/views/canteen/records/supplement-staff-window.vue'),
+  meta: { title: '打卡消费补录批量添加', permissionPath: '/canteen/records' },
+}
+
 const childRoutes = [
   ...walkRoutes(menuStructure),
   paperPatternImportPreviewRoute,
@@ -309,6 +323,8 @@ const router = createRouter({
     },
     diningLoginRoute,
     diningAppRoute,
+    diningTerminalRoute,
+    diningSupplementStaffWindowRoute,
     bomDataWindowRoute,
     piBomDataWindowRoute,
     salesOrderWindowRoute,

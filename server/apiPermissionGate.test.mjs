@@ -10,6 +10,7 @@ import {
   isSuperAdminIdentityChangeRequest,
   matchApiPermissionRule,
 } from './apiPermissionGate.js'
+import { isDiningManagementSuperAdminDeleteRequest } from './diningManagementHandlers.js'
 
 describe('报餐系统独立身份接口', () => {
   test('只放行已登记的独立报餐接口，不扩大到整个 dining 前缀', () => {
@@ -18,9 +19,97 @@ describe('报餐系统独立身份接口', () => {
     assert.equal(isDiningAuthRequest('POST', '/api/dining/logout'), true)
     assert.equal(isDiningAuthRequest('GET', '/api/dining/meals'), true)
     assert.equal(isDiningAuthRequest('PUT', '/api/dining/meals'), true)
+    assert.equal(isDiningAuthRequest('GET', '/api/dining/profile/meals'), true)
+    assert.equal(isDiningAuthRequest('PUT', '/api/dining/password'), true)
+    assert.equal(isDiningAuthRequest('GET', '/api/dining-terminal/context'), true)
+    assert.equal(isDiningAuthRequest('POST', '/api/dining-terminal/swipe'), true)
+    assert.equal(isDiningAuthRequest('GET', '/api/dining-terminal/recent'), true)
     assert.equal(isDiningAuthRequest('GET', '/api/dining/login'), false)
     assert.equal(isDiningAuthRequest('GET', '/api/dining/orders'), false)
     assert.equal(isDiningAuthRequest('POST', '/api/dining/meals'), false)
+    assert.equal(isDiningAuthRequest('POST', '/api/dining/profile/meals'), false)
+    assert.equal(isDiningAuthRequest('POST', '/api/dining-terminal/recent'), false)
+    assert.equal(isDiningAuthRequest('GET', '/api/dining-terminal/admin'), false)
+  })
+})
+
+describe('饭堂报餐管理接口权限', () => {
+  test('每天订餐情况表只允许统计报表菜单的查看权限读取', () => {
+    assert.deepEqual(
+      matchApiPermissionRule('GET', '/api/canteen/reports/daily-orders', {}, {}),
+      { menuPath: 'canteen/reports', action: 'view' },
+    )
+  })
+
+  test('月报餐统计表只允许统计报表菜单的查看权限读取', () => {
+    assert.deepEqual(
+      matchApiPermissionRule('GET', '/api/canteen/reports/monthly-orders', {}, {}),
+      { menuPath: 'canteen/reports', action: 'view' },
+    )
+  })
+
+  test('消费汇总只允许统计报表菜单的查看权限读取', () => {
+    assert.deepEqual(
+      matchApiPermissionRule('GET', '/api/canteen/reports/consumption-summary', {}, {}),
+      { menuPath: 'canteen/reports', action: 'view' },
+    )
+  })
+
+  test('报餐汇总只允许饭堂报餐管理菜单的查看权限读取', () => {
+    assert.deepEqual(
+      matchApiPermissionRule('GET', '/api/canteen/records', {}, {}),
+      { menuPath: 'canteen/records', action: 'view' },
+    )
+  })
+
+  test('报餐人查询使用查看权限，取消使用删除权限', () => {
+    assert.deepEqual(
+      matchApiPermissionRule('GET', '/api/canteen/records/people', {}, {}),
+      { menuPath: 'canteen/records', action: 'view' },
+    )
+    assert.deepEqual(
+      matchApiPermissionRule('GET', '/api/canteen/records/consumptions', {}, {}),
+      { menuPath: 'canteen/records', action: 'view' },
+    )
+    assert.deepEqual(
+      matchApiPermissionRule('DELETE', '/api/canteen/records/people/7/2026-08-04/2', {}, {}),
+      { menuPath: 'canteen/records', action: 'delete' },
+    )
+  })
+
+  test('打卡消费补录初始化、人员选择和保存都要求新增权限', () => {
+    for (const [method, path] of [
+      ['GET', '/api/canteen/records/supplements/init'],
+      ['GET', '/api/canteen/records/supplements/staff'],
+      ['GET', '/api/canteen/records/supplements/one-click-preview'],
+      ['POST', '/api/canteen/records/supplements'],
+      ['POST', '/api/canteen/records/supplements/one-click'],
+    ]) {
+      assert.deepEqual(
+        matchApiPermissionRule(method, path, {}, {}),
+        { menuPath: 'canteen/records', action: 'add' },
+      )
+    }
+  })
+
+  test('补录审核查询、审核和反审分别使用查看、审核和反审权限', () => {
+    for (const path of [
+      '/api/canteen/records/supplements/reviews',
+      '/api/canteen/records/supplements/reviews/916383/details',
+    ]) {
+      assert.deepEqual(
+        matchApiPermissionRule('GET', path, {}, {}),
+        { menuPath: 'canteen/records', action: 'view' },
+      )
+    }
+    assert.deepEqual(
+      matchApiPermissionRule('PUT', '/api/canteen/records/supplements/reviews/916383/audit', {}, {}),
+      { menuPath: 'canteen/records', action: 'audit' },
+    )
+    assert.deepEqual(
+      matchApiPermissionRule('PUT', '/api/canteen/records/supplements/reviews/916383/unaudit', {}, {}),
+      { menuPath: 'canteen/records', action: 'unaudit' },
+    )
   })
 })
 
@@ -42,6 +131,12 @@ describe('超级管理员物理删除门禁', () => {
     ]) {
       assert.equal(isRecyclePermanentDeleteRequest(method, path), true)
     }
+  })
+
+  test('报餐月份和特殊日期删除同样必须进入超级管理员门禁', () => {
+    assert.equal(isDiningManagementSuperAdminDeleteRequest('DELETE', '/api/canteen/management/report-months/202608'), true)
+    assert.equal(isDiningManagementSuperAdminDeleteRequest('DELETE', '/api/canteen/management/blocks/12'), true)
+    assert.equal(isDiningManagementSuperAdminDeleteRequest('DELETE', '/api/canteen/management/exceptions/12'), false)
   })
 
   test('普通删除接口不会被误判为物理删除', () => {

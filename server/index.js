@@ -83,6 +83,11 @@ import { registerCustomsDeclarationRoutes } from './customsDeclarationHandlers.j
 import { registerWarehouseRoutes } from './warehouseHandlers.js'
 import { registerDiningAuthRoutes } from './diningAuthHandlers.js'
 import { registerDiningMealRoutes } from './diningMealHandlers.js'
+import { registerDiningProfileRoutes } from './diningProfileHandlers.js'
+import { registerDiningTerminalRoutes } from './diningTerminalHandlers.js'
+import { registerDiningManagementRoutes } from './diningManagementHandlers.js'
+import { registerDiningRecordsRoutes } from './diningRecordsHandlers.js'
+import { registerDiningReportsRoutes } from './diningReportsHandlers.js'
 import {
   BOM_COST_TABLE,
   INV_BOM_CODE_FROM,
@@ -4412,6 +4417,7 @@ async function fetchUniqueAuditedPostByDeptAndName(pool, deptCodeRaw, postNameRa
  * - pass（可选，默认 '1' 已审核；'0' 未审核）
  * - del：'0' 在职（默认）；'1' 离职（本模块用逻辑删除位表示离职，不再用 status 列）
  * - keyword（可选，姓名/工号/卡号模糊）
+ * - in_bm（可选，精确匹配部门名称；空=全部部门。旧数据多半只写了 in_bm，GUID 常空或对不上）
  *
  * 返回：{ list, total }（字段名保持原样小写）
  */
@@ -4427,6 +4433,8 @@ app.get('/api/hr/staff', async (req, res) => {
 
     const keywordRaw = String(req.query?.keyword ?? '').trim()
     const hasKeyword = keywordRaw.length > 0
+    const inBmRaw = String(req.query?.in_bm ?? '').trim()
+    const hasDept = inBmRaw.length > 0
 
     /** del=0 在职；del=1 离职（不再依赖 status / leave_date 列） */
     const delRaw = String(req.query?.del ?? '0').trim()
@@ -4440,6 +4448,10 @@ app.get('/api/hr/staff', async (req, res) => {
       del === '1' ? '' : ' AND LTRIM(RTRIM(ISNULL(s.pass, N\'\'))) = @pass'
 
     const pool = await getPool()
+    // 列表部门筛选：只按员工表 in_bm（部门名称）精确匹配，兼容旧数据 GUID 缺失/错乱
+    const whereDept = hasDept
+      ? " AND LTRIM(RTRIM(ISNULL(s.in_bm, N''))) = @inBm"
+      : ''
 
     let whereSql = ''
     const totalReq = pool.request()
@@ -4448,14 +4460,18 @@ app.get('/api/hr/staff', async (req, res) => {
     listReq.input('pass', sql.NVarChar(10), pass)
     totalReq.input('del', sql.NVarChar(10), del)
     listReq.input('del', sql.NVarChar(10), del)
+    if (whereDept) {
+      totalReq.input('inBm', sql.NVarChar(100), inBmRaw)
+      listReq.input('inBm', sql.NVarChar(100), inBmRaw)
+    }
 
     if (hasKeyword) {
-      whereSql = `WHERE (s.name LIKE @keywordLike OR s.code LIKE @keywordLike OR s.card_number LIKE @keywordLike)${wherePass}${whereDel}`
+      whereSql = `WHERE (s.name LIKE @keywordLike OR s.code LIKE @keywordLike OR s.card_number LIKE @keywordLike)${wherePass}${whereDel}${whereDept}`
       const keywordLike = `%${escapeSqlLikePattern(keywordRaw)}%`
       totalReq.input('keywordLike', sql.NVarChar(200), keywordLike)
       listReq.input('keywordLike', sql.NVarChar(200), keywordLike)
     } else {
-      whereSql = `WHERE 1 = 1${wherePass}${whereDel}`
+      whereSql = `WHERE 1 = 1${wherePass}${whereDel}${whereDept}`
     }
 
     const totalResult = await totalReq.query(`
@@ -4515,6 +4531,7 @@ app.get('/api/hr/staff', async (req, res) => {
       fb.input('pass', sql.NVarChar(10), pass)
       fb.input('del', sql.NVarChar(10), del)
       if (hasKeyword) fb.input('keywordLike', sql.NVarChar(200), `%${escapeSqlLikePattern(keywordRaw)}%`)
+      if (whereDept) fb.input('inBm', sql.NVarChar(100), inBmRaw)
 
       listResult = await fb.query(`
         SELECT id, code, new_code, name, new_card_number, in_bm, card_number, position, meal_type, sfz_number, birth, intime, addtime, edittime, pass, del
@@ -4962,7 +4979,7 @@ app.put('/api/hr/staff', async (req, res) => {
 })
 
 /**
- * 办理离职：del='1'（已审核也可办；不封系统账号；不写 status/leave_date）
+ * 办理离职：del='1' 并写 deltime（已审核也可办；不封系统账号；不写 status/leave_date）
  */
 app.delete('/api/hr/staff/:code', async (req, res) => {
   try {
@@ -4984,7 +5001,9 @@ app.delete('/api/hr/staff/:code', async (req, res) => {
     }
 
     await pool.request().input('code', sql.NVarChar(50), code).query(`
-      UPDATE s SET s.del = N'1'
+      UPDATE s
+      SET s.del = N'1',
+          s.deltime = CONVERT(nvarchar(19), GETDATE(), 120)
       FROM ${HR_STAFF_FROM} AS s
       WHERE s.code = @code
     `)
@@ -12642,6 +12661,11 @@ registerCustomsDeclarationRoutes(app, { getPool })
 registerWarehouseRoutes(app, { getPool })
 const diningAuthService = registerDiningAuthRoutes(app)
 registerDiningMealRoutes(app, { authService: diningAuthService })
+registerDiningProfileRoutes(app, { authService: diningAuthService })
+registerDiningTerminalRoutes(app)
+registerDiningManagementRoutes(app)
+registerDiningRecordsRoutes(app)
+registerDiningReportsRoutes(app)
 registerBomRoutes(app, {
   escapeSqlLikePattern,
   formatBomColorcodeTimestamp,

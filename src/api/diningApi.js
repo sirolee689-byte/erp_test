@@ -29,3 +29,11 @@ export function getDiningMeals() {
 export function setDiningMeal(date, mealType, selected) {
   return diningRequest.put('/meals', { date, mealType, selected })
 }
+
+export function getDiningProfileMeals(scope = 'recent', page = 1) {
+  return diningRequest.get('/profile/meals', { params: { scope, page } })
+}
+
+export function changeDiningPassword(oldPassword, newPassword) {
+  return diningRequest.put('/password', { oldPassword, newPassword })
+}

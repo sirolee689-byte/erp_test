@@ -5,6 +5,7 @@
 import { getPool } from './db.js'
 import { parseRolePermissions, roleAllowsAction } from './permissions.js'
 import { fetchSysUserPermissionSource, resolveSysUserIsAdminByUserId } from './sysUsersDb.js'
+import { isDiningManagementSuperAdminDeleteRequest } from './diningManagementHandlers.js'
 
 /**
  * 所有回收站物理删除入口都必须由超级管理员执行。
@@ -55,6 +56,26 @@ export async function assertUserHasAnyAction(pool, userId, candidates) {
  */
 export function matchApiPermissionRule(method, path, body, params) {
   const m = String(method || '').toUpperCase()
+
+  if (m === 'GET' && path === '/api/canteen/reports/daily-orders') return { menuPath: 'canteen/reports', action: 'view' }
+  if (m === 'GET' && path === '/api/canteen/reports/monthly-orders') return { menuPath: 'canteen/reports', action: 'view' }
+  if (m === 'GET' && (path === '/api/canteen/reports/missed-swipes' || path === '/api/canteen/reports/missed-swipes/departments')) return { menuPath: 'canteen/reports', action: 'view' }
+  if (m === 'GET' && path === '/api/canteen/reports/consumption-summary') return { menuPath: 'canteen/reports', action: 'view' }
+  if (m === 'GET' && (path === '/api/canteen/management' || path === '/api/canteen/management/targets')) return { menuPath: 'canteen/management', action: 'view' }
+  if (m === 'GET' && path === '/api/canteen/records') return { menuPath: 'canteen/records', action: 'view' }
+  if (m === 'GET' && path === '/api/canteen/records/people') return { menuPath: 'canteen/records', action: 'view' }
+  if (m === 'GET' && path === '/api/canteen/records/consumptions') return { menuPath: 'canteen/records', action: 'view' }
+  if (m === 'GET' && (path === '/api/canteen/records/supplements/reviews' || /^\/api\/canteen\/records\/supplements\/reviews\/\d+\/details$/.test(path))) return { menuPath: 'canteen/records', action: 'view' }
+  if (m === 'PUT' && /^\/api\/canteen\/records\/supplements\/reviews\/\d+\/audit$/.test(path)) return { menuPath: 'canteen/records', action: 'audit' }
+  if (m === 'PUT' && /^\/api\/canteen\/records\/supplements\/reviews\/\d+\/unaudit$/.test(path)) return { menuPath: 'canteen/records', action: 'unaudit' }
+  if (m === 'GET' && /^\/api\/canteen\/records\/supplements\/(?:init|staff|one-click-preview)$/.test(path)) return { menuPath: 'canteen/records', action: 'add' }
+  if (m === 'POST' && path === '/api/canteen/records/supplements') return { menuPath: 'canteen/records', action: 'add' }
+  if (m === 'POST' && path === '/api/canteen/records/supplements/one-click') return { menuPath: 'canteen/records', action: 'add' }
+  if (m === 'DELETE' && /^\/api\/canteen\/records\/people\/[^/]+\/\d{4}-\d{2}-\d{2}\/[23]$/.test(path)) return { menuPath: 'canteen/records', action: 'delete' }
+  if (m === 'PUT' && path === '/api/canteen/management/config') return { menuPath: 'canteen/management', action: 'edit' }
+  if (m === 'POST' && /^\/api\/canteen\/management\/(machines|blocks|exceptions|report-months)$/.test(path)) return { menuPath: 'canteen/management', action: 'add' }
+  if (m === 'PUT' && /^\/api\/canteen\/management\/(machines|blocks|exceptions)\/\d+$/.test(path)) return { menuPath: 'canteen/management', action: 'edit' }
+  if (m === 'DELETE' && (/^\/api\/canteen\/management\/(machines|blocks|exceptions)\/\d+$/.test(path) || /^\/api\/canteen\/management\/report-months\/\d{6}$/.test(path))) return { menuPath: 'canteen/management', action: 'delete' }
 
   if (m === 'GET' && path === '/api/users') {
     return { menuPath: 'system/operator', action: 'view' }
@@ -1548,12 +1569,14 @@ export function createApiPermissionGate(deps) {
     req.user = user
 
     // 物理删除不允许只依赖角色 delete 权限，必须按当前用户主键实时读取 is_admin。
-    if (isRecyclePermanentDeleteRequest(req.method, p) || isSuperAdminIdentityChangeRequest(req.method, p, req.body)) {
+    if (isRecyclePermanentDeleteRequest(req.method, p) || isSuperAdminIdentityChangeRequest(req.method, p, req.body) || isDiningManagementSuperAdminDeleteRequest(req.method, p)) {
       try {
         const pool = await getPool()
         const isAdmin = await resolveSysUserIsAdminByUserId(pool, user.userId)
         if (!isAdmin) {
-          const msg = isRecyclePermanentDeleteRequest(req.method, p)
+          const msg = isDiningManagementSuperAdminDeleteRequest(req.method, p)
+            ? '只有超级管理员可以删除报餐月份和特殊日期'
+            : isRecyclePermanentDeleteRequest(req.method, p)
             ? '只有超级管理员可以彻底删除回收站记录'
             : '只有超级管理员可以修改超级管理员身份'
           res.status(403).json({ code: 403, msg, data: null })
@@ -1602,6 +1625,11 @@ export function isDiningAuthRequest(method, path) {
     (m === 'GET' && p === '/api/dining/session') ||
     (m === 'POST' && p === '/api/dining/logout') ||
     (m === 'GET' && p === '/api/dining/meals') ||
-    (m === 'PUT' && p === '/api/dining/meals')
+    (m === 'PUT' && p === '/api/dining/meals') ||
+    (m === 'GET' && p === '/api/dining/profile/meals') ||
+    (m === 'PUT' && p === '/api/dining/password') ||
+    (m === 'GET' && p === '/api/dining-terminal/context') ||
+    (m === 'POST' && p === '/api/dining-terminal/swipe') ||
+    (m === 'GET' && p === '/api/dining-terminal/recent')
   )
 }

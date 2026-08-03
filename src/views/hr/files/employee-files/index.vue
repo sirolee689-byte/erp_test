@@ -3,7 +3,7 @@
     <!--
       v1.0.9 人事档案精简管理（UB_ERP_Hr_staff）
       - 只加载有效字段：code/name/sex/in_bm/card_number/meal_type/yn_history/intime/pass 等
-      - 搜索：姓名、工号、卡号共用一个关键词模糊查询
+      - 搜索：部门下拉（左侧，默认全部）+ 姓名/工号/卡号关键词；点「查询」才刷新
       - pass='1'：禁用编辑/删除；审核/反审互斥
       - card_number 不足 10 位：红字提示
     -->
@@ -19,14 +19,21 @@
         <span class="page-title">{{ pageTitle }}</span>
       </template>
 
-      <div class="operator-toolbar">
-        <el-button v-permission="'edit'" class="toolbar-btn btn-action" @click="openBatchUpdate">
-          <el-icon class="btn-icon"><Upload /></el-icon>
-          批量更新
-        </el-button>
-      </div>
-
       <div class="search-row erp-filter-row">
+        <el-select
+          v-model="filterDeptSystemcode"
+          class="staff-filter-dept"
+          clearable
+          filterable
+          placeholder="全部部门"
+        >
+          <el-option
+            v-for="d in deptOptions"
+            :key="String(d.systemcode ?? '')"
+            :label="String(d.name ?? '')"
+            :value="String(d.systemcode ?? '')"
+          />
+        </el-select>
         <el-input
           v-model="keyword"
           class="staff-filter-keyword"
@@ -215,66 +222,6 @@
         </div>
       </el-form>
     </section>
-
-    <!-- v1.1.2：批量更新（Excel：姓名/部门/岗位） -->
-    <el-dialog v-model="batchDialogVisible" title="批量更新（Excel）" width="760px" align-center destroy-on-close>
-      <el-alert
-        title="Excel 仅支持 xlsx/xls；第一行必须是表头：姓名、部门、岗位。会按姓名匹配员工，按部门/岗位名称去部门表找已审核数据；仅更新已审核员工（pass=1），未审核会自动跳过。"
-        type="info"
-        show-icon
-        :closable="false"
-        style="margin-bottom: 10px"
-      />
-      <el-upload
-        :auto-upload="false"
-        :limit="1"
-        accept=".xlsx,.xls"
-        :on-change="onBatchFileChange"
-        :on-remove="onBatchFileRemove"
-        :before-upload="beforeBatchUpload"
-      >
-        <el-button type="primary">选择 Excel 文件</el-button>
-        <template #tip>
-          <div class="el-upload__tip">建议文件不要太大（会走 base64 传输）。</div>
-        </template>
-      </el-upload>
-
-      <el-divider />
-
-      <div style="display: flex; justify-content: flex-end; gap: 8px">
-        <el-button @click="batchDialogVisible = false">关闭</el-button>
-        <el-button type="primary" :loading="batchSubmitting" :disabled="!batchFileBase64" @click="submitBatchUpdate">
-          开始更新
-        </el-button>
-      </div>
-
-      <el-divider v-if="batchResult" />
-
-      <div v-if="batchResult">
-        <el-alert
-          :title="`本次处理：${batchResult.total} 行；成功 ${batchResult.success} 行；失败 ${batchResult.failed} 行；跳过 ${batchResult.skipped} 行`"
-          :type="batchResult.failed > 0 ? 'warning' : 'success'"
-          show-icon
-          :closable="false"
-          style="margin-bottom: 10px"
-        />
-        <el-table :data="batchResult.details" border stripe height="300">
-          <el-table-column prop="rowNo" label="行号" width="70" />
-          <el-table-column prop="name" label="姓名" min-width="90" show-overflow-tooltip />
-          <el-table-column prop="dept" label="部门" min-width="110" show-overflow-tooltip />
-          <el-table-column prop="post" label="岗位" min-width="110" show-overflow-tooltip />
-          <el-table-column prop="code" label="工号" min-width="110" show-overflow-tooltip />
-          <el-table-column prop="status" label="状态" width="90">
-            <template #default="{ row }">
-              <el-tag v-if="row.status === 'success'" type="success" effect="light">成功</el-tag>
-              <el-tag v-else-if="row.status === 'skipped'" type="info" effect="light">跳过</el-tag>
-              <el-tag v-else type="danger" effect="light">失败</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="message" label="说明" min-width="200" show-overflow-tooltip />
-        </el-table>
-      </div>
-    </el-dialog>
   </div>
 </template>
 
@@ -285,7 +232,6 @@ import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
-import { Upload } from '@element-plus/icons-vue'
 import { getErpTableActionsColWidthByRows } from '@/utils/erpTableActionsLayout'
 import { getPermissionModelFromStorage, hasPageAction } from '@/utils/menuPermission'
 const { onErpListRowContextMenu } = useErpListRowContextMenu()
@@ -303,6 +249,8 @@ const errorMessage = ref('')
 
 /** 姓名、工号、卡号共用一个模糊检索词 */
 const keyword = ref('')
+/** 列表部门筛选：空=全部；值为部门 systemcode；点「查询」才生效 */
+const filterDeptSystemcode = ref('')
 
 /** list：管理员工档案；form：员工档案添加、编辑或查看 */
 const pageMode = ref('list')
@@ -340,13 +288,6 @@ const showLeaved = ref(false)
 const dialogMode = ref('create')
 const submitting = ref(false)
 const formRef = ref()
-
-/** v1.1.2：批量更新弹窗 */
-const batchDialogVisible = ref(false)
-const batchSubmitting = ref(false)
-const batchFileBase64 = ref('')
-const batchFileName = ref('')
-const batchResult = ref(null)
 
 /** 部门/岗位下拉（来自 UB_ERP_Hr_department） */
 const deptOptions = ref([])
@@ -500,10 +441,19 @@ function staffAge(birth) {
   return age >= 0 ? String(age) : ''
 }
 
-/** 组装单关键词搜索参数 */
+/** 组装列表查询参数（关键词 + 可选部门名；部门空表示全部） */
 function buildQueryParams() {
+  const params = {}
   const value = String(keyword.value ?? '').trim()
-  return value ? { keyword: value } : {}
+  if (value) params.keyword = value
+  // 列表按部门名称匹配（旧档 in_bm_systemcode 常空或与部门表 GUID 不一致）
+  const deptSys = String(filterDeptSystemcode.value ?? '').trim()
+  if (deptSys) {
+    const hit = deptOptions.value.find((d) => String(d?.systemcode ?? '').trim() === deptSys)
+    const deptName = String(hit?.name ?? '').trim()
+    if (deptName) params.in_bm = deptName
+  }
+  return params
 }
 
 function todayString() {
@@ -596,6 +546,7 @@ watch(showLeaved, () => {
 
 function onReset() {
   keyword.value = ''
+  filterDeptSystemcode.value = ''
   page.value = 1
   loadList()
 }
@@ -912,82 +863,10 @@ async function doUnaudit(row) {
 }
 
 onMounted(() => {
+  void loadDeptOptions()
   void loadPositionOptions()
   loadList()
 })
-
-function openBatchUpdate() {
-  batchDialogVisible.value = true
-  batchSubmitting.value = false
-  batchFileBase64.value = ''
-  batchFileName.value = ''
-  batchResult.value = null
-}
-
-function beforeBatchUpload(file) {
-  const name = String(file?.name ?? '')
-  if (!/\.(xlsx|xls)$/i.test(name)) {
-    ElMessage.error('只能上传 xlsx 或 xls 文件')
-    return false
-  }
-  return true
-}
-
-async function onBatchFileChange(file) {
-  const raw = file?.raw
-  if (!raw) return
-  const name = String(raw.name ?? '')
-  if (!/\.(xlsx|xls)$/i.test(name)) {
-    ElMessage.error('只能上传 xlsx 或 xls 文件')
-    return
-  }
-  batchFileName.value = name
-  batchResult.value = null
-
-  try {
-    const ab = await raw.arrayBuffer()
-    const bytes = new Uint8Array(ab)
-    let binary = ''
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
-    batchFileBase64.value = btoa(binary)
-  } catch (e) {
-    batchFileBase64.value = ''
-    ElMessage.error(String(e?.message ?? '读取文件失败'))
-  }
-}
-
-function onBatchFileRemove() {
-  batchFileBase64.value = ''
-  batchFileName.value = ''
-  batchResult.value = null
-}
-
-async function submitBatchUpdate() {
-  if (!batchFileBase64.value) {
-    ElMessage.warning('请先选择 Excel 文件')
-    return
-  }
-  batchSubmitting.value = true
-  try {
-    const res = await axios.post('/api/hr/staff/batch-update', {
-      fileName: batchFileName.value,
-      fileBase64: batchFileBase64.value,
-    })
-    const body = res.data
-    if (body?.code !== 200) {
-      ElMessage.error(String(body?.msg ?? '批量更新失败'))
-      return
-    }
-    batchResult.value = body?.data ?? null
-    ElMessage.success('批量更新已完成')
-    await loadList()
-  } catch (e) {
-    const msg = e?.response?.data?.msg
-    ElMessage.error(String(msg ?? e?.message ?? '请求失败'))
-  } finally {
-    batchSubmitting.value = false
-  }
-}
 </script>
 
 <style scoped>
@@ -1016,6 +895,10 @@ async function submitBatchUpdate() {
   gap: 8px;
   margin: 8px 0 12px;
 }
+.staff-filter-dept {
+  width: 200px;
+  max-width: 100%;
+}
 .staff-filter-keyword {
   width: 420px;
   max-width: 100%;
@@ -1031,26 +914,9 @@ async function submitBatchUpdate() {
   align-items: center;
   gap: 8px;
 }
-.operator-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin: 10px 0 12px;
-}
 .switch-label {
   font-size: 13px;
   color: var(--el-text-color-regular);
-}
-.toolbar-btn {
-  height: 45px;
-  padding: 0 18px;
-  border-radius: 8px;
-  font-weight: 500;
-}
-.btn-action {
-  background-color: #d6ecff;
-  border-color: #bcdfff;
-  color: #1f5faa;
 }
 .staff-form-section {
   overflow-x: auto;

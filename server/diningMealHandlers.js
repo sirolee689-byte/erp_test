@@ -3,6 +3,7 @@ import { getPool, sql } from './db.js'
 import { createDiningTableRefs } from './diningDatabase.js'
 import { readDiningBearerToken } from './diningAuthHandlers.js'
 import { getRequestIp } from './requestIp.js'
+import { getDiningReportDateRule, getDiningReportDateRules } from './diningReportRules.js'
 
 export const DINING_MEAL_TYPES = Object.freeze({
   lunch: { code: '2', label: '午餐', compatibilityContent: '午餐（统一餐）' },
@@ -351,6 +352,8 @@ export function createDiningMealService(options = {}) {
   const repository = options.repository || createDiningMealRepository(options)
   const now = options.now || (() => new Date())
   const withKeyLock = options.withKeyLock || createKeyLock()
+  const getDateRule = options.getDateRule || getDiningReportDateRule
+  const getDateRules = options.getDateRules || getDiningReportDateRules
 
   async function list(employee) {
     const cutoff = await repository.getCutoffTime()
@@ -363,12 +366,15 @@ export function createDiningMealService(options = {}) {
       if (!date || !['2', '3'].includes(type)) continue
       status.set(`${date}|${type}`, Number(row?.record_count ?? 0))
     }
+    const dateRules = await getDateRules(employee, window.dates.map((item) => item.date))
     return {
       cutoffTime: window.cutoffTime,
       start: window.start,
       end: window.end,
-      dates: window.dates.map((item) => ({
+      dates: window.dates.map((item, index) => ({
         ...item,
+        canEdit: item.canEdit && dateRules[index].allowed,
+        ruleReason: dateRules[index].reason,
         lunch: { selected: status.has(`${item.date}|2`), recordCount: status.get(`${item.date}|2`) || 0 },
         dinner: { selected: status.has(`${item.date}|3`), recordCount: status.get(`${item.date}|3`) || 0 },
       })),
@@ -388,6 +394,11 @@ export function createDiningMealService(options = {}) {
     const target = window.dates.find((item) => item.date === date)
     if (!target) throw new DiningMealError(400, '只能填写明天起未来一个月内的报餐')
     if (!target.canEdit) throw new DiningMealError(409, `该日期报餐已于前一天 ${window.cutoffTime.slice(0, 5)} 截止`)
+    // 规则只拦截新增报餐；已存在的历史报餐即使后来改为禁报日，员工仍可取消。
+    if (input.selected) {
+      const rule = await getDateRule(employee, date)
+      if (!rule.allowed) throw new DiningMealError(409, `${rule.reason || '该日期'}不能报餐`)
+    }
 
     const current = getShanghaiParts(now())
     const nowText = `${current.date} ${current.time}`

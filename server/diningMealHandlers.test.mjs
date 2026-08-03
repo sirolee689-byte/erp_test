@@ -7,6 +7,8 @@ import {
   DiningMealError,
 } from './diningMealHandlers.js'
 
+process.env.DINING_DB_DATABASE = 'UB_ERP_V2.0'
+
 const employee = {
   id: 7,
   new_code: 'E007',
@@ -17,6 +19,9 @@ const employee = {
   card_number: 'C7',
   new_card_number: 'NC7',
 }
+
+const allowedDateRule = { allowed: true, reason: '' }
+const allowAllDateRules = async (_employee, dates) => dates.map(() => allowedDateRule)
 
 describe('员工报餐日期与状态', () => {
   test('返回明天起 30 天，并把旧系统多道菜合并为一个餐次状态', async () => {
@@ -32,6 +37,7 @@ describe('员工报餐日期与状态', () => {
     const service = createDiningMealService({
       repository,
       now: () => new Date('2026-07-31T05:29:59.000Z'),
+      getDateRules: allowAllDateRules,
     })
 
     const result = await service.list(employee)
@@ -65,8 +71,8 @@ describe('旧库兼容写入语句', () => {
           input(name, _type, value) { values[name] = value; return this },
           async query(statement) {
             statements.push({ statement, values })
-            if (/SELECT TOP \(1\) id\s+FROM \[ERP_UB\]\.dbo\.\[UB_ERP_Dining_meal\]/.test(statement)) return { recordset: [] }
-            if (/INNER JOIN \[ERP_UB\]\.dbo\.\[UB_ERP_Dining_dishes\]/.test(statement)) return { recordset: [] }
+            if (/SELECT TOP \(1\) id\s+FROM \[UB_ERP_V2\.0\]\.dbo\.\[UB_ERP_Dining_meal\]/.test(statement)) return { recordset: [] }
+            if (/INNER JOIN \[UB_ERP_V2\.0\]\.dbo\.\[UB_ERP_Dining_dishes\]/.test(statement)) return { recordset: [] }
             if (/SELECT TOP \(1\) d\.systemcode/.test(statement)) return { recordset: [{ systemcode: 'Dishes-OLD' }] }
             if (/OUTPUT INSERTED\.id/.test(statement)) return { recordset: [{ id: 10, systemcode: 'Dishes-OLD', dcode: 'Dining-2-CODE' }] }
             if (/SELECT TOP \(1\) i\.id/.test(statement)) return { recordset: [{ id: 5 }] }
@@ -91,7 +97,7 @@ describe('旧库兼容写入语句', () => {
     })
 
     assert.deepEqual(result, { changed: true, selected: true })
-    const mealInsert = statements.find((item) => /INSERT INTO \[ERP_UB\]\.dbo\.\[UB_ERP_Dining_meal\]/.test(item.statement))
+    const mealInsert = statements.find((item) => /INSERT INTO \[UB_ERP_V2\.0\]\.dbo\.\[UB_ERP_Dining_meal\]/.test(item.statement))
     assert.ok(mealInsert)
     assert.equal(mealInsert.values.dishId, '5')
     assert.equal(mealInsert.values.content, '午餐（统一餐）')
@@ -148,6 +154,7 @@ describe('员工正式提交与取消报餐', () => {
     const service = createDiningMealService({
       repository,
       now: () => new Date('2026-07-31T04:00:00.000Z'),
+      getDateRule: async () => allowedDateRule,
     })
 
     const result = await service.change(employee, {
@@ -177,6 +184,7 @@ describe('员工正式提交与取消报餐', () => {
     const service = createDiningMealService({
       repository,
       now: () => new Date('2026-07-31T04:00:00.000Z'),
+      getDateRule: async () => allowedDateRule,
     })
 
     await service.change(employee, { date: '2026-08-02', mealType: 'dinner', selected: false })

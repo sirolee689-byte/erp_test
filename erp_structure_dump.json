@@ -76,15 +76,12 @@
       },
       {
         "name": "dishes",
+        "hideInMenu": true,
         "title": "菜式管理"
       },
       {
         "name": "records",
         "title": "报餐管理"
-      },
-      {
-        "name": "employee",
-        "title": "员工资料"
       },
       {
         "name": "reports",

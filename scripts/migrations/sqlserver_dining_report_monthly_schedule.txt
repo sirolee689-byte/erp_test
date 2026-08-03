@@ -1,0 +1,59 @@
+/*
+  智能饭堂按月报餐排期（SQL Server 2008 R2）
+  仅在 DINING_DB_DATABASE 指向的目标库执行；测试期为 UB_ERP_V2.0。
+*/
+IF DB_NAME() <> N'UB_ERP_V2.0'
+BEGIN
+  RAISERROR(N'本迁移只允许在 UB_ERP_V2.0 测试库执行。', 16, 1);
+  RETURN;
+END
+GO
+
+IF OBJECT_ID(N'dbo.UB_ERP_Dining_report_month', N'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.UB_ERP_Dining_report_month (
+    id INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    month_key NVARCHAR(6) NOT NULL,
+    enabled NVARCHAR(1) NOT NULL CONSTRAINT DF_UB_ERP_Dining_report_month_enabled DEFAULT N'1',
+    uid NVARCHAR(50) NULL,
+    uname NVARCHAR(50) NULL,
+    utruename NVARCHAR(50) NULL,
+    addtime NVARCHAR(50) NULL,
+    edittime NVARCHAR(50) NULL,
+    CONSTRAINT UQ_UB_ERP_Dining_report_month_month_key UNIQUE (month_key)
+  );
+END
+GO
+
+IF COL_LENGTH(N'dbo.UB_ERP_Dining_report_block', N'month_key') IS NULL
+  ALTER TABLE dbo.UB_ERP_Dining_report_block ADD month_key NVARCHAR(6) NULL;
+GO
+IF COL_LENGTH(N'dbo.UB_ERP_Dining_report_block', N'report_status') IS NULL
+  ALTER TABLE dbo.UB_ERP_Dining_report_block ADD report_status NVARCHAR(20) NULL;
+GO
+
+/* 旧人工禁报记录迁为“不可报餐”特殊日期；历史跨月记录保留原数据，需人工拆分后再启用。 */
+UPDATE dbo.UB_ERP_Dining_report_block
+SET month_key = REPLACE(LEFT(LTRIM(RTRIM(start_date)), 7), N'-', N''),
+    report_status = N'blocked'
+WHERE (month_key IS NULL OR LTRIM(RTRIM(month_key)) = N'')
+  AND start_date IS NOT NULL
+  AND LEFT(LTRIM(RTRIM(start_date)), 7) = LEFT(LTRIM(RTRIM(end_date)), 7);
+GO
+
+UPDATE dbo.UB_ERP_Dining_report_block
+SET enabled = N'0'
+WHERE LTRIM(RTRIM(ISNULL(month_key, N''))) = N''
+  AND LTRIM(RTRIM(ISNULL(enabled, N'1'))) = N'1';
+GO
+
+INSERT INTO dbo.UB_ERP_Dining_report_month (month_key, enabled, uid, uname, utruename, addtime)
+SELECT DISTINCT b.month_key, N'1', b.uid, b.uname, b.utruename, b.addtime
+FROM dbo.UB_ERP_Dining_report_block AS b
+WHERE b.del = N'0' AND b.enabled = N'1' AND LTRIM(RTRIM(ISNULL(b.month_key, N''))) <> N''
+  AND NOT EXISTS (SELECT 1 FROM dbo.UB_ERP_Dining_report_month AS m WHERE m.month_key = b.month_key);
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_UB_ERP_Dining_report_block_month_active' AND object_id = OBJECT_ID(N'dbo.UB_ERP_Dining_report_block'))
+  CREATE INDEX IX_UB_ERP_Dining_report_block_month_active ON dbo.UB_ERP_Dining_report_block (month_key, del, enabled, start_date, end_date);
+GO

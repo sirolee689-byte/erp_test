@@ -2,6 +2,8 @@
 
 以下脚本兼容 SQL Server 2008 R2，只供数据库管理员审核后在 SSMS 中手工执行。应用不会自动执行。
 
+当前试用阶段连接 `UB_ERP_V2.0`，不要执行本文件。只有验收完成并准备把 `DINING_DB_DATABASE` 切换到 `ERP_UB` 时，才审核和执行以下正式库授权。
+
 `erp_user` 已加入 `db_datareader`；这里只增加方案 A 必需的 INSERT/UPDATE，不授予 DELETE、ALTER、CONTROL 或 `db_datawriter`。
 
 ```sql
@@ -18,6 +20,7 @@ GO
 GRANT INSERT ON dbo.UB_ERP_Dining_dishes TO [erp_user];
 GRANT INSERT ON dbo.UB_ERP_Dining_dishes_list TO [erp_user];
 GRANT INSERT, UPDATE ON dbo.UB_ERP_Dining_meal TO [erp_user];
+GRANT INSERT ON dbo.UB_ERP_Dining_meal_log TO [erp_user];
 GO
 ```
 
@@ -30,5 +33,6 @@ GO
 REVOKE INSERT ON dbo.UB_ERP_Dining_dishes FROM [erp_user];
 REVOKE INSERT ON dbo.UB_ERP_Dining_dishes_list FROM [erp_user];
 REVOKE INSERT, UPDATE ON dbo.UB_ERP_Dining_meal FROM [erp_user];
+REVOKE INSERT ON dbo.UB_ERP_Dining_meal_log FROM [erp_user];
 GO
 ```
