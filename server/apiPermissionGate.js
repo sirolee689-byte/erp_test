@@ -1633,6 +1633,7 @@ export function isDiningAuthRequest(method, path) {
     (m === 'POST' && p === '/api/dining/logout') ||
     (m === 'GET' && p === '/api/dining/meals') ||
     (m === 'PUT' && p === '/api/dining/meals') ||
+    (m === 'PUT' && p === '/api/dining/meals/batch') ||
     (m === 'GET' && p === '/api/dining/profile/meals') ||
     (m === 'PUT' && p === '/api/dining/password') ||
     (m === 'GET' && p === '/api/dining-terminal/context') ||

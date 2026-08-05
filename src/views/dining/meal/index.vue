@@ -28,9 +28,23 @@
     </div>
 
     <template v-else>
+      <div v-if="batchSaving" class="batch-progress-mask" role="status" aria-live="polite">
+        <div class="batch-progress-card">
+          <strong>{{ batchProgressLabel }}</strong>
+          <el-progress :percentage="batchProgress" :stroke-width="10" :show-text="false" striped striped-flow />
+          <span>{{ batchProgressText }}</span>
+        </div>
+      </div>
+
       <div class="range-note">
         <el-icon><Calendar /></el-icon>
         <span>{{ rangeLabel }}</span>
+        <div class="batch-actions">
+          <el-button size="small" type="primary" plain :loading="batchSaving === 'lunch'" @click="batchChange('lunch')">一键报午餐</el-button>
+          <el-button size="small" type="danger" plain :loading="batchSaving === 'dinner'" @click="batchChange('dinner')">一键报晚餐</el-button>
+          <el-button size="small" type="success" :loading="batchSaving === 'all'" @click="batchChange('all')">一键全报</el-button>
+          <el-button size="small" type="info" plain :loading="batchSaving === 'cancel'" @click="batchChange('cancel')">一键取消全部</el-button>
+        </div>
         <el-button text type="primary" :icon="Refresh" :loading="refreshing" @click="loadMeals">刷新</el-button>
       </div>
 
@@ -72,11 +86,11 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Calendar, CircleCheckFilled, Clock, Loading, Plus, Refresh } from '@element-plus/icons-vue'
-import { getDiningMeals, setDiningMeal } from '@/api/diningApi'
+import { getDiningMeals, setDiningMeal, setDiningMealsBatch } from '@/api/diningApi'
 import { clearDiningAuth } from '@/utils/diningAuthStorage'
 
 const router = useRouter()
@@ -88,6 +102,9 @@ const startDate = ref('')
 const endDate = ref('')
 const dates = ref([])
 const savingKey = ref('')
+const batchSaving = ref('')
+const batchProgress = ref(0)
+let batchProgressTimer = null
 
 const mealOptions = [
   { key: 'lunch', label: '午餐' },
@@ -99,6 +116,21 @@ const rangeLabel = computed(() => {
   if (!startDate.value || !endDate.value) return '明天起未来一个月'
   return `${formatMonthDay(startDate.value)} 至 ${formatMonthDay(endDate.value)}`
 })
+const batchProgressLabel = computed(() => `${batchActionLabels[batchSaving.value] || '一键报餐'}正在处理中`)
+const batchProgressText = computed(() => batchProgress.value >= 100 ? '正在刷新报餐状态…' : '正在核对可报日期，请稍候…')
+
+function startBatchProgress() {
+  batchProgress.value = 12
+  window.clearInterval(batchProgressTimer)
+  batchProgressTimer = window.setInterval(() => {
+    if (batchProgress.value < 88) batchProgress.value = Math.min(88, batchProgress.value + 6)
+  }, 280)
+}
+
+function stopBatchProgress() {
+  window.clearInterval(batchProgressTimer)
+  batchProgressTimer = null
+}
 
 function parseDiningDate(date) {
   return new Date(`${date}T00:00:00+08:00`)
@@ -178,7 +210,53 @@ async function toggleMeal(day, meal) {
   }
 }
 
+const batchActionLabels = {
+  lunch: '一键报午餐',
+  dinner: '一键报晚餐',
+  all: '一键全报',
+  cancel: '一键取消全部',
+}
+
+async function batchChange(action) {
+  if (savingKey.value || batchSaving.value) return
+  const label = batchActionLabels[action] || '一键处理'
+  try {
+    await ElMessageBox.confirm(
+      `${label}将处理当前页面未来30天内可操作的餐次；禁报日期、截止日期及无需处理的餐次会自动跳过。确定继续吗？`,
+      label,
+      { confirmButtonText: '确定处理', cancelButtonText: '返回', type: action === 'cancel' ? 'warning' : 'success' },
+    )
+  } catch {
+    return
+  }
+
+  batchSaving.value = action
+  startBatchProgress()
+  await nextTick()
+  try {
+    const response = await setDiningMealsBatch(action)
+    const result = response.data?.data || {}
+    const changed = Number(result.changedCount || 0)
+    const skipped = Number(result.skippedCount || 0)
+    const sample = Array.isArray(result.skipped) && result.skipped.length
+      ? `；例如：${result.skipped.slice(0, 2).map((item) => `${item.date}${item.mealType === 'lunch' ? '午餐' : item.mealType === 'dinner' ? '晚餐' : ''}${item.reason ? `（${item.reason}）` : ''}`).join('、')}`
+      : ''
+    ElMessage.success(`${label}完成：已处理 ${changed} 个餐次，跳过 ${skipped} 个餐次${sample}`)
+    batchProgress.value = 100
+    await new Promise((resolve) => window.setTimeout(resolve, 260))
+    await loadMeals()
+  } catch (error) {
+    if (await handleUnauthorized(error)) return
+    ElMessage.error(String(error?.response?.data?.msg ?? '').trim() || `${label}失败，请稍后重试`)
+  } finally {
+    stopBatchProgress()
+    batchProgress.value = 0
+    batchSaving.value = ''
+  }
+}
+
 onMounted(loadMeals)
+onBeforeUnmount(stopBatchProgress)
 </script>
 
 <style scoped>
@@ -194,7 +272,13 @@ onMounted(loadMeals)
 .page-alert { margin-top: 18px; }
 .meal-loading { min-height: 300px; display: flex; align-items: center; justify-content: center; gap: 10px; color: #71859d; }
 .range-note { display: flex; align-items: center; gap: 8px; min-height: 54px; margin-top: 18px; padding: 0 6px; color: #617890; }
-.range-note .el-button { margin-left: auto; }
+.batch-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: 8px; }
+.batch-actions .el-button { margin-left: 0; }
+.range-note > .el-button { margin-left: auto; }
+.batch-progress-mask { position: fixed; z-index: 2200; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(20, 37, 57, .28); }
+.batch-progress-card { width: min(360px, 100%); padding: 22px 24px; border-radius: 14px; background: #fff; box-shadow: 0 16px 42px rgba(24, 47, 73, .22); }
+.batch-progress-card strong { display: block; margin-bottom: 14px; color: #243b57; font-size: 16px; }
+.batch-progress-card span { display: block; margin-top: 10px; color: #71859d; font-size: 13px; }
 .date-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .date-card { min-width: 0; padding: 18px; border: 1px solid #dce8f3; border-radius: 15px; background: #fff; box-shadow: 0 8px 24px rgba(40, 77, 115, .055); }
 .date-card.locked { background: #f8fafc; }
@@ -213,6 +297,8 @@ onMounted(loadMeals)
   .meal-hero h1 { font-size: 24px; }
   .cutoff-card { min-width: 0; }
   .range-note { margin-top: 10px; }
+  .batch-actions { width: 100%; margin-left: 0; }
+  .batch-actions .el-button { flex: 1 1 calc(50% - 4px); min-width: 0; }
   .date-grid { grid-template-columns: 1fr; gap: 12px; }
   .date-card { padding: 16px 14px; }
   .meal-button { min-height: 52px; padding: 0 8px; }

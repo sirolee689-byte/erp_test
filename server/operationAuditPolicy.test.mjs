@@ -70,6 +70,7 @@ describe('operation audit policy catalog', () => {
       ['POST', '/api/dining/login'],
       ['POST', '/api/dining/logout'],
       ['PUT', '/api/dining/meals'],
+      ['PUT', '/api/dining/meals/batch'],
       ['PUT', '/api/dining/password'],
       ['POST', '/api/dining-terminal/swipe'],
       ['POST', '/api/stock-in/surplus-batch-prices'],

@@ -4,6 +4,7 @@ import {
   buildDiningDateWindow,
   createDiningMealRepository,
   createDiningMealService,
+  DINING_MEAL_TYPES,
   DiningMealError,
 } from './diningMealHandlers.js'
 
@@ -139,6 +140,77 @@ describe('旧库兼容写入语句', () => {
     assert.match(updateStatement, /dis_lx[\s\S]*@mealType/)
     assert.doesNotMatch(updateStatement, /TOP \(1\)/)
   })
+
+  test('批量餐次共用同一事务，任一集中写入失败会整体回滚', async () => {
+    const events = []
+    let queryCount = 0
+    const transaction = {
+      async begin() { events.push('begin') },
+      async commit() { events.push('commit') },
+      async rollback() { events.push('rollback') },
+      request() {
+        return {
+          input() { return this },
+          async query() {
+            queryCount += 1
+            if (queryCount === 4) throw new Error('模拟写入失败')
+            if (queryCount === 3) return { recordset: [{ meal_date: '2026-08-02', systemcode: 'Dishes-OLD' }] }
+            return { rowsAffected: [1] }
+          },
+        }
+      },
+    }
+    const repository = createDiningMealRepository({
+      getPool: async () => ({}),
+      transactionFactory: () => transaction,
+    })
+
+    await assert.rejects(
+      () => repository.setMeals([
+        { employee, date: '2026-08-02', meal: DINING_MEAL_TYPES.lunch, selected: true, nowText: '2026-07-31 12:00:00', ip: '' },
+        { employee, date: '2026-08-02', meal: DINING_MEAL_TYPES.dinner, selected: true, nowText: '2026-07-31 12:00:00', ip: '' },
+      ]),
+      /模拟写入失败/,
+    )
+    assert.deepEqual(events, ['begin', 'rollback'])
+  })
+
+  test('批量新增会集中复用兼容菜式，并只执行一次报餐写入', async () => {
+    const statements = []
+    let queryCount = 0
+    const transaction = {
+      async begin() {},
+      async commit() {},
+      async rollback() {},
+      request() {
+        const values = {}
+        return {
+          input(name, _type, value) { values[name] = value; return this },
+          async query(statement) {
+            queryCount += 1
+            statements.push({ statement, values })
+            if (queryCount === 3) return { recordset: [{ meal_date: '2026-08-02', systemcode: 'Dishes-OLD' }] }
+            if (queryCount === 5) return { recordset: [{ id: 5, systemcode: 'Dishes-OLD', meal_type: '2' }, { id: 6, systemcode: 'Dishes-OLD', meal_type: '3' }] }
+            return { recordset: [], rowsAffected: [1] }
+          },
+        }
+      },
+    }
+    const repository = createDiningMealRepository({
+      getPool: async () => ({}),
+      transactionFactory: () => transaction,
+      createCode: (prefix) => `${prefix}CODE`,
+    })
+
+    const result = await repository.setMeals([
+      { employee, date: '2026-08-02', meal: DINING_MEAL_TYPES.lunch, selected: true, nowText: '2026-07-31 12:00:00', ip: '' },
+      { employee, date: '2026-08-02', meal: DINING_MEAL_TYPES.dinner, selected: true, nowText: '2026-07-31 12:00:00', ip: '' },
+    ])
+
+    assert.deepEqual(result, [{ changed: true, selected: true }, { changed: true, selected: true }])
+    assert.equal(statements.filter((item) => /INSERT INTO \[UB_ERP_V2\.0\]\.dbo\.\[UB_ERP_Dining_dishes_list\]/.test(item.statement)).length, 1)
+    assert.equal(statements.filter((item) => /INSERT INTO \[UB_ERP_V2\.0\]\.dbo\.\[UB_ERP_Dining_meal\]/.test(item.statement)).length, 1)
+  })
 })
 
 describe('员工正式提交与取消报餐', () => {
@@ -214,5 +286,61 @@ describe('员工正式提交与取消报餐', () => {
       () => service.change(employee, { date: '2026-08-01', mealType: 'lunch', selected: true }),
       (error) => error instanceof DiningMealError && error.status === 409,
     )
+  })
+
+  test('一键报午餐只写入可操作且尚未报餐的日期，并跳过禁报日和已有报餐', async () => {
+    let saved = []
+    const repository = {
+      async getCutoffTime() { return '13:30:00' },
+      async listActiveMeals() {
+        return [{ meal_date: '2026-08-01', meal_type: '2', record_count: 1 }]
+      },
+      async setMeals(changes) {
+        saved = changes
+        return changes.map((item) => ({ changed: true, selected: item.selected }))
+      },
+    }
+    const service = createDiningMealService({
+      repository,
+      now: () => new Date('2026-07-31T04:00:00.000Z'),
+      getDateRules: async (_employee, dates) => dates.map((date) => (date === '2026-08-03'
+        ? { allowed: false, reason: '特殊禁报日' }
+        : allowedDateRule)),
+    })
+
+    const result = await service.batchChange(employee, { action: 'lunch' }, '192.168.1.8')
+    assert.equal(result.changedCount, 28)
+    assert.equal(result.skippedCount, 2)
+    assert.ok(saved.every((item) => item.meal.code === '2' && item.selected === true))
+    assert.ok(!saved.some((item) => item.date === '2026-08-01' || item.date === '2026-08-03'))
+    assert.equal(saved[0].employee.id, 7)
+  })
+
+  test('一键取消会跳过禁报日，只取消当前可操作的已报餐次', async () => {
+    let saved = []
+    const repository = {
+      async getCutoffTime() { return '13:30:00' },
+      async listActiveMeals() {
+        return [
+          { meal_date: '2026-08-01', meal_type: '2', record_count: 1 },
+          { meal_date: '2026-08-03', meal_type: '3', record_count: 1 },
+        ]
+      },
+      async setMeals(changes) {
+        saved = changes
+        return changes.map(() => ({ changed: true, selected: false }))
+      },
+    }
+    const service = createDiningMealService({
+      repository,
+      now: () => new Date('2026-07-31T04:00:00.000Z'),
+      getDateRules: async (_employee, dates) => dates.map((date) => (date === '2026-08-03'
+        ? { allowed: false, reason: '特殊禁报日' }
+        : allowedDateRule)),
+    })
+
+    const result = await service.batchChange(employee, { action: 'cancel' })
+    assert.equal(result.changedCount, 1)
+    assert.deepEqual(saved.map((item) => [item.date, item.meal.code, item.selected]), [['2026-08-01', '2', false]])
   })
 })

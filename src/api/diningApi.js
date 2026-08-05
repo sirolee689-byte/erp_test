@@ -30,6 +30,10 @@ export function setDiningMeal(date, mealType, selected) {
   return diningRequest.put('/meals', { date, mealType, selected })
 }
 
+export function setDiningMealsBatch(action) {
+  return diningRequest.put('/meals/batch', { action })
+}
+
 export function getDiningProfileMeals(scope = 'recent', page = 1) {
   return diningRequest.get('/profile/meals', { params: { scope, page } })
 }

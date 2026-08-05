@@ -19,6 +19,7 @@ describe('报餐系统独立身份接口', () => {
     assert.equal(isDiningAuthRequest('POST', '/api/dining/logout'), true)
     assert.equal(isDiningAuthRequest('GET', '/api/dining/meals'), true)
     assert.equal(isDiningAuthRequest('PUT', '/api/dining/meals'), true)
+    assert.equal(isDiningAuthRequest('PUT', '/api/dining/meals/batch'), true)
     assert.equal(isDiningAuthRequest('GET', '/api/dining/profile/meals'), true)
     assert.equal(isDiningAuthRequest('PUT', '/api/dining/password'), true)
     assert.equal(isDiningAuthRequest('GET', '/api/dining-terminal/context'), true)

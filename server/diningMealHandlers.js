@@ -234,13 +234,15 @@ export function createDiningMealRepository(options = {}) {
     }
   }
 
-  async function setMeal({ employee, date, meal, selected, nowText, ip }) {
-    const pool = await poolProvider()
-    const transaction = transactionFactory(pool)
+  async function setMeal({ employee, date, meal, selected, nowText, ip, transaction: sharedTransaction = null }) {
+    const pool = sharedTransaction ? null : await poolProvider()
+    const transaction = sharedTransaction || transactionFactory(pool)
     let started = false
     try {
-      await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED)
-      started = true
+      if (!sharedTransaction) {
+        await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED)
+        started = true
+      }
 
       if (!selected) {
         const cancelRequest = transaction.request()
@@ -257,7 +259,7 @@ export function createDiningMealRepository(options = {}) {
             AND LTRIM(RTRIM(ISNULL(del, N'0'))) = N'0'
             AND LTRIM(RTRIM(ISNULL(pass, N'0'))) = N'1'
         `)
-        await transaction.commit()
+        if (started) await transaction.commit()
         return { changed: Number(cancelled.rowsAffected?.[0] ?? 0) > 0, selected: false }
       }
 
@@ -276,7 +278,7 @@ export function createDiningMealRepository(options = {}) {
         ORDER BY id ASC
       `)
       if (exists.recordset?.length) {
-        await transaction.commit()
+        if (started) await transaction.commit()
         return { changed: false, selected: true }
       }
 
@@ -313,7 +315,7 @@ export function createDiningMealRepository(options = {}) {
            @dishSystemcode, N'', N'0', @mealType, N'', @date, N'',
            N'', @content, @dcode, N'0', @employeeMealType, @mealSource, @department, N'0')
       `)
-      await transaction.commit()
+      if (started) await transaction.commit()
       return { changed: true, selected: true }
     } catch (error) {
       if (started) {
@@ -327,7 +329,272 @@ export function createDiningMealRepository(options = {}) {
     }
   }
 
-  return { getCutoffTime, listActiveMeals, setMeal }
+  function bindMealPairs(request, pairs, dateColumn, typeColumn, prefix = 'mealPair') {
+    return pairs.map((pair, index) => {
+      const dateName = `${prefix}Date${index}`
+      const typeName = `${prefix}Type${index}`
+      bindText(request, dateName, pair.date, 20)
+      bindText(request, typeName, pair.meal.code, 10)
+      return `(LTRIM(RTRIM(ISNULL(${dateColumn}, N''))) = @${dateName} AND LTRIM(RTRIM(ISNULL(${typeColumn}, N''))) = @${typeName})`
+    }).join(' OR ')
+  }
+
+  async function listExistingBatchMeals(transaction, employeeId, changes) {
+    if (!changes.length) return new Set()
+    const request = transaction.request()
+    bindText(request, 'employeeId', employeeId, 50)
+    const pairs = bindMealPairs(request, changes, 'dis_dtime', 'dis_lx')
+    const result = await request.query(`
+      SELECT
+        LTRIM(RTRIM(ISNULL(dis_dtime, N''))) AS meal_date,
+        LTRIM(RTRIM(ISNULL(dis_lx, N''))) AS meal_type
+      FROM ${tables.meals}
+      WHERE LTRIM(RTRIM(ISNULL(uid, N''))) = @employeeId
+        AND LTRIM(RTRIM(ISNULL(del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(pass, N'0'))) = N'1'
+        AND (${pairs})
+      GROUP BY LTRIM(RTRIM(ISNULL(dis_dtime, N''))), LTRIM(RTRIM(ISNULL(dis_lx, N'')))
+    `)
+    return new Set((result.recordset || []).map((row) => `${String(row.meal_date).trim()}|${String(row.meal_type).trim()}`))
+  }
+
+  async function findOrCreateBatchCompatibilityItems(transaction, employee, changes) {
+    if (!changes.length) return new Map()
+    const byKey = new Map(changes.map((change) => [`${change.date}|${change.meal.code}`, change]))
+    const compatibilityRequest = transaction.request()
+    const compatibilityPairs = bindMealPairs(compatibilityRequest, changes, 'i.dtime', 'i.lx', 'compatibility')
+    const compatibilityResult = await compatibilityRequest.query(`
+      SELECT i.id, i.systemcode, i.dcode,
+        LTRIM(RTRIM(ISNULL(i.dtime, N''))) AS meal_date,
+        LTRIM(RTRIM(ISNULL(i.lx, N''))) AS meal_type
+      FROM ${tables.dishItems} AS i
+      INNER JOIN ${tables.dishes} AS d ON d.systemcode = i.systemcode
+      WHERE LTRIM(RTRIM(ISNULL(i.info, N''))) = N'${DINING_COMPATIBILITY_MARKER}'
+        AND LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(i.pass, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(i.enable, N'0'))) = N'1'
+        AND LTRIM(RTRIM(ISNULL(d.del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(d.pass, N'0'))) = N'1'
+        AND LTRIM(RTRIM(ISNULL(d.enable, N'0'))) = N'1'
+        AND (${compatibilityPairs})
+    `)
+    const compatibilityByKey = new Map()
+    for (const row of compatibilityResult.recordset || []) {
+      const key = `${String(row.meal_date).trim()}|${String(row.meal_type).trim()}`
+      if (!compatibilityByKey.has(key)) compatibilityByKey.set(key, row)
+    }
+
+    const missing = [...byKey.entries()]
+      .filter(([key]) => !compatibilityByKey.has(key))
+      .map(([, change]) => change)
+    if (missing.length) {
+      const dates = [...new Set(missing.map((change) => change.date))]
+      const masterRequest = transaction.request()
+      const dateParams = dates.map((date, index) => {
+        const name = `masterDate${index}`
+        bindText(masterRequest, name, date, 20)
+        return `@${name}`
+      }).join(', ')
+      const masterResult = await masterRequest.query(`
+        SELECT d.id, d.systemcode, LTRIM(RTRIM(ISNULL(d.dtime, N''))) AS meal_date
+        FROM ${tables.dishes} AS d
+        WHERE LTRIM(RTRIM(ISNULL(d.dtime, N''))) IN (${dateParams})
+          AND LTRIM(RTRIM(ISNULL(d.del, N'0'))) = N'0'
+          AND LTRIM(RTRIM(ISNULL(d.pass, N'0'))) = N'1'
+          AND LTRIM(RTRIM(ISNULL(d.enable, N'0'))) = N'1'
+        ORDER BY d.id ASC
+      `)
+      const masterByDate = new Map()
+      for (const row of masterResult.recordset || []) {
+        const date = String(row.meal_date).trim()
+        if (!masterByDate.has(date)) masterByDate.set(date, String(row.systemcode).trim())
+      }
+
+      const missingMasterDates = dates.filter((date) => !masterByDate.has(date))
+      if (missingMasterDates.length) {
+        const createMasterRequest = transaction.request()
+        bindText(createMasterRequest, 'employeeId', employee.id, 50)
+        bindText(createMasterRequest, 'employeeName', employee.name, 50)
+        bindText(createMasterRequest, 'nowText', employee.nowText, 50)
+        const masterRows = missingMasterDates.map((date, index) => {
+          const codeName = `masterCode${index}`
+          const dateName = `newMasterDate${index}`
+          const systemcode = codeFactory('Dishes-ND-')
+          masterByDate.set(date, systemcode)
+          bindText(createMasterRequest, codeName, systemcode, 50)
+          bindText(createMasterRequest, dateName, date, 20)
+          return `SELECT @${codeName} AS systemcode, @${dateName} AS meal_date`
+        }).join('\nUNION ALL\n')
+        await createMasterRequest.query(`
+          INSERT INTO ${tables.dishes}
+            (uid, uname, utruename, code, systemcode, addtime, del, pass, yesno, enable, info, dtime)
+          SELECT @employeeId, @employeeName, @employeeName, rows.systemcode, rows.systemcode, @nowText,
+            N'0', N'1', N'0', N'1', N'${DINING_COMPATIBILITY_MARKER}', rows.meal_date
+          FROM (${masterRows}) AS rows
+        `)
+      }
+
+      const createItemRequest = transaction.request()
+      bindText(createItemRequest, 'employeeId', employee.id, 50)
+      bindText(createItemRequest, 'employeeName', employee.name, 50)
+      bindText(createItemRequest, 'nowText', employee.nowText, 50)
+      const itemRows = missing.map((change, index) => {
+        const key = `${change.date}|${change.meal.code}`
+        const systemcodeName = `itemSystemcode${index}`
+        const dcodeName = `itemDcode${index}`
+        const dateName = `itemDate${index}`
+        const typeName = `itemType${index}`
+        const contentName = `itemContent${index}`
+        const systemcode = masterByDate.get(change.date)
+        const dcode = codeFactory(`Dining-${change.meal.code}-`)
+        compatibilityByKey.set(key, { id: 0, systemcode, dcode, meal_date: change.date, meal_type: change.meal.code })
+        bindText(createItemRequest, systemcodeName, systemcode, 50)
+        bindText(createItemRequest, dcodeName, dcode, 50)
+        bindText(createItemRequest, dateName, change.date, 20)
+        bindText(createItemRequest, typeName, change.meal.code, 10)
+        bindText(createItemRequest, contentName, change.meal.compatibilityContent, 100)
+        return `SELECT @${systemcodeName} AS systemcode, @${dcodeName} AS dcode, @${dateName} AS meal_date, @${typeName} AS meal_type, @${contentName} AS content`
+      }).join('\nUNION ALL\n')
+      await createItemRequest.query(`
+        INSERT INTO ${tables.dishItems}
+          (uid, uname, utruename, code, systemcode, dcode, dtime, addtime, del, pass, enable, info, lx, content, money)
+        SELECT @employeeId, @employeeName, @employeeName, rows.systemcode, rows.systemcode, rows.dcode,
+          rows.meal_date, @nowText, N'0', N'0', N'1', N'${DINING_COMPATIBILITY_MARKER}', rows.meal_type, rows.content, 0
+        FROM (${itemRows}) AS rows
+      `)
+    }
+
+    const itemRows = [...compatibilityByKey.values()]
+    const firstItemRequest = transaction.request()
+    const firstItemPredicates = itemRows.map((item, index) => {
+      const systemcodeName = `firstSystemcode${index}`
+      const typeName = `firstType${index}`
+      bindText(firstItemRequest, systemcodeName, item.systemcode, 50)
+      bindText(firstItemRequest, typeName, item.meal_type, 10)
+      return `(LTRIM(RTRIM(ISNULL(i.systemcode, N''))) = @${systemcodeName} AND LTRIM(RTRIM(ISNULL(i.lx, N''))) = @${typeName})`
+    }).join(' OR ')
+    const firstItemResult = await firstItemRequest.query(`
+      SELECT i.id, i.systemcode, LTRIM(RTRIM(ISNULL(i.lx, N''))) AS meal_type
+      FROM ${tables.dishItems} AS i
+      WHERE LTRIM(RTRIM(ISNULL(i.del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(i.pass, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(i.enable, N'0'))) = N'1'
+        AND (${firstItemPredicates})
+      ORDER BY i.id ASC
+    `)
+    const firstItemByKey = new Map()
+    for (const row of firstItemResult.recordset || []) {
+      const key = `${String(row.systemcode).trim()}|${String(row.meal_type).trim()}`
+      if (!firstItemByKey.has(key)) firstItemByKey.set(key, Number(row.id))
+    }
+    return new Map([...compatibilityByKey.entries()].map(([key, item]) => [key, {
+      baseId: firstItemByKey.get(`${String(item.systemcode).trim()}|${String(item.meal_type).trim()}`) || Number(item.id),
+      systemcode: String(item.systemcode).trim(),
+      dcode: String(item.dcode).trim(),
+    }]))
+  }
+
+  async function insertBatchMeals(transaction, employee, changes, compatibilityItems) {
+    if (!changes.length) return
+    const request = transaction.request()
+    bindText(request, 'employeeId', employee.id, 50)
+    bindText(request, 'employeeName', employee.name, 50)
+    bindText(request, 'nowText', changes[0].nowText, 50)
+    bindText(request, 'ip', changes[0].ip, 50)
+    bindText(request, 'cardNumber', employee.card_number, 50)
+    bindText(request, 'newCardNumber', employee.new_card_number, 50)
+    bindText(request, 'userCode', employee.code, 50)
+    bindText(request, 'employeeMealType', employee.meal_type, 50)
+    bindText(request, 'department', employee.in_bm, 50)
+    const rows = changes.map((change, index) => {
+      const item = compatibilityItems.get(`${change.date}|${change.meal.code}`)
+      const names = {
+        systemcode: `mealSystemcode${index}`,
+        dishId: `mealDishId${index}`,
+        dishSystemcode: `mealDishSystemcode${index}`,
+        mealType: `mealType${index}`,
+        date: `mealDate${index}`,
+        content: `mealContent${index}`,
+        dcode: `mealDcode${index}`,
+      }
+      bindText(request, names.systemcode, codeFactory(''), 50)
+      bindText(request, names.dishId, item.baseId, 50)
+      bindText(request, names.dishSystemcode, item.systemcode, 50)
+      bindText(request, names.mealType, change.meal.code, 10)
+      bindText(request, names.date, change.date, 20)
+      bindText(request, names.content, change.meal.compatibilityContent, 100)
+      bindText(request, names.dcode, item.dcode, 50)
+      return `SELECT @${names.systemcode} AS systemcode, @${names.dishId} AS dish_id, @${names.dishSystemcode} AS dish_systemcode, @${names.mealType} AS meal_type, @${names.date} AS meal_date, @${names.content} AS content, @${names.dcode} AS dcode`
+    }).join('\nUNION ALL\n')
+    await request.query(`
+      INSERT INTO ${tables.meals}
+        (uid, uname, utruename, addtime, ip, del, pass, card_number, new_card_number,
+         user_code, user_new_code, code, systemcode, enable, info, dis_id, dis_code,
+         dis_systemcode, dis_date, dis_money, dis_lx, dis_lx_name, dis_dtime, dis_user,
+         dis_info, dis_content, dis_dcode, dis_yes, dis_meal_type, meal_from, bm, bl)
+      SELECT @employeeId, @employeeName, @employeeName, @nowText, @ip, N'0', N'1', @cardNumber, @newCardNumber,
+        @userCode, N'', N'', rows.systemcode, N'1', N'${DINING_COMPATIBILITY_MARKER}', rows.dish_id, N'',
+        rows.dish_systemcode, N'', N'0', rows.meal_type, N'', rows.meal_date, N'',
+        N'', rows.content, rows.dcode, N'0', @employeeMealType, N'${DINING_MEAL_SOURCE}', @department, N'0'
+      FROM (${rows}) AS rows
+    `)
+  }
+
+  async function cancelBatchMeals(transaction, employeeId, changes) {
+    if (!changes.length) return new Set()
+    const request = transaction.request()
+    bindText(request, 'employeeId', employeeId, 50)
+    bindText(request, 'nowText', changes[0].nowText, 50)
+    const pairs = bindMealPairs(request, changes, 'dis_dtime', 'dis_lx', 'cancel')
+    const result = await request.query(`
+      UPDATE ${tables.meals}
+      SET del = N'1', edittime = @nowText
+      OUTPUT LTRIM(RTRIM(ISNULL(INSERTED.dis_dtime, N''))) AS meal_date,
+        LTRIM(RTRIM(ISNULL(INSERTED.dis_lx, N''))) AS meal_type
+      WHERE LTRIM(RTRIM(ISNULL(uid, N''))) = @employeeId
+        AND LTRIM(RTRIM(ISNULL(del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(pass, N'0'))) = N'1'
+        AND (${pairs})
+    `)
+    return new Set((result.recordset || []).map((row) => `${String(row.meal_date).trim()}|${String(row.meal_type).trim()}`))
+  }
+
+  async function setMeals(changes = []) {
+    if (!Array.isArray(changes) || changes.length === 0) return []
+    const pool = await poolProvider()
+    const transaction = transactionFactory(pool)
+    let started = false
+    try {
+      await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED)
+      started = true
+      const employee = { ...changes[0].employee, nowText: changes[0].nowText }
+      const additions = changes.filter((change) => change.selected)
+      const cancellations = changes.filter((change) => !change.selected)
+      const existingKeys = await listExistingBatchMeals(transaction, employee.id, additions)
+      const additionsToCreate = additions.filter((change) => !existingKeys.has(`${change.date}|${change.meal.code}`))
+      const compatibilityItems = await findOrCreateBatchCompatibilityItems(transaction, employee, additionsToCreate)
+      await insertBatchMeals(transaction, employee, additionsToCreate, compatibilityItems)
+      const cancelledKeys = await cancelBatchMeals(transaction, employee.id, cancellations)
+      const results = changes.map((change) => {
+        const key = `${change.date}|${change.meal.code}`
+        if (change.selected) return { changed: !existingKeys.has(key), selected: true }
+        return { changed: cancelledKeys.has(key), selected: false }
+      })
+      await transaction.commit()
+      return results
+    } catch (error) {
+      if (started) {
+        try {
+          await transaction.rollback()
+        } catch {
+          // 以原始报错为准，回滚失败交由连接池释放当前事务连接。
+        }
+      }
+      throw error
+    }
+  }
+
+  return { getCutoffTime, listActiveMeals, setMeal, setMeals }
 }
 
 function createKeyLock() {
@@ -412,7 +679,77 @@ export function createDiningMealService(options = {}) {
     }))
   }
 
-  return { list, change }
+  async function withMealLocks(keys, action, index = 0) {
+    if (index >= keys.length) return action()
+    return withKeyLock(keys[index], () => withMealLocks(keys, action, index + 1))
+  }
+
+  async function batchChange(employee, input, ip = '') {
+    const action = String(input?.action ?? '').trim().toLowerCase()
+    const targetMeals = action === 'lunch' ? ['lunch']
+      : action === 'dinner' ? ['dinner']
+        : ['lunch', 'dinner']
+    const selected = action !== 'cancel'
+    if (!['lunch', 'dinner', 'all', 'cancel'].includes(action)) {
+      throw new DiningMealError(400, '一键报餐操作无效')
+    }
+
+    const current = await list(employee)
+    const changes = []
+    const skipped = []
+    let changedCount = 0
+    for (const day of current.dates) {
+      if (!day.canEdit) {
+        for (const mealKey of targetMeals) {
+          skipped.push({
+            date: day.date,
+            mealType: mealKey,
+            reason: day.ruleReason || `已过报餐截止时间（${current.cutoffTime.slice(0, 5)}）`,
+          })
+        }
+        continue
+      }
+      for (const mealKey of targetMeals) {
+        if (Boolean(day[mealKey]?.selected) === selected) {
+          skipped.push({ date: day.date, mealType: mealKey, reason: selected ? '已报餐' : '未报餐' })
+          continue
+        }
+        changes.push({ date: day.date, meal: DINING_MEAL_TYPES[mealKey], selected })
+      }
+    }
+
+    if (changes.length) {
+      const nowParts = getShanghaiParts(now())
+      const nowText = `${nowParts.date} ${nowParts.time}`
+      const lockKeys = changes.map((item) => `${item.date}|${item.meal.code}`).sort()
+      const results = await withMealLocks(lockKeys, () => repository.setMeals(changes.map((item) => ({
+        employee,
+        ...item,
+        nowText,
+        ip,
+      }))))
+      changedCount = results.filter((item) => item?.changed).length
+      for (let index = 0; index < results.length; index += 1) {
+        if (!results[index]?.changed) {
+          skipped.push({
+            date: changes[index].date,
+            mealType: changes[index].meal === DINING_MEAL_TYPES.lunch ? 'lunch' : 'dinner',
+            reason: selected ? '已报餐' : '未报餐',
+          })
+        }
+      }
+    }
+
+    return {
+      action,
+      selected,
+      changedCount,
+      skippedCount: skipped.length,
+      skipped: skipped.slice(0, 8),
+    }
+  }
+
+  return { list, change, batchChange }
 }
 
 function diningErrorResponse(error) {
@@ -458,6 +795,19 @@ export function registerDiningMealRoutes(app, options = {}) {
       res.json({ code: 200, msg: result.selected ? '报餐成功' : '取消报餐成功', data: result })
     } catch (error) {
       console.error('保存员工报餐失败：', error)
+      const response = diningErrorResponse(error)
+      res.status(response.status).json({ code: response.status, msg: response.message, data: null })
+    }
+  })
+
+  app.put('/api/dining/meals/batch', async (req, res) => {
+    const employee = requireEmployee(req, res)
+    if (!employee) return
+    try {
+      const result = await service.batchChange(employee, req.body, getRequestIp(req))
+      res.json({ code: 200, msg: '一键报餐处理完成', data: result })
+    } catch (error) {
+      console.error('一键处理员工报餐失败：', error)
       const response = diningErrorResponse(error)
       res.status(response.status).json({ code: response.status, msg: response.message, data: null })
     }

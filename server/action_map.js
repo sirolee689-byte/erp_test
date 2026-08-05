@@ -918,6 +918,7 @@ const IGNORED_WRITE_RULES = [
   { method: 'POST', path: '/api/dining/logout' },
   // 员工自助报餐写入旧饭堂业务表，不使用 ERP 管理员身份写中央操作日志。
   { method: 'PUT', path: '/api/dining/meals' },
+  { method: 'PUT', path: '/api/dining/meals/batch' },
   // 员工自行改报餐密码，只更新本人旧员工档案，不写 ERP 管理员操作日志。
   { method: 'PUT', path: '/api/dining/password' },
   // 饭堂终端刷卡本身会落 UB_ERP_Dining_meal_log，不重复写 ERP 管理员操作日志。
