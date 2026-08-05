@@ -22,6 +22,8 @@ export const getDiningSupplementInit = () => request.get('/canteen/records/suppl
 
 export const getDiningSupplementStaff = (params) => request.get('/canteen/records/supplements/staff', { params })
 
+export const checkDiningSupplementStaff = (data) => request.post('/canteen/records/supplements/staff-check', data)
+
 export const createDiningSupplement = (data) => request.post('/canteen/records/supplements', data)
 
 export const getDiningOneClickSupplementPreview = (params) => request.get('/canteen/records/supplements/one-click-preview', { params })

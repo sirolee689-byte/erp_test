@@ -69,6 +69,7 @@ export function matchApiPermissionRule(method, path, body, params) {
   if (m === 'PUT' && /^\/api\/canteen\/records\/supplements\/reviews\/\d+\/audit$/.test(path)) return { menuPath: 'canteen/records', action: 'audit' }
   if (m === 'PUT' && /^\/api\/canteen\/records\/supplements\/reviews\/\d+\/unaudit$/.test(path)) return { menuPath: 'canteen/records', action: 'unaudit' }
   if (m === 'GET' && /^\/api\/canteen\/records\/supplements\/(?:init|staff|one-click-preview)$/.test(path)) return { menuPath: 'canteen/records', action: 'add' }
+  if (m === 'POST' && path === '/api/canteen/records/supplements/staff-check') return { menuPath: 'canteen/records', action: 'add' }
   if (m === 'POST' && path === '/api/canteen/records/supplements') return { menuPath: 'canteen/records', action: 'add' }
   if (m === 'POST' && path === '/api/canteen/records/supplements/one-click') return { menuPath: 'canteen/records', action: 'add' }
   if (m === 'DELETE' && /^\/api\/canteen\/records\/people\/[^/]+\/\d{4}-\d{2}-\d{2}\/[23]$/.test(path)) return { menuPath: 'canteen/records', action: 'delete' }
@@ -326,6 +327,12 @@ export function matchApiPermissionRule(method, path, body, params) {
     return { menuPath: 'hr/dormitory/lodging-records', action: 'view' }
   }
   if (m === 'POST' && path === '/api/hr/dormitory/electric/settle') {
+    return { menuPath: 'hr/dormitory/lodging-records', action: 'add' }
+  }
+  if (m === 'POST' && path === '/api/hr/dormitory/electric/batch-preview') {
+    return { menuPath: 'hr/dormitory/lodging-records', action: 'add' }
+  }
+  if (m === 'POST' && path === '/api/hr/dormitory/electric/batch-import') {
     return { menuPath: 'hr/dormitory/lodging-records', action: 'add' }
   }
   /* v1.1.6：电费数据回滚（删除）- 审核级权限 */

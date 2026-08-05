@@ -3,7 +3,7 @@
     <header class="window-header">
       <div>
         <h1>打卡消费补录批量添加</h1>
-        <p>按姓名或卡号查询，可跨页选择；本张补录单最多 {{ maxStaff }} 人。</p>
+        <p>按姓名或卡号查询，可跨页选择；本张补录单最多 {{ maxStaff }} 人。保存时会按补录日期与餐别跳过已刷卡或待审补录人员。</p>
       </div>
       <el-button @click="closeWindow">关闭</el-button>
     </header>
@@ -13,8 +13,8 @@
         <el-input v-model="keywordInput" clearable placeholder="员工编码 / 姓名 / 新卡号 / 旧卡号" @keyup.enter="search" />
         <el-button type="primary" @click="search">查询</el-button>
         <el-button @click="resetSearch">重置</el-button>
-        <el-button type="primary" :disabled="!pickedRows.size || submitted" @click="saveSelected">保存已选人员</el-button>
-        <el-button :disabled="!pickedRows.size" @click="clearSelection">全部重选</el-button>
+        <el-button type="primary" :loading="saving" :disabled="!pickedRows.size || submitted" @click="saveSelected">保存已选人员</el-button>
+        <el-button :disabled="!pickedRows.size || saving" @click="clearSelection">全部重选</el-button>
         <span class="selected-count">新选 {{ pickedRows.size }} 人，明细已有 {{ existingIds.size }} 人</span>
       </div>
     </el-card>
@@ -58,8 +58,8 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { getDiningSupplementStaff } from '@/api/diningRecordsApi'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { checkDiningSupplementStaff, getDiningSupplementStaff } from '@/api/diningRecordsApi'
 import { ERP_PAGE_SIZE_OPTIONS } from '@/utils/erpPagination'
 import {
   DINING_SUPPLEMENT_MSG_APPLY,
@@ -78,12 +78,15 @@ const pageSize = ref(20)
 const total = ref(0)
 const rows = ref([])
 const loading = ref(false)
+const saving = ref(false)
 const submitted = ref(false)
 const errorMsg = ref('')
 const closeHint = ref('')
 const existingIds = ref(new Set())
 const pickedRows = ref(new Map())
 const maxStaff = ref(500)
+const supplementDate = ref('')
+const supplementMealType = ref('')
 
 function isPicked(row) { return pickedRows.value.has(Number(row.id)) }
 function buttonLabel(row) {
@@ -107,6 +110,10 @@ function togglePick(row) {
 function clearSelection() { pickedRows.value = new Map() }
 function closeWindow() { window.close() }
 
+function skippedText(items) {
+  return (Array.isArray(items) ? items : []).slice(0, 20).map((item) => `${item.employeeName}：${item.reason}`).join('\n')
+}
+
 async function load() {
   loading.value = true
   errorMsg.value = ''
@@ -128,22 +135,63 @@ function resetSearch() { keywordInput.value = ''; keyword.value = ''; page.value
 function changePage(value) { page.value = value; load() }
 function changePageSize(value) { pageSize.value = value; page.value = 1; load() }
 
-function saveSelected() {
-  if (!pickedRows.value.size || submitted.value) return
-  const payload = {
-    type: DINING_SUPPLEMENT_MSG_APPLY,
-    sessionId: sessionId.value,
-    rows: [...pickedRows.value.values()],
+async function saveSelected() {
+  if (!pickedRows.value.size || submitted.value || saving.value) return
+  if (!supplementDate.value || !supplementMealType.value) {
+    ElMessage.error('补录日期或餐别缺失，请关闭后从打卡消费补录页重新打开批量添加')
+    return
   }
-  const resultSaved = writeDiningSupplementResult(sessionId.value, payload)
-  const opener = window.opener
-  if ((!opener || opener.closed) && !resultSaved) return ElMessage.error('无法把已选人员带回补录页面，请关闭后重新打开批量添加')
 
-  submitted.value = true
-  closeHint.value = `正在带回 ${pickedRows.value.size} 名员工...`
-  if (opener && !opener.closed) opener.postMessage(payload, window.location.origin)
-  // 同站点共享结果是兜底通道，即使浏览器切断父子窗口关系，补录页仍能收到人员。
-  setTimeout(() => window.close(), 500)
+  saving.value = true
+  try {
+    const staffIds = [...pickedRows.value.keys()]
+    const response = await checkDiningSupplementStaff({
+      date: supplementDate.value,
+      mealType: supplementMealType.value,
+      staffIds,
+    })
+    const data = response.data?.data || {}
+    const skipped = Array.isArray(data.skipped) ? data.skipped : []
+    const allowedIds = new Set((Array.isArray(data.allowed) ? data.allowed : []).map((item) => Number(item.id)).filter(Boolean))
+    const allowedRows = [...pickedRows.value.values()].filter((row) => allowedIds.has(Number(row.id)))
+
+    if (skipped.length) {
+      const detail = skippedText(skipped)
+      const more = skipped.length > 20 ? `\n……等共 ${skipped.length} 人` : ''
+      await ElMessageBox.alert(
+        `以下人员已无法补录，已自动跳过：\n${detail}${more}`,
+        '部分人员已跳过',
+        { type: 'warning', confirmButtonText: '知道了' },
+      )
+    }
+
+    if (!allowedRows.length) {
+      ElMessage.warning('所选员工均已无法补录，请重新选择')
+      return
+    }
+
+    const payload = {
+      type: DINING_SUPPLEMENT_MSG_APPLY,
+      sessionId: sessionId.value,
+      rows: allowedRows,
+    }
+    const resultSaved = writeDiningSupplementResult(sessionId.value, payload)
+    const opener = window.opener
+    if ((!opener || opener.closed) && !resultSaved) {
+      ElMessage.error('无法把已选人员带回补录页面，请关闭后重新打开批量添加')
+      return
+    }
+
+    submitted.value = true
+    closeHint.value = `正在带回 ${allowedRows.length} 名员工...`
+    if (opener && !opener.closed) opener.postMessage(payload, window.location.origin)
+    // 同站点共享结果是兜底通道，即使浏览器切断父子窗口关系，补录页仍能收到人员。
+    setTimeout(() => window.close(), 500)
+  } catch (error) {
+    ElMessage.error(String(error?.response?.data?.msg || error?.message || '').trim() || '校验已选人员失败')
+  } finally {
+    saving.value = false
+  }
 }
 
 onMounted(() => {
@@ -152,6 +200,14 @@ onMounted(() => {
     errorMsg.value = '会话已失效，请从打卡消费补录页面重新打开批量添加'
     return
   }
+  const date = String(context.date || '').trim()
+  const mealType = String(context.mealType || '').trim()
+  if (!date || !mealType) {
+    errorMsg.value = '补录日期或餐别缺失，请先在打卡消费补录页选择后再打开批量添加'
+    return
+  }
+  supplementDate.value = date
+  supplementMealType.value = mealType
   existingIds.value = new Set((context.existingIds || []).map(Number).filter(Boolean))
   maxStaff.value = Number(context.maxStaff || 500)
   load()

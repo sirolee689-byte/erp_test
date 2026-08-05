@@ -25,6 +25,7 @@
             @keyup.enter="loadList"
           />
           <el-button type="primary" size="small" @click="loadList">查询</el-button>
+          <el-button size="small" @click="resetSearch">重置</el-button>
           <div class="dispatch-filter-divider" aria-hidden="true" />
           <div class="dispatch-filter-switch">
             <span class="switch-label">回收站</span>
@@ -36,8 +37,19 @@
               <span class="switch-label">显示未审核</span>
               <el-switch v-model="showUnaudited" @change="loadList" />
             </div>
+            <el-button
+              v-if="showUnaudited"
+              v-permission="'audit'"
+              type="success"
+              plain
+              size="small"
+              :loading="batchAuditing"
+              :disabled="batchAuditing || loading || batchAuditableCount === 0"
+              @click="batchAuditCurrentPage"
+            >
+              批量审核（仅当前页）
+            </el-button>
           </template>
-          <el-button size="small" @click="resetSearch">重置</el-button>
         </div>
       </div>
 
@@ -339,9 +351,15 @@ const { onErpListRowContextMenu } = useErpListRowContextMenu()
 const pageMode = ref('list')
 const loading = ref(false)
 const saving = ref(false)
+const batchAuditing = ref(false)
 const list = ref([])
 const showUnaudited = ref(false)
 const showRecycle = ref(false)
+
+/** 当前页可批量审核条数（未审且有 id） */
+const batchAuditableCount = computed(() =>
+  (list.value ?? []).filter((row) => Number(row?.id) > 0 && String(row?.pass ?? '').trim() !== '1').length,
+)
 
 const dispatchActionsColWidth = computed(() => {
   return getErpTableActionsColWidthByRows(list.value, getDispatchRowActionLabels)
@@ -733,6 +751,56 @@ async function runAction(row, action) {
     ElMessage.error(err?.response?.data?.msg || `${textMap[action]}失败`)
   } finally {
     row.__op = ''
+  }
+}
+
+/** 批量审核：仅当前分页页内未审行（条数随每页条数变化） */
+async function batchAuditCurrentPage() {
+  if (!showUnaudited.value || showRecycle.value) return
+  const targets = (list.value ?? []).filter(
+    (row) => Number(row?.id) > 0 && String(row?.pass ?? '').trim() !== '1',
+  )
+  const n = targets.length
+  if (!n) {
+    ElMessage.warning('当前页无可审核数据')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定批量审核当前页 ${n} 条派工单吗？审核后将出现在默认（已审核）列表中。`,
+      '确认批量审核',
+      { type: 'warning', confirmButtonText: '确定', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  batchAuditing.value = true
+  let success = 0
+  let failed = 0
+  /** @type {string[]} */
+  const failedMessages = []
+  try {
+    for (const row of targets) {
+      const id = Number(row.id)
+      const label = String(row.dispatchOrderNo || row.scaj01 || id).trim() || String(id)
+      try {
+        await axios.post(`/api/dispatch-order/${id}/audit`)
+        success += 1
+      } catch (err) {
+        failed += 1
+        failedMessages.push(`${label}：${String(err?.response?.data?.msg || err?.message || '审核失败').trim()}`)
+      }
+    }
+    if (failed > 0) {
+      ElMessage.warning(`批量审核完成：成功 ${success} 条，失败 ${failed} 条`)
+      // eslint-disable-next-line no-console
+      console.warn('[派工单批量审核失败明细]', failedMessages)
+    } else {
+      ElMessage.success(`批量审核完成：成功 ${success} 条`)
+    }
+    await loadList()
+  } finally {
+    batchAuditing.value = false
   }
 }
 

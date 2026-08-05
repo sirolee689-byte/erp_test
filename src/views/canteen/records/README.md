@@ -10,6 +10,7 @@ ERP 路径：`canteen/records`，需要该菜单的查看权限。
 - 只有本菜单删除权限可取消当天及未来、尚未刷卡的报餐。取消与刷卡共用餐次锁，并把该员工当天该餐全部有效记录软删除；历史日期及已有有效刷卡流水时拒绝取消。
 - “打卡消费补录”要求本菜单新增权限。添加时间和经手人由服务器初始化且只读，补录日期只允许今天及历史日期，午餐写餐别 `2`、晚餐写餐别 `3`，备注最多 500 字；切换顶部功能保留草稿，保存成功或主动重置后才清空。
 - 补录基础资料固定为两列两行：第一行是添加时间、经手人，第二行是补录餐别、补录日期；每列 350px，备注宽度为 500px，输入控件高度保持一致；窄屏自动改为单列满宽。
+- 批量添加须先在补录页选好补录日期与餐别；未选时「批量添加」仅提示、不弹窗。子页通过会话带入日期与餐别，点「保存已选人员」时调用 `POST /api/canteen/records/supplements/staff-check` 按该日该餐复查：已正式刷卡（有报餐则提示「已报餐且已刷卡」，否则「已存在有效刷卡」）或已有待审核补录的员工弹窗列出并跳过，仅把可补录人员带回父页；若全部应跳过则子页不关闭、不回传。
 - 批量添加页支持员工编码、姓名、新卡号和旧卡号模糊查询，通过即时窗口消息和同站点临时结果双通道把人员带回父页。保存成功后由父页面主动关闭批量添加页，子页面同时保留自关兜底。
 - 人员明细最多 500 人，列为选择、序号、员工编码、姓名、卡号、员工餐类。批量添加在浏览器独立页中按员工编码、姓名、新旧卡号查询，仅返回 `del=0、pass=1` 且至少绑定一张卡的员工；使用 `ROW_NUMBER()` 服务端分页，默认 20 条并跨页保留选择。
 - 保存时服务端批量复查员工档案，以员工 `id` 升序取得 `DiningSwipe:员工ID:日期:餐别` 锁。已有正式刷卡或待审核补录的员工单独跳过，其余人员共用一个 `BL-yyMMddHHmmss-随机码` 批次写入 `UB_ERP_Dining_meal_log`，状态固定为 `bl=1、del=1`，等待“补录管理与审核”通过后才算正式刷卡。
@@ -21,4 +22,4 @@ ERP 路径：`canteen/records`，需要该菜单的查看权限。
 - 逻辑批次按 `blsystemcode+dtime+meal_type+bluser+addtime` 区分，兼容历史批次号碰撞。全批 `del=1` 为待审核、全批 `del=0` 为已审核；混合状态只读显示异常。审核与反审分别要求 `audit/unaudit` 权限。
 - 审核前按员工顺序取得餐次锁并整批复查正式流水；任一人员已存在本批次外的 `del=0` 流水时整批回滚。审核整批改为 `del=0`，反审整批改回 `del=1`，两项操作均写管理员操作日志。
 - “打卡消费记录搜索”只读 `UB_ERP_Dining_meal_log` 正式流水（`del=0`，午餐/晚餐），不含待审补录；默认当前月及前两个月，可按日期范围、员工编号/姓名、餐别、卡号筛选。列表展示消费日期/时间、员工编号姓名、卡号、餐别、消费来源（刷卡/补录）、操作人员（补录取 `bluser`）、备注（优先 `bl_info`）。筛查布局对齐补录管理与审核；`GET /api/canteen/records/consumptions` 使用查看权限。
-- 补录新增接口为 `GET /api/canteen/records/supplements/init`、`GET /api/canteen/records/supplements/staff`、`POST /api/canteen/records/supplements`、`GET /api/canteen/records/supplements/one-click-preview` 和 `POST /api/canteen/records/supplements/one-click`；审核模块接口位于 `/api/canteen/records/supplements/reviews`。本页不新增表或索引，不做删除、驳回、编辑、导出或打印，也不改员工报餐、终端刷卡、旧系统统计或菜式兼容逻辑。
+- 补录新增接口为 `GET /api/canteen/records/supplements/init`、`GET /api/canteen/records/supplements/staff`、`POST /api/canteen/records/supplements/staff-check`、`POST /api/canteen/records/supplements`、`GET /api/canteen/records/supplements/one-click-preview` 和 `POST /api/canteen/records/supplements/one-click`；审核模块接口位于 `/api/canteen/records/supplements/reviews`。本页不新增表或索引，不做删除、驳回、编辑、导出或打印，也不改员工报餐、终端刷卡、旧系统统计或菜式兼容逻辑。

@@ -75,23 +75,14 @@ async function ensureSalesOrderCalcStatusColumn(pool) {
   return CALC_STATUS_COL_PROMISE
 }
 
-async function ensureSalesOrderListDateColumn(pool) {
+/**
+ * 列表销售日期列固定 xsaj02（datetime）。
+ * 禁止再探测 xsaj03：库中 xsaj03 为 int，非销售日期，会把列表日期全部刷成「—」。
+ * @param {unknown} [_pool]
+ */
+async function ensureSalesOrderListDateColumn(_pool) {
   if (!SALES_ORDER_LIST_DATE_COL_PROMISE) {
-    SALES_ORDER_LIST_DATE_COL_PROMISE = pool
-      .request()
-      .input('t', sql.NVarChar(200), SALES_ORDER_HEADER_TABLE)
-      .query(
-        `
-        SELECT c.COLUMN_NAME
-        FROM INFORMATION_SCHEMA.COLUMNS AS c
-        WHERE c.TABLE_NAME = @t
-      `,
-      )
-      .then((r) => {
-        const lower = new Set((r.recordset ?? []).map((row) => String(row.COLUMN_NAME ?? '').toLowerCase()))
-        if (lower.has('xsaj03')) return 'xsaj03'
-        return 'xsaj02'
-      })
+    SALES_ORDER_LIST_DATE_COL_PROMISE = Promise.resolve('xsaj02')
   }
   return SALES_ORDER_LIST_DATE_COL_PROMISE
 }

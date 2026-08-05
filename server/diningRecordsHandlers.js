@@ -131,6 +131,18 @@ export function validateDiningSupplementPayload(input = {}, today = '') {
   return { openedAt, date, mealType, remark, staffIds }
 }
 
+/** 批量添加「保存已选人员」前的只读校验：日期+餐别+员工ID。 */
+export function validateDiningSupplementStaffCheckPayload(input = {}) {
+  const date = validateDateText(input.date)
+  const mealType = text(input.mealType)
+  if (!PEOPLE_MEAL_TYPES.has(mealType)) throw new DiningRecordsError(400, '请选择午餐或晚餐')
+  if (!Array.isArray(input.staffIds) || !input.staffIds.length) throw new DiningRecordsError(400, '请至少选择一名员工')
+  const staffIds = [...new Set(input.staffIds.map(Number).filter((id) => Number.isInteger(id) && id > 0))]
+  if (!staffIds.length) throw new DiningRecordsError(400, '人员明细无效')
+  if (staffIds.length > SUPPLEMENT_MAX_STAFF) throw new DiningRecordsError(400, `一张补录单最多添加${SUPPLEMENT_MAX_STAFF}人`)
+  return { date, mealType, staffIds }
+}
+
 function validateSupplementAnchorId(value) {
   const anchorId = Number(value)
   if (!Number.isInteger(anchorId) || anchorId <= 0) throw new DiningRecordsError(400, '补录批次无效')
@@ -527,6 +539,72 @@ export function createDiningRecordsService(options = {}) {
       employeeMealType: text(row.employee_meal_type),
     }))
     return { list, total: Number(recordset[0]?.total_count || 0), page, pageSize }
+  }
+
+  /**
+   * 批量添加保存前只读检查：已正式刷卡 / 待审补录的员工跳过。
+   * 有有效报餐且已刷卡时文案用「已报餐且已刷卡」，否则「已存在有效刷卡」。
+   * 注意：正式刷卡判定必须用 l.del=N'0'，禁止 ISNULL(l.del,'0')——无流水 LEFT JOIN 时空 del
+   * 会被当成 '0'，误报「已报餐且已刷卡」（与 createSupplement / 未刷卡报表口径不一致）。
+   */
+  async function checkSupplementStaff(input = {}) {
+    const payload = validateDiningSupplementStaffCheckPayload(input)
+    const db = await poolProvider()
+    const request = db.request()
+    const selectedValues = bindStaffIds(request, payload.staffIds)
+    bindText(request, 'date', payload.date, 10)
+    bindText(request, 'mealType', payload.mealType, 10)
+    const result = await request.query(`
+      DECLARE @Selected TABLE (id int NOT NULL PRIMARY KEY);
+      INSERT INTO @Selected(id) VALUES ${selectedValues};
+
+      SELECT
+        x.id,
+        ISNULL(s.name, N'员工ID ' + CONVERT(nvarchar(20), x.id)) AS employee_name,
+        CASE
+          WHEN MAX(CASE WHEN l.del = N'0' THEN 1 ELSE 0 END) = 1
+            AND MAX(CASE WHEN m.uid IS NOT NULL THEN 1 ELSE 0 END) = 1
+            THEN N'已报餐且已刷卡'
+          WHEN MAX(CASE WHEN l.del = N'0' THEN 1 ELSE 0 END) = 1
+            THEN N'已存在有效刷卡'
+          WHEN MAX(CASE WHEN l.bl = N'1' AND l.del = N'1' THEN 1 ELSE 0 END) = 1
+            THEN N'已有待审核补录'
+          ELSE N''
+        END AS reason
+      FROM @Selected x
+      LEFT JOIN ${tables.staff} s ON s.id = x.id
+      LEFT JOIN ${tables.mealLogs} l
+        ON LTRIM(RTRIM(ISNULL(l.uid, N''))) = CONVERT(nvarchar(50), x.id)
+        AND LTRIM(RTRIM(ISNULL(l.dtime, N''))) = @date
+        AND LTRIM(RTRIM(ISNULL(l.meal_type, N''))) = @mealType
+        AND (l.del = N'0' OR (l.bl = N'1' AND l.del = N'1'))
+      LEFT JOIN ${tables.meals} m
+        ON LTRIM(RTRIM(ISNULL(m.uid, N''))) = CONVERT(nvarchar(50), x.id)
+        AND LTRIM(RTRIM(ISNULL(m.dis_dtime, N''))) = @date
+        AND LTRIM(RTRIM(ISNULL(m.dis_lx, N''))) = @mealType
+        AND LTRIM(RTRIM(ISNULL(m.del, N'0'))) = N'0'
+        AND LTRIM(RTRIM(ISNULL(m.pass, N'0'))) = N'1'
+      GROUP BY x.id, s.name
+      ORDER BY x.id
+    `)
+
+    const allowed = []
+    const skipped = []
+    for (const row of result.recordset || []) {
+      const id = Number(row.id)
+      const employeeName = text(row.employee_name)
+      const reason = text(row.reason)
+      if (reason) skipped.push({ id, employeeName, reason })
+      else allowed.push({ id, employeeName })
+    }
+    return {
+      date: payload.date,
+      mealType: payload.mealType,
+      allowed,
+      skipped,
+      allowedCount: allowed.length,
+      skippedCount: skipped.length,
+    }
   }
 
   async function listOneClickSupplementPreview(input = {}) {
@@ -1080,7 +1158,7 @@ export function createDiningRecordsService(options = {}) {
   }
 
   return {
-    list, listPeople, listConsumptions, getSupplementInit, listSupplementStaff, listOneClickSupplementPreview, createOneClickSupplement, listSupplementReviews, getSupplementReviewDetails,
+    list, listPeople, listConsumptions, getSupplementInit, listSupplementStaff, checkSupplementStaff, listOneClickSupplementPreview, createOneClickSupplement, listSupplementReviews, getSupplementReviewDetails,
     auditSupplementReview, unauditSupplementReview, createSupplement, cancelPeopleMeal,
   }
 }
@@ -1150,6 +1228,15 @@ export function registerDiningRecordsRoutes(app, options = {}) {
       console.error('查询补录员工失败：', error)
       const status = Number(error?.status) || 500
       res.status(status).json({ code: status, msg: status === 500 ? '查询补录员工失败' : error.message, data: null })
+    }
+  })
+  app.post('/api/canteen/records/supplements/staff-check', async (req, res) => {
+    try {
+      res.json({ code: 200, msg: 'success', data: await service.checkSupplementStaff(req.body) })
+    } catch (error) {
+      console.error('校验补录已选人员失败：', error)
+      const status = Number(error?.status) || 500
+      res.status(status).json({ code: status, msg: status === 500 ? '校验补录已选人员失败' : error.message, data: null })
     }
   })
   app.get('/api/canteen/records/supplements/one-click-preview', async (req, res) => {

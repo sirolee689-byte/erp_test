@@ -58,13 +58,19 @@
                 <span class="switch-label">显示未审核</span>
                 <el-switch v-model="showUnAudited" @change="onSearch" />
               </div>
+              <el-button
+                v-if="showUnAudited"
+                v-permission="'audit'"
+                class="so-filter-action-btn erp-filter-action-btn"
+                type="success"
+                plain
+                :loading="batchAuditing"
+                :disabled="batchAuditing || loading || batchAuditableCount === 0"
+                @click="batchAuditCurrentPage"
+              >
+                批量审核（仅当前页）
+              </el-button>
             </template>
-          </div>
-          <div class="so-command-actions">
-            <el-button class="btn-view so-filter-action-btn erp-filter-action-btn" :loading="loading" @click="loadData">
-              <el-icon class="btn-icon"><Refresh /></el-icon>
-              刷新
-            </el-button>
           </div>
         </div>
       </div>
@@ -779,7 +785,7 @@ import { isErpSuperAdmin } from '@/utils/erpSuperAdmin'
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Check, Close, Refresh } from '@element-plus/icons-vue'
+import { Check, Close } from '@element-plus/icons-vue'
 import axios from 'axios'
 import { createExpandPrefetch } from '@/utils/erpExpandPrefetch.js'
 import MaterialSelector from '../purchase-quote/MaterialSelector.vue'
@@ -813,10 +819,16 @@ const pageMode = ref('manage')
 const filterKeyword = ref('')
 const showRecycle = ref(false)
 const showUnAudited = ref(false)
+const batchAuditing = ref(false)
 const tableList = ref([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(5)
+
+/** 当前页可批量审核条数（未审且有 id） */
+const batchAuditableCount = computed(() =>
+  (tableList.value ?? []).filter((row) => Number(row?.id) > 0 && !passIsAudited(row)).length,
+)
 
 const mainTableRef = ref(null)
 
@@ -1784,6 +1796,59 @@ async function auditRow(row) {
   }
 }
 
+/** 批量审核：仅当前分页页内未审行（条数随每页条数变化），复用单条 approve */
+async function batchAuditCurrentPage() {
+  if (!showUnAudited.value || showRecycle.value) return
+  const targets = (tableList.value ?? []).filter(
+    (row) => Number(row?.id) > 0 && !passIsAudited(row),
+  )
+  const n = targets.length
+  if (!n) {
+    ElMessage.warning('当前页无可审核数据')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确定批量审核当前页 ${n} 条销售订单吗？审核后将锁定主从编辑，并出现在默认（已审核）列表中。`,
+      '确认批量审核',
+      { type: 'warning', confirmButtonText: '确定', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  batchAuditing.value = true
+  let success = 0
+  let failed = 0
+  /** @type {string[]} */
+  const failedMessages = []
+  try {
+    for (const row of targets) {
+      const id = Number(row.id)
+      const label = docLabel(row) || String(id)
+      try {
+        await axios.post(`/api/sales-order/${id}/approve`)
+        forgetDetail(id)
+        success += 1
+      } catch (err) {
+        failed += 1
+        failedMessages.push(
+          `${label}：${String(err?.response?.data?.msg || err?.message || '审核失败').trim()}`,
+        )
+      }
+    }
+    if (failed > 0) {
+      ElMessage.warning(`批量审核完成：成功 ${success} 条，失败 ${failed} 条`)
+      // eslint-disable-next-line no-console
+      console.warn('[销售订单批量审核失败明细]', failedMessages)
+    } else {
+      ElMessage.success(`批量审核完成：成功 ${success} 条`)
+    }
+    await loadData()
+  } finally {
+    batchAuditing.value = false
+  }
+}
+
 async function unauditRow(row) {
   if (!row?.id) return
   try {
@@ -2162,7 +2227,7 @@ onUnmounted(() => {
   font-size: var(--erp-table-data-size) !important;
   font-weight: var(--erp-font-weight-body) !important;
 }
-/* 查询/重置/刷新按钮字体：与列数据统一；覆盖 size=small 的默认小字号 */
+/* 查询/重置按钮字体：与列数据统一；覆盖 size=small 的默认小字号 */
 .so-filter-action-btn {
   font-size: var(--erp-table-data-size) !important;
   font-weight: var(--erp-font-weight-body) !important;
@@ -2176,8 +2241,7 @@ onUnmounted(() => {
   margin-bottom: 12px;
 }
 .so-toolbar-row,
-.so-filter-actions,
-.so-command-actions {
+.so-filter-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -2190,9 +2254,6 @@ onUnmounted(() => {
 .so-filter-actions {
   flex: 1 1 auto;
   min-width: 0;
-}
-.so-command-actions {
-  flex: 0 0 auto;
 }
 .so-keyword-input {
   flex: 0 1 420px;

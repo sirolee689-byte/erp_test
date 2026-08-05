@@ -641,6 +641,8 @@ async function removeAllSupplementLines() {
 }
 
 function openSupplementStaffWindow() {
+  if (!supplementForm.mealType) return ElMessage.warning('请先选择补录餐别')
+  if (!supplementForm.date) return ElMessage.warning('请先选择补录日期')
   if (supplementLines.value.length >= supplementMaxStaff.value) return ElMessage.warning(`一张补录单最多添加${supplementMaxStaff.value}人`)
   if (activeSupplementSessionId.value) clearSupplementBatchSession(activeSupplementSessionId.value)
   const sessionId = buildDiningSupplementSessionId()
@@ -648,6 +650,8 @@ function openSupplementStaffWindow() {
   writeDiningSupplementContext(sessionId, {
     existingIds: supplementLines.value.map((row) => row.id),
     maxStaff: supplementMaxStaff.value,
+    date: supplementForm.date,
+    mealType: supplementForm.mealType,
   })
   const target = `/canteen/records/supplement-staff-window?sessionId=${encodeURIComponent(sessionId)}`
   const popup = window.open(target, '_blank')

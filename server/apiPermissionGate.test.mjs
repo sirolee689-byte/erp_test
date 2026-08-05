@@ -81,6 +81,7 @@ describe('饭堂报餐管理接口权限', () => {
     for (const [method, path] of [
       ['GET', '/api/canteen/records/supplements/init'],
       ['GET', '/api/canteen/records/supplements/staff'],
+      ['POST', '/api/canteen/records/supplements/staff-check'],
       ['GET', '/api/canteen/records/supplements/one-click-preview'],
       ['POST', '/api/canteen/records/supplements'],
       ['POST', '/api/canteen/records/supplements/one-click'],

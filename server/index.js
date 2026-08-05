@@ -88,6 +88,7 @@ import { registerDiningTerminalRoutes } from './diningTerminalHandlers.js'
 import { registerDiningManagementRoutes } from './diningManagementHandlers.js'
 import { registerDiningRecordsRoutes } from './diningRecordsHandlers.js'
 import { registerDiningReportsRoutes } from './diningReportsHandlers.js'
+import { previewElectricBatch, importElectricBatch } from './dormElectricBatchService.js'
 import {
   BOM_COST_TABLE,
   INV_BOM_CODE_FROM,
@@ -11432,6 +11433,74 @@ app.post('/api/hr/dormitory/electric/settle', async (req, res) => {
     console.error('POST /api/hr/dormitory/electric/settle 失败：', err)
     const detail = String(err?.message ?? '数据库写入失败')
     res.status(500).json({ code: 500, msg: `电费核算失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 电费一键录入 - 解析预览（不写库）
+ * POST /api/hr/dormitory/electric/batch-preview
+ * body: { tj_date, fileName, fileBase64 }
+ */
+app.post('/api/hr/dormitory/electric/batch-preview', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-Electric-Batch-Preview', 'v1')
+  try {
+    const body = req.body ?? {}
+    const pool = await getPool()
+    const result = await previewElectricBatch(pool, {
+      tj_date: body.tj_date,
+      fileBase64: body.fileBase64,
+      fileName: body.fileName,
+    })
+    if (!result.ok) {
+      res.status(result.status || 400).json({ code: result.status || 400, msg: result.msg, data: null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: result.data })
+  } catch (err) {
+    console.error('POST /api/hr/dormitory/electric/batch-preview 失败：', err)
+    const detail = String(err?.message ?? '解析失败')
+    res.status(500).json({ code: 500, msg: `电费一键录入预览失败：${detail}`, data: null })
+  }
+})
+
+/**
+ * 电费一键录入 - 确认导入（写库；同月已有则先删后插）
+ * POST /api/hr/dormitory/electric/batch-import
+ * body: { tj_date, fileName, fileBase64 }
+ */
+app.post('/api/hr/dormitory/electric/batch-import', async (req, res) => {
+  res.setHeader('X-ERP-Dormitory-Electric-Batch-Import', 'v1')
+  try {
+    const body = req.body ?? {}
+    const pool = await getPool()
+    const { UID, uname: auditUname } = getActorAuditFromReq(req)
+    const me = getCurrentUserFromReq(req)
+    const uidStr = UID != null ? String(UID) : ''
+    const unameLegacy = String(me?.userCode ?? '').trim() || (auditUname != null ? String(auditUname).trim() : '')
+    const nowStr = legacyDeptNowString()
+    const ipStr = getRequestIp(req) || null
+
+    const result = await importElectricBatch(
+      pool,
+      { uidStr, unameLegacy, nowStr, ipStr },
+      {
+        tj_date: body.tj_date,
+        fileBase64: body.fileBase64,
+        fileName: body.fileName,
+      },
+      async (action, detail) => {
+        await writeLog(req, action, detail, { targetTable: 'UB_ERP_Hr_room_use', pool })
+      },
+    )
+    if (!result.ok) {
+      res.status(result.status || 400).json({ code: result.status || 400, msg: result.msg, data: result.data ?? null })
+      return
+    }
+    res.json({ code: 200, msg: 'success', data: result.data })
+  } catch (err) {
+    console.error('POST /api/hr/dormitory/electric/batch-import 失败：', err)
+    const detail = String(err?.message ?? '数据库写入失败')
+    res.status(500).json({ code: 500, msg: `电费一键录入失败：${detail}`, data: null })
   }
 })
 

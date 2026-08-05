@@ -11,6 +11,7 @@ import {
   normalizeSupplementStaffQuery,
   recentThreeMonthRange,
   validateDiningSupplementPayload,
+  validateDiningSupplementStaffCheckPayload,
   validateDiningPeopleCancelKey,
 } from './diningRecordsHandlers.js'
 
@@ -332,6 +333,48 @@ test('补录人员选择使用ROW_NUMBER服务端分页并优先显示新卡', a
   assert.doesNotMatch(statement, /OFFSET\s+/i)
   assert.equal(result.total, 21)
   assert.equal(result.list[0].cardNumber, 'NEW7')
+})
+
+test('批量添加人员校验参数要求日期餐别和员工ID', () => {
+  assert.deepEqual(
+    validateDiningSupplementStaffCheckPayload({ date: '2026-08-01', mealType: '2', staffIds: [7, 8, 7] }),
+    { date: '2026-08-01', mealType: '2', staffIds: [7, 8] },
+  )
+  assert.throws(() => validateDiningSupplementStaffCheckPayload({ date: '2026-08-01', mealType: '2', staffIds: [] }), DiningRecordsError)
+  assert.throws(() => validateDiningSupplementStaffCheckPayload({ date: '2026-08-01', mealType: '9', staffIds: [7] }), DiningRecordsError)
+})
+
+test('批量添加人员校验按正式刷卡、待审补录和可补录拆分结果', async () => {
+  let statement = ''
+  const request = {
+    input() { return this },
+    async query(sqlText) {
+      statement = sqlText
+      return {
+        recordset: [
+          { id: 7, employee_name: '甲', reason: '已报餐且已刷卡' },
+          { id: 8, employee_name: '乙', reason: '已有待审核补录' },
+          { id: 9, employee_name: '丙', reason: '' },
+        ],
+      }
+    },
+  }
+  const service = createDiningRecordsService({
+    getPool: async () => ({ request: () => request }),
+    tables: { staff: '[STAFF]', mealLogs: '[LOGS]', meals: '[MEALS]' },
+  })
+  const result = await service.checkSupplementStaff({ date: '2026-08-01', mealType: '2', staffIds: [7, 8, 9] })
+  assert.match(statement, /已报餐且已刷卡/)
+  assert.match(statement, /已有待审核补录/)
+  assert.match(statement, /\[MEALS\]/)
+  assert.match(statement, /m\.pass/)
+  // 禁止 ISNULL(l.del,'0')：无刷卡 LEFT JOIN 时空 del 会被误判为正式刷卡
+  assert.match(statement, /MAX\(CASE WHEN l\.del = N'0' THEN 1 ELSE 0 END\)/)
+  assert.doesNotMatch(statement, /ISNULL\(l\.del,\s*N'0'\)\s*=\s*N'0'/)
+  assert.deepEqual(result.allowed, [{ id: 9, employeeName: '丙' }])
+  assert.equal(result.skippedCount, 2)
+  assert.equal(result.skipped[0].reason, '已报餐且已刷卡')
+  assert.equal(result.skipped[1].reason, '已有待审核补录')
 })
 
 test('一键补录月份只接受YYYY-MM，并按实际月份取得首末日期', () => {

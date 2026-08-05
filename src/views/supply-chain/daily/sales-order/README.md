@@ -166,8 +166,9 @@
 - 操作列只有“查看”，弹窗复用 PI-BOM 只读详情（基础资料、配件明细、**PI-BOM树形**、成本用量）；树形与 PI-BOM 资料查看一致：原生表 + ▶/▼、默认顶层、整支展开；不提供编辑、删除或保存。
 
 - 列表默认每页 **10 条**；后端 `/api/sales-order/list` 也以 10 条作为缺省页大小。列表查询先完成主表分页，再只对当前页订单批量补运算状态、散件/按钮状态，避免打开页面时为大量历史订单提前计算操作状态。
-- **UI 对齐 BOM 资料（2026-07）**：顶部「管理销售订单 / 销售订单添加」模式按钮、筛选区「查询 / 重置 / 刷新」字号与主列表列数据一致（`--erp-table-data-size` + `--erp-font-weight-body`）；主列表用 `ErpTableViewportHScroll` 视口底横滚（**仅主表**表内横条隐藏；展开行内嵌套明细表保留自身横滚条）；展开/收起后会 `doLayout` + `refreshErpTableViewportHScroll`；标题行操作钮、明细工具条与行操作钮走 `.so-unified-btn-font`；主表表单字段字号与列数据对齐。**主列表双分页**（头+底、`pagination-row`、左对齐，头部分页在 skeleton 外）对齐 BOM 资料。DIY：`index.vue` 搜 `.so-mode-btn`、`.so-filter-action-btn`、`.so-unified-btn-font`、`pagination-row--top`；全局变量 `element-override.scss` 搜 `--erp-table-data-size`。
-- **筛选栏顺序（2026-07）**：单行 `关键词 → 查询 → 重置 → | → 回收站 → | → 显示未审核`（开回收站时隐藏未审核段）；竖线对齐 BOM。DIY：`index.vue` 搜 `so-filter-divider`。
+- **UI 对齐 BOM 资料（2026-07）**：顶部「管理销售订单 / 销售订单添加」模式按钮、筛选区「查询 / 重置」字号与主列表列数据一致（`--erp-table-data-size` + `--erp-font-weight-body`）；主列表用 `ErpTableViewportHScroll` 视口底横滚（**仅主表**表内横条隐藏；展开行内嵌套明细表保留自身横滚条）；展开/收起后会 `doLayout` + `refreshErpTableViewportHScroll`；标题行操作钮、明细工具条与行操作钮走 `.so-unified-btn-font`；主表表单字段字号与列数据对齐。**主列表双分页**（头+底、`pagination-row`、左对齐，头部分页在 skeleton 外）对齐 BOM 资料。DIY：`index.vue` 搜 `.so-mode-btn`、`.so-filter-action-btn`、`.so-unified-btn-font`、`pagination-row--top`；全局变量 `element-override.scss` 搜 `--erp-table-data-size`。
+- **筛选栏顺序（2026-07）**：单行 `关键词 → 查询 → 重置 → | → 回收站 → | → 显示未审核 → [批量审核（仅当前页）]`（开回收站时隐藏未审核段与批量审核；批量审核仅在「显示未审核」时出现）；**无单独刷新按钮**；竖线对齐 BOM。DIY：`index.vue` 搜 `so-filter-divider`、`batchAuditCurrentPage`。
+- **列表销售日期（2026-08）**：后端列表固定读主表 `xsaj02`（与详情/保存一致）；历史上误优先 `xsaj03`（int 非日期）会导致列表销售日期整列显示「—」。
 - **数值去尾 0（2026-07）**：展开明细与编辑/查看只读列——数量最多 3 位、单价最多 4 位、金额最多 2 位，去掉末尾无意义 0（如 `0.00000` → `0`）；不改落库。实现：`formatOrderQty` / `formatPrice` / `formatMoney`（`erpNumberDisplay`）。
 - 顶部只保留一个关键词搜索框，**仅**按 PI 号（`xsaj01`）模糊匹配；不再匹配系统单号、客户名称；日期范围仍独立筛选。
 - 列表列调整：新增 `PO号` 列，移除 `系统单号` 列（系统单号仍保留在详情接口中）。
@@ -177,6 +178,7 @@
   - 第 2 行：总出库数量（`UB_ERP_Stocks_out.kcap03=6`、`kcap04=当前销售单号`、头表 `pass=1/del=0`，汇总 `UB_ERP_Stocks_out_list.kcaq03`）。
   - 第 3～5 行：关联采购/外协/派工订单数量（分别按销售单号关联主表字段 `kcaj04` / `wxaj04` / `scaj04`，过滤 `del=0`；后端保留已审/未审分项，前端显示合计张数）。
 - 默认显示已审核销售订单（`pass=1`）；打开“显示未审核”后只查未审核（`pass=0`）。
+- **批量审核（仅当前页，2026-08）**：开「显示未审核」且有 `audit` 权限时，筛选区出现「批量审核（仅当前页）」；二次确认后按当前页 `tableList` 中未审且有 `id` 的行，顺序调用既有 `POST /api/sales-order/:id/approve`（不新增批量接口）；汇总成功/失败，失败明细 `console.warn`；结束后刷新列表。条数随每页条数变化（如每页 5 则最多 5 张）。
 - “回收站”和“显示未审核”互斥；进入回收站后不再传审核状态，只查已逻辑删除数据。
 - 主表操作列固定在第一列，按钮风格与 BOM 资料列表保持一致，便于先处理操作再横向查看业务字段。
 - 主表参考外协报价支持**点行展开**明细（左边展开箭头列已全局隐藏）；点击操作列按钮不触发展开。**列表加载后**后台批量预取当前页展开明细（`GET /api/sales-order/expand-lines/batch`），点击展开优先读缓存秒开；预取失败时仍回退单条 `GET /api/sales-order/:id`。

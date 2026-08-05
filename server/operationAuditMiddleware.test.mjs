@@ -137,6 +137,7 @@ describe('operationAuditMiddleware hybrid policy', () => {
       ['POST', '/api/users'],
       ['PUT', '/api/supply-chain/purchase-quotations'],
       ['POST', '/api/hr/dormitory/electric/settle'],
+      ['POST', '/api/hr/dormitory/electric/batch-import'],
     ]
 
     for (const [method, path] of routes) {
@@ -148,6 +149,7 @@ describe('operationAuditMiddleware hybrid policy', () => {
   test('read-only POST, dry run, failed request and unknown write do not write logs', async () => {
     const scenarios = [
       { method: 'POST', path: '/api/customs-declaration/preview' },
+      { method: 'POST', path: '/api/hr/dormitory/electric/batch-preview' },
       { method: 'POST', path: '/api/inventory/pi-bom-data/replace-material', body: { dryRun: true } },
       { method: 'POST', path: '/api/inventory/color-code', statusCode: 400 },
       { method: 'POST', path: '/api/not-registered-write' },

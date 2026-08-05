@@ -61,6 +61,7 @@ describe('operation audit policy catalog', () => {
       ['PUT', '/api/inventory/bom/parts/BOM-01'],
       ['PUT', '/api/hr/staff/leave/E001'],
       ['POST', '/api/hr/dormitory/electric/settle'],
+      ['POST', '/api/hr/dormitory/electric/batch-import'],
     ])
   })
 
@@ -78,6 +79,7 @@ describe('operation audit policy catalog', () => {
       ['POST', '/api/supply-chain/purchase-quotations/excel-import/materials'],
       ['POST', '/api/paper-pattern/import/upload'],
       ['POST', '/api/inventory/pi-bom-data/replace-material', { dryRun: true }],
+      ['POST', '/api/hr/dormitory/electric/batch-preview'],
     ])
   })
 

@@ -273,6 +273,8 @@ export const OPERATION_AUDIT_ROUTE_RULES = [
   { method: 'DELETE', path: '/api/dorm/delete-checkin', action: '彻底删除未审核入住申请', targetTable: 'UB_ERP_Hr_room_in' },
   { method: 'PUT', path: '/api/hr/dormitory/lodging-in/audit-batch', action: '批量审核入住单', targetTable: 'UB_ERP_Hr_room_in' },
   { method: 'POST', path: '/api/hr/dormitory/electric/settle', action: '电费核算', targetTable: 'UB_ERP_Hr_room_use' },
+  { method: 'POST', path: '/api/hr/dormitory/electric/batch-preview', action: '电费一键录入预览', targetTable: 'UB_ERP_Hr_room_use' },
+  { method: 'POST', path: '/api/hr/dormitory/electric/batch-import', action: '电费一键录入', targetTable: 'UB_ERP_Hr_room_use' },
   { method: 'POST', path: '/api/dorm/delete-electric', action: '删除电费记录', targetTable: 'UB_ERP_Hr_room_use' },
 
   { method: 'PUT', path: '/api/hr/departments/audit-batch', action: '批量审核部门', targetTable: 'UB_ERP_Hr_department' },
@@ -905,6 +907,7 @@ const BUSINESS_LOGGED_RULES = [
   { method: 'POST', path: '/api/inventory/bom/propagate-master' },
   { method: 'PUT', path: /^\/api\/hr\/staff\/leave\/.+$/ },
   { method: 'POST', path: '/api/hr/dormitory/electric/settle' },
+  { method: 'POST', path: '/api/hr/dormitory/electric/batch-import' },
   { method: 'POST', path: '/api/dorm/delete-electric' },
 ]
 
@@ -924,6 +927,7 @@ const IGNORED_WRITE_RULES = [
   { method: 'POST', path: '/api/buy-order/batch-add-prices' },
   { method: 'POST', path: '/api/supply-chain/purchase-quotations/excel-import/materials' },
   { method: 'POST', path: '/api/customs-declaration/preview' },
+  { method: 'POST', path: '/api/hr/dormitory/electric/batch-preview' },
   { method: 'POST', path: /^\/api\/paper-pattern\/(upload|import\/upload)$/ },
   { method: 'POST', path: '/api/paper-pattern/import/save-mapping' },
   { method: 'POST', path: '/api/paper-pattern/check-material' },
